@@ -322,6 +322,40 @@ async def end_paid_purchase(
     return result
 
 
+async def end_owner_paid_purchases(owner_user_id: str, *, connection: Any = None) -> int:
+    """Compose canonical termination without enabling new commerce or erasing funds."""
+    from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE
+
+    if connection is None:
+        pool = await _pool()
+        if pool.__class__.__module__.startswith("db.offline"):
+            async with pool.acquire() as conn:
+                present = await conn.fetchval(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='scope_commerce_purchases'"
+                )
+            if present:
+                raise PermissionError("offline_paid_authority_unavailable")
+            return 0
+        async with pool.acquire() as conn, conn.transaction():
+            return await end_owner_paid_purchases(owner_user_id, connection=conn)
+    # Free sharing also runs on databases predating optional commercial storage.
+    # An unavailable database is an error; only verified absence is compatible.
+    if not await connection.fetchval("SELECT to_regclass('scope_commerce_purchases')"):
+        return 0
+    await connection.execute("SELECT pg_advisory_xact_lock($1)", COMMERCE_GATE)
+    purchases = await connection.fetch(
+        """SELECT purchase_id FROM scope_commerce_purchases
+           WHERE owner_user_id=$1 AND status NOT IN ('revoked','expired','failed')
+           ORDER BY purchase_id""",
+        owner_user_id,
+    )
+    for purchase in purchases:
+        await end_paid_purchase(
+            owner_user_id, str(purchase["purchase_id"]), as_owner=True, connection=connection
+        )
+    return len(purchases)
+
+
 async def _record_purchase_end(
     connection: Any, row: dict, purchase_id: str, as_owner: bool
 ) -> None:

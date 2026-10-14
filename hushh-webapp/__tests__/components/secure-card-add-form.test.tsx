@@ -210,7 +210,7 @@ it("reviews scanned fields without saving and clears old security codes", async 
   fillRequired();
   const trigger = screen.getByRole("button", { name: "Scan card", exact: true });
   expect(trigger.querySelector("img")).not.toBeNull();
-  expect(trigger).toHaveTextContent(/^$/);
+  expect(trigger).toHaveTextContent("Scan here to add card");
   expect(screen.queryByText("Add your card with a photo")).toBeNull();
   const capture = screen.getByLabelText("Take a card photo");
   const openCamera = vi.spyOn(capture as HTMLInputElement, "click");

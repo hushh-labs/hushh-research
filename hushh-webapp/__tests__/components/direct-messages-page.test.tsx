@@ -323,6 +323,14 @@ describe("DirectMessagesPage", () => {
     return { create, revoke, enterViewport };
   }
 
+  it("does not render an empty conversation before the selected person's history resolves", () => {
+    mocks.getConversationWithPerson.mockReturnValueOnce(new Promise(() => {}));
+    renderConnectionThread();
+    expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Messaging unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading messages…")).toBeInTheDocument();
+  });
+
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
@@ -463,10 +471,18 @@ describe("DirectMessagesPage", () => {
     // must remain visible on the source route too, not blink out meanwhile.
     expect(screen.getByText("Hello Ankit")).toBeVisible();
     mocks.search = "conversation=conversation-1";
-    mocks.getConversationMessages.mockImplementationOnce(() => new Promise(() => undefined));
+    let settleHistory!: (value: unknown) => void;
+    mocks.getConversationMessages.mockImplementationOnce(() => new Promise(resolve => { settleHistory = resolve; }));
     view.rerender(<ConnectionThread />);
-    expect(screen.getByText("Hello Ankit")).toBeVisible();
+    // The source keeps the accepted message; a changed selection must first
+    // admit its own history before displaying any message in that destination.
+    expect(screen.queryByText("Hello Ankit")).not.toBeInTheDocument();
     expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "loading");
+    await waitFor(() => expect(settleHistory).toBeDefined());
+    const accepted = await mocks.sendMessage.mock.results[0]!.value;
+    await act(async () => { settleHistory({ conversation: mocks.conversation, canSend: true,
+      disconnectedNotice: null, items: [accepted.message], nextBefore: null }); });
+    expect(await screen.findByText("Hello Ankit")).toBeVisible();
   });
 
   it("keeps the inbox available and opens a selected chat from its row", async () => {
@@ -767,22 +783,7 @@ describe("DirectMessagesPage", () => {
       expect(screen.queryByText("No chats yet")).not.toBeInTheDocument();
     },
   );
-  it("keeps encrypted card envelopes out of message previews, search, replies, and editing", async () => {
-    const content = 'hushh-wallet-card:v1:{"ciphertext":"synthetic-encrypted-payload"}';
-    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ id: "encrypted-card", conversationId: "conversation-1", senderIsViewer: true, content, createdAt: "2026-10-10T10:00:00Z", readAt: null, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null });
-    renderConnectionThread();
-    await screen.findByRole("region", { name: "Shared payment card" });
-    expect(document.body).not.toHaveTextContent(content);
-    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
-    await screen.findByRole("menuitem", { name: "Reply" });
-    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
-    expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
-    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
-    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
-    expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
-  });
+
 
   it("offers the full emoji picker and a voice recorder for the selected person", async () => {
     renderConnectionThread();

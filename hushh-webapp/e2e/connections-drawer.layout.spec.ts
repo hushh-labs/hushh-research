@@ -268,6 +268,81 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
+
+for (const width of [320, 390, 1440]) for (const dark of [false, true])
+  test(`Chats keeps Profile material through row actions at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.toggle("dark", enabled);
+      const fixture = document.querySelector<HTMLElement>("main")!;
+      fixture.style.background = "linear-gradient(135deg, #86b6ed, #dcaa9d 55%, #94c4b3)";
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    const row = chats.locator('[data-agent-history-row][data-state="active"]');
+    const actions = row.getByRole("button", { name: "Open actions for Weekly planning" });
+    await expect(actions).toBeVisible();
+    const hit = (await actions.boundingBox())!;
+    // WebKit's translated matrices can round a 44px box down by 0.00002px.
+    expect(hit.width + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(hit.height + 0.0001).toBeGreaterThanOrEqual(44);
+    await actions.click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    expect(await menu.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+    })).toEqual(reference.card);
+    expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe(reference.material.blur);
+    expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual([]);
+    await menu.getByRole("menuitem", { name: "Rename" }).click();
+    const rename = row.getByRole("textbox", { name: "Rename chat" });
+    await expect(rename).toBeFocused();
+    for (const target of [rename, row.getByRole("button", { name: "Save chat name" }), row.getByRole("button", { name: "Cancel rename" })]) {
+      const bounds = (await target.boundingBox())!;
+      // WebKit's translated matrices can round a 44px box down by 0.00002px.
+      expect(bounds.width + 0.0001).toBeGreaterThanOrEqual(44);
+      expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
+    }
+    await expect(chats.getByRole("heading", { name: "Chats", exact: true })).toBeVisible();
+    expect(await chats.evaluate(element => element.scrollTop)).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("chats-profile-rename.png") });
+    await row.getByRole("button", { name: "Cancel rename" }).click();
+    await page.screenshot({ path: testInfo.outputPath("chats-profile-material.png") });
+    await chats.getByRole("button", { name: /^Draft email/ }).click();
+    await expect(chats).not.toBeVisible();
+    expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
+      getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
+    expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
+  });
+
+for (const dark of [false, true])
+  test(`Chats and Profile keep a solid material in Android blur-free mode (${dark ? "dark" : "light"})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 850 });
+    await page.evaluate(enabled => {
+      document.documentElement.classList.add("native-android");
+      document.documentElement.classList.toggle("dark", enabled);
+      (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory();
+    }, dark);
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+    const reference = await profileFrame(page);
+    // With the platform's intentional blur-off policy, alpha must not expose
+    // sharp transcript text through either pane or its portaled action menu.
+    expect(reference.material.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await chats.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
+    expect(await chats.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+    await chats.getByRole("button", { name: "Open actions for Weekly planning" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    expect(reference.card.background).toMatch(/^rgb\([^)]+\)$/);
+    expect(await menu.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.card.background);
+    expect(await menu.evaluate(element => getComputedStyle(element).backdropFilter)).toBe("none");
+  });
+
 for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, native: false })), { width: 390, native: true }])
   test(`chat sidebar keeps Connectors in a visible footer at ${width}px${native ? " with iOS safe area" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 640 });
@@ -310,6 +385,25 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const titleBox = (await title.boundingBox())!, ageBox = (await age.boundingBox())!;
     expect(ageBox.x - (titleBox.x + titleBox.width)).toBeLessThanOrEqual(9);
     await page.screenshot({ path: testInfo.outputPath("public-history-leading-slot.png") });
+    const titleStyle = await chats.getByRole("heading", { name: "Chats", exact: true }).evaluate(element => {
+      const style = getComputedStyle(element);
+      return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+    });
+    expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "700" });
+    // Both panels inherit the same material authority in each theme.
+    for (const dark of [false, true]) {
+      await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
+      const reference = await profileFrame(page);
+      const material = await chats.evaluate(element => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor, border: style.borderTopColor,
+          shadow: style.boxShadow, blur: style.backdropFilter,
+          webkitBlur: style.getPropertyValue("-webkit-backdrop-filter"),
+        };
+      });
+      expect(material).toEqual(reference.material);
+    }
     await close.click();
     await expect(opener).toBeFocused();
   });
@@ -606,12 +700,20 @@ for (const width of [390, 768, 1440])
 
 test("chat sidebar scrim does not animate under reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => (window as unknown as { __seedChatHistory: () => void }).__seedChatHistory());
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
   const transition = await page
     .locator("[data-agent-history-scrim]")
     .evaluate((element) => getComputedStyle(element).transitionProperty);
   expect(transition).toBe("none");
+  const drawer = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+  const row = drawer.locator('[data-agent-history-row][data-state="active"]');
+  await row.getByRole("button", { name: /^Weekly planning/ }).hover();
+  expect(await row.evaluate(element => getComputedStyle(element).transform)).toBe("none");
+  const close = drawer.getByRole("button", { name: "Close chat history" });
+  await close.hover();
+  expect(await close.evaluate(element => getComputedStyle(element).transform)).toBe("none");
 });
 
 for (const width of [390, 768])
@@ -678,7 +780,7 @@ for (const width of [320, 390, 768, 1440])
     // The receipt names the connector and what the person will do there.
     const button = receipt.getByRole("button", { name: "Review Gmail access" });
     const bounds = (await button.boundingBox())!;
-    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     await button.click();
@@ -764,7 +866,7 @@ for (const width of [320, 390, 768, 1440])
         const button = drawer.getByRole("button", { name, exact: true });
         await button.scrollIntoViewIfNeeded();
         const bounds = (await button.boundingBox())!;
-        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
       }
@@ -775,7 +877,7 @@ for (const width of [320, 390, 768, 1440])
       const button = drawer.getByRole("button", { name, exact: true });
       await button.scrollIntoViewIfNeeded();
       const bounds = (await button.boundingBox())!;
-      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
     }

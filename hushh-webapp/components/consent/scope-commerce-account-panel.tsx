@@ -43,7 +43,7 @@ export function ScopeCommerceAccountPanel() {
             <AccordionItem value="funding"><AccordionTrigger>Add funds</AccordionTrigger><AccordionContent>
               <CommerceFundingControls enabled={account.readiness?.capabilities.start_funding === true} busy={busy} amount={state.amount} changeAmount={state.changeAmount} checkout={() => void state.checkout()} />
             </AccordionContent></AccordionItem>
-            <AccordionItem value="payouts"><AccordionTrigger>Withdraw information-access earnings</AccordionTrigger><AccordionContent>
+            <AccordionItem value="payouts"><AccordionTrigger>{account.seller.onboarded && account.seller.eligible ? "Withdraw information-access earnings" : "Set up information-access payouts"}</AccordionTrigger><AccordionContent>
               <CommercePayoutControls account={account} busy={busy} country={state.country} changeCountry={state.changeCountry} expiredLink={state.onboardingRefresh}
                 onboarding={() => void state.onboarding()} management={() => void state.managePayoutAccount()} withdrawal={() => void state.withdrawal()} />
               {account.recent_withdrawals?.length ? <div className="space-y-3 pt-4">

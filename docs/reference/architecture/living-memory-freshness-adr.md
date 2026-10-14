@@ -1,20 +1,23 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
-Status: **V1 Markdown memory implemented for One chat; locked and closed-app operation remains unimplemented.**
-Updated: 2026-10-13.
+Status: **V1 chat memory and an open, unlocked source projection are implemented; a complete event journal and locked or closed-app operation are not.**
+Updated: 2026-10-14.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
   Legacy[Existing encrypted PKM domains] -->|first-session compatibility seed| Client[Open unlocked owner client]
-  Client --> Memory[Canonical One memory.md]
-  Memory --> Prompt[Whole file in every One prompt]
+  Client --> ChatMemory[Canonical One one_memory.markdown]
+  ChatMemory --> Prompt[Whole file in every One prompt]
+  Sources[Profile, Consent, connections, curated OAuth, document earnings, PKM domains] -->|verified snapshots while unlocked| Client
+  Client --> Living[Derived one_living_sources inventory and Profile memory.md]
   Client -->|AES-GCM encrypted write| Backend[Backend stores ciphertext only]
-  Device[Proposed owner-operated always-on device] -. reviewed local key control .-> Memory
+  Journal[Proposed encrypted event journal] -. replay and snapshot repair .-> Device[Proposed owner-operated always-on device]
+  Device -. reviewed local key control .-> Living
 ```
 
-Solid arrows describe the implemented unlocked V1 flow. The dotted device path is a proposal requiring separate owner review and implementation. The existing PKM encryption and optimistic-write coordinator remain the persistence boundary; V1 does not introduce a second cryptosystem.
+Solid arrows describe the implemented unlocked flow. The dotted journal and device paths are proposals requiring separate owner review and implementation. The existing PKM encryption and optimistic-write coordinator remain the persistence boundary; V1 does not introduce a second cryptosystem. The derived Profile document is not the chat document or another authority.
 
 ## Current boundary
 
@@ -31,14 +34,17 @@ Chat facts are selected by the existing semantic preparation stage using `soul_m
 
 Target references exist only in the preparation snapshot and encrypted recovery envelope, never as paths or IDs inside Soul.md. Stale, duplicate or unoffered targets fail closed. Automatic replacement refuses masked targets; multiline/nested owner-authored bullets need the editor rather than partial mutation. Unrelated text and fenced examples remain unchanged. Encrypted recovery envelopes carry their staging order, so interrupted dependent corrections replay FIFO even when device keys or encryption finish out of order. If any envelope cannot be read, recovery waits rather than replaying a later correction first.
 
-The implemented bridge runs while the owner's application is open and unlocked. It observes owner-scoped PKM commits, Profile identity changes, Consent changes, and connectivity/focus recovery, and verifies remote Profile/Consent sources every minute. Queued metadata or rebuilding on the next unlock does **not** satisfy 24/7 updates. No automatic answering runs in this bridge.
+The implemented bridge runs while the owner's application is open and unlocked. It observes owner-scoped PKM commits, Profile identity changes, Consent, connection-graph and payout changes, native connector returns, and connectivity/focus recovery. A 60-second wake verifies Profile; Consent, connections, curated connector status and document earnings have five-minute complete-scan windows, with relevant change signals forcing an immediate reread. A signal is a prompt to reread an authoritative source, not evidence of a committed value. Matching complete scans permit changes and tombstones; failed, partial or racing reads preserve the prior record and mark the inventory incomplete. Per-kind verification times expose delayed scans. Unchanged inventory contents do not require another encrypted write. Curated OAuth status records contain provider, status and connection time, never tokens or provider payloads. Queued metadata or rebuilding on the next unlock does **not** satisfy 24/7 updates. No automatic answering runs in this bridge.
 
 ## Coverage and authority audit
 
 | Source | Existing authority and update seam | Derived memory behavior |
 | --- | --- | --- |
 | Profile name, email and photo | Firebase-backed AccountIdentityService, including effective owner edits | Complete encrypted private source projection, stable owner source ID, observed revisions and source timestamps |
-| Consent | Existing received/sent pending, active and previous Consent Center projections | Uncached complete reads, all pages and durable terminal Location requests/invitations; non-authority source IDs, activity/status/revocation/expiry; failed or racing reads preserve prior records and disclose incomplete inventory |
+| Consent | Existing received/sent pending, active and previous Consent Center projections | Bounded complete reads with a source fence, durable terminal Location requests/invitations, non-authority source IDs and activity/status/revocation/expiry; failed, racing or over-cap reads preserve prior records and disclose incomplete inventory |
+| Connections | Existing authenticated connection graph and owner-matched change signal | Both connection audiences, bounded pagination and two matching complete scans; stable connection ID, counterpart ID, creation time and contact-origin flag, without counterpart profile or contact-list rows |
+| Curated OAuth connector status | Existing owner connector overview and credential-status service | Two matching complete curated-catalog scans; provider ID, connection status and time only, without custom owner-vault connectors, credential values, scopes, emails or provider payloads |
+| Document earnings | Existing owner-vault document payout earnings endpoint | Live and test partitions, bounded keyset pages and two matching complete scans; request ID, status, gross/refund/net cents and timestamps without description, bank data or provider references. This is owner earnings, not all transactions or requester payments. |
 | Saved Location and visit notes | Existing encrypted Location PKM writers | Stable source IDs, original creation time when known, revision receipts and deletion tombstones; every persisted note retained |
 | To-Do | Existing encrypted one_todos private tasks | Creation/edit/completion/deletion, source ID and record revision; stale completion cannot overwrite an edit or revive a deletion |
 | Memory and eligible specialist sources | Existing encrypted domains remain compatibility inputs | One prompts use private Soul; specialized records remain separate and never seed it |
@@ -48,12 +54,33 @@ The Consent inventory uses a bounded owner-scoped MVCC equality fence before and
 
 A mirrored inventory is derived, encrypted and owner-only. It cannot create grants or exports and cannot run an implicit PKM upgrade. Failed reads never imply deletion. Known source times are retained; unknown original creation time stays unknown. The source's content revision remains the canonical concurrency boundary. This does not claim that every historical Chat fact has been captured: the existing capture coverage and save receipts determine what reached PKM.
 
+The [Live Memory source admission contract](./live-memory-source-contract.md) declares each inventory source's authority, owner isolation, post-commit signal, authoritative snapshot, allowed and excluded fields, revision and tombstone rules, incomplete-read behavior, exposure, retention, capacity and focused evidence. `scripts/ci/live-memory-source-gate.py` runs from the repository governance check. It rejects a mismatch between declared source kinds, the runtime type union and emitted adapters; every kind requires bounded capacity. This is a static admission ratchet for inventory source kinds, not proof that every product feature emits an event or that every historical change was captured. Review and runtime evidence must establish the declared semantics.
+
+## Proposed encrypted event journal
+
+The current bridge retains the latest source-linked records and tombstones, not an append-only history of every user action. Active and retained-history caps fail incomplete rather than silently trim Consent, connection, curated OAuth or earnings records. `pkm_events` carries coarse control metadata, not decrypted values or a complete feature activity log. Neither source snapshots nor the admission gate can reconstruct an intermediate change that happened while every owner client was closed. Requester payments, individual receipts, document handoffs, contact-list entries and location traces need their own reviewed source contracts before any coverage claim.
+
+A future journal would have each source owner publish an event **after its authoritative commit**, ideally through a transactional outbox bound to that commit. Each owner-scoped event would carry an opaque event ID and cursor, source kind and stable source ID, source revision, operation (`upsert` or `delete`), schema version, source time, and an encrypted minimal change or snapshot reference. The owner-visible fields and values stay in ciphertext; server routing, telemetry and retry logs retain no plaintext payload, token, coordinate or document body. The event ID and `(source kind, source ID, source revision)` make replay idempotent; a later revision dominates an older one, and deletion is a durable revisioned tombstone. An event does not authorize sharing, model processing or payment.
+
+An owner-controlled consumer would resume from an encrypted checkpoint, verify event continuity and source revisions, then read authoritative snapshots to repair gaps, out-of-order delivery and schema upgrades. It would advance its checkpoint only after the existing encrypted PKM compare-and-swap commit and readback succeed. Bounded queues, backoff and source-specific retention must surface backlog and failure instead of silently dropping changes. The owner can inspect source freshness and delete both journal payloads and derived projections under the account-erasure contract. This journal, outbox, replay worker, retention policy and cross-device cursor do **not** exist in the current implementation.
+
+### Standards used for the proposed journal
+
+The proposed event identity and versioned envelope follow the interoperable
+[CloudEvents specification](https://github.com/cloudevents/spec/blob/main/cloudevents/spec.md).
+Publishing only after the source transaction commits follows the
+[transactional outbox pattern documented by Debezium](https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html).
+The payload and telemetry restrictions follow [OWASP logging guidance](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
+and [OpenTelemetry Collector security guidance](https://opentelemetry.io/docs/security/config-best-practices/).
+These references guide the proposed journal design; the current snapshot bridge is
+not a CloudEvents or outbox deployment.
+
 ## Concrete proposed runtime
 
-Use an **owner-operated device** that stays powered on: a supported desktop or small home computer running a dedicated, signed Node 24 runtime. It uses the existing identity, consent, encrypted PKM read/write, manifest and revision contracts. It has no independent semantic router or second PKM authority. This design is proposed for review; no daemon, enrollment or persistent key capability ships in this PR.
+Use an **owner-operated device** that stays powered on: a supported desktop or small home computer running a dedicated, signed Node 24 runtime. It would consume the proposed journal and verified source snapshots through the existing identity, consent, encrypted PKM read/write, manifest and revision contracts. It would have no independent semantic router or second PKM authority. This design is proposed for review; no daemon, enrollment, journal subscriber or persistent key capability ships in this implementation.
 
 1. The owner pairs the runtime from an unlocked client. The client verifies the device public key and a pairing challenge, shows its allowed sources and write operations, and issues an owner-scoped, revocable device credential. Enrollment is separate from answer-composition consent.
-2. The owner must explicitly review a **new local key-control exception**: a decryption capability sealed by the device's TPM or Secure Enclave to its measured runtime and local OS account. Hussh receives neither that capability nor its wrapping key. Initial unsealing requires the owner on the device. A machine reboot cannot resume processing until its reviewed local unlock policy permits unsealing. Without this exception, memory keys remain RAM-only and reboot requires owner unlock.
+2. The owner must explicitly review a **new local key-control exception**: a decryption capability sealed by the device's TPM or Secure Enclave to its measured runtime and local OS account. The hosted service receives neither that capability nor its wrapping key. Initial unsealing requires the owner on the device. A machine reboot cannot resume processing until its reviewed local unlock policy permits unsealing. Without this exception, memory keys remain RAM-only and reboot requires owner unlock.
 3. The daemon retrieves ciphertext plus committed source metadata. It decrypts in owner-device RAM, verifies source identity/revision, and commits encrypted mutations through the existing compare-and-swap coordinator. Durable cursor/checkpoint state is encrypted on that device; plaintext source values, prompts, documents and keys are excluded from disk, telemetry, crash dumps and server logs.
 4. Replay is idempotent by source ID and revision. Out-of-order updates cannot replace newer records. Deletions are revisioned tombstones. Checkpoints advance only after encrypted commit/readback. Conflicts trigger authoritative rereads. A restart replays the encrypted checkpoint before publishing a complete memory view.
 5. The exact full view is rebuilt only after every eligible source is verified. Per-source failure, last successful refresh and disconnected runtime health are visible. Powered-off hardware or lost connectivity makes the view stale; no service may advertise continuous freshness merely because a worker or queue exists.
@@ -69,11 +96,11 @@ Request checkout returns use `answerPaymentRequestId` and the answer's own payme
 
 The operator-only `PkmAnswerPaymentService.recover_checkout_event` retrieves the actual Stripe Event and current Checkout Session with the stored order-mode credentials. A NULL-mode historical row requires an explicit mode and exact authenticated provider reconciliation before binding; today's deployment mode is never inferred. It requires exact request/session/attempt/terms/amount/currency/mode binding, then uses the same settlement transaction and replay guard as the signed webhook. PaymentIntent metadata, browser return parameters and HTTP 200 do not establish payment. Recovery cannot manufacture an unstaged answer or decrypt PKM.
 
-The shared Profile Memory renderer now persists a source-linked `memory.md` projection inside the existing encrypted `one_living_sources._private.memory_document`. It preserves the complete inventory, record revisions, tombstones and structured source domains. The signature excludes the document's own write revision, so unchanged authoritative readback reuses the document without a write loop. Failed or incomplete reads cannot overwrite it. Name, photo reference and eligible explicitly recorded facts (including age and sex) retain source paths; no age or sex is inferred. Soul.md and `one_memory.markdown` keep their existing authority.
+The shared Profile Memory renderer now persists a source-linked `memory.md` projection inside the existing encrypted `one_living_sources._private.memory_document`. It preserves the current verified inventory, record revisions, tombstones and structured source domains; it is not a complete event journal. The signature excludes the document's own write revision, so unchanged authoritative readback reuses the document without a write loop. Failed or incomplete reads cannot overwrite it. Name, photo reference and eligible explicitly recorded facts (including age and sex) retain source paths; no age or sex is inferred. The chat document in `one_memory.markdown` keeps its existing authority.
 
 Paid answers retrieve stable approved scope slices from that same encrypted projection, never the owner's whole private document. Each slice links its authoritative domain and Soul revisions, exposure metadata, account identity fingerprint where needed, and the UTC derivation date for age. Metadata is checked before reuse; a missing or stale slice is rebuilt from exact authoritative sources through the existing encrypted writer, preserving the full Profile document and unrelated slices. One coherent ciphertext/manifest read is reused per domain. Only approved source segments are decrypted, then exact eligible paths are projected. Vault and PKM invalidation epochs reject in-flight stale work, and failed reads cannot establish absence. Profile Memory refresh rebuilds the same slices after identity edits and across birthdays. Local synthetic cold/warm preparation measurements and encrypted-cache regression coverage live in `answer-read-session.test.ts`; they do not measure deployed provider latency.
 
-Every successful question receives its own Gemini composition, including simple name/age/sex answers. The model receives the exact question, exact approved values, narrow Markdown and bounded source/freshness metadata. Name and photo are never unconditional profile context. Missing any approved fact is unchargeable; reported model gaps or failures remain pending for retry. A request-bound signed receipt from successful Gemini composition is verified before a new staged envelope can enable checkout. It proves the gated call and approved terms, while requester ciphertext remains unreadable to the backend. Historical immutable staged orders retain their existing recovery and financial obligations.
+Every successful question receives its own Gemini composition, including simple name/age/sex answers. The model receives the exact question, exact approved values, narrow Markdown and bounded source/freshness metadata. Name and photo are never unconditional profile context. The owner can price only scopes verified as available; that exact set is frozen when the price sheet opens and rechecked before approval. The requester sees included and not-included scope labels before checkout. A narrower answer must end with a fixed disclosure derived from server-validated scope IDs, with no model-reported gap in approved information; otherwise it receives no chargeable receipt. Missing any approved fact is unchargeable, and model failures remain pending for retry. A request-bound signed receipt from successful Gemini composition is verified before a new staged envelope can enable checkout. It proves the gated call and approved terms, while requester ciphertext remains unreadable to the backend. Historical immutable staged orders retain their existing recovery and financial obligations.
 
 The composer flag defaults off. Live mode also requires the separate provider-review attestation. Application telemetry uses ADK NO_CONTENT and refuses processing if environment overrides would capture messages. This does not establish provider zero retention.
 

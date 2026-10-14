@@ -306,6 +306,82 @@ async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
 
 
 @pytest.mark.parametrize(
+    ("answer", "gaps", "payable"),
+    [
+        (
+            "Recorded sex is female and saved location is London. Not included in this answer: Age.",
+            [],
+            True,
+        ),
+        ("Recorded sex is female and saved location is London.", [], False),
+        (
+            "Recorded sex is female. Not included in this answer: Age.",
+            ["The approved location has no current coordinate."],
+            False,
+        ),
+    ],
+)
+async def test_narrower_approved_answer_requires_disclosure_and_no_unexpected_gaps(
+    monkeypatch, shared_hub_owner, answer, gaps, payable
+):
+    from hushh_mcp.services.answer_composer import AnswerComposer
+    from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
+
+    sex = "attr.identity.identity_profile.sex"
+    location = "attr.location.saved_places"
+    age = "attr.identity.identity_profile.declared_age"
+    request = uuid4()
+    service = Mock(
+        assert_answerable=AsyncMock(
+            return_value={
+                "approvedScopes": [sex, location],
+                "omittedScopes": [age],
+                "modelProcessingConsented": True,
+                "question": "What are your age, sex and location?",
+                "termsDigest": "b" * 64,
+            }
+        )
+    )
+    prompts = []
+
+    async def provider(prompt):
+        prompts.append(prompt)
+        return {"answer": answer, "gaps": gaps}
+
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    monkeypatch.setattr(routes, "AnswerComposer", lambda: AnswerComposer(runner=provider))
+    result = await routes.compose_answer(
+        request,
+        Response(),
+        {
+            "projection": {
+                "memory": "Approved sex and saved place only",
+                "values": {
+                    sex: {"identity_profile": {"sex": "female"}},
+                    location: {"saved_places": [{"city": "London"}]},
+                },
+            }
+        },
+        "owner",
+    )
+    assert "What are your age, sex and location?" in prompts[0]
+    assert "Not included in this answer: Age." in prompts[0]
+    if payable:
+        assert result["answerMode"] == "agent"
+        assert result["answer"] == answer
+        verify_composition_receipt(
+            result["compositionReceipt"],
+            request_id=str(request),
+            owner_user_id="owner",
+            terms_digest="b" * 64,
+        )
+    else:
+        assert result["answerMode"] == "projection"
+        assert result["answer"] is None
+        assert "compositionReceipt" not in result
+
+
+@pytest.mark.parametrize(
     "invalid",
     [
         {"attr.other.secret": {}},

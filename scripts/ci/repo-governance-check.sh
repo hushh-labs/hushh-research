@@ -12,6 +12,8 @@ python3 scripts/ci/verify-protected-pipeline-edits.py
 python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
 python3 scripts/ci/verify-protected-behavior-tests.py
 python3 scripts/ci/verify-protected-behavior-tests.py --self-test
+python3 scripts/ci/live-memory-source-gate.py
+python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
@@ -20,6 +22,7 @@ python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
+python3 scripts/ci/test_pending_uat_retention_state.py
 python3 scripts/ci/test_runtime_capacity_budget.py
 python3 scripts/ci/test_verify_passkey_domain_associations.py
 python3 scripts/ci/test_verify_prod_places_readiness.py

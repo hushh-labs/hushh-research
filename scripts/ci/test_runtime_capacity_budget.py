@@ -60,6 +60,103 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_frontend_only_admits_zero_incremental_sql_without_job_inventory(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        account = "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+        current = "hushh-webapp-current"
+        ready = "hushh-webapp-ready"
+        candidate = "hushh-webapp-candidate"
+
+        def workload(name: str) -> dict:
+            return {
+                "metadata": {"name": name, "annotations": {}},
+                "spec": {"serviceAccountName": account, "containers": [{"env": []}]},
+            }
+
+        service = {
+            "spec": {"template": workload("template")},
+            "status": {
+                "traffic": [{"revisionName": current, "percent": 100}],
+                "latestReadyRevisionName": ready,
+            },
+        }
+        revisions = {name: workload(name) for name in (current, ready, candidate)}
+        project_policy = {"bindings": [{
+            "role": "roles/secretmanager.secretAccessor",
+            "members": [f"serviceAccount:{account}"],
+        }]}
+
+        def inventory(*args: str) -> dict:
+            if args[:3] == ("projects", "get-iam-policy", "hushh-pda-uat"):
+                return copy.deepcopy(project_policy)
+            if args[:3] == ("run", "services", "describe"):
+                self.assertEqual(args[3], "hushh-webapp")
+                return copy.deepcopy(service)
+            if args[:3] == ("run", "revisions", "describe"):
+                return copy.deepcopy(revisions[args[3]])
+            raise AssertionError(f"Unexpected global capacity inventory: {args[:3]}")
+
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            report = budget.frontend_only_report(
+                profile, "uat", candidate_revision=candidate
+            )
+        self.assertEqual(report["admission_mode"], "frontend-only-incremental")
+        self.assertEqual(report["projected_connections"], 0)
+        self.assertEqual(report["verified_frontend_revisions"], sorted(revisions))
+        self.assertTrue(report["admitted"])
+
+        # The narrow lane must fail closed on a SQL-capable template or any
+        # candidate, even though it intentionally does not inspect jobs.
+        for change, expected in (
+            (lambda: service["spec"]["template"]["metadata"]["annotations"].update(
+                {"run.googleapis.com/cloudsql-instances": CONNECTION}
+            ), "Cloud SQL attachment"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "PGSSLMODE", "value": "redacted"}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "GENERIC_ENDPOINT", "value": "postgresql://redacted"}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "GENERIC_SECRET", "valueFrom": {
+                    "secretKeyRef": {"name": "DB_PASSWORD", "key": "latest"}
+                }}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"].update({"volumes": [{"name": "db"}]}),
+             "volumes require"),
+            (lambda: revisions[candidate]["spec"].update(
+                {"serviceAccountName": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"}
+            ), "runtime identity"),
+        ):
+            with self.subTest(expected=expected):
+                clean_service = copy.deepcopy(service)
+                clean_revisions = copy.deepcopy(revisions)
+                change()
+                with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+                    with self.assertRaisesRegex(budget.BudgetError, expected):
+                        budget.frontend_only_report(
+                            profile, "uat", candidate_revision=candidate
+                        )
+                service = clean_service
+                revisions = clean_revisions
+
+        project_policy["bindings"].append({
+            "role": "roles/cloudsql.client",
+            "members": [f"serviceAccount:{account}"],
+        })
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            with self.assertRaisesRegex(budget.BudgetError, "unreviewed project IAM role"):
+                budget.frontend_only_report(profile, "uat")
+        project_policy["bindings"].pop()
+
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            with self.assertRaisesRegex(budget.BudgetError, "limited to UAT"):
+                budget.frontend_only_report(profile, "production")
+            with self.assertRaisesRegex(budget.BudgetError, "candidate revision identity"):
+                budget.frontend_only_report(
+                    profile, "uat", candidate_revision="consent-protocol-123"
+                )
+
     def test_worker_override_counts_connections_and_conflicts_fail_closed(self) -> None:
         row = revision("consent-protocol-test")
         container = row["spec"]["containers"][0]

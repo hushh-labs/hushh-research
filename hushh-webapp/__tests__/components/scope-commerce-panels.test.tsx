@@ -258,15 +258,17 @@ describe("Payments and earnings history", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Refund unused balance" }));
     await screen.findByRole("button", { name: commerceMoneyButtonName("refund", 50) });
     expect(screen.getByText("Unrecovered costs")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw information-access earnings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up information-access payouts" }));
     expect(screen.getByRole("button", { name: "Review withdrawal" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
   });
 
-  it("blocks refused windows and retires a prepared payout link when the vault session changes", async () => {
+  it("exposes unfinished payout setup and retires its hosted link when the vault session changes", async () => {
     mocks.openWindow.mockReturnValue(null);
     const view = render(<ScopeCommerceAccountPanel />);
-    const payouts = await screen.findByRole("button", { name: "Withdraw information-access earnings" });
+    const payouts = await screen.findByRole("button", { name: "Set up information-access payouts" });
+    expect(screen.queryByRole("button", { name: "Withdraw information-access earnings" })).toBeNull();
+    expect(screen.getByText(/Payments and earnings → Set up information-access payouts before setting a paid price/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Set up payouts with Stripe" })).toBeNull();
     fireEvent.click(payouts);
     act(() => { expect(unwindBackLayer(mocks.pathname)).toBe(true); });
@@ -296,7 +298,7 @@ describe("Payments and earnings history", () => {
     mocks.openWindow.mockReturnValue(popup);
     mocks.onboarding.mockResolvedValue(session);
     const view = render(<ScopeCommerceAccountPanel />);
-    await screen.findByRole("button", { name: "Withdraw information-access earnings" });
+    await screen.findByRole("button", { name: "Set up information-access payouts" });
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
     for (const foreign of ["documents", "answers"]) {
       act(() => window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: { source: foreign, action: "onboarding_refresh" } })));
@@ -320,9 +322,9 @@ describe("Payments and earnings history", () => {
     const original = mocks.user;
     mocks.user = { uid: "counterpart", getIdToken: vi.fn(async () => "counterpart-token") };
     view.rerender(<ScopeCommerceAccountPanel />);
-    await screen.findByRole("button", { name: "Withdraw information-access earnings" });
+    await screen.findByRole("button", { name: "Set up information-access payouts" });
     expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw information-access earnings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up information-access payouts" }));
     await screen.findByRole("button", { name: "Set up payouts with Stripe" });
     expect(screen.queryByText(/Your payout setup link expired/)).toBeNull();
     expect(mocks.onboarding).toHaveBeenCalledTimes(2);
@@ -405,7 +407,7 @@ describe("unconfigured platform funds", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Refund unused balance" }));
     expect(screen.getByRole("button", { name: "Review refund of 50 Hussh coins ($0.50)" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw information-access earnings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up information-access payouts" }));
     expect(screen.getByRole("button", { name: "Set up payouts with Stripe" })).toBeDisabled();
     expect(mocks.onboarding).not.toHaveBeenCalled();
   });

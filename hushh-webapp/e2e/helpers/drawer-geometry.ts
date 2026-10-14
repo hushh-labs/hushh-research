@@ -11,15 +11,33 @@ export async function profileFrame(page: import("@playwright/test").Page) {
     reference.className = "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    const card = document.createElement("div");
+    const stack = document.createElement("div");
+    stack.className = "profile-pane-scroll-root";
+    const content = document.createElement("div");
+    content.dataset.profileStackContent = "true";
+    card.dataset.slot = "settings-group-shell";
+    content.append(card);
+    stack.append(content);
+    reference.append(stack);
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
+    const style = getComputedStyle(reference);
     const result = { x: innerWidth - bounds.right, y: bounds.y,
       width: bounds.width, height: bounds.height,
-      radius: getComputedStyle(reference).borderTopLeftRadius };
+      radius: style.borderTopLeftRadius,
+      card: { background: getComputedStyle(card).backgroundColor,
+        radius: getComputedStyle(card).borderTopLeftRadius, shadow: getComputedStyle(card).boxShadow },
+      material: {
+        background: style.backgroundColor, border: style.borderTopColor,
+        shadow: style.boxShadow, blur: style.backdropFilter,
+        webkitBlur: style.getPropertyValue("-webkit-backdrop-filter"),
+      } };
     reference.remove();
     return result;
   });
 }
+
 
 /**
  * The real app, reduced to the two things that decide this drawer's stacking:

@@ -204,7 +204,9 @@
         "open my personal data",
         "go to personal data",
         "show personal data",
-        "open saved knowledge"
+        "open saved knowledge",
+        "open saved and add",
+        "open memory sharing and prices"
       ],
       "search_keywords": [
         "personal data",
@@ -232,7 +234,8 @@
         "target": "/one/pkm"
       },
       "control_ids": [
-        "top_agent_section_pkm"
+        "top_agent_section_pkm",
+        "profile_memory_workspace"
       ],
       "state_exposure": [],
       "docs_references": [

@@ -17,6 +17,23 @@ import {
   ExternalConnectorService,
 } from "@/lib/services/external-connector-service";
 
+describe("ExternalConnectorService source reads", () => {
+  beforeEach(() => apiFetch.mockReset());
+
+  it("rejects a malformed connector inventory instead of recording an empty source", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ features: {} }));
+    await expect(ExternalConnectorService.overview("owner-token", { sourceRead: true }))
+      .rejects.toThrow("Connector source read is incomplete");
+    expect(apiFetch).toHaveBeenCalledWith("/api/connectors", expect.objectContaining({
+      headers: { Authorization: "Bearer owner-token" },
+    }));
+
+    apiFetch.mockResolvedValueOnce(Response.json({ features: {} }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ connectors: [] });
+  });
+});
+
 describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
   afterEach(() => vi.useRealTimers());

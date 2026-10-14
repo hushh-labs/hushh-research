@@ -627,6 +627,7 @@ async def compose_answer(
             question=work["question"],
             projection=projection,
             period=work.get("period"),
+            omitted_scopes=work.get("omittedScopes") or (),
             user_id=owner_user_id,
         )
     except AnswerComposerError:

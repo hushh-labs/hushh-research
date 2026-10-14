@@ -46,7 +46,7 @@ import type {
 } from "@/lib/services/gmail-receipts-service";
 import { cn } from "@/lib/utils";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
-import { getVerifiedReceiptMerchant } from "@/lib/mail/receipt-merchant-registry";
+import { getVerifiedReceiptMerchant, resolveVerifiedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
 
 const RECEIPT_LOGO_TIMEOUT_MS = 5000;
 
@@ -115,7 +115,10 @@ export function ReceiptMerchantLogo({
   const logoUrl = buildReceiptLogoUrl(configuredTemplate, logoDomain);
   const requestLogo = online && Boolean(logoUrl) && failedLogoUrl !== logoUrl;
   const showFallback = !requestLogo || loadedLogoUrl !== logoUrl;
-  const FallbackIcon = category ? CATEGORY_ICONS[category] : Receipt;
+  // A reviewed brand fallback affects the icon only, never receipt grouping or labels.
+  const fallbackCategory = category && category !== "Other" && category !== "Uncategorized"
+    ? category : (logoDomain ? resolveVerifiedReceiptMerchantBrand({ merchantName, merchantDomain: logoDomain })?.categoryFallback : null) ?? category;
+  const FallbackIcon = fallbackCategory ? CATEGORY_ICONS[fallbackCategory] : Receipt;
 
   useEffect(() => {
     if (!requestLogo || loadedLogoUrl === logoUrl) return;
@@ -129,7 +132,7 @@ export function ReceiptMerchantLogo({
       className="relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
       data-logo-kind={
         showFallback
-          ? category && category !== "Other" && category !== "Uncategorized"
+          ? fallbackCategory && fallbackCategory !== "Other" && fallbackCategory !== "Uncategorized"
             ? "category"
             : "fallback"
           : "brand"
@@ -140,7 +143,7 @@ export function ReceiptMerchantLogo({
     >
       {showFallback ? (
         <FallbackIcon
-          className={`size-[18px] ${CATEGORY_COLORS[category || "Other"]}`}
+          className={`size-[18px] ${CATEGORY_COLORS[fallbackCategory || "Other"]}`}
           weight="duotone"
         />
       ) : null}

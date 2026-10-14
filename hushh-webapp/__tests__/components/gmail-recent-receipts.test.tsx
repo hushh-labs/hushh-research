@@ -366,6 +366,29 @@ describe("receipt merchant logo", () => {
     expect(container.querySelector('svg [opacity="0.2"]')).not.toBeNull();
   });
 
+  it.each([
+    ["Internshala Trainings", "trainings.internshala.com"],
+    ["Udemy", "udemy.com"],
+  ])("uses the reviewed category icon for %s without changing its receipt category", (merchantName, logoDomain) => {
+    const { container } = render(
+      <ReceiptMerchantLogo merchantName={merchantName} logoDomain={logoDomain} category="Other" providerUrlTemplate="" />,
+    );
+    const frame = container.querySelector('[data-slot="receipt-merchant-logo"]');
+    expect(frame).toHaveAttribute("data-logo-kind", "category");
+    expect(frame).toHaveAttribute("data-receipt-category", "Other");
+    expect(frame).toHaveClass("size-9");
+    expect(container.querySelector("svg")).toHaveClass("text-violet-500");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("keeps the generic fallback for an unreviewed new-brand domain", () => {
+    const { container } = render(
+      <ReceiptMerchantLogo merchantName="Udemy" logoDomain="udemy.com.example.test" category="Other" providerUrlTemplate="" />,
+    );
+    expect(container.querySelector('[data-slot="receipt-merchant-logo"]')).toHaveAttribute("data-logo-kind", "fallback");
+    expect(container.querySelector("svg")).toHaveClass("text-slate-500");
+  });
+
   it("uses only the canonical domain and falls back without a layout change after failure", () => {
     const { container } = render(
       <ReceiptMerchantLogo

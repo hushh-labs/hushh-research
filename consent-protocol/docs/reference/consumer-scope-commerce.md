@@ -23,10 +23,166 @@ Checked-in code implements a USD funded-balance and owner tariff lane for existi
 consented scope requests. Source checks, focused contracts and isolated local
 PostgreSQL acceptance establish the bounded behavior below; they do not establish Stripe acceptance, connected-account readiness,
 complete Sandbox/live financial acceptance, native browser returns, or legal/tax
-approval. Signed capital and the first requester funding settlement on shared Dev
-are separately verified below; they do not prove a consumer purchase or payout.
+approval. Both reviewers' signed funding settlements and platform capital on
+shared Dev are separately verified below; they do not prove a consumer purchase
+or payout.
 
 ### Current Dev evidence — 2026-10-14 UTC
+
+Reviewer roles below refer to the canonical environment-wired subjects. A
+Firebase identity read on 2026-10-14 corrected reversed email labels in the
+operator's earlier browser helpers; funding and account records were not
+changed. Resolve each session's subject before interpreting a ready-account
+screenshot or submitting an action. The ready-account screenshot is consistent
+with the eligible counterpart; it does not establish primary eligibility.
+
+Candidate `5c2d1483aa0691134c72615b244da7c3bc0e1747` passed the canonical core
+in 615 seconds and [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913),
+including iOS, Android and every frontend shard. Its
+[shared-Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251)
+completed successfully. Independent serving readback at `2026-10-14T12:45:40Z`
+verified both services at 100% of that exact source. The release artifact reports
+successful parity, provenance, semantic, database-contract and required reviewer
+BYOK gates. This proves the shared application release, not a private-pod image
+publication or complete financial acceptance.
+
+At `2026-10-14T12:46:36Z`, the primary's authenticated document-bank read
+returned HTTP 200 in test mode. No document account is bound yet; **Link bank**
+is visible and enabled, and the original unlocked vault remains available.
+The dedicated Connect credential and signed connected-event secret are mounted
+on Dev, with the exact `https://dev.one.hussh.ai` return origin. The former
+`PAYOUT_UNAVAILABLE` read is corrected. A successful document-bank hosted
+click/return is still required; scope payout eligibility does not prove it.
+
+The counterpart's headless rehearsal on this release verifies cold authentication
+and unlock, warm **Payments and earnings** navigation, normal Profile dismissal
+and Memory's visible **Saved** and **Add** tabs, without a Sharing tab. Both
+queued release notices are dismissed through their ordinary **Got it** controls.
+Vault continuity is retained throughout. The prior overlay-ordering regression
+is no longer reproduced. Normally encrypted synthetic fixtures and scope
+delivery remain separate acceptance work.
+
+The provider/ledger observation at `2026-10-14T14:17:12Z` confirms the Sandbox
+account/test pin, $10.50 funded per reviewer, $15 tagged operating capital,
+matching receipts, balanced liabilities, settled backing and conserved fees.
+Do not repeat those funding payments or Topups. The counterpart's
+information-access payout account is eligible. The primary still requires
+individual name, USD bank destination and terms completion. Its fresh hosted
+setup has reached Stripe's embedded form in a task-owned background Chrome tab;
+opening or advancing that form is not an eligibility receipt.
+
+All 17 aggregate Monitoring metrics were verified at `2026-10-14T13:02:03Z`,
+with fresh worker/provider observations and no shortfall, unbalanced journals,
+receipt failures or unresolved work. No paid scope purchase, revocation refund,
+maturity, withdrawal or bank payout has yet been accepted. One's authenticated
+Stripe account/balance reads and the physical iOS handoff remain outstanding.
+
+An additional source correction makes incomplete information-access payout
+setup discoverable through **Set up information-access payouts** instead of
+burying it under a withdrawal label. Eligible accounts retain the withdrawal
+label and account-management control. Readiness guidance names the same
+**Payments and earnings** destination; existing action identifiers retain their
+meaning with additive search aliases. Focused frontend checks pass 69 cases,
+and generated UI contracts pass all 460 Back behavior cases and parity checks.
+Candidate `038f0426aa967b67404dc9c34c79b7edffd997c8` includes this correction
+and passes the canonical core in 649 seconds: 19,251 protocol cases, the serial
+database contracts, web-core, MCP package and integration gates. It is pushed
+on the existing branch. Exact-source CI and Dev release remain required.
+
+The subsequent candidate `9275686586fc73c84bada77c7af832c387beef21` passes
+the canonical core in 636 seconds, preserving the reviewed main composition.
+Its [exact-source full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38585978734)
+was dispatched; a queued or running workflow is not a release receipt.
+
+Normal Profile **Memory** navigation was found to open the existing inspection
+pane rather than the Saved/Add workspace. The source correction adds one
+**Saved and Add** row above the living-memory inspection, navigating through
+the existing `/one/pkm` owner. Its Saved view owns sharing and prices; Add owns
+information preparation. No second controller, store or route is introduced.
+The focused 72 cases, typecheck, all 460 Back cases and generated UI parity
+pass. This correction still requires exact-candidate core, CI and Dev release.
+
+At `2026-10-14T14:52:35Z`, both private Azure runtimes were independently
+observed without `APP_FRONTEND_ORIGIN`; the counterpart also lacked the public
+Sandbox pin. Shared Dev deployment does not install owner-pod software or repair
+its environment. The current qualification-only reuse pin still publishes the
+earlier `e04b76c61433` image. Follow the canonical
+[pod update runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md)
+to qualify the exact predecessor, remove the reuse pin for the next application
+image build, publish the immutable image and complete ordinary owner approval,
+Microsoft authorization and durable handoff. Do not patch Azure environment
+values outside that authority. Callback absence is verified; the earlier generic
+Stripe sign-in failure was not localized to a request stage and remains unproved.
+
+### Main composition in verification — 2026-10-14 UTC
+
+The subsequent normal merge includes main `5d4b7c51df`: Wallet Add artwork and
+field alignment, plus the reviewed WebKit geometry precision correction.
+No payment or scope contract changes arrive in this delta. The combined candidate
+retains all 460 Back behavior cases; its core, exact-source CI and release are
+separate from the earlier `038f0426aa96` receipt.
+
+The infrastructure branch integrates main `20d6afafc8f4` normally, preserving
+existing shared history and ten independently hashed unrelated workspace files.
+The composition retains main's source-freshness, prepared-answer and wallet
+improvements together with private placement, current-owner response admission,
+and the canonical script-based backend deployment. WorkOS bindings use that
+existing deployment script and remain disabled by default. No incoming numbered
+migration changes the release head 348 or the registered SQL/rollback bodies.
+
+Bulk consent revocation now ends every outstanding owner-sold paid term through
+the existing transactional termination and refund authority, including unpaid,
+reserved, preparing and future-activation purchases. Active-token enumeration
+alone cannot cover those terms. Selection holds the commerce gate and preserves
+the canonical request-before-purchase lock order; it neither erases financial
+history nor refunds purchases where the authenticated owner is only the buyer.
+Single paid-grant revocation uses the same authority. Recovery remains available
+when new paid admission is disabled. Focused PostgreSQL, lifecycle, handshake,
+SDK and deployment checks pass 186 cases; exact-candidate core, CI and deployment
+are still required for this composition.
+
+The first exact-composition core at `48e303b902ba` stops on 38 architecture
+findings. Independent production and test/CI review qualifies precisely 36
+inherited or bounded-union size measurements with immutable source hashes.
+Historical findings and multiplicity remain intact, and 36 future-growth negative
+controls still reject increases. The two remaining findings receive source fixes:
+WorkOS configuration loading moves inside its executable `main`, and consent
+termination uses cohesive helpers behind the existing service facade, reducing
+that class to 249 lines. Its affected 140 tests pass. Budgets, scanner, exclusions
+and mandatory core/CI gates are unchanged. These qualifications record retained
+size debt; they do not establish deployment or financial acceptance.
+
+The subsequent core at `6a325eb5e342` passes web-core and 19,246 backend
+cases, then reports three answer-fixture placement failures and two stale
+product-agent registry checks. The added narrower-answer fixture now declares
+its Shared hosting state; production private-placement refusals remain unchanged.
+The canonical registry generator restores the authored paid-answer subagent
+instruction in both package copies. All 63 affected answer and registry cases
+pass, including hosting-change refusal and both model-parameterized freshness
+checks.
+
+The next normal integration includes main `f39f14ab006d`, retaining its verified
+encrypted receipt promotion, preferred-name Settings handoff, drawer material
+and pending-retention recovery changes. Existing owner/vault, warm-cache,
+late-page cancellation, motion and geometry cases survive the reviewed unions.
+Seven frontend files pass 190 focused cases. The new seven-case retention suite
+and three-case analytics-retry suite pass and are added to their existing CI
+entrypoints. Independent review qualifies only 15 exact incoming or union size
+occurrences, with all 15 future-growth negative controls retained. These are
+source checks; final exact-candidate core, CI and Dev release remain required.
+
+Main's separate WorkOS offboarding still resolves directory events by email and
+organization without a verified stable directory-to-SSO-person binding. The IAM
+owner must qualify delayed-event/email-reuse behavior before enabling that lane.
+This default-off feature is not payment acceptance evidence.
+
+At `2026-10-14T13:23:16Z`, a fresh provider observation retains the same funded
+balances, capital and balanced financial checks. The counterpart remains eligible;
+the primary's individual, bank and terms requirements remain incomplete. The
+reviewer's ready-account screenshot therefore does not establish primary
+eligibility, matured earnings, or any accepted scope purchase.
+
+### Earlier qualification and failure evidence — 2026-10-14 UTC
 
 Candidate `7dffd92928fd53f1ce167a9e8491cc48304e36f9` passed canonical core
 in 581 seconds and all 25 jobs of [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38497133647).

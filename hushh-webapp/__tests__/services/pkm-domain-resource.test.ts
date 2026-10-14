@@ -1,3 +1,4 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const peekCachedDomainBlobMock = vi.fn();
@@ -27,7 +28,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({
   },
 }));
 
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { PkmDomainResourceService, usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   CacheService,
@@ -53,6 +54,18 @@ describe("PkmDomainResourceService", () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     } finally { peek.mockRestore(); }
   });
+
+  it("forwards an explicit refresh past the identity cache after a Settings save", async () => {
+    const read = vi.spyOn(PkmDomainResourceService, "getStaleFirst").mockResolvedValue(null);
+    try {
+      const hook = renderHook(() => usePkmDomainResource({ userId: "owner-force", domain: "identity", vaultKey: "key", vaultOwnerToken: "token" }));
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      await act(async () => { await hook.result.current.refresh({ force: true }); });
+      expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ userId: "owner-force", domain: "identity", forceRefresh: true }));
+      hook.unmount();
+    } finally { read.mockRestore(); }
+  });
+
   it("does not return a stale secure-cache domain when the encrypted blob revision is newer", async () => {
     const userId = "user-financial";
     const oldDomain = {

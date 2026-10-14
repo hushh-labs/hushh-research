@@ -47,9 +47,8 @@ import {
   scopeItemsFromRequestable,
 } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { EditRowIcon } from "@/components/icons/agents";
-import { ROUTES } from "@/lib/navigation/routes";
 import { describeOwnerStyleProposal, stageOwnerStyleProposal } from "@/lib/agent/owner-style-settings";
 import {
   ArrowUpRight,
@@ -210,7 +209,6 @@ export function AgentStructuredExperienceView({
  */
 function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOfferExperience }) {
   const { user } = useAuth();
-  const router = useRouter();
   const ownerId = user?.uid ?? null;
   return (
     <ExperienceShell experienceType={experience.type} label="Writing style" title="Change how One writes to you"
@@ -226,7 +224,7 @@ function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOffer
       <MorphyButton type="button" size="sm" className="mt-4" disabled={!ownerId} onClick={() => {
         if (!ownerId) return;
         stageOwnerStyleProposal(ownerId, experience.proposed);
-        router.push(ROUTES.PROFILE_PREFERENCES);
+        openProfilePane(window.location.pathname, window.location.search, { panel: "preferences", detail: null }, { returnsToOrigin: true });
       }}>Review in Settings</MorphyButton>
     </ExperienceShell>
   );

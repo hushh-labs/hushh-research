@@ -150,6 +150,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
     "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "workos_sso_enabled": "WORKOS_SSO_ENABLED",
     "one_career_enabled": "ONE_CAREER_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
@@ -1040,6 +1041,13 @@ def one_wallet_card_enabled() -> bool:
     off; while off every wallet-card route answers as if the feature did not
     exist and no card is ever resolved."""
     return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
+
+
+def workos_sso_enabled() -> bool:
+    """Feature flag: WorkOS enterprise SSO (``/api/auth/sso/*`` and
+    ``/api/webhooks/workos``). Defaults off; while off every one of those routes
+    answers as if it did not exist, and Firebase sign-in is untouched."""
+    return _bool_from_value(_clean_env("WORKOS_SSO_ENABLED"), default=False)
 
 
 def one_career_enabled() -> bool:

@@ -397,7 +397,10 @@ export class ExternalConnectorService {
     return (await this.overview(vaultOwnerToken)).connectors;
   }
 
-  static async overview(vaultOwnerToken: string): Promise<ConnectorOverview> {
+  static async overview(
+    vaultOwnerToken: string,
+    options: { sourceRead?: boolean } = {},
+  ): Promise<ConnectorOverview> {
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch("/api/connectors", {
       method: "GET",
@@ -407,6 +410,9 @@ export class ExternalConnectorService {
       connectors?: ExternalConnectorSummary[];
       features?: ConnectorFeatures;
     }>(response);
+    if (options.sourceRead && (!payload || !Array.isArray(payload.connectors))) {
+      throw new Error("Connector source read is incomplete.");
+    }
     return {
       connectors: Array.isArray(payload.connectors) ? payload.connectors : [],
       features: payload.features ?? {},

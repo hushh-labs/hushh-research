@@ -66,7 +66,13 @@ async function mount(page: Page, paid: boolean, prepared = true) {
     let body: unknown;
     if (pathname === "/api/one/answer-requests/availability") body = { requests: true, payments: true, payouts: true };
     else if (pathname === "/api/one/answer-requests/inbox") body = { requests: [] };
-    else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/state`) body = { role: "requester", requestStatus: paid ? "answered" : "approved", question: "What is your profile photo?" };
+    else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/state`) body = {
+      role: "requester", requestStatus: paid ? "answered" : "approved", question: "What is your profile photo?",
+      coverage: { included: [
+        { scope: "attr.identity.identity_profile.full_name", label: "Full name" },
+        { scope: "attr.identity.identity_profile.profile_photo_url", label: "Profile photo" },
+      ], notIncluded: [] },
+    };
     else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/payment`) body = {
       requestStatus: paid ? "answered" : "approved", orderStatus: paid ? "paid" : "checkout_open",
       amountCents: 1000, currency: "usd", checkoutUrl: null, paidAt: paid ? "2026-10-13T12:00:00Z" : null,
@@ -144,6 +150,7 @@ test("paid approved photo decodes natively, then lock and account switch isolate
 test("unpaid prepared answer never fetches or renders the approved photo", async ({ page }) => {
   const evidence = await mount(page, false);
   const card = page.getByRole("region", { name: "Paid answer" });
+  await expect(card.getByText("Included in this answer: Full name, Profile photo.")).toBeVisible();
   await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Open answer", exact: true })).toHaveCount(0);
   await expect(card.locator("img")).toHaveCount(0);
