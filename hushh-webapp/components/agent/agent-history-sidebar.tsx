@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useMemo, useState, type ReactNode } from "react";
+import { useShortcutIconMotion } from "@/lib/morphy-ux/hooks/use-shortcut-icon-motion";
+import shortcutMotion from "@/components/icons/ui/shortcut-icon-motion.module.css";
 import {
-  Unplug as PlugIcon,
-  ClipboardCheck,
+  ConnectorsShortcutIcon,
+  TodoListIcon,
   CheckIcon as Check,
-  Download as DownloadIcon,
+  DownloadAppIcon,
   MessageSquareIcon as MessageSquare,
   DotsThreeIcon as MoreHorizontal,
   Loader2Icon as Loader2,
@@ -192,6 +194,7 @@ export function AgentHistorySidebar({
   onRenameConversation,
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
+  const shortcutInteraction = useShortcutIconMotion();
   const isMobileMode = mode === "mobile";
   // Neutral on the default path, owned when the other agent is on screen.
   const listTitle = surface === "puppy" ? "Puppy chats" : "Chats";
@@ -723,8 +726,11 @@ export function AgentHistorySidebar({
                 onClick={onOpenTodoList}
                 aria-label="Open To-do List"
                 title={railMode ? "To-do List" : undefined}
+                {...shortcutInteraction}
               >
-                <ClipboardCheck className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <span className={shortcutMotion.paperStage}>
+                  <TodoListIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                </span>
                 {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
               </ShellActionSurface>
             ) : null}
@@ -741,8 +747,9 @@ export function AgentHistorySidebar({
                 aria-haspopup="dialog"
                 aria-expanded={getAppOpen}
                 title={railMode ? "Get the app" : undefined}
+                {...shortcutInteraction}
               >
-                <DownloadIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <DownloadAppIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
@@ -756,8 +763,9 @@ export function AgentHistorySidebar({
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
+                {...shortcutInteraction}
               >
-                <PlugIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <ConnectorsShortcutIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}

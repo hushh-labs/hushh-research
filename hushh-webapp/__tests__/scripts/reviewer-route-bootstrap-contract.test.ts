@@ -104,7 +104,7 @@ describe("reviewer route bootstrap contract", () => {
     );
 
     expect(source).toContain('page.locator("#unlock-passphrase")');
-    expect(source).toContain("unlock with passphrase");
+    expect(source).toContain("unlock with password");
     expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
     expect(source).toContain("bootstrapErrorClass");
     expect(source).toContain("userMatches");

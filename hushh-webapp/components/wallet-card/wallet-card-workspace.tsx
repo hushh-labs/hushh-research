@@ -91,8 +91,8 @@ type VisitorPreviewState =
 function WalletProfileShell({ embedded, title, description, children, preview }: {
   embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
-  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className={`${profileStyles.walletContent} space-y-4`}>
-    <div className={preview ? "px-[var(--settings-row-px)]" : undefined}><div className={preview ? "mx-auto max-w-[36rem] space-y-1" : "space-y-1"}><h3 className="text-[13px] font-medium leading-[1.22]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div></div>
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} space-y-4`}>
+    <div className="space-y-1"><h3 className="text-[13px] font-medium leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
@@ -672,31 +672,26 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup>
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
-              ) : visitorPreview.status === "error" ? (
-                <div className="space-y-3 text-xs text-muted-foreground">
-                  <p>{visitorPreview.message}</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="none"
-                    effect="fade"
-                    onClick={() => void loadVisitorPreview()}
-                  >
-                    Try again
-                  </Button>
-                </div>
-              ) : (
-                <PublicWalletCardSkeleton />
-              )}
+          {visitorPreview.status === "ready" ? (
+            <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
+          ) : visitorPreview.status === "error" ? (
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>{visitorPreview.message}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="none"
+                effect="fade"
+                onClick={() => void loadVisitorPreview()}
+              >
+                Try again
+              </Button>
             </div>
-          </SettingsGroup>
+          ) : (
+            <PublicWalletCardSkeleton />
+          )}
 
-          <div className="px-[var(--settings-row-px)]">
-          <details className="mx-auto w-full max-w-[36rem] rounded-[var(--app-card-radius-standard)] border border-border">
+          <details className="w-full rounded-[var(--app-card-radius-standard)] border border-border">
             <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-[13px] font-medium">Profile card preview</summary>
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               <WalletCardPassPreview
@@ -708,7 +703,6 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
               />
             </div>
           </details>
-          </div>
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">

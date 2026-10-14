@@ -139,7 +139,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     blocks: [
       h("Your vault and memories"),
       p(
-        "Your vault key is a random AES-256-GCM key created on your device. It is protected by your passphrase, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted.",
+        "Your vault key is a random AES-256-GCM key created on your device. It is protected by your password, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted.",
       ),
       p("There are important limits to this, and we want you to know them:"),
       list(
@@ -505,7 +505,7 @@ const TERMS_SECTIONS: LegalSection[] = [
         " if you think someone else is using your account. You are responsible for activity under your account that results from not keeping it secure.",
       ),
       p(
-        "Your vault is encrypted with a key that is created on your device and unlocked with your passphrase, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your passphrase or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
+        "Your vault is encrypted with a key that is created on your device and unlocked with your password, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your password or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
       ),
       p(
         "Do not use anyone else’s account without their permission.",

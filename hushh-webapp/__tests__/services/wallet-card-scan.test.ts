@@ -21,6 +21,26 @@ describe("owned local card OCR", () => {
   it("rejects unsupported images before starting OCR", async () => {
     await expect(scanWalletCard(new Blob(["text"], { type: "text/plain" }), new AbortController().signal)).rejects.toThrow();
   });
+  it("uses a validated enhanced reading when shadows obscure the original", async () => {
+    const result = scanWalletCard(photo(), new AbortController().signal);
+    ScanWorker.last.onmessage?.({ data: { text: "", enhancedText: "4242 4242 4242 4242\nVALID THRU 12/30\nALEX SAMPLE" } });
+    expect(await result).toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" });
+    expect(ScanWorker.last.terminate).toHaveBeenCalledOnce();
+  });
+  it("fills missing fields from enhancement only when both readings agree on the number", async () => {
+    const result = scanWalletCard(photo(), new AbortController().signal);
+    ScanWorker.last.onmessage?.({ data: { text: "4242 4242 4242 4242", enhancedText: "4242 4242 4242 4242\nVALID THRU 12/30\nALEX SAMPLE" } });
+    expect(await result).toEqual({ pan: "4242424242424242", expiry: "12/30", cardholderName: "ALEX SAMPLE" });
+  });
+  it.each([
+    ["4242 4242 4242 4242", "4111 1111 1111 1111"],
+    ["4242 4242 4242 4242\n4111 1111 1111 1111", "4242 4242 4242 4242"],
+  ])("rejects conflicting readings instead of selecting a card", async (text, enhancedText) => {
+    const result = scanWalletCard(photo(), new AbortController().signal);
+    ScanWorker.last.onmessage?.({ data: { text, enhancedText } });
+    await expect(result).rejects.toThrow("card number is unclear");
+    expect(ScanWorker.last.terminate).toHaveBeenCalledOnce();
+  });
   it("releases the owned worker when initialization reports failure", async () => {
     const result = scanWalletCard(photo(), new AbortController().signal);
     ScanWorker.last.onmessage?.({ data: { error: "scan_failed" } });

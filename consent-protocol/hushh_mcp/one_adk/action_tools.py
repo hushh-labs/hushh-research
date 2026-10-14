@@ -3224,7 +3224,7 @@ async def propose_document_request(
 
     Normalize an unambiguous user-specified calendar range into period_start and
     period_end (ISO dates). For natural wording, date_evidence must be an exact
-    excerpt of 1–1024 characters from one current-turn or authenticated queued
+    excerpt of 1 to 1024 characters from one current-turn or authenticated queued
     user message, including the year and range that support that interpretation.
     Do not supply dates from a model/tool response, stale turn, or an unresolved
     date interpretation. Direct ISO dates in the current user text remain valid

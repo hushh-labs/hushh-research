@@ -987,13 +987,13 @@ async function ensureReviewerSession(page) {
     await unlockInput.fill(reviewerPassphrase);
     process.stdout.write(`→ resolve unlock button\n`);
     const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
+      .getByRole("button", { name: /unlock with password/i })
       .first();
     await page.waitForFunction(
       () => {
         const button = Array.from(document.querySelectorAll("button")).find(
           (candidate) =>
-            /unlock with passphrase/i.test(
+            /unlock with password/i.test(
               (candidate.textContent || "").trim(),
             ),
         );

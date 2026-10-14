@@ -344,6 +344,7 @@ class BootstrapNamedCircleRequest(_CamelModel):
     # No circle id and no kind: onboarding may only ever create the caller their
     # own first Circle, so there is nothing for a caller to point this at.
     name: str = Field(min_length=1, max_length=80)
+    purpose: Literal["signup_contacts_v1"] | None = None
 
 
 class CircleCommandRequest(_CamelModel):
@@ -413,6 +414,7 @@ class CircleMembersPageResponse(_CamelModel):
 
 
 class CreateCircleMemberInvitesRequest(_CamelModel):
+    context: Literal["explicit", "signup"] = "explicit"
     command_directive_id: str | None = Field(
         default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
     )
@@ -1329,9 +1331,12 @@ def bootstrap_named_location_circle(
     try:
         response.headers["Cache-Control"] = "private, no-store"
         return {
-            "invite": _circle_service().bootstrap_first_circle(
-                user_id=firebase_uid,
-                name=payload.name,
+            "invite": (
+                _circle_service().bootstrap_signup_contacts_circle(user_id=firebase_uid)
+                if payload.purpose == "signup_contacts_v1"
+                else _circle_service().bootstrap_first_circle(
+                    user_id=firebase_uid, name=payload.name
+                )
             )
         }
     except Exception as exc:
@@ -1513,6 +1518,7 @@ def create_named_circle_member_invites(
             actor_user_id=actor_user_id,
             circle_id=str(payload.circle_id),
             invitee_user_ids=invitee_user_ids,
+            **({"signup_insert_only": True} if payload.context == "signup" else {}),
             **(
                 {
                     "operation_id": payload.operation_id,

@@ -33,7 +33,7 @@ describe("Public account deletion page (Google Play Delete account URL)", () => 
       "mailto:support@hushh.ai?subject=Delete%20my%20Hussh%20One%20account",
     );
     expect(screen.getByText(/we confirm the request came from the account owner/)).toBeTruthy();
-    expect(screen.getByText(/never ask for your password, your vault passphrase/)).toBeTruthy();
+    expect(screen.getByText(/never ask for your sign-in password, your vault password/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "What we may keep" })).toBeTruthy();
 
     // No self-service deletion without authentication.

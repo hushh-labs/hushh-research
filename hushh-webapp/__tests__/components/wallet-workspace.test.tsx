@@ -273,7 +273,7 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-add-collection");
-    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
     fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");
@@ -494,11 +494,12 @@ describe("WalletWorkspace at scale", () => {
   });
 
   it("search narrows metadata and reports no match", async () => {
+    navigationMock.search = "q=amex";
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    await screen.findByRole("textbox", { name: "Search cards" });
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "amex" } });
     });
