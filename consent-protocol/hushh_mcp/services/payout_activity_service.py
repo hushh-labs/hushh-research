@@ -690,6 +690,9 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
                 "coinsPerDollar": COINS_PER_DOLLAR,
                 "balanceCoins": balance,
                 "items": items,
+                # The source-read client must detect rows rejected while
+                # shaping the page before it treats a scan as complete.
+                "sourceItemCount": len(shown),
                 "nextCursor": next_cursor,
                 "reset": reset,
             }

@@ -204,7 +204,7 @@ describe("LivingMemoryBridge", () => {
     );
   });
 
-  it("wakes immediately for earnings payout hints only", async () => {
+  it("wakes payout activity on bank changes and both sources on earnings changes", async () => {
     render(<LivingMemoryBridge />);
     await act(async () => {
       await Promise.resolve();
@@ -216,8 +216,12 @@ describe("LivingMemoryBridge", () => {
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forcePayoutActivity: true, forceDocumentEarnings: false }),
+    );
+    m.syncLivingSources.mockClear();
     act(() => m.payoutChangeListener?.({ kinds: ["earnings"] }));
     await act(async () => {
       await Promise.resolve();
@@ -225,7 +229,7 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
-      expect.objectContaining({ forceDocumentEarnings: true }),
+      expect.objectContaining({ forceDocumentEarnings: true, forcePayoutActivity: true }),
     );
   });
 

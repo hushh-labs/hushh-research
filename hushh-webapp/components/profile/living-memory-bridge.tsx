@@ -44,6 +44,8 @@ export function LivingMemoryBridge() {
     let scannedConnectionVersion = 0;
     let payoutHintVersion = 0;
     let scannedPayoutVersion = 0;
+    let activityHintVersion = 0;
+    let scannedActivityVersion = 0;
     let consentHintVersion = 0;
     let scannedConsentVersion = 0;
     let connectorHintVersion = 0;
@@ -68,6 +70,7 @@ export function LivingMemoryBridge() {
             if (!idToken) throw new Error("Source authorization unavailable");
             const connectionVersion = connectionHintVersion;
             const payoutVersion = payoutHintVersion;
+            const activityVersion = activityHintVersion;
             const consentVersion = consentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
@@ -78,11 +81,13 @@ export function LivingMemoryBridge() {
                 idToken,
                 forceConnections: connectionVersion > scannedConnectionVersion,
                 forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                forcePayoutActivity: activityVersion > scannedActivityVersion,
                 forceConsent: consentVersion > scannedConsentVersion,
                 forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
               });
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
+              scannedActivityVersion = activityVersion;
               scannedConsentVersion = consentVersion;
               scannedConnectorVersion = connectorVersion;
             }
@@ -175,10 +180,16 @@ export function LivingMemoryBridge() {
       }
     });
     const stopPayoutChanges = subscribePayoutStateChanged((detail) => {
+      let changed = false;
       if (payoutChangeTouches(detail, ["earnings"])) {
         payoutHintVersion++;
-        refreshSources();
+        changed = true;
       }
+      if (payoutChangeTouches(detail, ["wallet", "earnings", "bank_payouts"])) {
+        activityHintVersion++;
+        changed = true;
+      }
+      if (changed) refreshSources();
     });
     window.addEventListener(
       AGENT_CHAT_HISTORY_INVALIDATED_EVENT,

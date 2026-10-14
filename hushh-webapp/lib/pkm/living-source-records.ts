@@ -1,7 +1,7 @@
 /** Owner-only source provenance. These encrypted projections are derived,
  * not another authority and never an agent/shareable export. */
 export interface LivingSourceInput {
-  kind: "profile" | "consent" | "connection" | "curated_oauth_connector" | "document_earning";
+  kind: "profile" | "consent" | "connection" | "curated_oauth_connector" | "document_earning" | "payout_activity";
   id: string;
   value: Record<string, unknown>;
   createdAt: string | null;
@@ -21,6 +21,7 @@ export interface LivingSourceInventory {
   verifiedAt?: Record<string, string>;
 }
 export const DOCUMENT_EARNINGS_FRESHNESS_MS = 5 * 60_000;
+export const PAYOUT_ACTIVITY_FRESHNESS_MS = 5 * 60_000;
 export const CONNECTION_FRESHNESS_MS = 5 * 60_000;
 export const CONSENT_FRESHNESS_MS = 5 * 60_000;
 export const CURATED_OAUTH_CONNECTOR_FRESHNESS_MS = 5 * 60_000;
@@ -35,11 +36,11 @@ export function reconcileLivingSources(
   successfulKinds: readonly string[],
   unavailable: string[],
   now: string,
-  sourceVerifiedAt: Partial<Record<"connection" | "document_earning" | "consent" | "curated_oauth_connector", string>> = {},
+  sourceVerifiedAt: Partial<Record<"connection" | "document_earning" | "payout_activity" | "consent" | "curated_oauth_connector", string>> = {},
 ): LivingSourceInventory {
   const verifiedAt = { ...(previous?.verifiedAt ?? {}) };
   for (const kind of successfulKinds) {
-    if (kind === "connection" || kind === "document_earning" ||
+    if (kind === "connection" || kind === "document_earning" || kind === "payout_activity" ||
         kind === "consent" || kind === "curated_oauth_connector")
       verifiedAt[kind] = sourceVerifiedAt[kind] ?? now;
   }
@@ -99,7 +100,8 @@ export function reconcileLivingSources(
       recentlyVerified(verifiedAt.consent, now, CONSENT_FRESHNESS_MS) &&
       recentlyVerified(verifiedAt.curated_oauth_connector, now, CURATED_OAUTH_CONNECTOR_FRESHNESS_MS) &&
       recentlyVerified(verifiedAt.connection, now, CONNECTION_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.document_earning, now, DOCUMENT_EARNINGS_FRESHNESS_MS),
+      recentlyVerified(verifiedAt.document_earning, now, DOCUMENT_EARNINGS_FRESHNESS_MS) &&
+      recentlyVerified(verifiedAt.payout_activity, now, PAYOUT_ACTIVITY_FRESHNESS_MS),
     unavailable: [...unavailable].sort(),
     observedAt: now,
     verifiedAt,

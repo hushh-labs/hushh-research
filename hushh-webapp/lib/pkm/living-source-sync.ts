@@ -4,10 +4,12 @@ import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { DocumentPayoutService } from "@/lib/services/document-payout-service";
+import { PayoutActivityService, type PayoutActivityItem } from "@/lib/services/payout-activity-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   reconcileLivingSources,
   DOCUMENT_EARNINGS_FRESHNESS_MS,
+  PAYOUT_ACTIVITY_FRESHNESS_MS,
   CONNECTION_FRESHNESS_MS,
   CONSENT_FRESHNESS_MS,
   CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
@@ -25,6 +27,9 @@ const MAX_CONNECTION_RECORDS = 5_000;
 const MAX_CONNECTOR_CATALOG_ROWS = 500;
 const MAX_RETAINED_CURATED_OAUTH_CONNECTORS = 1_000;
 const MAX_DOCUMENT_EARNINGS = 5_000;
+const PAYOUT_ACTIVITY_PAGE_LIMIT = 50;
+const MAX_PAYOUT_ACTIVITY_RECORDS = 5_000;
+const MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS = 10_000;
 const MAX_RETAINED_CONNECTION_RECORDS = 10_000;
 const MAX_RETAINED_DOCUMENT_EARNINGS = 10_000;
 const MAX_CONSENT_SCAN_ROWS = 5_000;
@@ -32,6 +37,7 @@ const MAX_CONSENT_PAGE_READS = 100;
 const MAX_RETAINED_CONSENT_RECORDS = 10_000;
 type CompletedScan = { epoch: number; verifiedAt: string; completedAt: string };
 const lastDocumentEarningsScan = new Map<string, CompletedScan>();
+const lastPayoutActivityScan = new Map<string, CompletedScan>();
 const lastConnectionScan = new Map<string, CompletedScan>();
 const lastConsentScan = new Map<string, CompletedScan>();
 const lastCuratedConnectorScan = new Map<string, CompletedScan>();
@@ -133,6 +139,84 @@ async function collectDocumentEarnings(vaultOwnerToken: string): Promise<LivingS
   const second = await scan();
   if (JSON.stringify(first) !== JSON.stringify(second))
     throw new Error("Document earnings changed during pagination; retry required");
+  return second;
+}
+
+/** Activity IDs can contain a provider deposit ID. Keep only a stable opaque
+ * fingerprint in the encrypted inventory; the receipt service remains the
+ * authority for any detail the owner chooses to open. */
+async function payoutActivitySourceId(mode: "live" | "test", itemId: string): Promise<string> {
+  const encoded = new TextEncoder().encode(`payout_activity.v1\0${mode}\0${itemId}`);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoded));
+  return `${mode}:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function payoutActivityValue(item: Exclude<PayoutActivityItem, { kind: "earning" }>): Record<string, unknown> {
+  const common = {
+    kind: item.kind,
+    mode: item.test ? "test" : "live",
+    occurredAt: item.occurredAt,
+    updatedAt: item.updatedAt,
+    amountCents: item.amountCents,
+    coinsDelta: item.coinsDelta,
+  };
+  if (item.kind === "redemption")
+    return { ...common, status: item.status, reversalStatus: item.reversalStatus };
+  if (item.kind === "deposit")
+    return { ...common, status: item.status, expectedArrivalAt: item.expectedArrivalAt };
+  return { ...common, type: item.type };
+}
+
+/** Read both owner activity partitions twice. A failed or shifting page never
+ * licenses deletion of an earlier encrypted record. */
+async function collectPayoutActivity(vaultOwnerToken: string): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const entries: LivingSourceInput[] = [];
+    const seenItems = new Set<string>();
+    let scannedRows = 0;
+    for (const mode of ["live", "test"] as const) {
+      let cursor: string | undefined;
+      const seenCursors = new Set<string>();
+      for (;;) {
+        const page = await PayoutActivityService.list(vaultOwnerToken, {
+          kind: "all", mode, limit: PAYOUT_ACTIVITY_PAGE_LIMIT, cursor,
+        }, { sourceRead: true });
+        if (page.mode !== mode || page.kind !== "all" || page.reset ||
+            page.items.length > PAYOUT_ACTIVITY_PAGE_LIMIT ||
+            (page.nextCursor !== null &&
+              (page.items.length !== PAYOUT_ACTIVITY_PAGE_LIMIT ||
+                seenCursors.has(page.nextCursor))))
+          throw new Error("Payout activity page could not be verified");
+        scannedRows += page.items.length;
+        if (scannedRows > MAX_PAYOUT_ACTIVITY_RECORDS ||
+            (scannedRows === MAX_PAYOUT_ACTIVITY_RECORDS && page.nextCursor !== null))
+          throw new Error("Payout activity inventory exceeds its safe bound");
+        for (const item of page.items) {
+          const sourceKey = `${mode}:${item.id}`;
+          if (seenItems.has(sourceKey) || item.test !== (mode === "test"))
+            throw new Error("Payout activity row could not be verified");
+          seenItems.add(sourceKey);
+          // Earnings already have the dedicated document_earning projection.
+          if (item.kind === "earning") continue;
+          entries.push({
+            kind: "payout_activity",
+            id: await payoutActivitySourceId(mode, item.id),
+            createdAt: item.occurredAt,
+            updatedAt: item.updatedAt,
+            value: payoutActivityValue(item),
+          });
+        }
+        if (page.nextCursor === null) break;
+        seenCursors.add(page.nextCursor);
+        cursor = page.nextCursor;
+      }
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Payout activity changed during pagination; retry required");
   return second;
 }
 
@@ -260,6 +344,7 @@ export async function syncLivingSources(params: {
   vaultOwnerToken: string;
   idToken: string;
   forceDocumentEarnings?: boolean;
+  forcePayoutActivity?: boolean;
   forceConnections?: boolean;
   forceConsent?: boolean;
   forceCuratedConnectors?: boolean;
@@ -269,10 +354,12 @@ export async function syncLivingSources(params: {
   let storedSnapshotAt = readStartedAt;
   let incomplete = false;
   let earningsScanned = false;
+  let payoutActivityScanned = false;
   let connectionsScanned = false;
   let consentScanned = false;
   let curatedConnectorsScanned = false;
   let earningsVerifiedAt: string | undefined;
+  let payoutActivityVerifiedAt: string | undefined;
   let connectionVerifiedAt: string | undefined;
   let consentVerifiedAt: string | undefined;
   let curatedConnectorsVerifiedAt: string | undefined;
@@ -281,10 +368,12 @@ export async function syncLivingSources(params: {
     // A coordinator conflict can run build again. Only the final attempt may
     // publish verification and cooldown state.
     earningsScanned = false;
+    payoutActivityScanned = false;
     connectionsScanned = false;
     consentScanned = false;
     curatedConnectorsScanned = false;
     earningsVerifiedAt = undefined;
+    payoutActivityVerifiedAt = undefined;
     connectionVerifiedAt = undefined;
     consentVerifiedAt = undefined;
     curatedConnectorsVerifiedAt = undefined;
@@ -466,11 +555,28 @@ export async function syncLivingSources(params: {
         unavailable.push("document_earning");
       }
     }
+    if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.payout_activity,
+      maxAge: PAYOUT_ACTIVITY_FRESHNESS_MS,
+      forced: params.forcePayoutActivity,
+      cache: lastPayoutActivityScan,
+    })) {
+      try {
+        inputs.push(...await collectPayoutActivity(params.vaultOwnerToken));
+        successful.push("payout_activity");
+        payoutActivityScanned = true;
+        payoutActivityVerifiedAt = new Date().toISOString();
+      } catch {
+        unavailable.push("payout_activity");
+      }
+    }
     // Tombstones are retained for owner provenance. Refuse a source update
     // before its encrypted retained history grows beyond its declared bound.
     for (const [kind, limit] of [
       ["connection", MAX_RETAINED_CONNECTION_RECORDS],
       ["document_earning", MAX_RETAINED_DOCUMENT_EARNINGS],
+      ["payout_activity", MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS],
       ["curated_oauth_connector", MAX_RETAINED_CURATED_OAUTH_CONNECTORS],
       ["consent", MAX_RETAINED_CONSENT_RECORDS],
     ] as const) {
@@ -488,6 +594,7 @@ export async function syncLivingSources(params: {
       if (!unavailable.includes(kind)) unavailable.push(kind);
       if (kind === "connection") connectionsScanned = false;
       if (kind === "document_earning") earningsScanned = false;
+      if (kind === "payout_activity") payoutActivityScanned = false;
       if (kind === "consent") {
         consentScanned = false;
         consentOverflowed = true;
@@ -530,6 +637,7 @@ export async function syncLivingSources(params: {
         {
           connection: connectionVerifiedAt,
           document_earning: earningsVerifiedAt,
+          payout_activity: payoutActivityVerifiedAt,
           consent: consentVerifiedAt,
           curated_oauth_connector: curatedConnectorsVerifiedAt,
         },
@@ -561,6 +669,10 @@ export async function syncLivingSources(params: {
   if (earningsScanned)
     lastDocumentEarningsScan.set(params.userId, {
       epoch, verifiedAt: earningsVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (payoutActivityScanned)
+    lastPayoutActivityScan.set(params.userId, {
+      epoch, verifiedAt: payoutActivityVerifiedAt!, completedAt: storedSnapshotAt,
     });
   if (connectionsScanned)
     lastConnectionScan.set(params.userId, {

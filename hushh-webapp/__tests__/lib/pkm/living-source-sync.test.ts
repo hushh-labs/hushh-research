@@ -6,6 +6,7 @@ const m = vi.hoisted(() => ({
   connections: vi.fn(),
   connectors: vi.fn(),
   earnings: vi.fn(),
+  activity: vi.fn(),
   save: vi.fn(),
   epoch: 0,
 }));
@@ -23,6 +24,9 @@ vi.mock("@/lib/services/external-connector-service", () => ({
 }));
 vi.mock("@/lib/services/document-payout-service", () => ({
   DocumentPayoutService: { earnings: m.earnings },
+}));
+vi.mock("@/lib/services/payout-activity-service", () => ({
+  PayoutActivityService: { list: m.activity },
 }));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain: m.save },
@@ -100,6 +104,23 @@ const earning = (number: number, stripeMode: "live" | "test" | "legacy" = "live"
 const earningsPage = (mode: "live" | "test", transactions = [] as ReturnType<typeof earning>[], nextCursor: string | null = null) => ({
   mode, currency: "USD", transactions, nextCursor,
 });
+const cashOut = (status = "succeeded") => ({
+  id: `redemption:${earningId(88)}`, kind: "redemption" as const,
+  status, reversalStatus: "none", occurredAt: T, updatedAt: T,
+  coinsDelta: -300, amountCents: 300, test: false,
+  request: { label: "must-not-persist" },
+  bank: { last4: "1234" }, providerTransferId: "tr_must-not-persist",
+});
+const deposit = () => ({
+  id: "deposit:po_PrivateProvider1234", kind: "deposit" as const,
+  status: "in_transit", occurredAt: T, updatedAt: T,
+  coinsDelta: null, amountCents: 300, test: false,
+  expectedArrivalAt: T, bank: { last4: "1234" },
+});
+const activityPage = (mode: "live" | "test", items: unknown[] = [], nextCursor: string | null = null) => ({
+  mode, kind: "all" as const, asOf: T, balanceCoins: 0,
+  items, nextCursor, reset: false,
+});
 let stored: Record<string, unknown>;
 const inventory = () =>
   (stored._private as { inventory: LivingSourceInventory }).inventory;
@@ -121,6 +142,7 @@ beforeEach(() => {
   });
   m.earnings.mockImplementation(async (_token, _cursor, mode) =>
     earningsPage(mode));
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
   m.save.mockImplementation(async (p) => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
@@ -128,6 +150,42 @@ beforeEach(() => {
     stored = plan.domainData;
     return { success: true };
   });
+});
+it("projects real payout activity metadata without bank or provider details", async () => {
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode,
+    query.mode === "live" ? [
+      { ...cashOut(), id: `earning:${earningId(1)}`, kind: "earning" },
+      cashOut(), deposit(),
+    ] : []));
+  await syncLivingSources(params);
+  expect(m.activity).toHaveBeenCalledTimes(4);
+  const rows = inventory().records.filter((record) => record.kind === "payout_activity");
+  expect(rows).toHaveLength(2);
+  expect(rows.every((row) => /^(live|test):[a-f0-9]{64}$/.test(row.id))).toBe(true);
+  expect(Object.fromEntries(rows.map((row) => [row.value.kind, row.value]))).toEqual({
+    redemption: { kind: "redemption", mode: "live", occurredAt: T, updatedAt: T,
+      amountCents: 300, coinsDelta: -300, status: "succeeded", reversalStatus: "none" },
+    deposit: { kind: "deposit", mode: "live", occurredAt: T, updatedAt: T,
+      amountCents: 300, coinsDelta: null, status: "in_transit", expectedArrivalAt: T },
+  });
+  expect(JSON.stringify(stored)).not.toContain("po_PrivateProvider1234");
+  expect(JSON.stringify(stored)).not.toContain("must-not-persist");
+  expect(JSON.stringify(stored)).not.toContain("1234");
+});
+
+it("retains payout activity on an incomplete scan and tombstones only after two complete scans", async () => {
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode,
+    query.mode === "live" ? [cashOut()] : []));
+  await syncLivingSources(params);
+  const before = inventory().records.find((record) => record.kind === "payout_activity");
+  m.activity.mockImplementation(async (_token, query) => ({
+    ...activityPage(query.mode), nextCursor: "incomplete",
+  }));
+  await expect(syncLivingSources({ ...params, forcePayoutActivity: true })).rejects.toThrow("incomplete");
+  expect(inventory().records.find((record) => record.kind === "payout_activity")).toEqual(before);
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
+  await syncLivingSources({ ...params, forcePayoutActivity: true });
+  expect(inventory().records.find((record) => record.kind === "payout_activity")?.deletedAt).not.toBeNull();
 });
 it("reads live and test earnings by complete keyset pages with only receipt metadata", async () => {
   const firstPage = Array.from({ length: 20 }, (_, index) => earning(index + 1));
