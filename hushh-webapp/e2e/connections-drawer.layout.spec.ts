@@ -1572,15 +1572,27 @@ async function presenceMotion(canvases: Locator) {
     let frame: number;
     let maxReadMs = 0;
     const started = performance.now();
+    let lastFrame = started;
+    let maxFrameGapMs = 0;
+    let visibleFrames = 0;
+    let focusedFrames = 0;
     const finish = () => {
       clearTimeout(timer);
       cancelAnimationFrame(frame);
+      const finished = performance.now();
+      maxFrameGapMs = Math.max(maxFrameGapMs, finished - lastFrame);
       resolve(observations.map(({ source, changed, paintedSamples }) => ({ changed, frames, maxReadMs, paintedSamples,
-        duration: performance.now() - started, status: source.dataset.onePresencePlayback,
+        maxFrameGapMs, visibleFrames, focusedFrames,
+        duration: finished - started, status: source.dataset.onePresencePlayback,
         state: source.parentElement?.dataset.onePresenceArtwork })));
     };
     const sample = () => {
       frames++;
+      const now = performance.now();
+      maxFrameGapMs = Math.max(maxFrameGapMs, now - lastFrame);
+      lastFrame = now;
+      if (!document.hidden) visibleFrames++;
+      if (document.hasFocus()) focusedFrames++;
       for (const observation of observations) {
         if (observation.changed) continue;
         const readStarted = performance.now();
@@ -1614,6 +1626,10 @@ async function expectPresenceMotion(canvases: Locator) {
 }
 
 test.describe("One profile artwork and animated presence", () => {
+  // Keep native animation phases from competing with this group's Retina
+  // resize and lifecycle cases. Default preserves independent retries and
+  // runs every case after a failure; serial would skip dependent cases.
+  test.describe.configure({ mode: "default" });
   test.use({ deviceScaleFactor: 3 });
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
     let release!: () => void;
