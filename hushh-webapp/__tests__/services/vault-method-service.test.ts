@@ -9,6 +9,9 @@ vi.mock("@/lib/services/vault-service", () => ({
     deleteVaultWrapper: vi.fn(),
     setPrimaryVaultMethod: vi.fn(),
     canUseGeneratedDefaultVault: vi.fn(),
+    getWrapperByMethod: vi.fn((state, method) =>
+      state?.wrappers?.find((w: { method: string }) => w.method === method) ?? null
+    ),
   },
 }));
 
@@ -23,8 +26,13 @@ vi.mock("@/lib/vault/rewrap-vault-key", () => ({
   rewrapVaultKeyWithPassphrase: vi.fn(),
 }));
 
+vi.mock("@/lib/vault/passphrase-key", () => ({
+  unlockVaultWithPassphrase: vi.fn(),
+}));
+
 import { VaultService, type VaultState } from "@/lib/services/vault-service";
 import { rewrapVaultKeyWithPassphrase } from "@/lib/vault/rewrap-vault-key";
+import { unlockVaultWithPassphrase } from "@/lib/vault/passphrase-key";
 import { VaultMethodService } from "@/lib/services/vault-method-service";
 
 describe("VaultMethodService.changePassphrase", () => {
@@ -70,6 +78,25 @@ describe("VaultMethodService.changePassphrase", () => {
       salt: "wrapped-salt",
       iv: "wrapped-iv",
     });
+    vi.mocked(unlockVaultWithPassphrase).mockResolvedValue(
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
+  });
+
+  it("fails when current passphrase is provided but incorrect", async () => {
+    vi.mocked(unlockVaultWithPassphrase).mockRejectedValueOnce(
+      new Error("Invalid passphrase"),
+    );
+
+    await expect(
+      VaultMethodService.changePassphrase({
+        userId: "uid-1",
+        currentVaultKey:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        currentPassphrase: "wrong-passphrase",
+        newPassphrase: "new-passphrase-123",
+      }),
+    ).rejects.toThrow(/Current passphrase is incorrect/i);
   });
 
   it("updates passphrase wrapper without changing primary method by default", async () => {
@@ -79,9 +106,16 @@ describe("VaultMethodService.changePassphrase", () => {
       userId: "uid-1",
       currentVaultKey:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      currentPassphrase: "correct-current-passphrase",
       newPassphrase: "new-passphrase-123",
     });
 
+    expect(unlockVaultWithPassphrase).toHaveBeenCalledWith(
+      "correct-current-passphrase",
+      "e2",
+      "s2",
+      "i2",
+    );
     expect(upsertWrapperMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "uid-1",
