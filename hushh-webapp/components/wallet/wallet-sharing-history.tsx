@@ -120,9 +120,9 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     <SettingsDetailPanel open={Boolean(detail)} onOpenChange={open => { if (!open && !busy) { setSelection(null); setOpened(null); } }}
       title={detail ? direction === "outgoing" ? detail.recipientName : detail.senderName : "Share details"}
       description={detail?.displayLabel} eyebrow={direction === "outgoing" ? "Shared card" : "Received card"}
-      leading={<Button variant="ghost" size="icon" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail}`}
+      leading={<Button variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail}`}
       bodyClassName="space-y-5"
-      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button size="sm" variant="secondary" aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(detail)}>Revoke access</Button> : undefined}>
+      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button size="compact" variant="secondary" aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(detail)}>Revoke access</Button> : undefined}>
       {detail ? <>
         <SettingsGroup title="Share details">
           <SettingsRow title="Status" description={detail.status === "revoked" ? "Revoked" : detail.status === "expired" ? "Expired" : "Active"} />

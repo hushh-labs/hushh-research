@@ -2171,8 +2171,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
  */
 .profile-pane-sheet[data-slot="sheet-content"],
 [data-app-side-pane],
-[data-agent-history-drawer] {
-  /* One bounded-pane recipe for Profile and Chats. */
+[data-agent-history-drawer],
+[data-app-pane-material="profile"] {
+  /* One material authority for panes and their portaled controls. */
   --app-side-pane-header-padding: 20px 68px 15px 20px;
   --app-side-pane-row-inset: 6px;
   --app-side-pane-row-gap: 5px;
@@ -2185,6 +2186,22 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-section-line: 14px;
   --app-side-pane-section-weight: 600;
   --app-side-pane-section-tracking: 0.02em;
+  --profile-pane-surface: rgba(255, 255, 255, 0.48);
+  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
+  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
+  --profile-pane-hair: rgba(36, 43, 52, 0.12);
+  --profile-pane-shadow:
+    0 36px 90px rgba(35, 42, 51, 0.22),
+    0 4px 18px rgba(35, 42, 51, 0.1);
+}
+
+.profile-pane-sheet[data-slot="sheet-content"],
+[data-app-side-pane],
+[data-agent-history-drawer] {
+  /* One bounded-pane recipe for Profile and Chats. */
   --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
   --app-side-pane-top-inset: max(
     var(--app-side-pane-gutter),
@@ -2208,16 +2225,6 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     100dvh - var(--app-side-pane-top-inset) - var(--app-side-pane-bottom-inset)
   );
   --app-side-pane-height: min(820px, var(--app-side-pane-available-height));
-  --profile-pane-surface: rgba(255, 255, 255, 0.48);
-  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
-  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
-  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
-  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
-  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
-  --profile-pane-hair: rgba(36, 43, 52, 0.12);
-  --profile-pane-shadow:
-    0 36px 90px rgba(35, 42, 51, 0.22),
-    0 4px 18px rgba(35, 42, 51, 0.1);
   top: calc(
     var(--app-side-pane-top-inset) +
       (var(--app-side-pane-available-height) - var(--app-side-pane-height)) * 0.5
@@ -2246,7 +2253,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color-scheme: light;
 }
 
-.profile-pane-sheet[data-slot="sheet-content"]::after {
+.profile-pane-sheet[data-slot="sheet-content"]::after,
+[data-agent-history-drawer]::after {
   content: "";
   position: absolute;
   z-index: 5;
@@ -2263,6 +2271,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   animation: profile-pane-sheen 11s ease-in-out infinite;
 }
 
+[data-agent-history-drawer][aria-hidden="true"]::after {
+  animation-play-state: paused;
+}
+
 @keyframes profile-pane-sheen {
   0%,
   38% {
@@ -2277,7 +2289,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark [data-agent-history-drawer],
-.dark [data-app-side-pane] {
+.dark [data-app-side-pane],
+.dark [data-app-pane-material="profile"] {
   --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
@@ -2288,6 +2301,12 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   --profile-pane-shadow:
     0 42px 110px rgba(0, 0, 0, 0.58),
     0 4px 20px rgba(0, 0, 0, 0.32);
+}
+
+html.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark [data-agent-history-drawer],
+.dark [data-app-side-pane] {
   border-color: rgba(255, 255, 255, 0.14) !important;
   box-shadow:
     var(--profile-pane-shadow),
@@ -2317,16 +2336,33 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
  * the inner sidebar only owns content and scrolling. */
 [data-agent-history-drawer],
 .dark [data-agent-history-drawer] {
-  /* A transformed WKWebView surface cannot reliably blur its backdrop.
-   * Keep the bounded frame and shared scrim, but make chat text independent
-   * of backdrop-filter support during and after the slide. */
-  --profile-pane-surface: var(--background);
   --agent-history-shadow-clearance: 48px;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   right: auto !important;
   left: var(--app-side-pane-left-inset) !important;
-  overflow: hidden;
+  /* Clip decorative sheen without creating a focus-scroll container. The
+     sidebar owns scrolling; rename must not scroll the entire frame. */
+  overflow: clip;
+  transition-duration: var(--motion-sheet-enter-duration), var(--motion-sheet-enter-duration), 0s;
+}
+
+[data-agent-history-drawer][data-state="closed"] {
+  /* Preserve mounted history while retiring its filter after the exit. */
+  visibility: hidden;
+  transition-duration: var(--motion-sheet-exit-duration), var(--motion-sheet-exit-duration), 0s;
+  transition-delay: 0s, 0s, var(--motion-sheet-exit-duration);
+}
+
+[data-app-pane-material="profile"] {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+  backdrop-filter: blur(34px) saturate(175%);
+  -webkit-backdrop-filter: blur(34px) saturate(175%);
+}
+
+[data-app-pane-material="profile"] [role="menuitem"] {
+  font-size: var(--app-side-pane-row-title-size);
+  line-height: var(--app-side-pane-row-title-line);
+  font-weight: var(--app-side-pane-row-title-weight);
 }
 
 [data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
@@ -2366,6 +2402,16 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 [data-agent-history-drawer] :is([data-agent-history-row], [data-drive-sharing-row]) {
   border-radius: 15px;
+}
+
+[data-agent-history-drawer] [data-agent-history-row] {
+  background: transparent;
+  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
+}
+
+[data-agent-history-drawer] [data-agent-history-row] > :is(div, form) {
+  position: relative;
+  z-index: 1;
 }
 
 [data-agent-history-drawer] [data-agent-history-row] > div > button,
@@ -2637,7 +2683,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:hover),
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible) {
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible),
+[data-agent-history-drawer] [data-agent-history-row]:has(button:not(:disabled):hover),
+[data-agent-history-drawer] [data-agent-history-row]:has(button:focus-visible) {
   transform: translateX(3px);
 }
 
@@ -2645,7 +2693,10 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
    including keyboard focus on preference fields. The sheet owns the blur. */
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
-.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before {
+.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before,
+[data-agent-history-drawer] [data-agent-history-row]:has(button:not(:disabled):hover)::before,
+[data-agent-history-drawer] [data-agent-history-row]:has(:focus-visible)::before,
+[data-agent-history-drawer] [data-agent-history-row][data-state="active"]::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -2732,7 +2783,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   padding-top: 22px !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"] {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"],
+[data-app-pane-material="profile"] {
   border: 1px solid var(--profile-pane-card-border) !important;
   border-radius: 17px !important;
   background: var(--profile-pane-card-surface) !important;
@@ -2815,27 +2867,32 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 @media (prefers-reduced-transparency: reduce) {
   .profile-pane-sheet[data-slot="sheet-content"],
-  [data-agent-history-drawer] {
+  [data-agent-history-drawer],
+  [data-app-pane-material="profile"] {
     background: var(--app-card-surface-default-solid) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
 
-  .profile-pane-sheet[data-slot="sheet-content"]::after {
+  .profile-pane-sheet[data-slot="sheet-content"]::after,
+  [data-agent-history-drawer]::after {
     display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"]::after {
+  .profile-pane-sheet[data-slot="sheet-content"]::after,
+  [data-agent-history-drawer]::after {
     animation: none;
   }
 
   .profile-pane-close,
   .app-side-pane-close,
   [data-agent-history-drawer] [data-agent-history-close],
-  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
+  [data-agent-history-drawer] [data-agent-history-row] {
     transition: none !important;
+    transform: none !important;
   }
 }
 
@@ -6434,6 +6491,21 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   --one-chat-get-app-bezel: #3a3a40;
 }
 
+/* Drawer controls inherit Profile's material; the workspace keeps its palette. */
+[data-agent-history-drawer] [data-one-chat-surface],
+[data-one-chat-surface][data-app-pane-material="profile"] {
+  --one-chat-search-border: var(--profile-pane-hair);
+  --one-chat-search-bg: var(--profile-pane-surface-soft);
+  --one-chat-divider: var(--profile-pane-hair);
+  --one-chat-raised: var(--profile-pane-card-surface);
+  --one-chat-menu: var(--profile-pane-card-surface);
+  --one-chat-field: var(--profile-pane-surface-soft);
+  --one-chat-field-strong: var(--profile-pane-surface-strong);
+  --one-chat-row-hover: var(--profile-pane-surface-soft);
+  --one-chat-row-active: var(--profile-pane-surface-strong);
+  --one-chat-meta: var(--ios-account-secondary-label);
+}
+
 /* Answer formatting (AgentMarkdown). One set of tokens for every surface that
    renders an answer; the One chat surface points them at its bubble.
    - link: 4.5:1 or better on the bubble in both themes and both accents. The
@@ -7799,6 +7871,14 @@ html.native-android.dark .kai-bottom-nav-pill {
 
 html.native-android .chrome-glass-surface {
   background-color: var(--background);
+}
+
+/* Profile and Chats retain readable material when Android disables blur. */
+html.native-android .profile-pane-sheet[data-slot="sheet-content"],
+html.native-android [data-agent-history-drawer],
+html.native-android [data-app-pane-material="profile"] {
+  --profile-pane-surface: var(--app-card-surface-default-solid);
+  --profile-pane-card-surface: var(--app-card-surface-default-solid);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -16,13 +16,14 @@ describe("Wallet Profile management controls", () => {
     const props = { card, shareLink: { shareUrl: "https://one.hushh.ai/c/current", shareToken: "current", version: 1 }, applePassSupported: true, busyAction: null, onAction, shareAction: <button>Share card image</button> };
     const view = render(<WalletCardManage {...props} />);
     expect(screen.getByLabelText("Your Wallet Profile QR code")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Rotate QR access/ })).toBeNull();
     expect(screen.getByText("42")).toBeVisible();
     expect(screen.getByRole("button", { name: "Share card image" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Share your link" })).toBeNull();
 
     const actions = [
       ["Preview as visitor", "preview"], ["Edit shared information", "edit"],
-      ["Pause sharing", "pause"], ["Rotate QR access", "rotate"],
+      ["Pause sharing", "pause"], ["Revoke access", "rotate"],
       ["Remove Wallet profile", "remove"], ["Add to Apple Wallet", "add-to-wallet"],
       ["Copy link", "copy"],
     ];
@@ -39,5 +40,9 @@ describe("Wallet Profile management controls", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Resume sharing\b/ }));
     expect(onAction).toHaveBeenLastCalledWith("resume");
     expect(screen.queryByRole("button", { name: /^Pause sharing\b/ })).toBeNull();
+    view.rerender(<WalletCardManage {...props} shareLink={null} />);
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    expect(onAction).toHaveBeenLastCalledWith("rotate");
   });
 });
