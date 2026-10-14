@@ -27,9 +27,7 @@ export async function GET(request: NextRequest) {
         },
       }
     );
-    const payload = await response
-      .json()
-      .catch(async () => ({ error: await response.text().catch(() => "") }));
+    const payload = await response.json().catch(() => ({ error: "Backend error" }));
     return NextResponse.json(payload, { status: response.status });
   } catch (error) {
     console.error("[API] export-refresh/jobs error:", error);
