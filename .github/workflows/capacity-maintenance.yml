@@ -262,10 +262,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions: {}
-    # Each maintenance run has its own verified deadline. Do not serialize
-    # hour-long waits from separate runs or discard a pending follow-up.
+    # One shared group: at most one runner sleeps through a drain at a time.
+    # A group per run let every maintenance pass park its own sleeper on the
+    # org's 20 shared hosted runners. On 2026-10-14, 19 sleepers held 827
+    # runner-minutes, up to 6 at once (14:01Z), while PR Validation jobs
+    # queued p90 14.5 minutes for a runner in the same window.
+    # `queue: max` still keeps every later pass as a pending job (a pending
+    # job holds no runner), so no follow-up is discarded. When one starts,
+    # it sleeps only for whatever remains of its own verified deadline,
+    # which is usually already due. The recheck re-verifies the source and
+    # the traffic fingerprint before any delete, so a serialized wait can
+    # delay a cleanup but can never make one unsafe.
     concurrency:
-      group: capacity-uat-drain-wait-${{ github.run_id }}
+      group: capacity-uat-drain-wait
       cancel-in-progress: false
       queue: max
     env:

@@ -374,7 +374,11 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("needs.uat-maintenance.outputs.drain_not_before != ''", wait_job)
         self.assertIn("permissions: {}", wait_job)
         self.assertNotIn("group: deploy-uat", wait_job)
-        self.assertIn("group: capacity-uat-drain-wait-${{ github.run_id }}", wait_job)
+        # One shared group, so at most one runner sleeps at a time; queue: max
+        # keeps later passes pending (no runner held) instead of discarding them.
+        self.assertIn("      group: capacity-uat-drain-wait\n", wait_job)
+        self.assertNotIn("capacity-uat-drain-wait-${{", wait_job)
+        self.assertIn("cancel-in-progress: false", wait_job)
         self.assertIn("queue: max", wait_job)
         self.assertIn("timeout-minutes: 75", wait_job)
         self.assertIn("DRAIN_NOT_BEFORE + 60 - now", wait_job)
