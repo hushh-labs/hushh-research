@@ -1529,7 +1529,7 @@ async function expectPresencePlayback(artwork: Locator) {
     await expect(artwork.locator("canvas")).toHaveCSS("visibility", "visible");
   } catch (error) {
     console.log("One playback failure", await artwork.evaluate(element => ({
-      state: element.getAttribute("data-one-presence-state"),
+      state: element.getAttribute("data-one-presence-artwork") ?? element.getAttribute("data-one-presence-state"),
       hidden: document.hidden,
       reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
       canvases: [...element.querySelectorAll("canvas")].map(canvas => ({
@@ -1543,6 +1543,45 @@ async function expectPresencePlayback(artwork: Locator) {
     })));
     throw error;
   }
+}
+
+async function expectPresenceMotion(canvas: Locator) {
+  const motion = await canvas.evaluate((source: HTMLCanvasElement) => new Promise(resolve => {
+    // Observe every displayed frame in the browser. Connected's authored
+    // 24 FPS blink can be missed by a 50ms + protocol-roundtrip poll.
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = 128;
+    const context = probe.getContext("2d", { willReadFrequently: true })!;
+    let first: number | undefined;
+    let frames = 0;
+    let frame: number;
+    const started = performance.now();
+    const finish = (changed: boolean) => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      resolve({ changed, frames, duration: performance.now() - started, status: source.dataset.onePresencePlayback });
+    };
+    const sample = () => {
+      context.clearRect(0, 0, 128, 128);
+      context.drawImage(source, 0, 0, 128, 128);
+      const pixels = context.getImageData(0, 0, 128, 128).data;
+      let hash = 0, painted = false;
+      for (let index = 0; index < pixels.length; index++) {
+        const value = pixels[index]!;
+        hash = (Math.imul(hash, 31) + value) | 0;
+        if (index % 4 === 3 && value > 0) painted = true;
+      }
+      frames++;
+      if (painted) {
+        if (first !== undefined && hash !== first) return finish(true);
+        first = hash;
+      }
+      frame = requestAnimationFrame(sample);
+    };
+    const timer = setTimeout(() => finish(false), 6500);
+    frame = requestAnimationFrame(sample);
+  }));
+  expect(motion, JSON.stringify(motion)).toMatchObject({ changed: true });
 }
 
 test.describe("One profile artwork and animated presence", () => {
@@ -1649,6 +1688,9 @@ test.describe("One profile artwork and animated presence", () => {
     expect(proof.minPeakAlpha, JSON.stringify(proof.minLayers)).toBeGreaterThanOrEqual(250);
   });
   test("keeps header and profile presence in sync through all four native Rive states", async ({ page }) => {
+    // Cold WASM loading plus two surfaces' three-second idle loops precede
+    // the remaining native states; all bounded playback assertions still apply.
+    test.setTimeout(45000);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
@@ -1685,6 +1727,7 @@ test.describe("One profile artwork and animated presence", () => {
       const bounds = (await profile.boundingBox())!;
       expect(bounds.width).toBe(192); expect(bounds.height).toBe(192);
       for (const artwork of [header, profile]) {
+        await expectPresencePlayback(artwork.locator(`[data-one-presence-artwork="${phase.state}"]`));
         await expect(artwork.locator("[data-one-presence-artwork]")).toHaveCount(1);
         await expect(artwork.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", phase.state);
         const canvas = artwork.locator("canvas");
@@ -1692,9 +1735,7 @@ test.describe("One profile artwork and animated presence", () => {
         await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
         await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
-        const first = (await presencePixels(canvas)).hash;
-        // Connected's authored blink occurs only twice in the three-second loop.
-        await expect.poll(async () => (await presencePixels(canvas)).hash, { timeout: 6500, intervals: [50] }).not.toBe(first);
+        await expectPresenceMotion(canvas);
       }
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
