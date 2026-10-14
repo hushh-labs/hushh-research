@@ -10338,7 +10338,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public invitation preview preserves its token through authentication and vault setup.",
+        "exemption_reason": "Public invitation keeps its claim capability in the browser through authentication and vault setup.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -10346,9 +10346,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.world_model.invite",
-          "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+          "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
           "screen": "app",
-          "entry_cue": "Review your starting profile, then continue when ready.",
+          "entry_cue": "Check your invitation, then continue when ready.",
           "proactivity": "ambient",
           "primary_action_id": null,
           "happy_path_action_ids": [],
@@ -10395,5 +10395,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "83afabcfe0f6970385b78bab58977268068caa9af92064849eac8dfa9ae7572c"
+  "content_sha256": "d398ac56325b72431b4322b5b34b277339f4e56ce6935dac48926cfb3cf97838"
 }

@@ -12,6 +12,14 @@ import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES, buildProfileVaultRoute } from "@/lib/navigation/routes";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
+import {
+  createWorldModelInvitationHandoff,
+  needsWorldModelInvitationAccountSwitch,
+  readWorldModelInvitationHandoff,
+  switchWorldModelInvitationHandoffAccount,
+  worldModelInvitationClaimRoute,
+  worldModelInvitationHandoffRoute,
+} from "@/lib/world-model/invitation-handoff";
 
 type Preview = Awaited<ReturnType<typeof WorldModelInvitationsService.preview>>;
 
@@ -19,29 +27,57 @@ export default function WorldModelInvitePage() {
   const router = useRouter();
   const { user, loading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState<string | null>(null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [message, setMessage] = useState("Opening your preview…");
+  const [message, setMessage] = useState("Checking your invitation…");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const read = () =>
-      setToken(
-        new URLSearchParams(window.location.hash.slice(1)).get("claim") || "",
+    const read = () => {
+      const fromFragment = new URLSearchParams(window.location.hash.slice(1)).get("claim");
+      if (fromFragment) {
+        setAccountSwitchHandoff(null);
+        setToken(fromFragment);
+        return;
+      }
+      const handoff = new URLSearchParams(window.location.search).get("handoff");
+      if (handoff && loading) {
+        setAccountSwitchHandoff(null);
+        setToken(null);
+        return;
+      }
+      const ownerId = sessionVerificationRequired ? null : user?.uid ?? null;
+      const recovered = handoff
+        ? readWorldModelInvitationHandoff(handoff, ownerId)
+        : null;
+      setAccountSwitchHandoff(
+        handoff && !recovered && needsWorldModelInvitationAccountSwitch(handoff, ownerId)
+          ? handoff
+          : null,
       );
+      setToken(recovered || "");
+    };
     read();
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
-  }, []);
+  }, [loading, sessionVerificationRequired, user?.uid]);
   useEffect(() => {
     let active = true;
     setPreview(null);
+    if (token === null) return;
+    if (accountSwitchHandoff) {
+      setMessage(
+        "This invitation was opened with another account. Continue with this account to verify the invited contact.",
+      );
+      return;
+    }
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
       setMessage(
         "This invitation is unavailable. Ask the sender for a new link.",
       );
       return;
     }
-    setMessage("Opening your preview…");
+    setMessage("Checking your invitation…");
     void WorldModelInvitationsService.preview(token)
       .then((value) => {
         if (active) {
@@ -58,10 +94,30 @@ export default function WorldModelInvitePage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [accountSwitchHandoff, token]);
+  function continueWithThisAccount() {
+    if (!accountSwitchHandoff || !user || loading || sessionVerificationRequired) return;
+    const recovered = switchWorldModelInvitationHandoffAccount(
+      accountSwitchHandoff,
+      user.uid,
+    );
+    setAccountSwitchHandoff(null);
+    setToken(recovered || "");
+    if (!recovered) {
+      setMessage("This invitation is unavailable. Ask the sender for a new link.");
+    }
+  }
   async function continueToClaim() {
-    if (!preview || busy) return;
-    const destination = `${ROUTES.WORLD_MODEL_INVITE}#claim=${encodeURIComponent(token)}`;
+    if (!preview || !token || busy) return;
+    const id = createWorldModelInvitationHandoff(
+      token,
+      user && !sessionVerificationRequired ? user.uid : null,
+    );
+    if (!id) {
+      setMessage("Couldn’t keep this invitation through sign-in. Please try again in this tab.");
+      return;
+    }
+    const destination = worldModelInvitationHandoffRoute(id);
     if (!user || sessionVerificationRequired) {
       router.push(
         `${ROUTES.LOGIN}?redirect=${encodeURIComponent(destination)}`,
@@ -78,7 +134,7 @@ export default function WorldModelInvitePage() {
         next !== destination
           ? next
           : isVaultUnlocked
-            ? `${ROUTES.PROFILE_WORLD_MODEL}#claim=${encodeURIComponent(token)}`
+            ? worldModelInvitationClaimRoute(id)
             : buildProfileVaultRoute(destination),
       );
     } catch {
@@ -87,6 +143,7 @@ export default function WorldModelInvitePage() {
       setBusy(false);
     }
   }
+  const hasPreparedPreview = preview !== null && "report" in preview;
   return (
     <AppPageShell
       width="reading"
@@ -101,38 +158,53 @@ export default function WorldModelInvitePage() {
       />
       <PageHeader
         eyebrow="Personal World Model"
-        title="Your starting profile"
-        description="Prepared by the inviter from public professional sources. You decide what belongs to you."
+        title={hasPreparedPreview ? "Your starting profile" : "Your invitation"}
+        description={
+          hasPreparedPreview
+            ? "Prepared by the inviter from public professional sources. You decide what belongs to you."
+            : "You decide whether to claim this invitation."
+        }
       />
       <div className="mt-5 space-y-4 text-[13px]">
         {preview && (
           <>
-            {preview.introduction && <p>{preview.introduction}</p>}
-            {preview.report.sections.map((section) => (
-              <section key={section.kind} className="space-y-2">
-                {section.facts.map((fact, index) => (
-                  <div
-                    key={index}
-                    className="rounded-lg border border-border p-3"
-                  >
-                    <p>{fact.statement}</p>
-                    {fact.sources.map((source) => (
-                      <a
-                        key={source.url}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex min-h-11 items-center text-xs underline"
+            {"report" in preview ? (
+              <>
+                {preview.introduction && <p>{preview.introduction}</p>}
+                {preview.report.sections.map((section) => (
+                  <section key={section.kind} className="space-y-2">
+                    {section.facts.map((fact, index) => (
+                      <div
+                        key={index}
+                        className="rounded-lg border border-border p-3"
                       >
-                        {source.title}
-                      </a>
+                        <p>{fact.statement}</p>
+                        {fact.sources.map((source) => (
+                          <a
+                            key={source.url}
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-11 items-center text-xs underline"
+                          >
+                            {source.title}
+                          </a>
+                        ))}
+                      </div>
                     ))}
-                  </div>
+                  </section>
                 ))}
-              </section>
-            ))}
+              </>
+            ) : (
+              <p>
+                This invitation does not include a prepared preview. Continue
+                to verify the invited contact, then choose whether to claim or
+                reject it.
+              </p>
+            )}
             <HelperText>
-              Verify the invited contact to claim or reject this preview.
+              {hasPreparedPreview &&
+                "Verify the invited contact to claim or reject this preview. "}
               Claiming gives the sender no access to your model.
             </HelperText>
             <Button
@@ -140,11 +212,16 @@ export default function WorldModelInvitePage() {
               disabled={busy || loading}
               onClick={() => void continueToClaim()}
             >
-              Continue to review
+              {hasPreparedPreview ? "Continue to review" : "Continue to verify"}
             </Button>
           </>
         )}
         {message && <HelperText role="status">{message}</HelperText>}
+        {accountSwitchHandoff && user && !loading && !sessionVerificationRequired && (
+          <Button size="compact" onClick={continueWithThisAccount}>
+            Continue with this account
+          </Button>
+        )}
       </div>
     </AppPageShell>
   );

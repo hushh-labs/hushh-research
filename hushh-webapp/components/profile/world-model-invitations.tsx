@@ -21,6 +21,12 @@ import {
 } from "@/lib/services/world-model-invitations-service";
 import { shareLink, isShareCancellationError } from "@/lib/share/share-link";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  clearWorldModelInvitationHandoffsForToken,
+  needsWorldModelInvitationAccountSwitch,
+  readWorldModelInvitationHandoff,
+  worldModelInvitationHandoffRoute,
+} from "@/lib/world-model/invitation-handoff";
 
 export function WorldModelInvitations({
   ownerId,
@@ -35,9 +41,8 @@ export function WorldModelInvitations({
 }) {
   const router = useRouter();
   const query = useSearchParams();
-  const [claimToken, setClaimToken] = useState<string | null>(
-    query.get("claim"),
-  );
+  const [claimToken, setClaimToken] = useState<string | null>(null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [name, setName] = useState(""),
     [sourceUrl, setSourceUrl] = useState(""),
     [introduction, setIntroduction] = useState("");
@@ -54,22 +59,32 @@ export function WorldModelInvitations({
     [researchConsent, setResearchConsent] = useState(false);
   const { reload: reloadResearch } = useWorldModelResearch();
   useEffect(() => {
-    const syncToken = () =>
-      setClaimToken(
-        new URLSearchParams(window.location.hash.slice(1)).get("claim") ||
-          query.get("claim"),
+    const syncToken = () => {
+      const handoff = query.get("handoff");
+      const recovered = handoff
+        ? readWorldModelInvitationHandoff(handoff, ownerId)
+        : null;
+      setAccountSwitchHandoff(
+        handoff && !recovered && needsWorldModelInvitationAccountSwitch(handoff, ownerId)
+          ? handoff
+          : null,
       );
+      setClaimToken(
+        recovered ||
+          new URLSearchParams(window.location.hash.slice(1)).get("claim"),
+      );
+    };
     syncToken();
     window.addEventListener("hashchange", syncToken);
     return () => window.removeEventListener("hashchange", syncToken);
-  }, [query]);
+  }, [ownerId, query]);
   useEffect(() => {
     let active = true;
     setReceivedPreview(null);
     if (claimToken)
       void WorldModelInvitationsService.preview(claimToken)
         .then((row) => {
-          if (active) setReceivedPreview(row);
+          if (active && "report" in row) setReceivedPreview(row);
         })
         .catch(() => {});
     return () => {
@@ -152,12 +167,25 @@ export function WorldModelInvitations({
           Prepare a short public professional preview, review it, then share a
           contact-bound invitation. Their full model stays under their control.
         </HelperText>
+        {accountSwitchHandoff && (
+          <div className="space-y-2 rounded-lg border border-border p-3 text-[13px]">
+            <p>This invitation was opened with another account.</p>
+            <Button
+              size="compact"
+              onClick={() =>
+                router.replace(worldModelInvitationHandoffRoute(accountSwitchHandoff))
+              }
+            >
+              Review invitation with this account
+            </Button>
+          </div>
+        )}
         {claimToken && (
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-[13px]">
-              You’ve been invited to claim this starting profile. Verify the
-              invited contact, then review what belongs to you. Claiming shares
-              nothing back.
+              You’ve been invited to claim a Personal World Model. Verify the
+              invited contact, then choose whether to claim or reject the
+              invitation. Claiming shares nothing back.
             </p>
             {receivedPreview && (
               <div className="space-y-2 text-xs">
@@ -208,8 +236,9 @@ export function WorldModelInvitations({
                     researchConsent,
                   );
                   await capture.assertCurrent();
+                  clearWorldModelInvitationHandoffsForToken(claimToken);
                   setMessage(
-                    "Claimed. Review your source details above. Nothing has been shared back.",
+                    "Claimed. You can now review and build your model. Nothing has been shared back.",
                   );
                   setClaimToken(null);
                   reloadResearch();
@@ -234,6 +263,7 @@ export function WorldModelInvitations({
                     claimToken,
                   );
                   await capture.assertCurrent();
+                  clearWorldModelInvitationHandoffsForToken(claimToken);
                   setClaimToken(null);
                   setReceivedPreview(null);
                   router.replace(ROUTES.PROFILE_WORLD_MODEL);

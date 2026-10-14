@@ -39,6 +39,9 @@ python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 python3 scripts/ci/test_private_native_artifact.py
 node --test scripts/release/dispatch-ios-appstore.test.mjs
 python3 scripts/ci/test_resolve_ios_build_number.py
+# PR Validation only restores the Next.js and Swift package caches; main saves
+# them under the keys the PR lanes look up.
+python3 scripts/ci/test_ci_cache_scopes.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check
