@@ -1249,6 +1249,44 @@ async def test_due_owner_precedes_older_upgrade_only_owner(collection, ingestion
     assert await worker.due_owners(limit=1) == ["other-owner"]
 
 
+async def test_reserved_upgrade_owner_cannot_be_crowded_out_by_due_owners(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,due-a,due-b,due-c")
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+    with ingestion.db.engine.begin() as connection:
+        for number, user_id in enumerate(("due-a", "due-b", "due-c"), 1):
+            connection.execute(
+                text("""INSERT INTO user_external_connector_connections
+                  (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+                  SELECT :user,'google_drive',1,'connected','verified',verified_policy_hash
+                  FROM user_external_connector_connections
+                  WHERE user_id='owner' AND connector_id='google_drive'"""),
+                {"user": user_id},
+            )
+            connection.execute(
+                text("""INSERT INTO connected_documents
+                  (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+                   source_version,source_profile,processing_enabled,processing_disclosure_version,
+                   collection_revision,next_attempt_at)
+                  VALUES (:id,:user,1,:fingerprint,'{}'::jsonb,'1','live',TRUE,
+                    'live-drive-collection-v1',1,clock_timestamp()-interval '1 minute')"""),
+                {"id": str(uuid.uuid4()), "user": user_id, "fingerprint": f"{number:064x}"},
+            )
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion))
+    assert await worker.due_owners(limit=2) == ["due-a", "due-b"]
+    assert await worker.due_owners(limit=2, reserve_profile_upgrade=True) == [
+        "owner",
+        "due-a",
+    ]
+
+
 @pytest.mark.parametrize("change", ["paused", "background_off", "generation", "revoked"])
 async def test_candidate_observation_cannot_commit_after_authority_changes(
     collection, drive, change

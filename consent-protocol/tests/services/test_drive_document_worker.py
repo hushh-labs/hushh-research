@@ -20,7 +20,7 @@ async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch):
     worker.due_owners = AsyncMock(return_value=["approved-owner", "other-owner"])
     result = await worker.run(max_jobs=2)
     assert result == {"schema_version": "drive.worker.v1", "outcomes": {"ready": 1, "disabled": 1}}
-    worker.due_owners.assert_awaited_once_with(2)
+    worker.due_owners.assert_awaited_once_with(2, reserve_profile_upgrade=True)
     service.run_one.assert_awaited_once_with(user_id="approved-owner", prefer_profile_upgrade=True)
     assert "owner" not in str(result) and "PRIVATE" not in str(result)
 
@@ -67,6 +67,23 @@ async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(monkeyp
     packet_worker.run.assert_awaited_once()
     assert result["outcomes"] == {"ready": 4, "synced": 2, "queued": 2}
     wake.assert_awaited_once_with("documents")
+
+
+async def test_reserved_upgrade_slot_prefers_upgrade_for_selected_owner(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "upgrade-owner,due-owner")
+    service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "ready"}))
+    worker = DriveDocumentWorker(service)
+    worker.due_owners = AsyncMock(return_value=["upgrade-owner", "due-owner"])
+
+    await worker.run(max_jobs=2)
+
+    worker.due_owners.assert_awaited_once_with(2, reserve_profile_upgrade=True)
+    assert [call.kwargs for call in service.run_one.await_args_list] == [
+        {"user_id": "upgrade-owner", "prefer_profile_upgrade": True},
+        {"user_id": "due-owner", "prefer_profile_upgrade": False},
+    ]
 
 
 async def test_single_owner_uses_bounded_sweep_for_packet_phase_progress(monkeypatch):

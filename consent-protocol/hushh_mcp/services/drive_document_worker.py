@@ -35,7 +35,7 @@ class DriveDocumentWorker:
             packet_worker = DrivePacketWorker(wake=defer_wake)
         self.packet_worker = packet_worker
 
-    async def due_owners(self, limit: int) -> list[str]:
+    async def due_owners(self, limit: int, *, reserve_profile_upgrade: bool = False) -> list[str]:
         def operation(connection):
             cohort = connector_feature_owner_cohort("drive_document_indexing")
             if cohort == ():
@@ -76,15 +76,25 @@ class DriveDocumentWorker:
                     AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
                   GROUP BY e.user_id
                 )
-                SELECT user_id FROM owner_jobs
-                GROUP BY user_id
-                ORDER BY min(lane),
-                  min(due_at) FILTER (WHERE lane=0) NULLS LAST,
-                  min(due_at) FILTER (WHERE lane=1),user_id LIMIT :limit
+                ,owner_queue AS (
+                  SELECT user_id,
+                    min(due_at) FILTER (WHERE lane=0) AS ordinary_due_at,
+                    min(due_at) FILTER (WHERE lane=1) AS upgrade_due_at
+                  FROM owner_jobs GROUP BY user_id
+                ),upgrade_pick AS (
+                  SELECT user_id FROM owner_queue
+                  WHERE :reserve_profile_upgrade AND upgrade_due_at IS NOT NULL
+                  ORDER BY (ordinary_due_at IS NOT NULL),upgrade_due_at,user_id LIMIT 1
+                )
+                SELECT q.user_id FROM owner_queue q
+                LEFT JOIN upgrade_pick u ON u.user_id=q.user_id
+                ORDER BY CASE WHEN u.user_id IS NOT NULL THEN 0 ELSE 1 END,
+                  q.ordinary_due_at NULLS LAST,q.upgrade_due_at,q.user_id LIMIT :limit
             """),
                     {
                         "disclosure": PROCESSING_DISCLOSURE_VERSION,
                         "extraction_profile": EXTRACTION_PROFILE,
+                        "reserve_profile_upgrade": reserve_profile_upgrade,
                         "limit": limit,
                         "all_owners": cohort is None,
                         "owners": list(cohort or ()),
@@ -117,9 +127,13 @@ class DriveDocumentWorker:
             processed = 0
             blocked = set()
             while processed < document_budget:
+                reserve_profile_upgrade = processed % 4 == 0 and document_budget - processed >= 2
                 owners = [
                     owner
-                    for owner in await self.due_owners(document_budget - processed)
+                    for owner in await self.due_owners(
+                        document_budget - processed,
+                        reserve_profile_upgrade=reserve_profile_upgrade,
+                    )
                     if owner not in blocked
                 ]
                 if not owners:
