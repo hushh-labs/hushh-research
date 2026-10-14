@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from hushh_mcp import runtime_settings
 from hushh_mcp.runtime_providers.factory import (
     VERTEX_ADC_AUTH_MODE,
     ManagedGeminiRuntimeBinding,
@@ -72,7 +73,7 @@ def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizat
     except (ValueError, RuntimeError):
         raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503) from None
     approved_bridge = os.getenv("POD_FILES_DEV_MODEL_PROJECT", "")
-    model_project = os.getenv("GENAI_GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    model_project = runtime_settings.pod_files_model_project()
     bridge_allowed = (
         os.getenv("HUSHH_DEPLOY_ENV") == "dev"
         and re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", approved_bridge) is not None

@@ -672,6 +672,11 @@ def provision_on_ai_connection() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION"), default=True)
 
 
+def pod_files_model_project() -> str:
+    """Read installed Files selection; capability admission owns any Dev bridge."""
+    return os.getenv("GENAI_GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
+
+
 def pod_managed_model_enabled() -> bool:
     """Allow a pod to serve a turn on the FLEET's model identity instead of the owner's.
 

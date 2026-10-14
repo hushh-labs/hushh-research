@@ -14207,7 +14207,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1378
+      "value": 1383
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -38106,6 +38106,34 @@
     "incoming_main": "b2e22e286b08a7fb25f2b70f8a4bbf52f6b3455b",
     "retained_parent": "a82db09139",
     "review": "Independent ci_registry_review qualifies exactly 52 inherited Drive measurements. Sixteen files equal incoming bytes; remaining spans preserve owner-placement guards and existing shared-owner test fixtures. Payment migration assertions move intact to their existing 267-line migration owner, leaving payment tests below incoming size. Preserve all unrelated entries, duplicate-key multiplicities, module500/class250/function80 budgets, scanner and future-growth enforcement. Source qualification is not deployed acceptance."
+  },
+  "scope_commerce_files_canonical_settings_20261013": {
+    "changes": [
+      {
+        "after": 1383,
+        "before": 1378,
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "source_git_blob": "0a67f66c420e13e8e5a7e1a7425636dbfce18bac",
+        "source_sha256": "c2e4711afd180e4dd2398d3aa1991450b1ec7b04ce046c7d95db7e59c9101580"
+      }
+    ],
+    "qualified_supporting_files": [
+      {
+        "git_blob": "0a67f66c420e13e8e5a7e1a7425636dbfce18bac",
+        "path": "consent-protocol/hushh_mcp/runtime_settings.py",
+        "sha256": "c2e4711afd180e4dd2398d3aa1991450b1ec7b04ce046c7d95db7e59c9101580"
+      },
+      {
+        "git_blob": "3cc912accd916b47de44ac81df718d33f50ba31f",
+        "path": "consent-protocol/hushh_mcp/services/pod_files/model_binding.py",
+        "sha256": "a9b80faa0e75ddb5add857b148556698c97d71dc2090de95f4ea7f4aa0a9410f"
+      }
+    ],
+    "review": "Independent source-bound single-slot qualification for the owning Files configuration getter. Retains all prior findings and review history; no detector, budget, exclusion or authority-gate changes.",
+    "source_qualification_sha256": "e16f5ed78cff70ba6d824444c224a78559bb68616f5937dd090c3bd022fd4d78",
+    "source_revision": "1078971a68781fbbed4f42f4a41c1097ce5a4e49",
+    "verification": "160 focused Files/provisioning/Azure/runtime-provider/settings/UserGcp cases, Ruff and owning runtime-configuration gate pass. Exact-candidate canonical core and deployed acceptance remain required."
   },
   "scope_commerce_gmail_main_merge_20261012": {
     "after": 91,
