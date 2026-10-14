@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+from contextvars import ContextVar
 import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -24,12 +26,17 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "hushh-pda-uat"
 REGION = "us-central1"
-MAX_WAIT_SECONDS = 90 * 60
-POLL_SECONDS = 120
+MAX_WAIT_SECONDS = 300
+POLL_SECONDS = 60
+QUERY_DEADLINE: ContextVar[float | None] = ContextVar("query_deadline", default=None)
 
 
 class AdmissionError(RuntimeError):
     pass
+
+
+class CapacityDeferred(AdmissionError):
+    """Safe capacity did not become available; only an operator may retry."""
 
 
 class TransientJobInventoryDrift(AdmissionError):
@@ -50,13 +57,51 @@ serving = load_script("uat_capacity_serving", "resolve-cloud-run-serving-state.p
 scope_tool = load_script("uat_capacity_scope", "resolve-deploy-scope.py")
 
 
-def command(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def remaining_query_seconds() -> float:
+    deadline = QUERY_DEADLINE.get()
+    remaining = 180.0 if deadline is None else deadline - time.monotonic()
+    if remaining <= 1:
+        raise AdmissionError("UAT capacity not admitted: query deadline exhausted")
+    return min(180.0, remaining - 1)
+
+
+def command(
+    args: list[str], *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    timeout = remaining_query_seconds()
     try:
-        return subprocess.run(
-            args, check=False, text=True, capture_output=True, env=env, timeout=180
+        process = subprocess.Popen(
+            args,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            start_new_session=True,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise AdmissionError(f"UAT admission query could not complete: {type(exc).__name__}") from exc
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # These descendants belong to this query, including nested gcloud/git.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate(timeout=0.5)
+            raise AdmissionError(
+                "UAT admission query timed out; no deployment authorized"
+            ) from exc
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    except OSError as exc:
+        raise AdmissionError(
+            f"UAT admission query could not complete: {type(exc).__name__}"
+        ) from exc
 
 
 def require_success(result: subprocess.CompletedProcess[str], operation: str) -> str:
@@ -117,15 +162,31 @@ def deployed_sha(service: str) -> str:
 
 
 def resolved_scope(target_sha: str, requested_scope: str) -> Any:
+    # A bounded process group also covers the resolver's nested Git queries.
+    backend_sha = deployed_sha("consent-protocol")
+    frontend_sha = deployed_sha("hushh-webapp")
+    output = require_success(
+        command(
+            [
+                sys.executable,
+                str(ROOT / "scripts/ci/resolve-deploy-scope.py"),
+                "--requested-scope",
+                requested_scope,
+                "--target-sha",
+                target_sha,
+                "--backend-base-sha",
+                backend_sha,
+                "--frontend-base-sha",
+                frontend_sha,
+                "--json",
+            ]
+        ),
+        "UAT scope resolution",
+    )
     try:
-        return scope_tool.resolve_decision(
-            requested_scope=requested_scope,
-            target_sha=target_sha,
-            backend_base_sha=deployed_sha("consent-protocol"),
-            frontend_base_sha=deployed_sha("hushh-webapp"),
-        )
-    except (ValueError, subprocess.CalledProcessError) as exc:
-        raise AdmissionError(f"UAT deploy scope cannot be verified: {exc}") from exc
+        return scope_tool.ScopeDecision(**json.loads(output))
+    except (ValueError, TypeError) as exc:
+        raise AdmissionError("UAT deploy scope cannot be verified") from exc
 
 
 def capacity_args(mode: str, decision: Any | None) -> list[str]:
@@ -193,7 +254,7 @@ def capacity_report(mode: str, decision: Any | None) -> dict[str, Any]:
     return report
 
 
-def wait_for_capacity(
+def _wait_for_capacity(
     target_sha: str,
     requested_scope: str,
     mode: str,
@@ -203,17 +264,19 @@ def wait_for_capacity(
 ) -> str:
     if max_wait_seconds <= 0 or poll_seconds <= 0:
         raise AdmissionError("UAT admission wait and poll intervals must be positive")
-    verify_request(target_sha)
     started = time.monotonic()
+    verify_request(target_sha)
     last_projection = "not yet measured"
     warned_about_maintenance = False
     while True:
         if time.monotonic() - started >= max_wait_seconds:
-            raise AdmissionError(
+            raise CapacityDeferred(
                 f"UAT capacity was not admitted ({last_projection}) within "
-                f"{max_wait_seconds}s; verified maintenance or an operator must free capacity"
+                f"{max_wait_seconds}s; retry the same exact SHA and requested scope after verified maintenance"
             )
-        decision = resolved_scope(target_sha, requested_scope) if mode == "full" else None
+        decision = (
+            resolved_scope(target_sha, requested_scope) if mode == "full" else None
+        )
         scope_name = decision.scope if decision is not None else "backend"
         try:
             report = capacity_report(mode, decision)
@@ -221,15 +284,23 @@ def wait_for_capacity(
             report = None
             last_projection = str(exc)
         if report is not None:
-            projected, limit = report["projected_connections"], report["admission_limit"]
+            projected, limit = (
+                report["projected_connections"],
+                report["admission_limit"],
+            )
             last_projection = f"{projected}/{limit}"
         if report is not None and report["admitted"]:
             # A long wait may outlive the original CI/governance evidence and
             # the service base used for auto scope. Recheck both before handoff.
             verify_request(target_sha)
-            final_decision = resolved_scope(target_sha, requested_scope) if mode == "full" else None
+            final_decision = (
+                resolved_scope(target_sha, requested_scope) if mode == "full" else None
+            )
             if final_decision is not None and final_decision.scope != scope_name:
-                print("UAT serving base changed while admitting; rechecking capacity.", flush=True)
+                print(
+                    "UAT serving base changed while admitting; rechecking capacity.",
+                    flush=True,
+                )
                 continue
             try:
                 final_report = capacity_report(mode, final_decision)
@@ -237,30 +308,64 @@ def wait_for_capacity(
                 final_report = None
                 last_projection = str(exc)
             if final_report is not None and final_report["admitted"]:
-                print(f"UAT capacity admitted {projected}/{limit} for {scope_name}; "
-                      "deployment will recheck under the mutation lock.", flush=True)
+                if time.monotonic() - started >= max_wait_seconds:
+                    raise AdmissionError(
+                        "UAT capacity not admitted: validation exceeded deadline"
+                    )
+                print(
+                    f"UAT capacity admitted {projected}/{limit} for {scope_name}; "
+                    "deployment will recheck under the mutation lock.",
+                    flush=True,
+                )
                 return scope_name
             if final_report is not None:
-                projected, limit = final_report["projected_connections"], final_report["admission_limit"]
+                projected, limit = (
+                    final_report["projected_connections"],
+                    final_report["admission_limit"],
+                )
                 last_projection = f"{projected}/{limit}"
         remaining = max_wait_seconds - (time.monotonic() - started)
         if remaining <= 0:
-            raise AdmissionError(
+            raise CapacityDeferred(
                 f"UAT capacity was not admitted ({last_projection}) within "
-                f"{max_wait_seconds}s; verified maintenance or an operator must free capacity"
+                f"{max_wait_seconds}s; retry the same exact SHA and requested scope after verified maintenance"
             )
         if not warned_about_maintenance:
             print(
                 "The deploy request wakes Capacity Maintenance, which independently verifies "
-                "a healthy release and may schedule a deferred recheck. This observer cannot "
+                "a healthy release and records drainage for later short passes. This observer cannot "
                 "authorize deletion.",
                 flush=True,
             )
             warned_about_maintenance = True
         delay = min(poll_seconds, remaining)
-        print(f"UAT capacity {last_projection} for {scope_name}; waiting {delay:.0f}s "
-              "for verified revision maintenance.", flush=True)
+        print(
+            f"UAT capacity {last_projection} for {scope_name}; waiting {delay:.0f}s "
+            "for verified revision maintenance.",
+            flush=True,
+        )
         time.sleep(delay)
+
+
+def wait_for_capacity(
+    target_sha: str,
+    requested_scope: str,
+    mode: str,
+    *,
+    max_wait_seconds: int = MAX_WAIT_SECONDS,
+    poll_seconds: int = POLL_SECONDS,
+) -> str:
+    token = QUERY_DEADLINE.set(time.monotonic() + max_wait_seconds)
+    try:
+        return _wait_for_capacity(
+            target_sha,
+            requested_scope,
+            mode,
+            max_wait_seconds=max_wait_seconds,
+            poll_seconds=poll_seconds,
+        )
+    finally:
+        QUERY_DEADLINE.reset(token)
 
 
 def main() -> int:
@@ -272,6 +377,16 @@ def main() -> int:
     args = parser.parse_args()
     try:
         scope = wait_for_capacity(args.target_sha, args.requested_scope, args.mode)
+    except CapacityDeferred as exc:
+        print(f"DEFERRED_CAPACITY: {exc}", file=sys.stderr)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with Path(summary).open("a", encoding="utf-8") as output:
+                output.write(
+                    f"Capacity deferred for `{args.target_sha}` ({args.requested_scope}). "
+                    "No deployment authorized. Retry the original request after verified cleanup.\n"
+                )
+        return 3
     except AdmissionError as exc:
         print(f"UAT capacity admission stopped: {exc}", file=sys.stderr)
         return 1

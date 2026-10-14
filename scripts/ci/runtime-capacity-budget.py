@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -84,6 +85,47 @@ def env_values(container: dict[str, Any], label: str) -> dict[str, str]:
     return result
 
 
+def revision_workers(
+    container: dict[str, Any], settings: dict[str, Any], name: str
+) -> int:
+    """Count the actual launcher workers; conflicting declarations fail closed."""
+    declarations: list[int] = []
+    for item in container.get("env", []):
+        if item.get("name") == "WEB_CONCURRENCY":
+            if "value" not in item:
+                raise BudgetError(f"{name}: WEB_CONCURRENCY must be inspectable")
+            declarations.append(positive_int(item["value"], f"{name} WEB_CONCURRENCY"))
+    args = [*(container.get("command") or []), *(container.get("args") or [])]
+    for index, argument in enumerate(args):
+        if argument in {"-w", "--workers"}:
+            if index + 1 >= len(args):
+                raise BudgetError(f"{name}: malformed worker count")
+            declarations.append(positive_int(args[index + 1], f"{name} workers"))
+        elif isinstance(argument, str) and argument.startswith("--workers="):
+            declarations.append(
+                positive_int(argument.split("=", 1)[1], f"{name} workers")
+            )
+        elif (
+            isinstance(argument, str)
+            and argument.startswith("-w")
+            and len(argument) > 2
+        ):
+            declarations.append(positive_int(argument[2:], f"{name} workers"))
+        elif isinstance(argument, str) and (
+            "--workers" in argument or re.search(r"(?:^|\s)-w(?:\s|[0-9]|$)", argument)
+        ):
+            raise BudgetError(f"{name}: uninspectable shell worker override")
+    if len(set(declarations)) > 1:
+        raise BudgetError(f"{name}: conflicting worker declarations")
+    return (
+        declarations[0]
+        if declarations
+        else positive_int(
+            settings["workers_per_instance"], f"{name} reviewed image default workers"
+        )
+    )
+
+
 def revision_connections(
     revision: dict[str, Any],
     service: str,
@@ -113,20 +155,7 @@ def revision_connections(
         )
         for key in POOL_KEYS
     ]
-    workers = positive_int(settings["workers_per_instance"], f"{service} workers")
-    # Drive workers specify -w in the revision command; check that the profile
-    # cannot silently undercount a changed command line.
-    args = container.get("args") or []
-    if "-w" in args:
-        index = args.index("-w")
-        if index + 1 >= len(args):
-            raise BudgetError(f"{name}: malformed worker count")
-        workers = positive_int(args[index + 1], f"{name} workers")
-    elif "--workers" in args:
-        index = args.index("--workers")
-        if index + 1 >= len(args):
-            raise BudgetError(f"{name}: malformed worker count")
-        workers = positive_int(args[index + 1], f"{name} workers")
+    workers = revision_workers(container, settings, name)
     return {
         "name": name,
         "max_instances": maximum,
