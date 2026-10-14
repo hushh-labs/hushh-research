@@ -77,7 +77,7 @@ class _Connections:
         return self.list_scope
 
 
-class _ReadOnlyConnections:
+class _ReadOnlyConnections(_Connections):
     async def access_token(self, **_: object) -> str:
         raise GoogleConnectionError(
             "Additional Google Calendar permission is required", status_code=403
@@ -828,6 +828,7 @@ def test_calendar_create_requests_google_meet_and_emails_the_invite(
             "method": "POST",
             "path": "/calendars/primary/events",
             "access": "manage",
+            "expected_binding": None,
             "params": {"sendUpdates": "all", "conferenceDataVersion": 1},
             "payload": {
                 "summary": "Client call",
@@ -1420,3 +1421,123 @@ def test_calendar_stream_cap_applies_without_content_length(
         )
     assert exc_info.value.reason_code == "calendar_invalid_response"
     assert body.closed
+
+
+@pytest.mark.parametrize("method", ["list_events", "list_calendars"])
+def test_schedule_pages_reject_replaced_original_binding_before_google(
+    monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    connections = _Connections()
+    original = connections.binding
+    connections.binding = (*original[:-1], "replacement-grant")
+    calls = _calendar_provider_sequence(monkeypatch, [_provider_response(200, {})])
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+    params = {"user_id": "owner", "expected_binding": original}
+    if method == "list_events":
+        params.update(start_at="2026-10-14T00:00:00Z", end_at="2026-10-15T00:00:00Z")
+    with pytest.raises(GoogleConnectionError) as error:
+        asyncio.run(getattr(service, method)(**params))
+    assert error.value.reason_code == "calendar_connection_changed"
+    assert calls == []
+
+
+def test_calendar_execute_rejects_missing_provider_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+
+) -> None:
+    class _ClaimDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
+            self.calls.append((sql, params))
+            if (
+                False
+                and "DELETE FROM google_calendar_action_proposals" in sql
+                and "status = 'executed'" in sql
+            ):
+                raise RuntimeError("cleanup unavailable")
+            if "RETURNING action" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "action": "create",
+                            "payload_json": {
+                                "title": "Private event title",
+                                "start_at": "2026-10-01T10:00:00Z",
+                                "end_at": "2026-10-01T11:00:00Z",
+                                "time_zone": "UTC",
+                                "attendees": [],
+                                "description": "",
+                                "location": "",
+                                "send_updates": False,
+                                "conflicts": [],
+                                "conference_request_id": "meet_feed_event",
+                            },
+                            "expected_event_etag": None,
+                        }
+                    ]
+                )
+            return SimpleNamespace(data=[])
+
+    db = _ClaimDb()
+    service = GoogleCalendarService(db=db, connections=_Connections())
+
+    async def created(**_: object) -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr(service, "_find_conflicts", _no_conflicts)
+    monkeypatch.setattr(service, "_request", created)
+    with pytest.raises(GoogleConnectionError, match="did not confirm") as caught:
+        asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+    assert caught.value.reason_code == "calendar_mutation_unconfirmed"
+    assert not any("SET status = 'executed', executed_at" in sql for sql, _ in db.calls)
+    assert any("SET status = 'failed'" in sql for sql, _ in db.calls)
+
+
+@pytest.mark.parametrize("occupied", [True, False])
+def test_booking_rechecks_every_included_calendar(monkeypatch, occupied):
+    from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+    calls = []
+    async def inventory(self, user_id, *, binding):
+        return [{"id": "personal"}, {"id": "work"}]
+    async def intervals(self, **kwargs):
+        calls.append(kwargs)
+        return [(kwargs["start"], kwargs["end"])] if occupied else []
+    monkeypatch.setattr(CalendarScheduleService, "_included_calendars", inventory)
+    monkeypatch.setattr(CalendarScheduleService, "_busy_intervals", intervals)
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    work = service._creation_conflicts(
+        user_id="owner", binding=("owner", "grant"),
+        plan={"start_at": "2030-10-14T09:00:00Z", "end_at": "2030-10-14T09:30:00Z"})
+    conflicts = asyncio.run(work)
+    assert len(conflicts) == (1 if occupied else 0)
+    if occupied:
+        with pytest.raises(GoogleConnectionError, match="availability changed"):
+            service._reject_new_conflicts(planned=[], current=conflicts)
+        service._reject_new_conflicts(planned=conflicts, current=conflicts)
+    assert calls[0]["calendar_ids"] == ["personal", "work"]
+    assert calls[0]["binding"] == ("owner", "grant")
+
+
+def test_confirmation_rejects_replaced_google_account_before_provider_write():
+    service, requests, stored = _reschedule_harness(_event())
+    _reschedule(service)
+    requests.clear()
+    service.connections.binding = ("owner", "replacement-account")
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+    assert caught.value.reason_code == "calendar_connection_changed"
+    assert requests == []
+
+
+def test_proposal_rejects_connection_change_during_credential_acquisition():
+    class ChangingConnections(_Connections):
+        async def access_token(self, **kwargs):
+            self.binding = ("owner", "replacement-account")
+            return "access-token"
+
+    db = _Db()
+    service = GoogleCalendarService(db=db, connections=ChangingConnections())
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(service.propose(user_id="user-1", action="create", payload={}))
+    assert caught.value.reason_code == "calendar_connection_changed"
+    assert not any("INSERT INTO google_calendar_action_proposals" in sql for sql, _ in db.calls)
