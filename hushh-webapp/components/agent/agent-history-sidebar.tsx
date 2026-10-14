@@ -326,7 +326,7 @@ export function AgentHistorySidebar({
             <Input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
-              className={cn("h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-medium text-foreground focus-visible:ring-0", isMobileMode && "h-11 text-[13px]")}
+              className={cn("h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-normal text-foreground focus-visible:ring-0", isMobileMode && "h-11 text-[13px]")}
               maxLength={160}
               autoFocus
               disabled={pending}

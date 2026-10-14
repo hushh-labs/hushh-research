@@ -2206,7 +2206,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-row-gap: 5px;
   --app-side-pane-row-title-size: 13px;
   --app-side-pane-row-title-line: 1.2;
-  --app-side-pane-row-title-weight: 500;
+  --app-side-pane-row-title-weight: 550;
   --app-side-pane-row-description-size: 9px;
   --app-side-pane-row-description-line: 1.2;
   --app-side-pane-section-size: 10px;
