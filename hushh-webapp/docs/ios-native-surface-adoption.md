@@ -15,11 +15,11 @@ another navigation stack, WebView, session, or information store.
 
 ### Installed Profile admission investigation — 2026-10-14
 
-Source `9182c6d326` is installed on the iPhone as UAT Debug 1.4.0 (69).
+Product source `aa4197aad3` is installed on the iPhone as UAT Debug 1.4.0 (69).
 Its executable SHA-256 is
-`97659a9a45fe24de829a4f2b3de0b9cf9e2d9f3fb1b5f39fc66b702ca1e92ad1`;
+`c3ddc54d01414476175d2b637187e061998ed4c4a53344cb07b0b766228148ef`;
 its sealed-resource manifest SHA-256 is
-`a3d85194d20dca77b3d86a37a2a1f568a2708f8635c9e06f84c4677baa414305`.
+`e288442f9af6c8b115aaa06fdea5af0d260f7a561125c9637c9cb080599c391c`.
 Strict app and runner signatures, bundled assets and the UAT backend pass.
 Missing pinned framework artifacts were recovered through isolated, locked Xcode
 package resolution, without dependency upgrades or shared-cache deletion.
@@ -27,18 +27,27 @@ The generated runner was resealed with its existing identity and entitlements
 after Xcode rebuilt its nested test bundle; both signatures were reverified.
 
 Installation/restart was explicitly authorized. Credential-free XCTest admission
-and one normal process-only reviewer unlock pass. Preferences reaches its ready
-state, then the existing physical test fails on an accessibility snapshot.
-Direct target diagnostics show retained Back/Close hosts with valid layout,
-privacy and pane ownership, but an accepted disabled presentation: no touch or
-accessibility admission. Native quarantine alone does not explain that flag.
-This is not physical Profile acceptance or proof of the upstream blocker.
+and normal process-only reviewer unlock pass. Same-run failure diagnostics show
+that an open Accent popup is the sole interaction blocker. Both public choices
+are hittable through the application accessibility root; Radix hides the underlying
+Profile subtree that the previous test queried. The test now queries the popup
+and uses its existing outside-press dismissal contract, without bypassing disabled
+Back/Close or changing operation authority.
+
+Light/Dark/System changes, both Accent choices and two cancellations complete on
+the physical product. The combined run later stops during Close with its privacy
+cover active; that interruption is not a successful combined qualification.
+A separate focused run passes all ten alternating Close-edge/reopen cycles,
+retaining one WebView, its frame and normal vault admission. Its receipts explicitly
+exclude the skipped Appearance/Accent subcases. Nested Back, visual transitions,
+accessibility and Release performance require their own evidence.
 
 The existing opt-in diagnostic now distinguishes overlay, inert ancestry,
 movement, session suppression, voice-layer blocking and document visibility with
 six booleans. Its whitelist excludes identities, private bodies and provider
-errors; it changes no permissions or operations. Ordinary Profile adoption stays
-blocked until the demonstrated admission defect is resolved on-device.
+errors; it changes no permissions or operations. Native ordinary form scenes,
+support composition and pane-bound finite tabs remain unimplemented; this diagnostic
+and test repair does not qualify those families.
 
 ### Profile readiness during appearance changes — 2026-10-14
 
@@ -52,10 +61,10 @@ staging evidence, not permission to interact with a covered destination.
 The regression fails on the prior source and passes with the repair. All 159
 bridge cases pass, including changed-owner and dismissed-pane negative controls;
 449 Back cases, generated UI-contract checks, native static parity, typecheck,
-focused lint and design-system checks pass. The current physical attempt stopped before the
-test body with an automation-authorization timeout and runner connection failure.
-It does not establish this race as the cause of the installed iPhone failure.
-The previous installed and prepared executable identities below remain unchanged.
+focused lint and design-system checks pass. Subsequent physical XCTest enters the
+test body and normal reviewer unlock succeeds. That proves automation access, not
+this readiness race as the cause of the earlier popup accessibility failure.
+Historical installed and prepared identities below are not the current candidate.
 
 Ordinary native Profile forms, support composition and finite local tabs are not
 implemented by this repair. Their adoption remains gated on physical Back/Close

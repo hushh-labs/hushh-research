@@ -540,7 +540,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }.joined(separator: ";")
             let publicFields = (cached ?? "").split(separator: ";").filter {
                 $0.hasPrefix("stage=") || $0.hasPrefix("outcome=") || $0.hasPrefix("code=") ||
-                $0.hasPrefix("paneReady=") || $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profilePaneLevel=")
+                $0.hasPrefix("paneReady=") || $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profilePaneLevel=") ||
+                $0.hasPrefix("profileBackChoice=") || $0.hasPrefix("profileBackAllowed=") ||
+                $0.hasPrefix("profileCloseChoice=") || $0.hasPrefix("profileCloseAllowed=") ||
+                $0.hasPrefix("profileClosePresent=")
             }.joined(separator: ";")
             let packet = [publicFields, native].filter { !$0.isEmpty }.joined(separator: ";")
             return packet.utf8.count <= 1024 ? packet : "pbAvailable=0;pcAvailable=0"

@@ -154,6 +154,11 @@ final class AppUITests: XCTestCase {
             print("COHERENT_HISTORY_AX_ELEMENT index=\(index) hittable=\(candidate.isHittable) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
         }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        for (name, label) in [("blue", "Blue"), ("gold", "Molten Gold")] {
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            let option = matches.firstMatch
+            print("NATIVE_ACCENT_OPTION name=\(name) count=\(matches.count) role=\(option.exists ? option.elementType.rawValue : 0) hittable=\(option.exists && option.isHittable)")
+        }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
@@ -3162,6 +3167,38 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Preferences proof must attach to the existing session")
         }
         app.activate()
+        func accentOption(_ name: String) -> XCUIElement {
+            // Radix hides the underlying Profile accessibility subtree while
+            // its portal is open. Query the owned popup, not that hidden body.
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+        }
+        func dismissAccentPopup() -> Bool {
+            let blue = accentOption("Blue"), gold = accentOption("Molten Gold")
+            guard blue.exists && blue.isHittable && gold.exists && gold.isHittable else {
+                XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
+            }
+            let bounds = app.frame, options = blue.frame.union(gold.frame)
+            let point = CGPoint(x: bounds.minX + 4, y: options.midY)
+            guard bounds.contains(point) && !options.contains(point) else {
+                XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false
+            }
+            // The authored Select outside-press contract; no disabled header
+            // action, route reset or preference mutation is used for recovery.
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: point.x - bounds.minX, dy: point.y - bounds.minY)).tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !(blue.exists && gold.exists)
+            }, object: app)
+            let completed = XCTWaiter.wait(for: [retired], timeout: 5) == .completed
+            XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
+            return completed
+        }
+        // A previous diagnostic may have failed with the real Accent popup
+        // open. Dismiss only this positively identified popup before examining
+        // its obscured origin; preserve the app, draft and current preference.
+        if accentOption("Blue").exists && accentOption("Molten Gold").exists {
+            guard dismissAccentPopup() else { return }
+        }
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
@@ -3231,6 +3268,7 @@ final class AppUITests: XCTestCase {
             return option.exists && (option.isSelected || (option.value as? String) == "1")
         }
         func selectTheme(_ name: String) {
+            print("NATIVE_PREFERENCES_STAGE stage=theme_select")
             let segment = themeOption(name)
             XCTAssertTrue(segment.exists && segment.isHittable)
             if !selectedTheme(name) { segment.tap() }
@@ -3239,31 +3277,20 @@ final class AppUITests: XCTestCase {
         }
         func selectAccent(_ name: String) {
             if accentValue() == name { return }
+            print("NATIVE_PREFERENCES_STAGE stage=accent_open")
             accent.tap()
-            let option = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
-            XCTAssertTrue(option.waitForExistence(timeout: 10) && option.isHittable, "NATIVE_ACCENT_MENU_UNAVAILABLE")
+            let option = accentOption(name)
+            guard option.waitForExistence(timeout: 10) && option.isHittable else {
+                XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return
+            }
             option.tap()
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in accentValue() == name }, object: accent)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
         }
         func cancelAccentMenu() -> Bool {
-            guard let current = accentValue() else { XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return false }
-            let alternative = current == "Blue" ? "Molten Gold" : "Blue"
-            let option = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", alternative)).firstMatch
-            guard option.waitForExistence(timeout: 5) && option.isHittable else {
-                XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
-            }
-            // Dismiss through the real select's outside-press contract, not an
-            // invented native Cancel action. This quiet gutter is outside the
-            // bounded options and cannot activate a Profile row/header action.
-            let point = CGPoint(x: web.frame.minX + 4, y: option.frame.midY)
-            guard web.frame.contains(point) && !option.frame.contains(point) else {
-                XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false
-            }
-            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
-                dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+            guard dismissAccentPopup() else { return false }
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !option.exists && controlsReady()
+                controlsReady()
             }, object: app)
             let completed = XCTWaiter.wait(for: [retired], timeout: 5) == .completed
             XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
@@ -3283,23 +3310,38 @@ final class AppUITests: XCTestCase {
             }
             if !controlsReady() && !openPreferences() { return }
             selectTheme(originalTheme); selectAccent(originalAccent)
-            app.buttons["Close Profile"].firstMatch.tap()
+            let close = app.buttons["Close Profile"].firstMatch
+            guard self.waitForAdmittedControl(close) else {
+                XCTFail("NATIVE_PROFILE_CLOSE_RESTORE_NOT_ADMITTED"); return
+            }
+            close.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !close.exists && !accent.exists
+            }, object: app)
+            guard XCTWaiter.wait(for: [retired], timeout: 10) == .completed else {
+                XCTFail("NATIVE_PROFILE_RESTORE_CLOSE_NOT_CONFIRMED"); return
+            }
             self.perfTapNav(app, label: "Chat")
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
-        for name in ["Light", "Dark", "System"] {
-            let segment = themeOption(name)
-            XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
-            XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
-            selectTheme(name)
-            XCTAssertTrue(accent.isHittable)
+        let reopenOnly = ProcessInfo.processInfo.environment["HUSHH_PREFERENCES_REOPEN_ONLY"] == "true"
+        if !reopenOnly {
+            for name in ["Light", "Dark", "System"] {
+                let segment = themeOption(name)
+                XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
+                XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
+                selectTheme(name)
+                XCTAssertTrue(accent.isHittable)
+            }
+            for name in ["Blue", "Molten Gold"] { selectAccent(name) }
         }
-        for name in ["Blue", "Molten Gold"] { selectAccent(name) }
         let value = accentValue()
-        for _ in 0..<2 {
-            accent.tap()
-            guard cancelAccentMenu() else { return }
-            XCTAssertEqual(accentValue(), value, "Cancellation changed the preference")
+        if !reopenOnly {
+            for _ in 0..<2 {
+                accent.tap()
+                guard cancelAccentMenu() else { return }
+                XCTAssertEqual(accentValue(), value, "Cancellation changed the preference")
+            }
         }
         let hostFrame = web.frame
         for cycle in 0..<10 {
@@ -3309,16 +3351,20 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.buttons.matching(NSPredicate(
                 format: "label == %@ AND identifier != %@", "Close Profile", "profile-close")).firstMatch.exists,
                 "Profile exposed a web Close beside its native control")
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=before privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             // Exercise the whole hit region, not only the visible X glyph.
             let point = cycle.isMultiple(of: 2) ? CGVector(dx: 0.1, dy: 0.5) : CGVector(dx: 0.9, dy: 0.5)
             close.coordinate(withNormalizedOffset: point).tap()
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=tapped privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             let openProfile = web.buttons["Open Profile"].firstMatch
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 !close.exists && !themeOption("System").exists && !accent.exists && openProfile.exists && openProfile.isHittable
             }, object: app)
             guard XCTWaiter.wait(for: [retired], timeout: 5) == .completed else {
+                print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=failed privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
                 XCTFail("NATIVE_PROFILE_CLOSE_NOT_CONFIRMED"); return
             }
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=closed privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             openProfile.tap()
             let reopened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 close.exists && close.isHittable
@@ -3333,7 +3379,9 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
-        print("NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_ten_edge_reopens_single_host")
+        print(reopenOnly
+            ? "NATIVE_PUBLIC_PREFERENCES_CONTINUITY ten_edge_reopens_single_host"
+            : "NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_ten_edge_reopens_single_host")
     }
 
     func testLocalSessionNativeChromeFollowsAppTheme() throws {
@@ -3637,6 +3685,10 @@ final class AppUITests: XCTestCase {
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("PROFILE_STACK_REQUIRES_RUNNING_SESSION"); return
         }
+        addTeardownBlock {
+            guard (self.testRun?.failureCount ?? 0) > 0 else { return }
+            self.printCoherentPresentationAdmission(app)
+        }
         app.activate()
         dismissRehearsalChatKeyboard(app)
         returnToRehearsalChat(app)
@@ -3808,6 +3860,9 @@ final class AppUITests: XCTestCase {
     private func verifyCoherentProfileDestinations(_ app: XCUIApplication) throws {
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else {
+            XCTFail("PROFILE_BATCH_CHAT_EDITOR_NOT_ADMITTED"); return
+        }
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
@@ -3863,6 +3918,23 @@ final class AppUITests: XCTestCase {
         if !close.exists || !close.isHittable {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
+        }
+        // Profile deliberately resumes its query-owned detail. Its admitted
+        // Back must restore the roster; opening Profile is not a root reset.
+        for _ in 0..<3 {
+            if close.exists && close.isHittable && root("account").exists { break }
+            guard waitForAdmittedControl(back), let level = publicPaneLevel(), level > 0 else { break }
+            print("PROFILE_RESUMED_PARENT phase=before level=\(level)")
+            back.tap()
+            print("PROFILE_RESUMED_PARENT phase=tapped level=\(level)")
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                if level == 1 { return close.exists && close.isHittable && root("account").exists }
+                return publicPaneLevel() == level - 1 && back.exists && back.isHittable
+            }, object: app)
+            guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
+            }
+            print("PROFILE_RESUMED_PARENT phase=returned level=\(level)")
         }
         let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         guard menu.waitForExistence(timeout: 10) else {
