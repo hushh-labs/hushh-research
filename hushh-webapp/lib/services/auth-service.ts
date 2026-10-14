@@ -4,7 +4,7 @@
  * Production-grade authentication service that handles:
  * - iOS: Native Google Sign-In and Sign in with Apple via HushhAuth plugin
  * - Android: Native Google Sign-In and Firebase OAuthProvider for Apple
- * - Web: Firebase signInWithPopup for both providers
+ * - Web: Firebase provider popups; initial Google signup uses GIS credential exchange
  * - Credential sync: Native tokens synced with Firebase for consistent UIDs
  *
  * IMPORTANT: This is the single source of truth for authentication.
@@ -45,8 +45,14 @@ import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session
 import { toast } from "sonner";
 import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
 
-export type GoogleSignInOptions = { purpose?: "authentication" | "initial_contacts" };
+export type GoogleSignInOptions = {
+  purpose?: "authentication" | "initial_contacts";
+  includeContacts?: boolean;
+  signal?: AbortSignal;
+  onCredentialExchange?: () => void;
+};
 
 export type InitialGoogleContactsGrant = {
   accessToken: string;
@@ -501,7 +507,7 @@ export class AuthService {
     // authentication usable; new-account welcome enrollment remains independent.
     const effectiveOptions: GoogleSignInOptions | undefined =
       options?.purpose === "initial_contacts" && !this.canRequestInitialGoogleContacts()
-        ? { purpose: "authentication" }
+        ? { ...options, purpose: "authentication" }
         : options;
     if (Capacitor.isNativePlatform()) {
       return this.nativeGoogleSignIn(effectiveOptions);
@@ -1108,17 +1114,50 @@ export class AuthService {
 
   /**
    * Web Google Sign-In flow
-   * Uses Firebase signInWithPopup directly (for web browsers)
-   * This is ALSO the fallback for native if the native plugin fails
+   * Initial web signup exchanges a GIS token directly when its identity client
+   * is configured. The existing Firebase popup remains the compatibility path.
    */
   private static async webGoogleSignIn(options?: GoogleSignInOptions): Promise<AuthResult> {
     this.debugLog(
-      "🌐 [AuthService] Starting web Google Sign-In (Firebase popup)",
+      "🌐 [AuthService] Starting web Google Sign-In",
     );
 
     try {
+      if (options?.purpose && googleSignupConfigured()) {
+        // A hosted Firebase popup can close after Google's successful consent
+        // without delivering its auth event to the application. Exchange the
+        // same browser-held Google token directly; Firebase still authenticates
+        // the identity and owns both the UID and new-account determination.
+        const grant = await requestGoogleSignupToken({
+          includeContacts: options?.purpose === "initial_contacts" && options.includeContacts !== false,
+          signal: options?.signal,
+        });
+        const requireActiveAttempt = () => {
+          if (options?.signal?.aborted) {
+            throw new DOMException("Google sign-in was cancelled.", "AbortError");
+          }
+        };
+        requireActiveAttempt();
+        options?.onCredentialExchange?.();
+        requireActiveAttempt();
+        const credential = GoogleAuthProvider.credential(null, grant.accessToken);
+        const result = await signInWithCredential(auth, credential);
+        // This exchange commits Firebase persistence and cannot be cancelled.
+        // Preserve its result so legal/onboarding settlement can finish even
+        // when the originating screen has gone away in the meantime.
+        const idToken = await result.user.getIdToken();
+        return {
+          user: result.user,
+          idToken,
+          accessToken: grant.accessToken,
+          isNewUser: getAdditionalUserInfo(result)?.isNewUser,
+          ...(grant.contactsGranted
+            ? { contactsGrant: { accessToken: grant.accessToken, authority: "firebase-signup" as const } }
+            : {}),
+        };
+      }
       const provider = this.createWebProvider("google");
-      if (options?.purpose === "initial_contacts") {
+      if (options?.purpose === "initial_contacts" && options.includeContacts !== false) {
         provider.addScope(GOOGLE_CONTACTS_READ_SCOPE);
         provider.setCustomParameters({ prompt: "select_account", include_granted_scopes: "false" });
       }
@@ -1140,7 +1179,7 @@ export class AuthService {
         idToken,
         accessToken,
         isNewUser: getAdditionalUserInfo(result)?.isNewUser,
-        ...(options?.purpose === "initial_contacts" && accessToken
+        ...(options?.purpose === "initial_contacts" && options.includeContacts !== false && accessToken
           ? { contactsGrant: { accessToken, authority: "firebase-signup" as const } }
           : {}),
       };
