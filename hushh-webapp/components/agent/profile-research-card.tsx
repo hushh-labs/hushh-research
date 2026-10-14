@@ -20,26 +20,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
-import { connectorMemorySharingImpact } from "@/lib/agent/connector-memory-review";
 import {
-  bindProfileSelectionSources,
-  prepareProfileReview,
-  profileReviewMessage,
-  saveProfileReview,
-  selectedProfileDetails,
-  type ReviewedProfile,
-} from "@/lib/agent/profile-research-review";
+  prepareProfileMemoryReview,
+  saveProfileMemoryReview,
+  selectedProfileFacts,
+  type ProfileMemoryReview,
+} from "@/lib/agent/profile-memory-review";
+import type { ProfileReviewSession } from "@/lib/agent/profile-research-review";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   PROFILE_SECTION_LABELS,
@@ -73,8 +61,7 @@ export type ProfileResearchAvailability =
   | "saved"
   | "low_confidence"
   | "exhausted";
-type Phase =
-  "loading" | "draft" | "preparing" | "saving" | "saved" | "failed" | "skipped";
+type Phase = "loading" | "draft" | "saving" | "saved" | "failed" | "skipped";
 
 /** Explicitly started profile review; never mounted by the chat surface. */
 export function ProfileResearchCard({
@@ -97,9 +84,8 @@ export function ProfileResearchCard({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
-  const [review, setReview] = useState<ReviewedProfile | null>(null);
+  const [review, setReview] = useState<ProfileMemoryReview | null>(null);
   const [saveStarted, setSaveStarted] = useState(false);
-  const [sharingOpen, setSharingOpen] = useState(false);
   const [visibleOwner, setVisibleOwner] = useState<{
     ownerId: string;
     vaultKey: string;
@@ -108,8 +94,7 @@ export function ProfileResearchCard({
   const credentials = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
   credentials.current = { ownerId, vaultKey, vaultOwnerToken, enabled };
   const operations = useRef(new Set<AbortController>());
-  const busy = phase === "preparing" || phase === "saving";
-  const partiallySaved = Boolean(review?.committed.size);
+  const busy = phase === "saving";
   const hasOffer = result?.status === "offered";
   const visible =
     enabled &&
@@ -149,7 +134,6 @@ export function ProfileResearchCard({
     setReview(null);
     setSaveStarted(false);
     setEditing(false);
-    setSharingOpen(false);
     setVisibleOwner(null);
     const activeOperations = operations.current;
     return () => {
@@ -233,9 +217,7 @@ export function ProfileResearchCard({
   }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel]);
 
   const withSession = async (
-    operation: (
-      session: Parameters<typeof prepareProfileReview>[0],
-    ) => Promise<void>,
+    operation: (session: ProfileReviewSession) => Promise<void>,
   ) => {
     if (!ownerId || !vaultKey || !vaultOwnerToken || operations.current.size)
       return;
@@ -264,47 +246,25 @@ export function ProfileResearchCard({
       operations.current.delete(controller);
     }
   };
-  const save = (sharingAcknowledged = false) =>
+  const save = () =>
     void withSession(async (session) => {
       if (result?.status !== "offered" || !selected.size) return;
-      setPhase("preparing");
-      let prepared: ReviewedProfile | null = review;
+      let prepared = review;
       let writeStarted = saveStarted;
       try {
-        const message = profileReviewMessage(result.report, selected, edits);
-        if (!prepared || prepared.message !== message) {
-          prepared = await prepareProfileReview(session, message);
+        const facts = selectedProfileFacts(result.report, selected, edits);
+        if (
+          !prepared ||
+          JSON.stringify(prepared.facts) !== JSON.stringify(facts)
+        ) {
+          prepared = prepareProfileMemoryReview(facts);
         }
-        await session.assertCurrent();
-        bindProfileSelectionSources(
-          prepared,
-          selectedProfileDetails(result.report, selected, edits),
-        );
         setReview(prepared);
         setEditing(false);
-        if (
-          connectorMemorySharingImpact(prepared.cards) > 0 &&
-          !sharingAcknowledged
-        ) {
-          setPhase("draft");
-          setSharingOpen(true);
-          return;
-        }
-        setSharingOpen(false);
         setPhase("saving");
         writeStarted = true;
         setSaveStarted(true);
-        const ids = new Set(prepared.cards.map((card) => card.card_id));
-        const outcome = await saveProfileReview(
-          session,
-          prepared,
-          ids,
-          sharingAcknowledged,
-        );
-        await session.assertCurrent();
-        if (outcome.committed.size !== ids.size) {
-          throw new Error("Some details still need saving. Retry to finish.");
-        }
+        await saveProfileMemoryReview(session, prepared);
         setSaveStarted(false);
         setReview(null);
         setPhase("saved");
@@ -312,8 +272,8 @@ export function ProfileResearchCard({
         morphyToast.success("Details saved");
       } catch (error) {
         if (session.isCurrent()) {
-          // Retain exact scopes after a partial/lost response; Retry must never
-          // prepare a different payload or duplicate a committed write.
+          // Retain the exact scope after a lost response; Retry must never
+          // write a different selection or duplicate a committed write.
           if (!writeStarted) setReview(null);
           setPhase("draft");
           morphyToast.error(
@@ -529,19 +489,9 @@ export function ProfileResearchCard({
               .map(renderSection)}
           </Accordion>
         )}
-        {busy && (
-          <HelperText role="status">
-            {phase === "preparing"
-              ? "Preparing selected details…"
-              : "Saving to Memory…"}
-          </HelperText>
-        )}
+        {busy && <HelperText role="status">Saving to Memory…</HelperText>}
         {saveStarted && !busy && (
-          <HelperText>
-            {partiallySaved
-              ? "Some details saved. Retry to finish."
-              : "Save wasn't confirmed. Retry safely."}
-          </HelperText>
+          <HelperText>Save wasn't confirmed. Retry safely.</HelperText>
         )}
         {phase === "saved" ? null : (
           <FlowActionGroup
@@ -589,23 +539,6 @@ export function ProfileResearchCard({
             }
           />
         )}
-        <AlertDialog open={sharingOpen} onOpenChange={setSharingOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Update shared details?</AlertDialogTitle>
-              <AlertDialogDescription>
-                These changes can affect what people with active sharing
-                permissions receive.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => save(true)}>
-                Confirm and save
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </CardContent>
     </>
   );

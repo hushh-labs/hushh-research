@@ -1228,15 +1228,22 @@ even if the optional directory lookup is already ready. Review and explicit
 receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
 and physical-device suspension are separate verification, not localhost proof.
 
-Personal review pins one complete, owner-scoped decrypted inventory before asynchronous memory
-preparation. Duplicate checks, semantic reconciliation and business-origin binding
-use that same memory-only witness even if a concurrent PKM write invalidates the
-shared context cache. Vault expiry revokes the witness; it is not persisted or
-write authority. Canonical saves still rebuild against fresh PKM on every conflict
-retry. A bound existing business must retain its UID at the same active target;
-deleted, moved, inactive or replaced targets require another review and cannot
-be resurrected by an extension. Personal details remain independent of Business
-cache readiness once preparation has captured its complete inventory.
+Personal World Model review saves the owner's exact checked, edited statements to
+`memory.md` (the `one_memory` domain), with no model preparation step. Each
+statement becomes one bullet, under Preferences for taste-and-choice topics
+(interests, preferences, dislikes, style, food, travel, entertainment, shopping,
+communication) and under Facts for every other topic, including company findings.
+The whole selection is one atomic encrypted write by the registered
+`profile_research_review` writer with an idempotency scope pinned for the review's
+life. Source links are shown during review but are not saved; earlier structured
+saves keep theirs. Company findings are plain bullets and carry no
+business-directory identity binding. The writer skips exact duplicates only, so a
+paraphrase of an existing bullet is added, and the 18,000-character memory.md limit
+applies. The acknowledged `one_memory` commit receipt, never the write response,
+decides whether completion may be requested. The earlier structured path
+(`profile_review_v1`, pinned inventory and business-origin binding in
+`lib/agent/profile-research-review.ts`) remains as a compatibility rollback and is
+called by no screen.
 
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan

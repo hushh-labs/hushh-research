@@ -10,8 +10,8 @@ flowchart LR
   PWM --> Build[Explicit research]
   Build --> Draft[Cited draft]
   Draft --> Review[Owner review]
-  Review --> PKM[Encrypted PKM]
-  PKM --> PWM
+  Review --> Memory[memory.md in encrypted PKM]
+  Earlier[Earlier cited saves] --> PWM
   PWM --> Invite[Contact-bound invitation]
   Invite --> Claim[Recipient verification and claim]
   Claim --> PWM
@@ -21,7 +21,7 @@ flowchart LR
 
 Profile has **Personal World Model** immediately below Memory. `/one/profile/world-model` is a dedicated compact page, using the existing Profile icons, typography, cards, Back navigation, and vault authority. Opening it reads approved information. **Build my model** explicitly starts research. Chat no longer mounts Magic Intelligence offers or queues automatic onboarding research.
 
-The page provides a plain-English draft, identity explanation, topic coverage gaps, expandable cited facts, editable review, confirmation, approved facts, and contact-bound invitations. Saved facts remain editable/removable through Memory. An invitation reserves a private starting point; it does not pre-research a third party or grant the inviter access.
+The page provides a plain-English draft, identity explanation, topic coverage gaps, expandable cited facts, editable review, confirmation, earlier cited saves, and contact-bound invitations. Approved facts are saved to memory.md, where they remain editable/removable through Memory; the "Your model" list shows only earlier saves that kept their sources. An invitation reserves a private starting point; it does not pre-research a third party or grant the inviter access.
 
 ### Easy user stories
 
@@ -135,7 +135,7 @@ Without `PWM_TAVILY_API_KEY`, research returns unavailable. Page access, approve
 
 Research uses encrypted checkpoints in namespace `one.personal_world_model.v1`, with identity/policy binding and durable attempts. A draft is not approved knowledge. Discard writes a content-free tombstone and changes the checkpoint fence, preventing an old worker from restoring it. Completion verifies every supplied owner-review commit receipt and dismisses only the specified draft generation; the legacy saved flag cannot bypass those checks. The UI supplies receipts for its selected review. Completion grants no new write authority.
 
-Approved content goes through the existing `profile_review_v1` confirmation contract and encrypted PKM mutation path. The saved page projects sourced facts from PKM, excludes reserved branches and deleted/retracted records, and clears with owner/key/session changes. There is no second plaintext biography store.
+Approved content is saved to the owner's `memory.md` (the `one_memory` PKM domain) exactly as reviewed: one bullet per checked, edited statement, in one atomic encrypted write by the `profile_research_review` writer. Taste-and-choice topics (interests, preferences, dislikes, style, food, travel, entertainment, shopping, communication) go under Preferences; every other topic, including company findings, goes under Facts. No model rewrites the text and no source links are saved with it. The exact duplicate check is the writer's; a paraphrase of an existing bullet is added, and the 18,000-character memory.md limit applies. The acknowledged `one_memory` commit receipt, not the write response, decides completion. The "Your model" list still projects sourced `profile_fact` records from earlier structured saves, excludes reserved branches and deleted/retracted records, and clears with owner/key/session changes. The earlier structured path (`profile_review_v1`) remains in the codebase as a compatibility rollback and is called by no screen. There is no second plaintext biography store.
 
 Invitation storage contains a random token hash and keyed contact commitment, not raw contact, name, biography, or findings. Links expire in seven days, with at most twenty pending invitations per inviter. Atomic claims require a matching verified contact, active setup/vault, unexpired unclaimed link, and explicit consent. Reset and invite writes share account graph locks; locked authority checks reuse the transaction connection. Revoke removes the stored commitment. Account reset/deletion clears participant invitations.
 
@@ -143,7 +143,7 @@ Invitation storage contains a random token hash and keyed contact commitment, no
 
 “Apollo” is treated here as the application graph; this change does not integrate Apollo.io or a new third-party enrichment database.
 
-1. Project **Subject → Claim → Source**, plus topic membership, from approved PKM only. Use stable PKM domain/entity identities and normalized source identities.
+1. Project **Subject → Claim → Source**, plus topic membership, from approved PKM only. Use stable PKM domain/entity identities and normalized source identities. Facts saved to memory.md carry no source, so this projection needs a structured evidence record before it can include them.
 2. Carry a snapshot/content revision. Invalidate graph projections when a source or fact is edited, deleted, retracted, or becomes inaccessible.
 3. Extend the existing review/PKM schema with structured evidence basis, observation/publication dates, source-use rights, and supersession/contradiction relationships. Do not silently append unreviewed metadata to the current exact save payload.
 4. Add graph/topic filters and inspectable source/claim nodes, with uncertainty and history. Reuse existing PKM edit/delete flows.

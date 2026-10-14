@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   prepare: vi.fn(),
   addToPKM: vi.fn(),
+  append: vi.fn(),
   receipts: vi.fn(),
   clear: vi.fn(),
   candidates: vi.fn(),
@@ -40,6 +41,10 @@ vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (original) => ({
     typeof import("@/lib/pkm/pkm-natural-language-ingestion")
   >()),
   prepareNaturalLanguagePkm: mocks.prepare,
+}));
+vi.mock("@/lib/pkm/markdown-memory", async (original) => ({
+  ...(await original<typeof import("@/lib/pkm/markdown-memory")>()),
+  appendMarkdownMemoryFacts: mocks.append,
 }));
 vi.mock("@/lib/agent/agent-pkm-memory", async (original) => ({
   ...(await original<typeof import("@/lib/agent/agent-pkm-memory")>()),
@@ -82,7 +87,14 @@ import {
   assertExactProfileSelection,
   saveProfileReview,
 } from "@/lib/agent/profile-research-review";
+import {
+  prepareProfileMemoryReview,
+  saveProfileMemoryReview,
+  selectedProfileFacts,
+} from "@/lib/agent/profile-memory-review";
+import type { ProfileReport } from "@/lib/services/profile-research-service";
 
+let memoryCommitted = false;
 const FACT = "I work in engineering.";
 const UNSURE = "I may have studied mathematics.";
 const props = {
@@ -173,7 +185,15 @@ beforeEach(() => {
     failed: 0,
     results: [{ success: true, result: { dataVersion: 2 } }],
   });
-  mocks.receipts.mockResolvedValue([{ exists: false, dataVersion: null }]);
+  // A memory.md commit is acknowledged only after a write that succeeded.
+  memoryCommitted = false;
+  mocks.append.mockImplementation(async () => {
+    memoryCommitted = true;
+    return { success: true, saved: 1, markdown: "# memory.md\n" };
+  });
+  mocks.receipts.mockImplementation(async () => [
+    { exists: memoryCommitted, dataVersion: memoryCommitted ? 2 : null },
+  ]);
   mocks.candidates.mockReturnValue([]);
   mocks.businessTarget.mockReturnValue(null);
   mocks.readRequired.mockResolvedValue(null);
@@ -222,7 +242,7 @@ describe("onboarding profile draft and owner confirmation", () => {
       "https://example.test/school",
     );
     expect(mocks.prepare).not.toHaveBeenCalled();
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(mocks.append).not.toHaveBeenCalled();
   });
 
   it("resumes a cancelled effect with the same authority and discards its late response", async () => {
@@ -243,7 +263,7 @@ describe("onboarding profile draft and owner confirmation", () => {
       await act(async () => reads[1](respond(offer())));
       expect(screen.getByText("Alex Example")).toBeVisible();
       expect(mocks.prepare).not.toHaveBeenCalled();
-      expect(mocks.addToPKM).not.toHaveBeenCalled();
+      expect(mocks.append).not.toHaveBeenCalled();
     } finally {
       root.unmount();
     }
@@ -287,7 +307,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByTestId("profile-research-card")).toBeNull());
     expect(mocks.prepare).not.toHaveBeenCalled();
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(mocks.append).not.toHaveBeenCalled();
   });
 
   it("does not include optional business facts in a personal review unless selected", async () => {
@@ -315,10 +335,10 @@ describe("onboarding profile draft and owner confirmation", () => {
     ).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
     await screen.findByText("Your Personal World Model details are saved.");
-    expect(mocks.prepare.mock.calls[0][0].message).not.toContain(
-      "I founded Example.",
-    );
-    expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.append.mock.calls[0][0].facts.map((fact: { text: string }) => fact.text),
+    ).toEqual([FACT]);
   });
 
   it.each(["no_match"])(
@@ -347,7 +367,7 @@ describe("onboarding profile draft and owner confirmation", () => {
       }
       fireEvent.click(screen.getByRole("button", { name: "Skip" }));
       expect(mocks.prepare).not.toHaveBeenCalled();
-      expect(mocks.addToPKM).not.toHaveBeenCalled();
+      expect(mocks.append).not.toHaveBeenCalled();
       await waitFor(() => expect(screen.queryByTestId("profile-research-card")).toBeNull());
     },
   );
@@ -419,14 +439,6 @@ describe("onboarding profile draft and owner confirmation", () => {
   });
 
   it("uses current-owner transport, dispatches once under StrictMode, and saves checked inline edits with one click", async () => {
-    mocks.prepare.mockImplementation(
-      async ({ message }: { message: string }) => {
-        const prepared = preview(message);
-        prepared.cards[0].candidate_payload.career.entities.alex.summary =
-          "I lead an engineering team.";
-        return prepared;
-      },
-    );
     render(
       <StrictMode>
         <ProfileResearchCard {...props} />
@@ -443,8 +455,7 @@ describe("onboarding profile draft and owner confirmation", () => {
       headers: { Authorization: "Bearer owner-token" },
     });
     expect(mocks.apiFetch.mock.calls[0][1].body).toBeUndefined();
-    expect(mocks.prepare).not.toHaveBeenCalled();
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(mocks.append).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /Career/ })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -458,20 +469,20 @@ describe("onboarding profile draft and owner confirmation", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
     await screen.findByText("Your Personal World Model details are saved.");
-    const message = mocks.prepare.mock.calls[0][0].message;
-    expect(message).toContain("I lead an engineering team.");
-    expect(message).not.toContain(UNSURE);
-    expect(message).not.toContain(FACT);
-    expect(
-      screen.queryByRole("button", { name: "Confirm and save" }),
-    ).toBeNull();
     expect(screen.queryByTestId("agent-pkm-review-save")).toBeNull();
-    expect(mocks.prepare).toHaveBeenCalledTimes(1);
-    expect(mocks.addToPKM.mock.calls[0][0]).toMatchObject({
-      source: "profile_research_review",
-      sourceMessage: message,
-      confirmation: { confirmedByUser: true, surface: "chat" },
+    // Exactly the checked, edited statement is saved: no model rewrite, no
+    // unchecked fact, no source links, and no structured PKM write.
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+    expect(mocks.append.mock.calls[0][0]).toMatchObject({
+      facts: [{ text: "I lead an engineering team.", section: "Facts" }],
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "profile_research_review",
+      },
     });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
   });
 
   it("leaves an uncertain identity unchecked; Skip discards without memory preparation", async () => {
@@ -483,7 +494,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(mocks.prepare).not.toHaveBeenCalled();
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(mocks.append).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByTestId("profile-research-card")).toBeNull());
   });
 
@@ -497,26 +508,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
     expect(screen.queryByTestId("agent-pkm-review-save")).toBeNull();
     expect(mocks.prepare).not.toHaveBeenCalled();
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
-  });
-
-  it("keeps the reviewed cards through shared-data acknowledgement", async () => {
-    mocks.prepare.mockImplementation(async ({ message }: { message: string }) =>
-      preview(message, 2),
-    );
-    render(<ProfileResearchCard {...props} />);
-    await screen.findByText("Alex Example");
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
-    await screen.findByRole("alertdialog");
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Confirm and save" }).at(-1)!,
-    );
-    await screen.findByText("Your Personal World Model details are saved.");
-    expect(mocks.prepare).toHaveBeenCalledTimes(1);
-    expect(
-      mocks.addToPKM.mock.calls[0][0].confirmation.sharingImpactAcknowledged,
-    ).toBe(true);
+    expect(mocks.append).not.toHaveBeenCalled();
   });
 
   it("accepts exact citation values regardless of JSON key order, but rejects sibling entities", () => {
@@ -544,55 +536,27 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(() => assertExactProfileSelection(prepared, details)).toThrow();
   });
 
-  it.each(["rewritten", "extra"])(
-    "rejects %s payload facts before the one-click save",
-    async (kind) => {
-      mocks.prepare.mockImplementation(
-        async ({ message }: { message: string }) => {
-          const prepared = preview(message);
-          const row = prepared.cards[0].candidate_payload.career.entities.alex;
-          if (kind === "rewritten") row.summary = UNSURE;
-          else Object.assign(row, { is_founder: true });
-          return prepared;
-        },
-      );
-      render(<ProfileResearchCard {...props} />);
-      await screen.findByText("Alex Example");
-      fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
-      await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
-      await waitFor(() =>
-        expect(
-          screen.getByRole("button", { name: "Save to Memory" }),
-        ).toBeEnabled(),
-      );
-      expect(mocks.addToPKM).not.toHaveBeenCalled();
-      expect(
-        mocks.apiFetch.mock.calls.some(([path]) => path.endsWith("/complete")),
-      ).toBe(false);
-      expect(screen.queryByTestId("agent-pkm-review-save")).toBeNull();
-    },
-  );
-
-  it("retries an unconfirmed save with the pinned payload and scope, without another preparation", async () => {
-    mocks.addToPKM.mockResolvedValueOnce({
-      attempted: 1,
+  it("retries an unconfirmed save with the pinned facts and scope", async () => {
+    mocks.append.mockResolvedValueOnce({
+      success: false,
       saved: 0,
-      failed: 1,
-      results: [],
+      markdown: null,
+      message: "Memory is full. Review it before adding more information.",
     });
     render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
     fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
     await screen.findByRole("button", { name: "Retry save" });
+    expect(
+      mocks.apiFetch.mock.calls.some(([path]) => path.endsWith("/complete")),
+    ).toBe(false);
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     await screen.findByText("Your Personal World Model details are saved.");
-    expect(mocks.prepare).toHaveBeenCalledTimes(1);
-    expect(mocks.addToPKM).toHaveBeenCalledTimes(2);
-    const [first, retry] = mocks.addToPKM.mock.calls.map(([input]) => input);
-    expect(retry.cards).toEqual(first.cards);
-    expect(retry.idempotencyScopes).toEqual(first.idempotencyScopes);
+    expect(mocks.append).toHaveBeenCalledTimes(2);
+    const [first, retry] = mocks.append.mock.calls.map(([input]) => input);
+    expect(retry.facts).toEqual(first.facts);
+    expect(retry.idempotencyScope).toBe(first.idempotencyScope);
   });
 
   it("keeps a written selection pinned when completion fails, then recovers from its receipt", async () => {
@@ -614,18 +578,16 @@ describe("onboarding profile draft and owner confirmation", () => {
       screen.getByRole("checkbox", { name: `Keep ${FACT}` }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
-    mocks.receipts.mockResolvedValue([{ exists: true, dataVersion: 2 }]);
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     await screen.findByText("Your Personal World Model details are saved.");
-    expect(mocks.prepare).toHaveBeenCalledTimes(1);
-    expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+    expect(mocks.append).toHaveBeenCalledTimes(1);
     expect(completionCalls).toBe(2);
   });
 
-  it("rejects late preparation after unmount and late research after owner changes", async () => {
-    let finish!: (value: ReturnType<typeof preview>) => void;
-    mocks.prepare.mockReturnValue(
+  it("rejects a late memory write result after unmount and late research after owner changes", async () => {
+    let finish!: (value: { success: true; saved: number; markdown: string }) => void;
+    mocks.append.mockReturnValue(
       new Promise((done) => {
         finish = done;
       }),
@@ -633,12 +595,14 @@ describe("onboarding profile draft and owner confirmation", () => {
     const root = render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
     fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
-    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.append).toHaveBeenCalledTimes(1));
     root.unmount();
     await act(async () => {
-      finish(preview(FACT));
+      finish({ success: true, saved: 1, markdown: "# memory.md\n" });
     });
-    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(
+      mocks.apiFetch.mock.calls.some(([path]) => path.endsWith("/complete")),
+    ).toBe(false);
     let research!: (value: Response) => void;
     mocks.apiFetch.mockReturnValue(
       new Promise((done) => {
@@ -825,4 +789,96 @@ it("allows reviewed new business facts without minting directory identity or own
   expect(reviewed.origins.size).toBe(0);
   expect(reviewed.cards[0].candidate_payload).toEqual(card.candidate_payload);
   expect(mocks.addToPKM).not.toHaveBeenCalled();
+});
+
+describe("memory.md review writer", () => {
+  const source = [{ title: "Team", url: "https://example.test/team" }];
+  const report: ProfileReport = {
+    match_status: "matched",
+    name: "Alex Example",
+    summary: "A public professional profile.",
+    sections: [
+      {
+        kind: "career",
+        facts: [{ statement: FACT, confidence: "supported", sources: source }],
+      },
+      {
+        kind: "food",
+        facts: [
+          { statement: "I like tea.", confidence: "supported", sources: source },
+        ],
+      },
+    ],
+  };
+  const review = () =>
+    prepareProfileMemoryReview(
+      selectedProfileFacts(report, new Set(["career:0", "food:0"]), {}),
+    );
+  const completions = () =>
+    mocks.apiFetch.mock.calls.filter(([path]) => path.endsWith("/complete"));
+
+  it("selects exactly the checked, edited statements, with no sources or extras", () => {
+    expect(
+      selectedProfileFacts(report, new Set(["career:0", "food:0"]), {
+        "career:0": "  I lead engineering. ",
+      }),
+    ).toEqual([
+      { text: "I lead engineering.", section: "Facts" },
+      { text: "I like tea.", section: "Preferences" },
+    ]);
+    expect(selectedProfileFacts(report, new Set(), {})).toEqual([]);
+    expect(() => prepareProfileMemoryReview([])).toThrow("Select a detail");
+  });
+
+  it("commits one memory.md write, then completes with that single receipt", async () => {
+    const reviewed = review();
+    await saveProfileMemoryReview(session, reviewed);
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+    expect(mocks.append.mock.calls[0][0]).toMatchObject({
+      facts: reviewed.facts,
+      idempotencyScope: reviewed.scope,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "profile_research_review",
+      },
+    });
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(completions()).toHaveLength(1);
+    expect(JSON.parse(completions()[0][1].body).commits).toEqual([
+      { domain: "one_memory", plan_id: expect.stringMatching(/^pkm_plan_/) },
+    ]);
+  });
+
+  it("never completes on a write response alone, only on an acknowledged receipt", async () => {
+    const reviewed = review();
+    for (const receipt of [
+      { exists: false, dataVersion: null },
+      { exists: true, dataVersion: null },
+    ]) {
+      mocks.receipts.mockResolvedValue([receipt]);
+      await expect(saveProfileMemoryReview(session, reviewed)).rejects.toThrow();
+    }
+    expect(reviewed.committed).toBe(false);
+    expect(completions()).toHaveLength(0);
+  });
+
+  it("recovers lost responses by receipt and never replays a committed write", async () => {
+    const reviewed = review();
+    mocks.append.mockRejectedValueOnce(new Error("write response lost"));
+    mocks.receipts
+      .mockResolvedValueOnce([{ exists: false, dataVersion: null }])
+      .mockResolvedValueOnce([{ exists: true, dataVersion: 3 }]);
+    mocks.apiFetch.mockRejectedValueOnce(new Error("completion response lost"));
+    await expect(saveProfileMemoryReview(session, reviewed)).rejects.toThrow();
+    expect(reviewed.committed).toBe(true);
+    await saveProfileMemoryReview(session, reviewed);
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+    const [lost, retried] = completions();
+    expect(retried[1].body).toBe(lost[1].body);
+    // A scope already acknowledged on the vault is completed, never rewritten.
+    mocks.receipts.mockResolvedValue([{ exists: true, dataVersion: 3 }]);
+    await saveProfileMemoryReview(session, review());
+    expect(mocks.append).toHaveBeenCalledTimes(1);
+  });
 });

@@ -56,14 +56,12 @@ the current pipeline neither calculates nor emits them. Discovery remains
 owner-scoped, not arbitrary-person or private-account access.
 Structured task output and Search grounding receipts form the editable card.
 The report stays outside ordinary transcript persistence and automatic capture.
-Selected statements use the existing PKM agents for exact internal preparation;
-Save to Memory commits those selections without a second raw PKM review screen.
-Edit remains beside the checkbox selection. Active sharing impact still requires
-the existing explicit acknowledgment. Exact scopes and payloads are pinned for
-uncertain/partial retries; fresh create-target guards prevent overwriting an
-existing entity. Business identity fences apply
-only when a proposed write touches an existing business record; ordinary sharing
-fences still apply. Back closes Edit/Review before route navigation.
+Selected statements are saved exactly as reviewed, as bullets in memory.md, with
+no preparation agent rewriting them and no second raw PKM review screen.
+Edit remains beside the checkbox selection. memory.md has no sharing recipients,
+so no sharing acknowledgment applies. The exact facts and idempotency scope are
+pinned for uncertain retries, so a retry never writes a different selection or
+repeats a committed write. Back closes Edit/Review before route navigation.
 `ONE_PROFILE_RESEARCH_ENABLED` defaults off pending live quality evaluation;
 see the [semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 

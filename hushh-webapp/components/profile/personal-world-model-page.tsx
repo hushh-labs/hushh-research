@@ -197,7 +197,8 @@ export function PersonalWorldModelPage() {
                   <CardHeader className="p-4 pb-2">
                     <CardTitle className="text-sm">Your model</CardTitle>
                     <HelperText>
-                      Details you have approved, connected to their sources.
+                      Details you approve are saved to memory.md. Earlier saves
+                      keep their sources here.
                     </HelperText>
                   </CardHeader>
                   <CardContent className="space-y-3 p-4 pt-0">
@@ -220,8 +221,8 @@ export function PersonalWorldModelPage() {
                       </HelperText>
                     ) : facts.length === 0 ? (
                       <HelperText>
-                        No approved public details yet. Build your model to get
-                        started.
+                        No earlier cited details. Build your model to add
+                        details to memory.md.
                       </HelperText>
                     ) : (
                       <ul className="space-y-3">
