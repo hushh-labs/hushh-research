@@ -324,6 +324,8 @@ for (const width of [390, 768])
  * A drawer left inside the workspace can never rise above that bar.
  */
 async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
+  // createRoot commits asynchronously after the fixture script is inserted.
+  await page.locator("main").waitFor({ state: "attached" });
   await page.evaluate((height) => {
     document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
     const main = document.querySelector("main")!;
@@ -1493,10 +1495,14 @@ test.describe("One profile artwork and animated presence", () => {
     await expect(poster).toHaveCSS("visibility", "visible");
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
+    const reduced = (await presencePixels(canvas)).hash;
+    await page.waitForTimeout(200);
+    expect((await presencePixels(canvas)).hash).toBe(reduced);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect(canvas).toHaveCSS("visibility", "visible");
     await expect(poster).toHaveCSS("visibility", "hidden");
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
     await expect(canvas).toHaveCSS("visibility", "hidden");
     await expect(poster).toHaveCSS("visibility", "visible");

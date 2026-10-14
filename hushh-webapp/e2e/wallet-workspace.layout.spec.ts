@@ -295,18 +295,24 @@ for (const width of [320, 393, 1440]) {
 }
 
 for (const width of [393, 1440]) {
-  test(`Calendar workspace consumes the shared heading gap at ${width}px`, async ({ page }) => {
+  test(`Calendar workspace centers its action below the heading at ${width}px`, async ({ page }) => {
     await open(page, width, "light", {}, { shell: true });
     await page.addScriptTag({ content: "window.__calendarHeading=true;" });
     await mount(page, false);
     const action = page.getByRole("button", { name: "Connect your calendar", exact: true });
     await expect(action).toBeVisible();
     const measured = await action.evaluate((button) => {
-      const copy = button.closest("section")!.querySelector(":scope > p")!;
+      const heading = button.closest("section")!.querySelector("#calendar-connect-title")!;
       const rect = button.getBoundingClientRect();
-      return { gap: rect.top - copy.getBoundingClientRect().bottom, height: rect.height };
+      const title = heading.getBoundingClientRect();
+      return {
+        gap: rect.top - title.bottom,
+        centerOffset: rect.x + rect.width / 2 - title.x - title.width / 2,
+        height: rect.height,
+      };
     });
-    expect(measured.gap).toBeCloseTo(width < 640 ? 0 : 6, 1);
+    expect(measured.gap).toBeCloseTo(24, 1);
+    expect(Math.abs(measured.centerOffset)).toBeLessThanOrEqual(0.5);
     expect(measured.height).toBeGreaterThanOrEqual(44);
   });
 }

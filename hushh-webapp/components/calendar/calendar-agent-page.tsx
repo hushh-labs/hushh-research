@@ -150,14 +150,16 @@ export function CalendarAgentPage({
   identityRef.current = identity;
   const statusRequestRef = useRef(0);
   const [statusSnapshot, setStatusSnapshot] = useState<{
-    identity: symbol; value: GoogleCalendarStatus | null;
-  }>({ identity, value: null });
+    identity: symbol; value: GoogleCalendarStatus | null; error: string | null;
+  }>({ identity, value: null, error: null });
   const status = statusSnapshot.identity === identity ? statusSnapshot.value : null;
+  const statusError = statusSnapshot.identity === identity ? statusSnapshot.error : null;
   // A verified connect/disconnect supersedes any earlier status request.
   const setStatus = (value: GoogleCalendarStatus | ((current: GoogleCalendarStatus | null) => GoogleCalendarStatus)) => {
     statusRequestRef.current += 1;
     setStatusSnapshot((current) => ({
       identity,
+      error: null,
       value: typeof value === "function"
         ? value(current.identity === identity ? current.value : null) : value,
     }));
@@ -194,15 +196,25 @@ export function CalendarAgentPage({
     const request = ++statusRequestRef.current;
     const isCurrent = () => identityRef.current === identity &&
       statusRequestRef.current === request && activeOwnerIdRef.current === operationOwnerId;
+    setStatusSnapshot((current) => ({
+      identity,
+      value: current.identity === identity ? current.value : null,
+      error: null,
+    }));
     try {
       const idToken = await currentUser.getIdToken();
       if (!isCurrent()) return null;
       const next = await GoogleCalendarService.status(idToken, operationOwnerId);
       if (!isCurrent()) return null;
-      setStatusSnapshot({ identity, value: next });
+      setStatusSnapshot({ identity, value: next, error: null });
       return next;
     } catch (error) {
       if (!isCurrent()) return null;
+      setStatusSnapshot((current) => ({
+        identity,
+        value: current.identity === identity ? current.value : null,
+        error: "Calendar connection couldn’t load. Try again.",
+      }));
       throw error;
     }
   }, [connectionPending, renderedOwnerId, identity]);
@@ -498,8 +510,8 @@ export function CalendarAgentPage({
     ? "View events and availability with One."
     : "View availability and manage meetings with One.";
   const needsReauth = status?.status === "needs_reauth";
-  const checkingConnection = connectionPending || loading || !status;
-  // Keep the illustration from first paint; only a verified connection swaps it.
+  const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
+  // Unknown connection evidence is a loading state, never a disconnected state.
   const showConnectHero = !connected;
 
   const popupWaitingNotice = popupWaiting ? (
@@ -543,7 +555,7 @@ export function CalendarAgentPage({
         marker: "native-route-calendar",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
         dataState:
-          connectionPending || loading
+          checkingConnection
             ? "loading"
             : status === null
               ? "unavailable-valid"
@@ -553,7 +565,23 @@ export function CalendarAgentPage({
       }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
-        {showConnectHero ? (
+        {checkingConnection && !connected ? (
+          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {connectionPending ? "Finishing Calendar connection…" : "Checking Calendar connection…"}
+          </div>
+        ) : !status && statusError ? (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p role="status" className="text-sm text-muted-foreground">{statusError}</p>
+            <Button
+              type="button"
+              size="compact"
+              onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again."))}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
@@ -633,7 +661,7 @@ export function CalendarAgentPage({
                         </AskOneButton>
                         <button
                           type="button"
-                          className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                          className="min-h-11 text-xs font-medium text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline"
                           disabled={busy}
                           onClick={() => setDisconnectConfirmOpen(true)}
                         >

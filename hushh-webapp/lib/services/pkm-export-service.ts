@@ -136,7 +136,7 @@ export const PkmExportService = {
         domain_count: domains.length,
         ...(restorableError ? { restorable_error: restorableError } : {}),
         restore_requires:
-          "The encrypted copy can only be opened with your vault passphrase. Nobody else can read it, including us.",
+          "The encrypted copy can only be opened with your vault password. Nobody else can read it, including us.",
         excludes: [
           "Records of what you were shown and agreed to, which are kept for accountability.",
           "Anything outside your memory: connected accounts, saved cards, places, and activity from other parts of the app.",
