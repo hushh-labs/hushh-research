@@ -129,10 +129,12 @@ def test_image_build_accepts_only_registered_environment_origins(environment, pr
         assert "does not match the deployment environment" in refused.stderr
 
 
-def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path, environment):
     config = yaml.safe_load(FRONTEND_BUILD.read_text())
     values = {name: str(value) for name, value in config["substitutions"].items()}
     values["_SKIP_IMAGE_BUILD"] = "true"
+    values["_DEPLOY_ENV"] = environment
     script = _substitute(
         _body(_steps(FRONTEND_BUILD)["resolve-google-contacts-client-config"]), values
     )
@@ -141,7 +143,7 @@ def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
     result = _run(
         guards + script,
         env={
-            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.si",
+            "APP_FRONTEND_ORIGIN_VAL": f"https://{environment}.one.hussh.si",
             "PROJECT_ID": "synthetic-project",
         },
         cwd=tmp_path,

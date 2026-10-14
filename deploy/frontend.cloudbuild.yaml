@@ -155,56 +155,12 @@ steps:
           exit 1
         fi
 
-        # Native public-client pins are a dev pilot. Missing configuration keeps
-        # its feature unavailable; permission failures must not masquerade as absence.
-        native_config_dir="/workspace/.google-native-connectors"
-        mkdir -p "$${native_config_dir}"
-        chmod 700 "$${native_config_dir}"
-        native_names=(
-          NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID
-          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID
-          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI
-          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED
-        )
-        for name in "$${native_names[@]}"; do
-          : > "$${native_config_dir}/$${name}"
-          chmod 600 "$${native_config_dir}/$${name}"
-        done
-        printf '%s' false > "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED"
-        if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-          for name in "$${native_names[@]}"; do
-            target="$${native_config_dir}/$${name}"
-            if gcloud secrets versions access latest --secret="${_SECRET_PREFIX}$${name}" --project="$PROJECT_ID" \
-              > "$${target}" 2> "$${google_contacts_secret_error}"; then
-              value="$$(tr -d '\r\n' < "$${target}")"
-              case "$${name}" in
-                *_CLIENT_ID)
-                  [[ "$${value}" =~ ^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]] || {
-                    echo "Invalid native Google public-client configuration: $${name}." >&2; exit 1;
-                  } ;;
-                *_REDIRECT_URI)
-                  [[ "$${value}" == "com.hussh.app:/oauth2redirect" ]] || {
-                    echo "Invalid native Google redirect configuration." >&2; exit 1;
-                  } ;;
-                *_DEV_ENABLED)
-                  [[ "$${value}" == "true" || "$${value}" == "false" ]] || {
-                    echo "Invalid native Google dev gate configuration." >&2; exit 1;
-                  } ;;
-              esac
-              printf '%s' "$${value}" > "$${target}"
-            elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
-              : > "$${target}"
-              echo "Optional native Google configuration $${name} is absent; keeping that feature unavailable."
-            else
-              echo "Unable to access native Google public-client configuration: $${name}." >&2
-              exit 1
-            fi
-          done
-          if [[ ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID" \
-            || ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI" \
-            || ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED" ]]; then
-            printf '%s' false > "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED"
-          fi
+        # Native pins are compiled into the image, so prebuilt deploys need
+        # neither uploaded source nor new native-secret discovery.
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
+          source scripts/deploy/frontend-google-native-config.sh
+          resolve_google_native_public_clients "${_DEPLOY_ENV}" "${_SECRET_PREFIX}" "$PROJECT_ID" \
+            "/workspace/.google-native-connectors" "$${google_contacts_secret_error}"
         fi
 
         # Receipt logos are optional and resolved for UAT only. Never bind a

@@ -226,6 +226,33 @@ function query(page: Page) {
   return new URL(page.url()).searchParams;
 }
 
+for (const order of ["notice-first", "profile-first"] as const) {
+  test(`Payments remains clickable with a ${order} release notice`, async ({ page }) => {
+    const errors = await mount(page, { at: "/one" });
+    const notice = page.getByRole("dialog", { name: "Synthetic release notice", exact: true });
+    const events = order === "notice-first"
+      ? ["fixture-release-notice", "fixture-open-payouts"]
+      : ["fixture-open-payouts", "fixture-release-notice"];
+    await page.evaluate((event) => window.dispatchEvent(new Event(event)), events[0]);
+    await expect(order === "notice-first" ? notice : pane(page)).toBeVisible();
+    await page.evaluate((event) => window.dispatchEvent(new Event(event)), events[1]);
+    await expect(pane(page)).toBeVisible();
+    await expect(notice).not.toBeVisible();
+    const close = page.getByRole("button", { name: "Close Profile", exact: true });
+    await expect.poll(() => close.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    await close.click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(page).not.toHaveURL(/profile_pane=1/);
+    await expect(notice).toBeVisible();
+    await notice.getByRole("button", { name: "Got it", exact: true }).click();
+    await expect(notice).not.toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
 test("Profile root and nested screens share one gutter", async ({ page }) => {
   const cases: {
     width: number;

@@ -16988,7 +16988,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 822
+      "value": 824
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -39824,6 +39824,59 @@
         "source_sha256": "887d090e75eb9b2b8d304c881aa1e63cca08d41cd11fcb1e3196ac79245d4e9b"
       }
     ]
+  },
+  "scope_commerce_native_prebuilt_correction_20261014": {
+    "qualification_sha256": "684ff797df30ce6ddeda97ae44f19c116c57b9a9caa8d562eec987f364ef2826",
+    "qualified_slots": [
+      {
+        "accepted_ceiling": 824,
+        "classification": "bounded_new_test_boundary_correction",
+        "detail": "module exceeds the advisory operon budget",
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "limit": 500,
+        "net_growth": 2,
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "previous_ceiling": 822,
+        "source_git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
+        "source_sha256": "edd34d072e7e9ac4c53bf03cf5a4e027fb3f18aa4cb548b28dfb837f01f7b912",
+        "symbol": null,
+        "value": 824
+      }
+    ],
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "source_bindings": [
+      {
+        "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
+        "index_matches_working": false,
+        "module_lines": 824,
+        "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "sha256": "edd34d072e7e9ac4c53bf03cf5a4e027fb3f18aa4cb548b28dfb837f01f7b912"
+      },
+      {
+        "git_blob": "694f45a6186d4896d1dc5b4f551eb1d9d63e3ba3",
+        "index_matches_working": false,
+        "module_lines": 60,
+        "path": "scripts/deploy/frontend-google-native-config.sh",
+        "sha256": "ddcacf49f49e5c4969accab012ce6788f26c330c40ca09c9755acef486e4966d"
+      },
+      {
+        "git_blob": "25f673e8aad8135a288074f059aeb2696ae7316c",
+        "index_matches_working": false,
+        "module_lines": 371,
+        "path": "deploy/frontend-image.cloudbuild.yaml",
+        "sha256": "6db2b2482b593d4929b94d162adf5efe5a5514282db2614bc8ad8a84bf9f9eeb"
+      },
+      {
+        "git_blob": "9bedfcc6ed60dc06c549226a2304c21cea906d0f",
+        "index_matches_working": false,
+        "module_lines": 532,
+        "path": "deploy/frontend.cloudbuild.yaml",
+        "sha256": "70c66957b85d828910096bcf12d3692cb9d4491c74c48a3dfa6d97ef0f3ee2c6"
+      }
+    ],
+    "source_revision": "64aa8bb2fb645018f4c4b3d974f5908fba810df9"
   },
   "scope_commerce_packet_reset_privacy_20261013": {
     "qualified_updates": [

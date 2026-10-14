@@ -48,10 +48,11 @@ or Topups. No paid scope purchase or withdrawal has yet been accepted.
 The primary's $10 Checkout completed through the normal auxiliary-window return:
 the hosted window closed and the original document retained its unlocked vault.
 The earlier $0.50 Checkout required separate cold recovery of the same unpaid
-intent; it is not normal warm-return evidence. The current primary Connect
-onboarding attempt remains incomplete; a refused provider preparation request
-prevents claiming clean onboarding acceptance. The counterpart's information-access
-payout account is eligible. One's authenticated Stripe reads and the real-clock
+intent; it is not normal warm-return evidence. At `2026-10-14T04:04:07Z`, a
+read-only provider check confirmed that primary Connect onboarding still requires
+individual identity, bank and terms completion. The counterpart's information-access
+payout account is eligible with a verified USD destination and manual schedule.
+One's authenticated Stripe reads and the real-clock
 purchase/refund/maturity/payout cases remain outstanding.
 
 Dev's document-bank read returned `PAYOUT_UNAVAILABLE` because neither its
@@ -74,6 +75,22 @@ Normal **Close Profile** followed by same-document navigation reveals exactly
 **Saved** and **Add**, no Sharing tab, and the Saved sharing controls with vault
 continuity. This is browser evidence for the primary; counterpart dismissal and
 normally encrypted synthetic scope preparation remain acceptance work.
+
+The counterpart rehearsal independently reproduced a modal ordering defect:
+the release notice's overlay intercepted both Payments Close and its own
+**Got it** control. The correction defers the cosmetic notice while the canonical
+Profile pane query is active, then resumes the pending notice after normal pane
+dismissal. Eight real-modal browser cases pass across the configured engines and
+device profiles. The immutable preceding implementation fails the notice-first
+negative control. Deployed counterpart readback is still required.
+
+Main `9f017ef6fcde` was merged normally into the existing infrastructure branch.
+The first combined core run passed web-core and 19,071 protocol cases, but failed
+the unchanged Cloud Build argument-size gate. Extracting the identical native
+public-client resolver into its deploy-script owner restores the size contract;
+prebuilt deployments skip source loading and native secret discovery. Focused
+build contracts and Dev/UAT source-free negative controls pass. The completed
+candidate still requires its own core run, hosted CI and Dev release.
 
 The accompanying source change adds **Manage payout account** inside the
 information-access withdrawal disclosure. Its empty-body authenticated
