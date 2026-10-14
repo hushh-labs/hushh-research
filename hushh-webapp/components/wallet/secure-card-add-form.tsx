@@ -350,9 +350,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
         </ul>
       ) : null}
       <FlowActionGroup
+        className="mx-auto max-w-[244px]"
         stacked
         primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
-        secondary={onCancel ? <Button type="button" variant="secondary" size="prominent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
+        secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
     </>
