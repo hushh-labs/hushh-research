@@ -1,12 +1,11 @@
 import { encodeQrCode } from "@/components/wallet-card/qr-code";
 import { loadWalletCardArtwork, type WalletCardArtworkKind } from "@/lib/services/wallet-card-artwork-service";
-import { walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
 
 export type WalletCardImageKind = WalletCardArtworkKind;
 export type WalletCardImageIdentity = {
   ownerId?: string;
   displayName: string | null;
-  cardPayload?: { username?: string | null } | null;
+  cardPayload?: { username?: string | null; full_name?: string | null } | null;
   shareUrl: string | null;
   referralUrl?: string | null;
   memberSince?: string | null;
@@ -24,7 +23,7 @@ export const NWS_SAMPLE_DESCRIPTION = "Sample NWS score: 900 out of 1000. This i
 
 /** This projection is shared by the rendered face, its accessible text and PNG export. */
 export function walletCardImageFields(profile: WalletCardImageIdentity | null | undefined) {
-  const username = profile?.cardPayload?.username || walletProfileUsername(profile?.displayName ?? "");
+  const username = profile?.cardPayload?.full_name?.trim() || profile?.displayName?.trim() || "Member";
   const date = profile?.memberSince ? new Date(profile.memberSince) : null;
   return {
     username,
@@ -79,7 +78,7 @@ function identitySvg(kind: WalletCardImageKind, profile: WalletCardImageIdentity
   const usernameFit = username.length > (nws ? 10 : 17) ? ` textLength="${nws ? 220 : 416}" lengthAdjust="spacingAndGlyphs"` : "";
   return `<g data-wallet-identity="true" font-family="WalletLexend,system-ui,sans-serif">
     <g fill="${label}" font-size="14" font-weight="500" letter-spacing="4.48">
-      <text x="${nws ? 100 : 402}" y="${nws ? 449 : 281}">USERNAME</text>
+      <text x="${nws ? 100 : 402}" y="${nws ? 449 : 281}">NAME</text>
       <text x="${nws ? 390 : 402}" y="${nws ? 449 : 414}">MEMBER SINCE</text>
       <text x="${nws ? 640 : 650}" y="${nws ? 449 : 414}">WALLET ID</text>
     </g>
