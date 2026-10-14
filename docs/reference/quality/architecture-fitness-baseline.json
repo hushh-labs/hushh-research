@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2575,
+  "finding_count": 2578,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -13865,7 +13865,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 867
+      "value": 981
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17195,7 +17195,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
-      "value": 809
+      "value": 1127
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23182,6 +23182,33 @@
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "live_release_matches",
       "value": 137
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/db/migration_authority.py|_replay_referral_policy_v2_sql|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/db/migration_authority.py",
+      "symbol": "_replay_referral_policy_v2_sql",
+      "value": 103
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_migration_authority.py|referral_replay_postgres|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_migration_authority.py",
+      "symbol": "referral_replay_postgres",
+      "value": 94
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_migration_authority.py|test_referral_v2_replay_accepts_only_an_intact_later_lineage|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_migration_authority.py",
+      "symbol": "test_referral_v2_replay_accepts_only_an_intact_later_lineage",
+      "value": 198
     }
   ],
   "inspected_files": 6625,
@@ -41300,6 +41327,65 @@
     "reviewed_original_report_sha256": "701b2e2f5c42fe6ec79bb5bf3051dbf39e7f92ea856172579c90ef23715d6b9e",
     "reviewer": "migration_merge_review",
     "source_report_sha256": "353cd0cca01dd705c9d580cbc4979154d715ebb7d4c3e140a965be2784d2d779"
+  },
+  "scope_commerce_referral_replay_main_merge_20261014": {
+    "changes": [
+      {
+        "accepted_ceiling": 981,
+        "classification": "bounded_union_preserving_incoming_and_task_source",
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/db/migration_authority.py",
+        "previous_ceiling": 867,
+        "source_git_blob": "520a939d34f6328e5dc42ba3e34b0495c1fc2134",
+        "source_sha256": "04ee6100fd5ffbc8eac530179b3035dca4b76a69267837cba8fcb07bb614bb17"
+      },
+      {
+        "accepted_ceiling": 103,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/db/migration_authority.py|_replay_referral_policy_v2_sql|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/db/migration_authority.py",
+        "previous_ceiling": null,
+        "source_git_blob": "520a939d34f6328e5dc42ba3e34b0495c1fc2134",
+        "source_sha256": "04ee6100fd5ffbc8eac530179b3035dca4b76a69267837cba8fcb07bb614bb17"
+      },
+      {
+        "accepted_ceiling": 1127,
+        "classification": "exact_inherited_main_span",
+        "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_migration_authority.py",
+        "previous_ceiling": 809,
+        "source_git_blob": "8fe179f8918f4fa5e1583ad2aea48cb969d853e4",
+        "source_sha256": "ea970a99c165184b3181eca6173b33ce9d1cd94d149dc32a20048f6b1b86d51b"
+      },
+      {
+        "accepted_ceiling": 94,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/test_migration_authority.py|referral_replay_postgres|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_migration_authority.py",
+        "previous_ceiling": null,
+        "source_git_blob": "8fe179f8918f4fa5e1583ad2aea48cb969d853e4",
+        "source_sha256": "ea970a99c165184b3181eca6173b33ce9d1cd94d149dc32a20048f6b1b86d51b"
+      },
+      {
+        "accepted_ceiling": 198,
+        "classification": "exact_inherited_main_span",
+        "key": "function_size|consent-protocol/tests/test_migration_authority.py|test_referral_v2_replay_accepts_only_an_intact_later_lineage|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "path": "consent-protocol/tests/test_migration_authority.py",
+        "previous_ceiling": null,
+        "source_git_blob": "8fe179f8918f4fa5e1583ad2aea48cb969d853e4",
+        "source_sha256": "ea970a99c165184b3181eca6173b33ce9d1cd94d149dc32a20048f6b1b86d51b"
+      }
+    ],
+    "incoming_main_revision": "bea28e6d40f808eba44a81054133cdde38010125",
+    "review": "Independent exact-source qualification of four inherited spans and one bounded production union. All prior 17 qualifications, occurrences, multiplicity, history, detector and budgets retained. No release or commercial policy approval inferred.",
+    "source_qualification_sha256": "c69b90868eaf3127ed2059c7dce2f15fd88755d200d938b862adf195854b59b8",
+    "source_revision": "88c984f8825d57e630d5d319eb4af413812ba70f",
+    "verification": "42 nearest migration-authority cases pass against owned synthetic PostgreSQL. Full candidate core/CI and deployed acceptance remain required; UAT v3 owner attestation remains separate."
   },
   "scope_commerce_rive_browser_fixture_20261013": {
     "qualified_updates": [
