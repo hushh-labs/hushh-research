@@ -199,6 +199,7 @@ def _validate_capacity_trigger(event_name: str, event: dict) -> subprocess.Compl
 
 def _capacity_upstream_run() -> dict:
     return {
+        "action": "completed",
         "workflow_run": {
             "id": 42,
             "name": "Deploy to UAT",
