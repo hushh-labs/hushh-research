@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
+from contextvars import ContextVar
+from copy import deepcopy
 import importlib
 import json
 import os
@@ -82,14 +85,32 @@ REQUIRED_PRODUCTION_STEPS = (
 )
 
 
+GITHUB_LOOKUP_SECONDS = 180
+_LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
+_API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
+
+
 def command(*args: str) -> str:
+    timeout = 180.0
+    deadline = _LOOKUP_DEADLINE.get()
+    if args[0] == "gh" and deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            raise retention.UnsafeState("GitHub authority lookup exceeded three minutes")
     return subprocess.run(
-        args, check=True, capture_output=True, text=True, timeout=180
+        args, check=True, capture_output=True, text=True, timeout=timeout
     ).stdout
 
 
 def api(repository: str, endpoint: str):
-    return json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    cache = _API_CACHE.get()
+    key = (repository, endpoint)
+    if cache is not None and key in cache:
+        return deepcopy(cache[key])
+    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    if cache is not None:
+        cache[key] = deepcopy(result)
+    return result
 
 
 def trusted_run(run: dict, repository: str, workflow: str) -> bool:
@@ -178,13 +199,17 @@ def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -
     result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
     jobs = result.get("jobs") or []
     by_job = {job.get("name"): job for job in jobs}
+    historical_jobs = {"Select UAT target", "Deploy UAT Scope"}
+    current_jobs = historical_jobs | {"Wait for UAT capacity outside the mutation lock"}
     if (
-        result.get("total_count") != 2
-        or len(jobs) != 2
-        or len(by_job) != 2
-        or set(by_job) != {"Select UAT target", "Deploy UAT Scope"}
-        or by_job["Select UAT target"].get("status") != "completed"
-        or by_job["Select UAT target"].get("conclusion") != "success"
+        set(by_job) not in (historical_jobs, current_jobs)
+        or result.get("total_count") != len(by_job)
+        or len(jobs) != len(by_job)
+        or any(
+            by_job[name].get("status") != "completed"
+            or by_job[name].get("conclusion") != "success"
+            for name in set(by_job) - {"Deploy UAT Scope"}
+        )
     ):
         raise retention.UnsafeState("UAT deployment job inventory is incomplete")
     job = by_job["Deploy UAT Scope"]
@@ -772,12 +797,25 @@ def find_release(
     return None
 
 
+def bounded_artifacts(repository: str, artifact: str) -> Iterator[dict]:
+    """Bound history traversal without hiding older completed drain evidence."""
+    for page in range(1, 11):
+        result = api(repository, f"artifacts?name={artifact}&per_page=100&page={page}")
+        rows = result.get("artifacts")
+        if not isinstance(rows, list):
+            raise retention.UnsafeState("invalid retention artifact inventory")
+        yield from rows
+        if len(rows) < 100:
+            return
+    raise retention.UnsafeState("retention artifact history exceeds bounded lookup")
+
+
 def restore_state(
     repository: str, directory: Path, *, environment: str = "uat"
 ) -> None:
     lane = LANES[environment]
     artifact = lane["state_artifact"]
-    artifacts = api(repository, f"artifacts?name={artifact}&per_page=100")["artifacts"]
+    artifacts = bounded_artifacts(repository, artifact)
     for item in artifacts:
         if item.get("name") != artifact or item.get("expired") is not False:
             continue
@@ -798,7 +836,9 @@ def restore_state(
                 if state.is_file() and not state.is_symlink():
                     destination = directory / state.name
                     if destination.is_symlink():
-                        raise retention.UnsafeState("preseeded retention state is a symlink")
+                        raise retention.UnsafeState(
+                            "preseeded retention state is a symlink"
+                        )
                     # The final job in this workflow can preseed the state it
                     # just uploaded. An older completed run cannot replace its
                     # observed drain clock; the retention helper checks the
@@ -811,13 +851,23 @@ def restore_state(
 def latest_deploy_observation(repository: str, environment: str) -> int:
     """A completed run triggers inspection, never grants deletion authority."""
     workflow = LANES[environment]["workflow"]
-    runs = api(
-        repository,
-        f"workflows/{workflow}/runs?branch=main&status=completed&per_page=50",
-    )["workflow_runs"]
+    workflows = {workflow}
+    if environment == "uat":
+        workflows.add(ONE_CHAT_WORKFLOW)
+    runs = []
+    for name in sorted(workflows):
+        result = api(
+            repository,
+            f"workflows/{name}/runs?branch=main&status=completed&per_page=50",
+        )
+        batch = result.get("workflow_runs")
+        if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
+            raise retention.UnsafeState("deployment observation inventory is invalid")
+        runs.extend(batch)
+    runs.sort(key=lambda run: int(run["id"]), reverse=True)
     for run in runs:
         if (
-            run.get("path") == f".github/workflows/{workflow}"
+            run.get("path") in {f".github/workflows/{name}" for name in workflows}
             and run.get("head_branch") == "main"
             and run.get("status") == "completed"
             and run.get("event") == "workflow_dispatch"
@@ -828,10 +878,17 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     raise retention.UnsafeState("no completed deployment observation")
 
 
-def production_maintenance_due(repository: str, directory: Path) -> bool:
+def maintenance_due(
+    repository: str,
+    directory: Path,
+    *,
+    environment: str,
+    release_run_id: int | None = None,
+    restore: bool = True,
+) -> bool:
     """Avoid cron cloud work after a settled pass; failed first passes retry."""
-    observed = latest_deploy_observation(repository, "production")
-    restore_state(repository, directory, environment="production")
+    if restore:
+        restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
     if not receipt.exists():
         return True
@@ -839,17 +896,20 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
     if (
         not isinstance(completed, dict)
         or completed.get("schema_version") != 1
-        or completed.get("environment") != "production"
-        or completed.get("project") != LANES["production"]["project"]
+        or completed.get("environment") != environment
+        or completed.get("project") != LANES[environment]["project"]
         or type(completed.get("observed_run_id")) is not int
         or type(completed.get("release_run_id")) is not int
         or completed["observed_run_id"] < 1
         or completed["release_run_id"] < 1
     ):
-        raise retention.UnsafeState("invalid production completion receipt")
-    if completed["observed_run_id"] != observed:
+        raise retention.UnsafeState(f"invalid {environment} completion receipt")
+    observed = latest_deploy_observation(repository, environment)
+    if (
+        release_run_id is not None and completed["release_run_id"] != release_run_id
+    ) or completed["observed_run_id"] != observed:
         return True
-    for service in LANES["production"]["services"]:
+    for service in LANES[environment]["services"]:
         path = directory / f"{service}.json"
         if not path.exists():
             continue
@@ -862,10 +922,15 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
             or state.get("release_run_id") != str(completed["release_run_id"])
             or type(state.get("not_before")) is not int
         ):
-            raise retention.UnsafeState("invalid production drain receipt")
+            raise retention.UnsafeState(f"invalid {environment} drain receipt")
         if state["not_before"] <= time.time():
             return True
     return False
+
+
+def production_maintenance_due(repository: str, directory: Path) -> bool:
+    """Compatibility entrypoint for production source-only checks."""
+    return maintenance_due(repository, directory, environment="production")
 
 
 def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
@@ -1063,11 +1128,26 @@ def release_protection_flags(
 
 
 def main() -> int:
+    deadline = _LOOKUP_DEADLINE.set(time.monotonic() + GITHUB_LOOKUP_SECONDS)
+    cache = _API_CACHE.set({})
+    try:
+        return maintenance_pass()
+    finally:
+        _API_CACHE.reset(cache)
+        _LOOKUP_DEADLINE.reset(deadline)
+
+
+def maintenance_pass() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
+    parser.add_argument(
+        "--force-inspection",
+        action="store_true",
+        help="Inspect a new requested release or an explicit out-of-band change",
+    )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
     args = parser.parse_args()
     if args.verify_source_only and args.apply:
@@ -1077,6 +1157,17 @@ def main() -> int:
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
+    if args.verify_source_only and not args.force_inspection and not maintenance_due(
+        repository,
+        args.state_dir,
+        environment=args.environment,
+        release_run_id=int(args.release_run_id) if args.release_run_id else None,
+    ):
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with Path(output).open("a") as stream:
+                stream.write("cleanup_ready=false\n")
+        return 0
     with tempfile.TemporaryDirectory() as temporary:
         found = find_release(
             repository,
@@ -1087,8 +1178,6 @@ def main() -> int:
         )
     if args.verify_source_only:
         ready = found is not None
-        if ready and args.environment == "production" and not args.release_run_id:
-            ready = production_maintenance_due(repository, args.state_dir)
         output = os.environ.get("GITHUB_OUTPUT")
         if output:
             with Path(output).open("a") as stream:
@@ -1098,6 +1187,17 @@ def main() -> int:
         print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
         return 0
     run_id, release = found
+    if args.apply:
+        restore_state(repository, args.state_dir, environment=args.environment)
+        if not args.force_inspection and not maintenance_due(
+            repository,
+            args.state_dir,
+            environment=args.environment,
+            release_run_id=run_id,
+            restore=False,
+        ):
+            print("Maintenance settled or not yet due; no cloud mutation authorized.")
+            return 0
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
@@ -1107,8 +1207,9 @@ def main() -> int:
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
     )
-    if args.apply:
-        restore_state(repository, args.state_dir, environment=args.environment)
+    observation = (
+        latest_deploy_observation(repository, args.environment) if args.apply else None
+    )
     for service, keep in lane_config["services"].items():
         # The workflow holds the environment's deployment lock for this short pass.
         # Recheck the release before each service as defense against external changes.
@@ -1145,21 +1246,6 @@ def main() -> int:
             check=True,
             timeout=600,
         )
-    if args.apply and args.environment == "production":
-        (args.state_dir / "completed.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "environment": args.environment,
-                    "project": lane_config["project"],
-                    "release_run_id": run_id,
-                    "observed_run_id": latest_deploy_observation(
-                        repository, args.environment
-                    ),
-                }
-            )
-            + "\n"
-        )
     if args.apply and args.environment == "uat":
         deadlines: list[int] = []
         for service in lane_config["services"]:
@@ -1190,13 +1276,26 @@ def main() -> int:
                 stream.write(
                     f"drain_not_before={max(deadlines) if deadlines else ''}\n"
                 )
+    if args.apply:
+        (args.state_dir / "completed.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "environment": args.environment,
+                    "project": lane_config["project"],
+                    "release_run_id": run_id,
+                    "observed_run_id": observation,
+                }
+            )
+            + "\n"
+        )
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with Path(summary).open("a") as output:
             output.write(
                 f"## {args.environment} revision maintenance\n\nVerified source release: {run_id}. "
                 "This pass completes without waiting for requests to drain. "
-                "Pending UAT deletions receive a timed follow-up and scheduled maintenance remains a backup. "
+                "Pending deletions are retried by short scheduled maintenance passes. "
                 "Release health is separate.\n"
             )
             if args.apply:
@@ -1209,7 +1308,9 @@ def main() -> int:
                     if not isinstance(deadline, int) or isinstance(deadline, bool):
                         continue
                     due = datetime.fromtimestamp(deadline, timezone.utc).isoformat()
-                    output.write(f"- {service}: deletion eligible no earlier than {due}.\n")
+                    output.write(
+                        f"- {service}: deletion eligible no earlier than {due}.\n"
+                    )
     return 0
 
 

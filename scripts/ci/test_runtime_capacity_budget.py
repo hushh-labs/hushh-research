@@ -60,6 +60,47 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_worker_override_counts_connections_and_conflicts_fail_closed(self) -> None:
+        row = revision("consent-protocol-test")
+        container = row["spec"]["containers"][0]
+        container["env"].append({"name": "WEB_CONCURRENCY", "value": "3"})
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)[
+                "connections"
+            ],
+            105,
+        )
+        container["args"] = ["--workers=3"]
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)[
+                "workers_per_instance"
+            ],
+            3,
+        )
+        for args in (
+            ["--workers", "2"],
+            ["-w0"],
+            ["gunicorn --workers 5"],
+            ["exec gunicorn server:app -w 5"],
+            ["exec gunicorn server:app -w${OTHER_WORKERS}"],
+            ["exec gunicorn server:app '-w' 5"],
+        ):
+            with self.subTest(args=args):
+                container["args"] = args
+                with self.assertRaises(budget.BudgetError):
+                    budget.revision_connections(
+                        row, "consent-protocol", SETTINGS, CONNECTION
+                    )
+        container["args"] = []
+        container["args"] = ["-w", "3", "--worker-tmp-dir", "/tmp"]
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)["workers_per_instance"],
+            3,
+        )
+        container["command"] = ["gunicorn", "--workers", "5"]
+        with self.assertRaises(budget.BudgetError):
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)
+
     def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
         self.assertEqual(budget.connection_policy(profile, "uat"), {

@@ -126,7 +126,7 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 10
     permissions:
       contents: read
       checks: read
