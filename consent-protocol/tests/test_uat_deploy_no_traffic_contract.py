@@ -619,7 +619,7 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
         assert "LIVE_API_KEY" not in source
 
 
-def test_production_backend_capacity_matches_uat() -> None:
+def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() -> None:
     """Production OOM-killed live chat turns; throttled CPU stalled first turns."""
     production_workflow = _read(".github/workflows/deploy-production.yml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
@@ -630,11 +630,15 @@ def test_production_backend_capacity_matches_uat() -> None:
 
     for setting in (
         "_CLOUD_RUN_CPU=2",
-        "_CLOUD_RUN_MEMORY=4Gi",
         "_CLOUD_RUN_CONCURRENCY=20",
     ):
         assert setting in uat_workflow
         assert setting in production_workflow
+
+    # The measured UAT working set exceeded the 80% memory gate on 4Gi.
+    # Its isolated 6Gi trial must not change production before its own acceptance.
+    assert "_CLOUD_RUN_MEMORY=6Gi" in uat_workflow
+    assert "_CLOUD_RUN_MEMORY=4Gi" in production_workflow
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
