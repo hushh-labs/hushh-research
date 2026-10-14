@@ -57,8 +57,9 @@ describe("WalletCardSetup", () => {
     renderSetup();
 
     expect(
-      screen.getByRole("heading", { name: "Shared information" }),
-    ).toBeVisible();
+      screen.queryByRole("heading", { name: "Shared information" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Photo")).not.toBeInTheDocument();
     expect(screen.queryByText("Shared by default")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Only this information will be shared."),
