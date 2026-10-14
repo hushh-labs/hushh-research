@@ -263,7 +263,7 @@ describe("WalletWorkspace at scale", () => {
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
     // Await the user interactions so the save-to-Cards lifecycle commits
     // before returning to the deck; its complete storage order stays asserted.
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Back", exact: true })); });
     await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
@@ -275,7 +275,7 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
-    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");
     const deck = screen.getByTestId("wallet-add-collection");
     for (const tab of ["Add", "Sharing"]) {
