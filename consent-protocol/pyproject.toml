@@ -227,6 +227,8 @@ module = [
     "hushh_mcp.services.one_location_public_invite_url",
     # Keep the shared manual/command public-link writer's return contract typed.
     "hushh_mcp.services.location_public_link_writer",
+    # Shared/private connector callbacks retain their typed URL contract.
+    "hushh_mcp.services.oauth_redirect_policy",
     "hushh_mcp.services.connections_service",
     # Preserve shared directory matching return types at both service boundaries.
     "hushh_mcp.services.people_search_sql",
