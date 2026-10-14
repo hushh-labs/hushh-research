@@ -88,6 +88,9 @@ class PendingUatStateTests(unittest.TestCase):
         for run_id, artifact_id, created_at, backend_at, worker_at in observations:
             run = copy.deepcopy(base_run)
             run['id'] = run_id
+            if run_id == observations[0][0]:
+                # The earliest wait has finished, but its recheck is queued.
+                run['status'] = 'queued'
             item = copy.deepcopy(base_artifact)
             item.update(id=artifact_id, created_at=created_at, workflow_run={'id': run_id})
             job_inventory = copy.deepcopy(base_jobs)
@@ -221,7 +224,13 @@ class PendingUatStateTests(unittest.TestCase):
     def test_pending_artifact_requires_origin_jobs_attempt_and_upload_time(self) -> None:
         run, artifact, jobs = fixture()
         with mock.patch.object(maintenance, 'api', return_value=jobs):
-            self.assertTrue(maintenance.trusted_pending_uat_state('org/repo', run, artifact))
+            for workflow_status in ('in_progress', 'queued', 'pending'):
+                with self.subTest(workflow_status=workflow_status):
+                    run['status'] = workflow_status
+                    self.assertTrue(maintenance.trusted_pending_uat_state(
+                        'org/repo', run, artifact
+                    ))
+            run['status'] = 'in_progress'
             mutations = (
                 (run, 'path', '.github/workflows/other.yml'),
                 (run, 'head_branch', 'feature'),
