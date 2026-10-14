@@ -830,6 +830,28 @@ codes remain authoritative. The receipt UI renders the preserved symbol directly
 Automatic receipt scanning continues after matches through every available page
 within a fifty-page/six-candidate-per-page bound (300 messages), publishing each page
 incrementally. Reaching that bound is not proof of mailbox exhaustion.
+Each owner has one active receipt page across backend instances, fenced by a
+nonblocking PostgreSQL session lock on a dedicated connection; success, failure,
+timeout and cancellation close that connection and release the lane. It reserves
+one additional database connection per active scan, outside the request pool,
+bounded to two lock connections per backend worker within the scan deadline.
+Receipt extraction owns one transient retry budget, without nested model retries.
+Schema and evidence-validation failures are permanent for the current scan and
+are never retried automatically. Errors carry safe `detail.code`, `message` and
+`retryable`; response-model drift is `500 GMAIL_RECEIPT_CONTRACT_MISMATCH` with
+`retryable:false`. Previously saved rows remain visible during a failed refresh.
+Gmail's rejection of a provider pagination token becomes
+`409 GMAIL_RECEIPT_CURSOR_EXPIRED`, without automatic replay. Try again clears
+the rejected continuation and starts at page one while keeping valid rows.
+Transient provider failures are typed `503 GMAIL_PROVIDER_UNAVAILABLE`;
+receipt failure logs include request ID and upstream status, never provider bodies.
+Each validated page appears immediately. During a restored-snapshot refresh,
+new canonical groups appear beside saved groups; hashed event identity prevents
+duplicate projections as a group expands. An incomplete pass changes only the
+current display, keeping the saved snapshot and its revision until completion.
+An incoming compatible event for one saved transaction waits for the complete
+pass; separate refund/cancellation rows still appear immediately. Canonical
+grouping and the final snapshot use the existing grouping contract.
 Receipt-only signed `next_cursor` continuations bind owner/account, page size,
 query and a fixed 365-day `window_start`/`window_end`. Send that cursor in the
 next scan body; it expires after two hours and never grants access by itself.
