@@ -86,6 +86,8 @@ dismissal. Eight real-modal browser cases pass across the configured engines and
 device profiles. The immutable preceding implementation fails the notice-first
 negative control. Deployed counterpart readback is still required.
 
+Latest main `bde1f59750e6` is integrated through normal merge `f2497f751021` on the original infrastructure branch. Its initial Contacts lifecycle joins the preserved private-cloud, phone, saved-AI and finance finalization contracts. Cold Contacts admission now uses the existing bounded bootstrap retry/recovery; a focused hang case includes rollout enabled and a positive root-setup latch. Combined onboarding checks pass 64 frontend cases, 27 authentication/terminal cases and 157 backend cases. All 451 Back cases pass. Migration 337 fits the existing gap; release head remains 348, and registered SQL bodies, rollback mappings and preservation receipts remain unchanged. Ten unrelated workspace file hashes are preserved. The predecessor `851740c92185` passed canonical core in 663 seconds; the merged candidate still requires its own core, full CI and serving readback before claiming a new Dev release.
+
 Main `9f017ef6fcde` was merged normally into the existing infrastructure branch.
 The first combined core run passed web-core and 19,071 protocol cases, but failed
 the unchanged Cloud Build argument-size gate. Extracting the identical native
