@@ -197,7 +197,7 @@ export function ReferralHeroArtworkSvg({
         <rect className="referral-example-card" width={300} height={100} rx={24} fill="#ffffff" stroke="#d7e6f7" strokeWidth={1.5} />
         {AGENTS.map(({ label, Icon, color, example }, index) => (
           <g key={label} className="referral-agent-example" data-selected={selectedExample === index} style={{ animationDelay: exampleDelay(index) }}>
-            <Icon x={18} y={30} size={38} weight="duotone" color={color} />
+            <Icon x={18} y={30} size={38} weight="regular" color={color} />
             <text x={70} y={35} fill="#526881" fontSize={20}>{label}</text>
             <text x={70} y={70} fill="#172d47" fontSize={23} fontWeight={600}>{example}</text>
           </g>
@@ -229,7 +229,7 @@ export function ReferralHeroArtworkSvg({
                     <circle r={61} fill={color} fillOpacity={selectedExample === index ? 0.12 : 0} />
                     <circle r={55} fill="#ffffff" />
                     <circle r={54} fill="none" stroke={color} strokeOpacity={selectedExample === index ? 0.65 : 0.18} strokeWidth={2} />
-                    <Icon x={-22} y={-34} size={44} weight="duotone" color={color} />
+                    <Icon x={-22} y={-34} size={44} weight="regular" color={color} />
                     <text y={32} textAnchor="middle" fill="#34465b" fontFamily="Arial, sans-serif" fontSize={20} fontWeight={500}>
                       {label}
                     </text>

@@ -145,7 +145,7 @@ export function ReceiptMerchantLogo({
       {showFallback ? (
         <FallbackIcon
           className={`size-[18px] ${CATEGORY_COLORS[fallbackCategory || "Other"]}`}
-          weight="duotone"
+          weight="regular"
         />
       ) : null}
       {requestLogo ? (

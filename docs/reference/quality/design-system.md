@@ -287,8 +287,10 @@ Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
 `text-muted-foreground` classes. Generic icons come from the canonical
 `@/components/icons` Phosphor registry and preserve their native viewBox and
-weight. Use the registry's regular weight for Plus/X controls and duotone for
-capabilities and utility icons; do not add per-surface stroke overrides.
+weight. Use the registry's regular outline weight for capabilities and utility
+icons, without translucent interior shading; do not add per-surface stroke
+overrides. Key aliases share the neutral outline and blue accent pinpoint used
+by password fields.
 
 Location, Finance, Consent Center, and RIA route bodies render equal fixed
 tracks from the central registry below their module headers. The fixed top
