@@ -20,6 +20,9 @@ import pytest
 
 import hushh_mcp.services.actor_identity_service as ais
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase-uid-0123456789abcdefghij"
 _PHONE = "+14155550123"
 
@@ -125,6 +128,3 @@ async def test_a_provisioning_failure_never_escapes_into_phone_verification(
     await ais.ActorIdentityService()._register_pending_personal_agent(_UID, _PHONE)
 
     assert _RecordingService.instances[-1].registered == [(_UID, _PHONE)]
-
-
-pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

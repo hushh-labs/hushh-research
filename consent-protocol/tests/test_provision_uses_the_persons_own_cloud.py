@@ -21,6 +21,8 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
 
 class _SpyBackend:
     """Captures the spec it was asked to build, which is the thing under test."""
@@ -271,6 +273,3 @@ async def test_an_unreadable_registry_never_builds_on_the_deployment_default(mon
 
     assert "could not be read" in str(caught.value)
     assert substrate.specs == [], "infrastructure was applied for a cloud nobody could read"
-
-
-pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

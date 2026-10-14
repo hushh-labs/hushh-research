@@ -12,6 +12,8 @@ from api.middleware import require_firebase_auth
 from api.routes.one import byoc_azure
 from hushh_mcp.services import azure_entra_authorizer as entra
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
 
 @pytest.fixture(autouse=True)
 def enabled_owner_cloud_setup(monkeypatch):
@@ -438,6 +440,3 @@ def test_flag_off_refuses_setup_before_provider_or_resource_access(spawned, monk
     response = _client().post(_BEGIN, json={})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "BYOC_UNAVAILABLE"
-
-
-pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

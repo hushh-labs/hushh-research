@@ -18,6 +18,9 @@ from hushh_mcp.services import byoc_setup_intent
 from hushh_mcp.services import personal_agent_hosting as hosting
 from hushh_mcp.services.personal_agent_hosting import resolve_hosting_mode
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 DETACHED_AT = "2026-10-06T10:00:00Z"
 BEFORE = datetime(2026, 10, 6, 9, 0, tzinfo=timezone.utc)
 AFTER = datetime(2026, 10, 6, 11, 0, tzinfo=timezone.utc)
@@ -453,6 +456,3 @@ def test_the_intent_window_is_fresh_after_a_late_detach():
         "created_at": AFTER + timedelta(minutes=1),
     }
     assert _mode(row=_detached(), job=late) == "pending"
-
-
-pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

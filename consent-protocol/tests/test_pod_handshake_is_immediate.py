@@ -28,6 +28,9 @@ from hushh_mcp.services import personal_agent_provisioning_service as pas
 from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase_uid_test_handshake"
 _PHONE = "+15550100777"
 IDENTITY = "one-pod-ha1-abc-def@acme-user-proj.iam.gserviceaccount.com"

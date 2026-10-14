@@ -32,6 +32,9 @@ from hushh_mcp.services.personal_agent_identity_service import (
     mint_hushh_id,
 )
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 # The repo's own regex for a legal label VALUE. A value may start with a digit;
 # it is the label KEY that must start with a lowercase letter.
 _GCP_LABEL_VALUE = re.compile(r"^[a-z0-9_-]{0,63}$")

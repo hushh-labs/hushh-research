@@ -35,6 +35,9 @@ from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypai
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 MIN_SCALE = "autoscaling.knative.dev/minScale"
 
 _UID = "firebase_uid_liveness_test"

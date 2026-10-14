@@ -184,6 +184,14 @@ async def test_erasure_requires_exact_owner_prefix_and_no_continuation_or_retain
     with pytest.raises(FilesRefused, match="FILES_ERASURE_INVENTORY_INVALID"):
         await erasure.erase(owner)
     assert settled.await_count == 1
+    row.update(prefix=registry.owner_prefix(owner), state="erased", receipt={"complete": False})
+    with pytest.raises(FilesRefused, match="FILES_ERASURE_RECEIPT_INVALID"):
+        await erasure.erase(owner)
+    row["receipt"] = {"complete": True}
+    assert await erasure.erase(owner) == {"complete": True}
+    row["prefix"] = registry.owner_prefix("bob")
+    with pytest.raises(FilesRefused, match="FILES_ERASURE_INVENTORY_INVALID"):
+        await erasure.erase(owner)
 
 
 async def test_reconciliation_skips_create_only_and_bounds_eligible_receipts(monkeypatch):
@@ -253,3 +261,78 @@ async def test_shared_enrollment_and_placement_changes_share_one_transaction_bou
     with pytest.raises(FilesRefused, match="FILES_TRANSFER_REQUIRED"):
         async with registry.protect_placement_change("alice"):
             pytest.fail("Disabling Files does not erase its inventory")
+
+
+@pytest.mark.parametrize("operation", ["reset", "delete"])
+async def test_account_cleanup_database_failure_preserves_keys_and_returns_refusal(
+    monkeypatch, operation
+):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from hushh_mcp.services import account_service
+
+    service = account_service.AccountService()
+    transaction = AsyncMock()
+    clear = MagicMock()
+    monkeypatch.setattr(service, "_delete_full_account_transaction", transaction)
+    monkeypatch.setattr(service, "_clear_user_data_tables", clear)
+    database = MagicMock(side_effect=RuntimeError("synthetic unavailable database"))
+    monkeypatch.setattr(account_service, "get_db_connection", database)
+    if operation == "reset":
+        result = await service.reset_account("alice")
+        assert result["account_reset"] is False
+    else:
+        result = await service._delete_full_account("alice", requested_target="both")
+    assert result["success"] is False
+    assert result["error_code"] == "SHARED_FILES_CLEANUP_UNCONFIRMED"
+    transaction.assert_not_awaited()
+    clear.assert_not_called()
+    assert database.call_count == 1
+
+
+@pytest.mark.parametrize("operation", ["reset", "delete"])
+async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
+    shared_storage, local_postgres, monkeypatch, operation
+):
+    from contextlib import contextmanager
+    from unittest.mock import AsyncMock, MagicMock
+
+    from hushh_mcp.services import account_service
+    from hushh_mcp.services.shared_files import erasure
+
+    await registry.resource("alice", bucket="synthetic-files")
+    async with shared_storage.acquire() as connection:
+        database = await connection.fetchval("SELECT current_database()")
+    engine = create_engine(local_postgres.set(database=database))
+
+    @contextmanager
+    def connection_factory():
+        with engine.begin() as connection:
+            yield connection
+
+    service = account_service.AccountService()
+    delete = AsyncMock()
+    clear = MagicMock()
+    monkeypatch.setattr(service, "_delete_full_account_transaction", delete)
+    monkeypatch.setattr(service, "_clear_user_data_tables", clear)
+    monkeypatch.setattr(account_service, "get_db_connection", connection_factory)
+    monkeypatch.setattr(erasure, "GcsObjectStore", lambda _bucket: object())
+    monkeypatch.setattr(
+        erasure,
+        "erase_objects",
+        AsyncMock(side_effect=FilesRefused("FILES_ERASURE_RETENTION_PENDING", 409)),
+    )
+    try:
+        result = (
+            await service.reset_account("alice")
+            if operation == "reset"
+            else await service._delete_full_account("alice", requested_target="both")
+        )
+        assert result["error_code"] == "FILES_ERASURE_RETENTION_PENDING"
+        assert result["success"] is False
+        assert (await registry.resource("alice"))["state"] == "erasing"
+        assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
+        delete.assert_not_awaited()
+        clear.assert_not_called()
+    finally:
+        engine.dispose()

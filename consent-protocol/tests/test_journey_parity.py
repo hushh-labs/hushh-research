@@ -49,6 +49,9 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 # The states a person's row passes through on a healthy journey, verified against the
 # code rather than assumed: `provision()` drives `provisioning` then `connecting`, and
 # `attach_pod_public_key()` is what flips `connecting` -> `provisioned`.

@@ -22,7 +22,7 @@ async def test_scheduled_owner_control_refuses_device_and_read_only_app(
 ):
     from api.routes.one import pod_scheduled_tasks as routes
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
-    from tests.test_pod_files_jobs import schedule_request
+    from tests.test_pod_scheduled_tasks import schedule_request
     from tests.test_pod_session_authority import OWNER, USER
 
     world = World(tmp_path / "pod")
@@ -91,7 +91,7 @@ async def test_revoked_request_caller_cannot_resume_another_valid_apps_schedule(
 ):
     from api.routes.one import pod_scheduled_tasks as routes
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
-    from tests.test_pod_files_jobs import schedule_request
+    from tests.test_pod_scheduled_tasks import schedule_request
     from tests.test_pod_session_authority import OWNER, USER
 
     world = World(tmp_path / "pod")

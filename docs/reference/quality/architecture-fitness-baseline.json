@@ -17305,7 +17305,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1757
+      "value": 1764
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18025,7 +18025,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_substrate.py",
       "symbol": null,
-      "value": 525
+      "value": 527
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18331,7 +18331,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_gcp_backend.py",
       "symbol": null,
-      "value": 529
+      "value": 536
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -43678,6 +43678,32 @@
         "after": 507,
         "source_sha256": "5b7ace9ba82f12de65df34f6313384c5f5372c1831e10eaa2452c572dbd9e211",
         "review": "New real negative control proves disabled model modes cannot probe central AI or clear saved key; strict default request and response tests retained."
+      }
+    ]
+  },
+  "ai_shared_files_core_fixture_review_20261013": {
+    "evidence_revision": "0c5bb18b7a",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1757,
+        "after": 1764,
+        "source_sha256": "2f4d37de67664ec964b2321f144e4ed3dbf312299d058ea6b66edc6dd2a5050c",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 529,
+        "after": 536,
+        "source_sha256": "efac39ba9f4f7eabac62b42328035d61c655965e1ef7bed39e6541005164cea2",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_byoc_substrate.py||module exceeds the advisory operon budget",
+        "before": 525,
+        "after": 527,
+        "source_sha256": "694bac91e1dd7fbfe5969f1cda90a4f77328bafd5d2d7531a5062720a40578d1",
+        "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only."
       }
     ]
   }

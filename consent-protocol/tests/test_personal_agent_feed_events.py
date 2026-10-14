@@ -35,6 +35,9 @@ from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypai
 from tests import test_personal_agent_upgrade_authority as authority
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase_uid_feed_test_123"
 _PHONE = "+14255550188"
 _FEED_MODULE = "hushh_mcp.services.feed_service.FeedService"

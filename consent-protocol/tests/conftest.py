@@ -103,6 +103,21 @@ def legacy_shared_files_absent(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(registry, "get_pool", get_pool)
 
 
+@pytest.fixture
+def legacy_account_without_shared_files(monkeypatch: pytest.MonkeyPatch):
+    """Legacy account SQL inventories contain no provisioned Files resources.
+
+    Real erasure/key fences remain in the dedicated isolated PostgreSQL suite.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.account_service import AccountService
+
+    monkeypatch.setattr(
+        AccountService, "_erase_shared_files_if_present", AsyncMock(return_value=None)
+    )
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,

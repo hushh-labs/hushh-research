@@ -36,6 +36,9 @@ from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistr
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")
+
+
 _UID = "firebase_uid_cap_test_123"
 _PHONE = "+14255550144"
 _FEED_MODULE = "hushh_mcp.services.feed_service.FeedService"
@@ -508,6 +511,3 @@ def test_our_own_cap_stays_within_one_projects_capacity():
     from hushh_mcp.runtime_settings import _PERSONAL_AGENT_MAX_PODS_DEFAULT
 
     assert _PERSONAL_AGENT_MAX_PODS_DEFAULT <= CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION
-
-
-pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

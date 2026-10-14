@@ -1856,40 +1856,14 @@ class AccountService:
     async def _erase_shared_files_if_present(
         self, user_id: str, *, backend_only: bool = False
     ) -> Dict[str, Any] | None:
-        with get_db_connection() as conn:
-            if not self._table_exists(conn, "shared_files_storage"):
-                return None
-            present = conn.execute(
-                text("SELECT 1 FROM shared_files_storage WHERE user_id=:user_id"),
-                {"user_id": user_id},
-            ).first()
-        if not present:
-            return None
-        if backend_only:
-            return {
-                "success": False,
-                "error_code": "SHARED_FILES_EXTERNAL_CLEANUP_REQUIRED",
-                "account_deleted": False,
-            }
-        from hushh_mcp.services.pod_files.contracts import FilesRefused
-        from hushh_mcp.services.shared_files.erasure import erase
+        from hushh_mcp.services.shared_files.erasure import erase_if_present
 
-        try:
-            await erase(user_id)
-        except FilesRefused as exc:
-            return {
-                "success": False,
-                "error_code": exc.code,
-                "account_deleted": False,
-                "message": "Files deletion is pending. Access is fenced; retry to continue cleanup.",
-            }
-        except Exception:
-            return {
-                "success": False,
-                "error_code": "SHARED_FILES_CLEANUP_UNCONFIRMED",
-                "account_deleted": False,
-            }
-        return None
+        return await erase_if_present(
+            user_id,
+            backend_only=backend_only,
+            table_exists=self._table_exists,
+            connection_factory=get_db_connection,
+        )
 
     async def reset_account(self, user_id: str) -> Dict[str, Any]:
         """Reset the One account to a fresh, just-onboarded state.
@@ -1902,7 +1876,7 @@ class AccountService:
         """
         cleanup = await self._erase_shared_files_if_present(user_id)
         if cleanup is not None:
-            return cleanup
+            return {**cleanup, "account_reset": False}
         logger.warning("♻️ ACCOUNT RESET requested for %s", user_id)
         results: dict[str, bool] = {}
         try:
