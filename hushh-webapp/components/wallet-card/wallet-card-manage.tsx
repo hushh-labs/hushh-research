@@ -1,5 +1,6 @@
 "use client";
 
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import type { ReactNode } from "react";
 import {
   ProfilePaneCopyIcon,
@@ -123,7 +124,7 @@ export function WalletCardManage({
                 loading={busyAction === "add-to-wallet"}
                 onClick={() => onAction("add-to-wallet")}
               >
-                <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
+                <AppleWalletIcon />
                 {WALLET_CARD_OWNER_COPY.addToWallet}
               </Button>
               {shareAction ?? <Button
