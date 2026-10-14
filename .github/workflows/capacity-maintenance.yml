@@ -3,7 +3,7 @@ name: Capacity Maintenance
 on:
   workflow_run:
     workflows: [Deploy to UAT, Deploy UAT One Chat Backend Only, Deploy to Production]
-    types: [completed]
+    types: [requested, completed]
     branches: [main]
   schedule:
     - cron: "11,26,41,56 * * * *"
@@ -34,7 +34,7 @@ permissions:
 jobs:
   select-release:
     name: Verify cleanup authority and release evidence
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || (github.event.workflow_run.name == 'Deploy to Production' && github.event.workflow_run.conclusion == 'failure') || (github.event.workflow_run.name == 'Deploy to UAT' && github.event.workflow_run.conclusion == 'failure') || (github.event.workflow_run.name == 'Deploy UAT One Chat Backend Only' && github.event.workflow_run.conclusion == 'failure')
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || (github.event.workflow_run.name == 'Deploy to Production' && github.event.workflow_run.conclusion == 'failure') || (github.event.workflow_run.name == 'Deploy to UAT' && (github.event.action == 'requested' || github.event.workflow_run.conclusion == 'failure')) || (github.event.workflow_run.name == 'Deploy UAT One Chat Backend Only' && (github.event.action == 'requested' || github.event.workflow_run.conclusion == 'failure'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -77,21 +77,26 @@ jobs:
                   ),
               }
               lane = lanes.get(run.get("name"))
+              requested_uat = event.get("action") == "requested" and lane and lane[0] == "uat"
+              completed = (
+                  event.get("action") == "completed"
+                  and run.get("status") == "completed"
+                  and run.get("conclusion") in {"success", "failure"}
+              )
               if not (lane
                   and workflow_path == lane[1]
                   and run.get("event") == "workflow_dispatch"
-                  and run.get("status") == "completed"
-                  and run.get("conclusion") in {"success", "failure"}
+                  and (completed or (requested_uat and run.get("conclusion") is None))
                   and run.get("head_branch") == "main"
                   and (run.get("repository") or {}).get("full_name") == repository
                   and (run.get("head_repository") or {}).get("full_name") == repository
               ):
                   raise SystemExit("Upstream run does not authorize hosted cleanup")
               environment = lane[0]
-              # A failed UAT deploy only wakes maintenance. Its own artifact
-              # may be absent (for example, when the budget gate blocked it).
-              # The helper independently selects and verifies a source.
-              release_run_id = "" if environment == "uat" and run.get("conclusion") == "failure" else str(run.get("id") or "")
+              # A requested or failed UAT deploy only wakes maintenance. It
+              # cannot supply release authority; the helper independently
+              # selects a completed source and verifies its live provenance.
+              release_run_id = "" if environment == "uat" and (requested_uat or run.get("conclusion") == "failure") else str(run.get("id") or "")
               actor = (run.get("actor") or {}).get("login") or ""
               apply = "true"
           elif event_name == "workflow_dispatch":

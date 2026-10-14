@@ -9,6 +9,7 @@ the lock shared with maintenance.
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import json
 import os
@@ -29,6 +30,10 @@ POLL_SECONDS = 120
 
 class AdmissionError(RuntimeError):
     pass
+
+
+class TransientJobInventoryDrift(AdmissionError):
+    """An unprofiled temporary job appeared while all profiled jobs remain."""
 
 
 def load_script(name: str, filename: str) -> Any:
@@ -140,6 +145,31 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
 
 def capacity_report(mode: str, decision: Any | None) -> dict[str, Any]:
     result = command(capacity_args(mode, decision))
+    # A temporary extra job can disappear while this bounded observer waits.
+    # Only this exact inventory shape is retryable. Missing profiled jobs,
+    # malformed output and authentication/query failures remain fatal.
+    if result.returncode == 2 and not result.stdout.strip():
+        match = re.fullmatch(
+            r"capacity budget blocked: job inventory drift: unprofiled=(\[[^\r\n]*\]), missing=\[\]",
+            result.stderr.strip(),
+        )
+        if match:
+            try:
+                extras = ast.literal_eval(match.group(1))
+            except (SyntaxError, ValueError):
+                extras = None
+            if (
+                isinstance(extras, list)
+                and extras
+                and all(
+                    isinstance(name, str)
+                    and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", name)
+                    for name in extras
+                )
+            ):
+                raise TransientJobInventoryDrift(
+                    f"temporary unprofiled jobs: {', '.join(extras)}"
+                )
     output = require_success(result, "UAT capacity inventory/authentication")
     try:
         report = json.loads(output)
@@ -184,11 +214,16 @@ def wait_for_capacity(
                 f"{max_wait_seconds}s; verified maintenance or an operator must free capacity"
             )
         decision = resolved_scope(target_sha, requested_scope) if mode == "full" else None
-        report = capacity_report(mode, decision)
         scope_name = decision.scope if decision is not None else "backend"
-        projected, limit = report["projected_connections"], report["admission_limit"]
-        last_projection = f"{projected}/{limit}"
-        if report["admitted"]:
+        try:
+            report = capacity_report(mode, decision)
+        except TransientJobInventoryDrift as exc:
+            report = None
+            last_projection = str(exc)
+        if report is not None:
+            projected, limit = report["projected_connections"], report["admission_limit"]
+            last_projection = f"{projected}/{limit}"
+        if report is not None and report["admitted"]:
             # A long wait may outlive the original CI/governance evidence and
             # the service base used for auto scope. Recheck both before handoff.
             verify_request(target_sha)
@@ -196,14 +231,18 @@ def wait_for_capacity(
             if final_decision is not None and final_decision.scope != scope_name:
                 print("UAT serving base changed while admitting; rechecking capacity.", flush=True)
                 continue
-            final_report = capacity_report(mode, final_decision)
-            if final_report["admitted"]:
+            try:
+                final_report = capacity_report(mode, final_decision)
+            except TransientJobInventoryDrift as exc:
+                final_report = None
+                last_projection = str(exc)
+            if final_report is not None and final_report["admitted"]:
                 print(f"UAT capacity admitted {projected}/{limit} for {scope_name}; "
                       "deployment will recheck under the mutation lock.", flush=True)
                 return scope_name
-            report = final_report
-            projected, limit = report["projected_connections"], report["admission_limit"]
-            last_projection = f"{projected}/{limit}"
+            if final_report is not None:
+                projected, limit = final_report["projected_connections"], final_report["admission_limit"]
+                last_projection = f"{projected}/{limit}"
         remaining = max_wait_seconds - (time.monotonic() - started)
         if remaining <= 0:
             raise AdmissionError(
@@ -212,15 +251,14 @@ def wait_for_capacity(
             )
         if not warned_about_maintenance:
             print(
-                "Admission relies on a verified Capacity Maintenance release and its deferred "
-                "recheck. If no maintenance run is pending, a governed operator must dispatch "
-                "capacity-maintenance.yml for the live healthy release; this observer cannot "
+                "The deploy request wakes Capacity Maintenance, which independently verifies "
+                "a healthy release and may schedule a deferred recheck. This observer cannot "
                 "authorize deletion.",
                 flush=True,
             )
             warned_about_maintenance = True
         delay = min(poll_seconds, remaining)
-        print(f"UAT capacity {projected}/{limit} for {scope_name}; waiting {delay:.0f}s "
+        print(f"UAT capacity {last_projection} for {scope_name}; waiting {delay:.0f}s "
               "for verified revision maintenance.", flush=True)
         time.sleep(delay)
 

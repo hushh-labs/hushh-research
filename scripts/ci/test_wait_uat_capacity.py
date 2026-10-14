@@ -80,6 +80,41 @@ class CapacityAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(wait.AdmissionError, "invalid admission shape"):
                 wait.capacity_report("one-chat", None)
 
+    def test_only_extra_jobs_with_no_missing_profiles_are_retryable(self) -> None:
+        diagnostics = {
+            "temporary extra": (
+                "capacity budget blocked: job inventory drift: "
+                "unprofiled=['one-chat-ready-123-1'], missing=[]",
+                wait.TransientJobInventoryDrift,
+            ),
+            "missing profile": (
+                "capacity budget blocked: job inventory drift: "
+                "unprofiled=['temporary'], missing=['scheduled-job']",
+                wait.AdmissionError,
+            ),
+            "no extra": (
+                "capacity budget blocked: job inventory drift: unprofiled=[], missing=[]",
+                wait.AdmissionError,
+            ),
+            "malformed extra": (
+                "capacity budget blocked: job inventory drift: "
+                "unprofiled=[object()], missing=[]",
+                wait.AdmissionError,
+            ),
+            "authentication": (
+                "capacity budget blocked: Cloud Run jobs list permission denied",
+                wait.AdmissionError,
+            ),
+        }
+        for label, (diagnostic, expected) in diagnostics.items():
+            with self.subTest(label=label), patch.object(
+                wait, "command", return_value=subprocess.CompletedProcess([], 2, "", diagnostic)
+            ):
+                with self.assertRaises(expected) as raised:
+                    wait.capacity_report("one-chat", None)
+                if expected is wait.AdmissionError:
+                    self.assertNotIsInstance(raised.exception, wait.TransientJobInventoryDrift)
+
     def test_waits_for_capacity_and_revalidates_before_handoff(self) -> None:
         clock = FakeClock()
         backend = types.SimpleNamespace(scope="backend", deploy_backend=True, deploy_frontend=False)
@@ -131,6 +166,44 @@ class CapacityAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(wait.AdmissionError, "inventory drift"):
                 wait.wait_for_capacity("a" * 40, "auto", "one-chat")
         sleep.assert_not_called()
+
+    def test_temporary_job_drift_waits_then_admits_after_recheck(self) -> None:
+        clock = FakeClock()
+        admitted = {"admitted": True, "projected_connections": 774,
+                    "admission_limit": 800}
+        with (
+            patch.object(wait, "verify_request") as authority,
+            patch.object(wait, "capacity_report", side_effect=[
+                wait.TransientJobInventoryDrift("temporary unprofiled jobs: overlay-1"),
+                admitted,
+                wait.TransientJobInventoryDrift("temporary unprofiled jobs: overlay-2"),
+                admitted,
+                admitted,
+            ]) as capacity,
+            patch.object(wait.time, "monotonic", side_effect=clock.monotonic),
+            patch.object(wait.time, "sleep", side_effect=clock.sleep),
+        ):
+            scope = wait.wait_for_capacity("a" * 40, "auto", "one-chat",
+                                           max_wait_seconds=300, poll_seconds=60)
+        self.assertEqual(scope, "backend")
+        self.assertEqual(clock.sleeps, [60, 60])
+        self.assertEqual(capacity.call_count, 5)
+        self.assertEqual(authority.call_count, 3)
+
+    def test_temporary_job_drift_times_out_with_job_name(self) -> None:
+        clock = FakeClock()
+        with (
+            patch.object(wait, "verify_request"),
+            patch.object(wait, "capacity_report", side_effect=wait.TransientJobInventoryDrift(
+                "temporary unprofiled jobs: overlay-1"
+            )),
+            patch.object(wait.time, "monotonic", side_effect=clock.monotonic),
+            patch.object(wait.time, "sleep", side_effect=clock.sleep),
+        ):
+            with self.assertRaisesRegex(wait.AdmissionError, "overlay-1.*within 250s"):
+                wait.wait_for_capacity("a" * 40, "auto", "one-chat",
+                                       max_wait_seconds=250, poll_seconds=120)
+        self.assertEqual(clock.sleeps, [120, 120, 10])
 
     def test_wait_is_bounded_and_never_exceeds_deadline(self) -> None:
         clock = FakeClock()

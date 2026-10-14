@@ -44,12 +44,14 @@ class OneChatMaintenanceTriggerTests(unittest.TestCase):
             "actor": {"login": "maintainer"},
         }
 
-    def invoke(self, run: dict, *, ref: str = "main") -> subprocess.CompletedProcess[str]:
+    def invoke(self, run: dict, *, ref: str = "main",
+               action: str = "completed") -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             directory = pathlib.Path(temporary)
             event = directory / "event.json"
             output = directory / "output.txt"
-            event.write_text(json.dumps({"workflow_run": run}), encoding="utf-8")
+            event.write_text(json.dumps({"action": action, "workflow_run": run}),
+                             encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, "-c", self.gate],
                 env={
@@ -80,6 +82,32 @@ class OneChatMaintenanceTriggerTests(unittest.TestCase):
         self.assertIn("environment=uat\n", result.output_text)
         self.assertIn("release_run_id=\n", result.output_text)
         self.assertNotIn("release_run_id=811\n", result.output_text)
+
+    def test_requested_one_chat_run_only_wakes_independent_cleanup(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("types: [requested, completed]", source)
+        self.assertIn("--release-run-id \"$RELEASE_RUN_ID\" --verify-source-only", source)
+        run = {**self.one_chat_run(), "status": "queued", "conclusion": None}
+        result = self.invoke(run, action="requested")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("environment=uat\n", result.output_text)
+        self.assertIn("release_run_id=\n", result.output_text)
+        self.assertIn("apply=true\n", result.output_text)
+
+    def test_requested_run_cannot_pose_as_completed_authority(self) -> None:
+        run = {**self.one_chat_run(), "status": "queued", "conclusion": None}
+        variants = {
+            "non-UAT workflow": {"name": "Deploy to Production",
+                                  "path": ".github/workflows/deploy-production.yml"},
+            "wrong head repository": {"head_repository": {"full_name": "other/repo"}},
+            "wrong event": {"event": "pull_request"},
+            "nonempty conclusion": {"conclusion": "success"},
+        }
+        for label, change in variants.items():
+            with self.subTest(label=label):
+                result = self.invoke({**run, **change}, action="requested")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.output_text, "")
 
     def test_untrusted_one_chat_run_cannot_grant_cleanup(self) -> None:
         variants = {

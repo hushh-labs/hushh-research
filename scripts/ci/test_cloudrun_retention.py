@@ -1544,7 +1544,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
     def test_failed_uat_workflow_event_is_observation_only(self):
         workflow = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/capacity-maintenance.yml"
         source = workflow.read_text()
-        self.assertIn("github.event.workflow_run.name == 'Deploy to UAT' && github.event.workflow_run.conclusion == 'failure'", source)
+        self.assertIn("github.event.workflow_run.name == 'Deploy to UAT' && (github.event.action == 'requested' || github.event.workflow_run.conclusion == 'failure')", source)
         script = textwrap.dedent(source.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
         with tempfile.TemporaryDirectory() as temporary:
             directory = pathlib.Path(temporary)
@@ -1552,7 +1552,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             run.update(name="Deploy to UAT", conclusion="failure")
             event = directory / "event.json"
             output = directory / "output"
-            event.write_text(json.dumps({"workflow_run": run}))
+            event.write_text(json.dumps({"action": "completed", "workflow_run": run}))
             subprocess.run(
                 [sys.executable, "-c", script],
                 check=True,
