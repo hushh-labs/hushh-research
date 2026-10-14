@@ -1026,7 +1026,7 @@ for (const width of [320, 1440]) {
       const revoke = page.getByRole("button", { name: "Revoke access", exact: true });
       await revoke.click();
       let dialog = page.getByRole("alertdialog");
-      await expect(dialog).toContainText(kind === "Referral" ? "earned referrals" : "Profile and NWS share this QR");
+      await expect(dialog).toContainText(kind === "Referral" ? "earned referrals" : "reset scans for Profile and NWS");
       await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");

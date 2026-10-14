@@ -52,8 +52,9 @@ export function WalletCardConfirmDialog({
           <AlertDialogDescription>{body}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel size="sm" disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            size="sm"
             variant={destructive ? "destructive" : "default"}
             disabled={busy}
             onClick={(event) => {
