@@ -1050,22 +1050,68 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # Every lane checks out github.sha, GitHub's refs/pull/N/merge commit: this
+      # head merged onto the base as of the push. Its first parent is the base
+      # those lanes tested. The head-only checkout above lacks it, so fetch it by
+      # SHA. Trusted only when its second parent is this head; otherwise the
+      # output stays empty and the check falls back to the merge-base.
+      - name: Resolve the base the PR checks tested
+        id: tested-base
+        if: github.base_ref == 'main'
+        env:
+          TESTED_MERGE_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tested_base=""
+          if git fetch --no-tags --quiet origin "$TESTED_MERGE_SHA" \
+            && [ "$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^2" || true)" = "$PR_HEAD_SHA" ]; then
+            tested_base="$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^1" || true)"
+          fi
+          if [ -n "$tested_base" ]; then
+            echo "Tested base: $tested_base (first parent of $TESTED_MERGE_SHA)"
+          else
+            echo "::notice title=Branch Freshness::Could not resolve the base the PR checks tested from $TESTED_MERGE_SHA; using the merge-base instead."
+          fi
+          echo "sha=$tested_base" >> "$GITHUB_OUTPUT"
+
       - name: Verify branch freshness against PR base
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: ${{ github.base_ref }}
-          # block (not warn): branch freshness is mandatory even for governed
-          # maintainers. A PR behind its base must sync before it can land, so
-          # the freshness signal hard-fails at the PR layer instead of only at
-          # the merge queue. Bypass cohorts waive review, never validation.
-          MAIN_SYNC_MODE: block
+          # bounded for PRs into main, block for integration/pr-train (2026-10-15).
+          #
+          # block failed every PR that was even one commit behind main. main
+          # lands 24-57 merges a day against a ~25 min green run, and this job
+          # fetches main when it STARTS, so runner queueing alone turned fresh
+          # pushes stale. Measured 2026-10-14: it caused 30-57% of failed PR
+          # runs, and ~17% of runs were "merge main into branch" re-runs. Nor
+          # did it keep stale bases out: 64% of merges still landed behind
+          # main, and Main Post-Merge Smoke was 324/0 green.
+          #
+          # Every lane already tests refs/pull/N/merge (github.sha), this head
+          # merged onto the base as of the push. bounded passes a head that is
+          # behind, with a warning and a step summary, unless the gap is one
+          # those lanes could not cover:
+          #   - the merge-base is more than 24 h old (MAIN_SYNC_MAX_AGE_HOURS), or
+          #   - main changed, after the base the lanes tested, a file this PR
+          #     also changes (up to 20 paths are printed).
+          # A missing remote, failed fetch or unresolvable commit still fails.
+          #
+          # block stays wherever landing order must be exact: the merge queue
+          # (.github/workflows/queue-validation.yml), PRs into
+          # integration/pr-train, and the release gate
+          # (scripts/ci/local-release-gate.sh). Bypass cohorts waive review,
+          # never validation.
+          MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
+          MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
-  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
-  # commits as ancestors; it says nothing about whether the PR's content still
-  # HAS what those commits landed. Three ways to lose landed work, three
-  # passes (see scripts/ci/check-merge-fidelity.sh):
+  # Advisory, not required: in block mode Base Freshness Gate proves a PR
+  # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
+  # only a recent, non-overlapping tested merge); it says nothing about
+  # whether the PR's content still HAS what those commits landed. Three ways
+  # to lose landed work, three passes (see scripts/ci/check-merge-fidelity.sh):
   #   A  a conflict resolution that kept the stale side (2026-08-19 incident)
   #   B  a clean revert inside the PR — no conflict, so pass A is blind to it
   #   C  a revert committed straight onto the base tip, which neither A nor B

@@ -152,7 +152,7 @@ Fail-fast contract:
 3. This intentionally saves CI minutes on governance failures. The tradeoff is
    that green runs start heavy jobs only after preflight completes.
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, block a pull request that is behind its base through `Base Freshness Gate` (named `Main Freshness Gate` in older text; it feeds `CI Status Gate`), trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, block a pull request whose base is stale through `Base Freshness Gate` (named `Main Freshness Gate` in older text; it feeds `CI Status Gate`; bounded for pull requests into `main`, see [Base freshness on pull requests](#base-freshness-on-pull-requests)), trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### Protected pipeline surfaces
 
@@ -271,7 +271,41 @@ change.
 
 ### Duplicate-Run Policy
 
-Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR that is behind its base, and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR whose merge-base is over 24 h old, or whose files `main` changed after the base its checks tested (see below), and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+
+### Base freshness on pull requests
+
+`Base Freshness Gate` runs
+[scripts/git/check-main-sync.sh](../../../scripts/git/check-main-sync.sh). Since
+2026-10-15 it uses `MAIN_SYNC_MODE: bounded` for pull requests into `main`:
+
+1. A head that already contains the tip of `main` passes, as before.
+2. Otherwise it **blocks** when the merge-base is more than
+   `MAIN_SYNC_MAX_AGE_HOURS` (24) old, or when, after the base the PR's checks
+   tested, `main` changed a file the PR also changes. The log and the step
+   summary list up to 20 such paths. The tested base is the first parent of the
+   `refs/pull/N/merge` commit (`github.sha`) that every lane checks out. When it
+   cannot be resolved, the merge-base stands in, which counts every `main`
+   change the branch lacks.
+3. Otherwise it passes with a warning and a step summary: how many commits
+   behind, the tested base, the merge-base age, and that no file overlaps.
+
+A missing remote, a failed fetch or an unresolvable commit still fails the gate.
+
+Why: measured on 2026-10-14, `block` mode caused 30-57% of failed PR runs, and
+about 17% of runs were sync-only re-runs. `main` lands 24-57 merges a day
+against a ~25 minute green run, and the check fetches `main` when its job
+starts, so runner queueing alone made fresh pushes stale. It did not keep stale
+bases out either: 64% of merges landed behind `main` anyway, and `Main
+Post-Merge Smoke` was 324/0 green. The lanes already test the PR merged onto
+`main`. What they cannot see is a file both sides changed since, or a base old
+enough to drift, and bounded mode blocks exactly those.
+
+`block` mode, which fails any lag, stays in place for pull requests into
+`integration/pr-train`, on every merge group (`Queue Validation`), and in
+`scripts/ci/local-release-gate.sh`. Local pre-push stays `warn`. GitHub's own
+strict up-to-date rule on `main` (`require_strict_status_checks` in
+[config/ci-governance.json](../../../config/ci-governance.json)) is unchanged.
 
 ### The merge queue in practice
 
@@ -280,7 +314,8 @@ governed maintainer cohort, and those maintainers land PRs directly. No PR has
 entered the queue since 2026-09-01, the date of the last full `Queue
 Validation` run, and that run's `web-full` step was red in each of its last six
 runs. So the queue does **not** absorb stale-base risk; `Base Freshness Gate`
-on the PR is what blocks a stale branch.
+on the PR is what bounds it (see
+[Base freshness on pull requests](#base-freshness-on-pull-requests)).
 
 **Since 2026-09-26 the full Vitest suite gates every frontend PR** through the
 `Web Full Suite (Vitest)` lane in PR Validation, and `Queue Validation` is a
@@ -321,7 +356,7 @@ the workflow can then be deleted.
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
-| Main Freshness Gate (job name `Base Freshness Gate`) | Block a branch that is behind its base | Blocking on pull requests (`MAIN_SYNC_MODE: block`, feeds `CI Status Gate`) and on `merge_group` |
+| Main Freshness Gate (job name `Base Freshness Gate`) | Keep a branch's base fresh enough that what CI tested is what lands | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train` and every `merge_group`: `block`, failing any lag. Feeds `CI Status Gate` |
 | CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs, except that a lane whose paths changed (`Web Full Suite (Vitest)` for frontend, the iOS and Android native lanes) must have succeeded |
 
 Operational note:
