@@ -674,7 +674,7 @@ def provision_on_ai_connection() -> bool:
 
 def pod_files_model_project() -> str:
     """Read installed Files selection; capability admission owns any Dev bridge."""
-    return os.getenv("GENAI_GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    return os.getenv("GENAI_GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or ""
 
 
 def pod_managed_model_enabled() -> bool:

@@ -38135,6 +38135,17 @@
     "source_revision": "1078971a68781fbbed4f42f4a41c1097ce5a4e49",
     "verification": "160 focused Files/provisioning/Azure/runtime-provider/settings/UserGcp cases, Ruff and owning runtime-configuration gate pass. Exact-candidate canonical core and deployed acceptance remain required."
   },
+  "scope_commerce_files_settings_type_normalization_20261013": {
+    "ceiling_changes": [],
+    "module_lines": 1383,
+    "retained_prior_qualification_sha256": "e16f5ed78cff70ba6d824444c224a78559bb68616f5937dd090c3bd022fd4d78",
+    "review": "Independent architecture_review qualifies the declared string return normalization. Module remains 1383 lines. No new or replaced finding, changed ceiling, detector, budget or authority check. Original reviewed source and history remain unchanged.",
+    "source_git_blob": "7f2caaa67b49312c5998969116b62ec2af4e9102",
+    "source_qualification_sha256": "f2c3a6536b5142538d59d2a2f25088ca30aca52d7e3a5e3a203a708fe3988b94",
+    "source_revision": "6a77d6929097df3dabf9dbc89db85938e8e3db4a",
+    "source_sha256": "260781682c70782f4d53baf6a4bf4fab4e70c446e79cecb1124335bc0cbdf584",
+    "verification": "67 focused cases read back from their actual log. Focused mypy and owning runtime-configuration gate pass are parent-reported tool results. Exact committed-candidate core and deployed acceptance remain required."
+  },
   "scope_commerce_gmail_main_merge_20261012": {
     "after": 91,
     "before": 81,
