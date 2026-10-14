@@ -139,7 +139,7 @@
 :global(html:not(.dark)) .providerButton span {
   font-family: var(--auth-font) !important;
   font-size: 17px !important;
-  font-weight: 700 !important;
+  font-weight: 650 !important;
   line-height: 22px !important;
   letter-spacing: 0 !important;
 }
@@ -317,7 +317,7 @@
 :global(html.dark) .providerButton span {
   font-family: var(--auth-font) !important;
   font-size: 17px !important;
-  font-weight: 700 !important;
+  font-weight: 650 !important;
   line-height: 22px !important;
   letter-spacing: 0 !important;
 }

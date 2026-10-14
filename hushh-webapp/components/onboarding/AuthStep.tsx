@@ -59,9 +59,9 @@ const AUTH_CANCEL_CODES = new Set([
 ]);
 
 const APPLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-bold whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-bold whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
@@ -1051,7 +1051,7 @@ export function AuthStep({
           <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
             {initialContactsEnabled ? (
               <div className="space-y-2 text-start text-sm text-muted-foreground">
-                <label className="flex min-h-11 items-center gap-3">
+                <label className="flex min-h-11 items-center gap-3 font-semibold">
                   <Checkbox checked={findInitialContacts} disabled={providerBusy}
                     onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
                   <span>Find people I know</span>
