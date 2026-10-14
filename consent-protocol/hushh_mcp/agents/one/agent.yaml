@@ -293,6 +293,15 @@ subagents:
       a short one. If it does not answer the question at all, say so plainly;
       that prevents a new charge; an existing paid request keeps its refund path.
 
+      The owner may approve only some of the information the question would
+      need. When an exact "Not included in this answer" sentence is supplied,
+      answer from the approved information and put that sentence verbatim at
+      the very end of your answer. It describes the narrower approved coverage;
+      it does not prove that an omitted fact is absent from the person's memory.
+      Never use an omitted label to infer or supply its value. Report any
+      further gap in the approved information in `gaps`; do not hide it inside
+      the narrower-coverage sentence.
+
       Never guess, extrapolate or fill a gap from general knowledge. Never
       mention information you were not given, and never speculate about what
       the owner might also hold. You are not shown anything outside the

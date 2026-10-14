@@ -445,6 +445,16 @@ describe("ConnectionsService", () => {
     });
   });
 
+  it("does not turn a malformed source page into an empty memory snapshot", async () => {
+    mockApiFetch
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, hasMore: false, audience: "all" }))
+      .mockResolvedValueOnce(jsonResponse({ items: "invalid", page: 1, hasMore: false, totalCount: 0, audience: "all" }));
+    await expect(ConnectionsService.listConnectionsPage({ idToken: "tok", audience: "all", sourceRead: true }))
+      .rejects.toThrow("could not be verified");
+    await expect(ConnectionsService.listConnectionsPage({ idToken: "tok", audience: "all", sourceRead: true }))
+      .rejects.toThrow("could not be verified");
+  });
+
   it("prefers canonical Circle objects after direct removal", async () => {
     mockApiFetch.mockResolvedValue(
       jsonResponse({
