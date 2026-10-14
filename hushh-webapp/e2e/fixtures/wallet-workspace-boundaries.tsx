@@ -256,9 +256,10 @@ export const ApiService = {
     }
     // Production profile/referral views keep their rendering; only network
     // responses are synthetic. No live profile, visitor, or payment is touched.
-    const hasSharingHistory = scenario().sharingHistory && !requestPath.includes("direction=received");
+    const hasSharingHistory = scenario().sharingHistory;
+    const received = requestPath.includes("direction=received");
     const history: CardSharingHistory = {
-      items: hasSharingHistory ? [{ ...sharedCardHistory, status: sharedCardRevoked ? "revoked" : "active", revokedAt: sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
+      items: hasSharingHistory ? [{ ...sharedCardHistory, id: received ? "fixture-received-grant" : sharedCardHistory.id, senderName: received ? "Example Sender" : sharedCardHistory.senderName, status: !received && sharedCardRevoked ? "revoked" : "active", revokedAt: !received && sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
       recipientCount: hasSharingHistory ? 1 : 0,
       hasMore: false, nextCursor: null, serverNow: "2026-10-12T10:02:00Z",
     };

@@ -673,11 +673,15 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
     const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
     await expect(history).toBeVisible();
+    const received = sharing.getByRole("region", { name: "Received card history", exact: true });
+    await expect(received.getByText("Everyday •••• 4242 | Example Sender", { exact: true })).toBeVisible();
+    await expect(received.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
+    await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
     await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
-    await expect(sharing.getByText(/15 minutes/)).toBeHidden();
+    await expect(history.getByText(/15 minutes/)).toBeHidden();
     await history.getByText("Activity", { exact: true }).click();
-    await expect(sharing.getByText(/15 minutes/)).toBeVisible();
+    await expect(history.getByText(/15 minutes/)).toBeVisible();
     const revoke = sharing.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
     const revocations = () => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("sharing-revoke:")));
     await expect(revoke).toBeEnabled();
@@ -704,7 +708,7 @@ for (const width of [320, 390, 1440]) {
     await expect.poll(revocations).toEqual(["sharing-revoke:fixture-history-grant"]);
     await expect(confirmation).toBeHidden();
     await expect(sharing.getByText(/^Revoked.*Expires/)).toBeVisible();
-    await expect(sharing.getByText("Connection", { exact: true })).toBeVisible();
+    await expect(history.getByText("Connection", { exact: true })).toBeVisible();
     await expect(revoke).toHaveCount(0);
     await expect(sharing.getByText("Everyday •••• 4242 | Sample recipient", { exact: true })).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
@@ -838,9 +842,9 @@ for (const width of [390, 1440]) {
   test(`Temporary card sharing: logos and recipient selection fit at ${width}px`, async ({ page }) => {
     const errors = await open(page, width, "light", { networkCards: true }, { height: 844, shell: true, secure: true });
     await mount(page);
-    await page.getByRole("button", { name: "Search cards" }).click();
-    await page.getByRole("textbox", { name: "Search cards" }).fill("RuPay");
-    await page.getByRole("button", { name: /^RuPay ·/ }).click();
+    const rupay = page.getByTestId("wallet-add-stack").getByRole("button", { name: "RuPay", exact: true });
+    await rupay.focus();
+    await rupay.press("Enter");
     const face = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
     await expect(face).toHaveAttribute("data-revealed", "true");
     const logo = face.getByTestId("card-network-wordmark-rupay").locator("img");
@@ -920,8 +924,8 @@ for (const width of [320, 820, 1440]) {
           await expect(panel.getByLabel("Card number", { exact: true })).toBeVisible();
           await expect(panel.getByText("Encrypted on this device. Never enters chat.")).toHaveCount(0);
         } else {
-          await expect(panel.getByRole("button", { name: "Sent cards", exact: true })).toBeVisible();
-          await expect(panel.getByRole("button", { name: "Received cards", exact: true })).toBeVisible();
+          await expect(panel.getByRole("button", { name: "Sent cards", exact: true })).toHaveCount(0);
+          await expect(page.getByTestId("wallet-sharing-content").getByRole("region", { name: "Received card history", exact: true })).toBeVisible();
         }
         await expect(panel).toHaveCSS('background-image', 'none');
       }
@@ -956,8 +960,8 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   const sharing = page.getByTestId("wallet-sharing-content");
   await expect(sharing.locator("figure")).toHaveCount(0);
-  await expect(sharing.getByRole("button", { name: "Sent cards", exact: true })).toBeInViewport();
-  await expect(sharing.getByRole("button", { name: "Received cards", exact: true })).toBeInViewport();
+  await expect(sharing.getByRole("button", { name: "Sent cards", exact: true })).toHaveCount(0);
+  await expect(sharing.getByRole("region", { name: "Received card history", exact: true })).toBeInViewport();
 });
 
 for (const width of [320, 393, 1024]) {

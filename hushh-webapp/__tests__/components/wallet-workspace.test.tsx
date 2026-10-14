@@ -494,11 +494,12 @@ describe("WalletWorkspace at scale", () => {
   });
 
   it("search narrows metadata and reports no match", async () => {
+    navigationMock.search = "q=amex";
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    await screen.findByRole("textbox", { name: "Search cards" });
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "amex" } });
     });

@@ -18,10 +18,10 @@ type State = { context: CardShareContext; page: CardSharingHistory; direction: s
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 /** Small ledger in the existing Sharing tab; access remains server-authorized. */
-export function WalletSharingHistory({ ownerId, active, getContext }: {
+export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing" }: {
+  direction?: "outgoing" | "received";
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
 }) {
-  const [direction, setDirection] = useState<"outgoing" | "received">("outgoing");
   const [state, setState] = useState<State | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -101,11 +101,7 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
-  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className={`space-y-3.5 ${styles.history}`}>
-    <div className={`${styles.directionActions} flex min-h-11 flex-wrap items-center gap-2`} role="group" aria-label="Share direction">
-      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
-      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
-    </div>
+  return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={`${item.displayLabel} | ${direction === "outgoing" ? item.recipientName : item.senderName}`}
