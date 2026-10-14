@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
@@ -96,23 +96,20 @@ export function WorldModelInvitations({
     }
   }
   return (
-    <Card preset="compact">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Build for someone else</CardTitle>
+    <SettingsGroup title="Invite someone">
+      <div className="space-y-3 px-4 py-3">
         <HelperText>
-          Reserve an invitation for their email or phone. They verify that
-          contact and claim their model before research begins. Their findings
-          stay private until they choose to share.
+          They verify their contact and choose when to start; findings stay
+          private until shared.
         </HelperText>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
         {claimToken && (
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-[13px]">
-              You’ve been invited to build your Personal World Model. Claiming
-              confirms your contact. You choose when to start research.
+              Verify your contact to claim your model; you choose when research
+              starts.
             </p>
-            <Button data-voice-control-id="pwm_claim"
+            <Button
+              data-voice-control-id="pwm_claim"
               size="compact"
               disabled={busy}
               onClick={() =>
@@ -120,9 +117,7 @@ export function WorldModelInvitations({
                   const capture = guard();
                   await WorldModelInvitationsService.claim(session, claimToken);
                   await capture.assertCurrent();
-                  setMessage(
-                    "Claimed. You can now build your model above. Nothing has been shared.",
-                  );
+                  setMessage("Model claimed. Nothing has been shared.");
                   router.replace(ROUTES.PROFILE_WORLD_MODEL);
                 })
               }
@@ -132,16 +127,17 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          <span>Recipient’s email or phone with country code</span>
+          <span>Email or phone with country code</span>
           <Input
-            aria-label="Recipient’s email or phone with country code"
+            aria-label="Email or phone with country code"
             value={contact}
             maxLength={320}
             onChange={(event) => setContact(event.target.value)}
             autoComplete="off"
           />
         </label>
-        <Button data-voice-control-id="pwm_invite"
+        <Button
+          data-voice-control-id="pwm_invite"
           size="compact"
           variant="muted"
           disabled={busy || !contact.trim()}
@@ -180,7 +176,7 @@ export function WorldModelInvitations({
                     setMessage(
                       delivery === "copied"
                         ? "Invitation copied."
-                        : "Invitation opened in your share sheet.",
+                        : "Ready to share.",
                     );
                 } catch (error) {
                   if (!isShareCancellationError(error)) throw error;
@@ -226,7 +222,7 @@ export function WorldModelInvitations({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }

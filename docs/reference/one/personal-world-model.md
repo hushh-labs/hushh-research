@@ -162,3 +162,7 @@ The current page is a fact/source list, not an interactive graph. Authorized acc
 ## Release evidence
 
 See the PR and its exact-commit CI for final verification. Contract/unit tests can prove state, schema, authority, and budget behavior. They do not establish live research precision, source coverage, or latency. Those require a configured search key and consented evaluation cases before quality claims.
+
+## Profile presentation
+
+Personal World Model opens inside the Profile pane, using the same compact grouped settings and Back navigation as Payouts. Edit or remove details opens Memory within Profile. Existing `/one/profile/world-model?claim=...` invitation links retain their contact-bound claim flow in the shared Profile workspace. Research, review, saving, and invitation permissions are unchanged.

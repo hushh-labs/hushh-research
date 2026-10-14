@@ -7348,7 +7348,7 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/profile/personal-world-model-page.tsx",
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
           "AppPageHeaderRegion",
@@ -10273,5 +10273,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d40fe654d8987a496ce5f0a41b7058e8b59908a1d4fcb5f2bf6eca688b45943d"
+  "content_sha256": "b6dcf6172045704c6fe1de170087ada9ed1d2c547c3fb96a8ffcafab7dada2af"
 }

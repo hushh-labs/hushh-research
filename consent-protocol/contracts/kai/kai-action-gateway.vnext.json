@@ -13858,7 +13858,7 @@
         "public profile",
         "preferences"
       ],
-      "meaning": "Opens your Personal World Model in Profile.",
+      "meaning": "Opens your Personal World Model inside Profile.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -13866,6 +13866,7 @@
           "/one/profile/world-model"
         ],
         "screens": [
+          "profile_home",
           "profile_account",
           "profile_world_model"
         ],
@@ -13929,7 +13930,7 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/profile/world-model",
-              "screen": "profile_account"
+              "screen": "profile_home"
             }
           }
         ],

@@ -1,3 +1,4 @@
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
@@ -260,4 +261,24 @@ it.each(["connectors", "preferences", "account"])("shows the main Profile page w
   paintFirstFrames();
   expect(screen.getByTestId("pane-body")).toHaveAttribute("data-panel", "root");
   expect(screen.getByRole("heading", { name: "Profile", exact: true })).toBeInTheDocument();
+});
+
+it("uses the model review Back layer before leaving its Profile panel", () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1&profile_panel=world-model";
+  window.history.replaceState(null, "", `/?${url.query}`);
+  const reviewBack = vi.fn().mockReturnValue(true);
+  const unregister = registerBackLayer({ pathname: "/", depth: 3, back: reviewBack });
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(reviewBack).toHaveBeenCalledOnce();
+    expect(window.location.search).toContain("profile_panel=world-model");
+    reviewBack.mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(window.location.search).not.toContain("profile_panel=world-model");
+  } finally {
+    unregister();
+    view.unmount();
+  }
 });

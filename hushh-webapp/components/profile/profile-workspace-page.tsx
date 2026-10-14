@@ -110,6 +110,7 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
@@ -598,6 +599,7 @@ function profileRouteRequiresUnlockedVault(
   if (
     panel === "my-data" ||
     panel === "payouts" ||
+    panel === "world-model" ||
     panel === "request-pricing" ||
     panel === "connected-systems" ||
     panel === "connectors" ||
@@ -1879,6 +1881,7 @@ function ProfilePageContent({
       ProfilePanel,
       | "my-data"
       | "payouts"
+      | "world-model"
       | "request-pricing"
       | "connected-systems"
       | "connectors"
@@ -2468,7 +2471,7 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
-        : activePanel === "payouts" || activePanel === "request-pricing"
+        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2479,6 +2482,8 @@ function ProfilePageContent({
       ? [
           activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2512,7 +2517,7 @@ function ProfilePageContent({
           ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
-      activePanel === "payouts" || activePanel === "request-pricing"
+      activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
         ? []
         : activePanel === "gmail"
           ? [
@@ -2559,7 +2564,9 @@ function ProfilePageContent({
     return {
       surfaceDefinition: {
         screenId:
-          activePanel === "request-pricing"
+          activePanel === "world-model"
+            ? "profile_world_model"
+          : activePanel === "request-pricing"
             ? "profile_request_pricing"
             : activePanel
               ? `profile_${activePanel}`
@@ -2567,6 +2574,8 @@ function ProfilePageContent({
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2842,8 +2851,15 @@ function ProfilePageContent({
         { panel: activePanel, detail: activeDetail },
       );
     } else {
+      // Keep the one-time invitation through unlock; only remove the unlock marker.
+      const claimQuery = activePanel === "world-model" && searchParams.has("claim")
+        ? new URLSearchParams(searchParams.toString())
+        : null;
+      claimQuery?.delete("unlock_vault");
       router.replace(
-        buildProfileRoute({ panel: activePanel, detail: activeDetail }),
+        claimQuery
+          ? `${pathname}?${claimQuery.toString()}`
+          : buildProfileRoute({ panel: activePanel, detail: activeDetail }),
         { scroll: false },
       );
     }
@@ -2869,8 +2885,10 @@ function ProfilePageContent({
     // Stripe returns to Payouts with a short callback marker. Keep that route
     // while the owner unlocks so an expired Connect link can be refreshed.
     const documentPayoutReturn = searchParams.get("documentPayouts");
+    const worldModelClaim = activePanel === "world-model" && searchParams.has("claim");
     if (
       activePanel &&
+      !worldModelClaim &&
       documentPayoutReturn !== "refresh" &&
       documentPayoutReturn !== "done"
     ) {
@@ -4493,6 +4511,26 @@ function ProfilePageContent({
         </div>
       ),
     });
+  } else if (!routeBlockedByVault && activePanel === "world-model") {
+    profileStackEntries.push({
+      key: "panel:world-model",
+      title: "Personal World Model",
+      content: (
+        <div
+          className={cn(
+            "space-y-4",
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <PersonalWorldModelPage
+            embedded
+            onManageDetails={() => openVaultBackedPanel("my-data")}
+          />
+        </div>
+      ),
+    });
   } else if (!routeBlockedByVault && activePanel === "request-pricing") {
     // Opened from another screen (Feed's "Set price"), a save returns there.
     // Without a safe origin, and in the pane, the card confirms inline.
@@ -4877,11 +4915,7 @@ function ProfilePageContent({
                 voiceActionId="route.profile_world_model"
                 voiceLabel="Personal World Model"
                 voicePurpose="Opens your Personal World Model."
-                onClick={() => {
-                  const from = normalizeInternalRouteHref(searchParams.get("from")) ??
-                    (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
-                  router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
-                }}
+                onClick={() => openVaultBackedPanel("world-model")}
               />
               <SettingsRow
                 icon={
