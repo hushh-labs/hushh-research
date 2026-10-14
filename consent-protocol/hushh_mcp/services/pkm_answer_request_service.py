@@ -643,11 +643,40 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
             if row is None:
                 raise AnswerRequestError("request_unavailable")
-            return {
+            result = {
                 "role": "owner" if row["owner_user_id"] == user_id else "requester",
                 "requestStatus": row["status"],
                 "question": row["question"],
             }
+            # Before approval, the proposed selectors are for the owner's
+            # review only. After approval, both people may see the exact
+            # priced coverage. Labels disclose no PKM values and deliberately
+            # make no claim that an omitted fact is absent from memory.
+            if row["status"] in {"approved", "answering", "answered"}:
+                scopes = (
+                    connection.execute(
+                        text(
+                            """SELECT scope, label, approved FROM pkm_answer_request_scopes
+                           WHERE request_id=:request ORDER BY scope"""
+                        ),
+                        {"request": request_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                result["coverage"] = {
+                    "included": [
+                        {"scope": entry["scope"], "label": entry["label"]}
+                        for entry in scopes
+                        if entry["approved"]
+                    ],
+                    "notIncluded": [
+                        {"scope": entry["scope"], "label": entry["label"]}
+                        for entry in scopes
+                        if not entry["approved"]
+                    ],
+                }
+            return result
 
         return await self._transaction(read)
 
@@ -856,21 +885,28 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 ] <= datetime.now(UTC):
                     raise AnswerRequestError("request_not_answerable")
                 PkmAnswerPaymentService.require_paid_answer(connection, request)
+            scope_rows = (
+                connection.execute(
+                    text(
+                        """SELECT scope, label, approved FROM pkm_answer_request_scopes
+                       WHERE request_id=:request ORDER BY scope"""
+                    ),
+                    {"request": request_id},
+                )
+                .mappings()
+                .all()
+            )
             return {
                 "requestId": str(request["request_id"]),
                 "termsDigest": request["terms_digest"],
                 "question": request["question"],
                 "modelProcessingConsented": request["composer_consent_digest"]
                 == request["terms_digest"],
-                "approvedScopes": [
-                    r["scope"]
-                    for r in connection.execute(
-                        text(
-                            "SELECT scope FROM pkm_answer_request_scopes WHERE request_id=:request AND approved"
-                        ),
-                        {"request": request_id},
-                    ).mappings()
-                ],
+                "approvedScopes": [r["scope"] for r in scope_rows if r["approved"]],
+                # The writer derives safe labels from these validated scope
+                # IDs. Registry labels may be user-authored and must not enter
+                # the model's instructions.
+                "omittedScopes": [r["scope"] for r in scope_rows if not r["approved"]],
                 "period": (
                     {
                         "start": request["period_start"].isoformat(),

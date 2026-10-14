@@ -55,6 +55,26 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
 
+## Mail receipt snapshots
+
+Detailed canonical receipt rows belong to Mail's encrypted device snapshot.
+PKM receives only the existing bounded aggregate observations, without detailed
+transactions, email content, logo URLs or raw links. Branding is restored from
+stable reviewed merchant keys using the shared render-time registry.
+
+Printed transaction and attention dates remain bounded verbatim document evidence;
+only snapshot freshness and coverage timestamps require ISO dates. Capture does
+not infer a year, change grouping, or normalize the displayed date.
+
+A sync completes only after the encrypted candidate has committed to IndexedDB,
+been read back, decrypted with its owner/account/generation/revision binding, and
+passed snapshot validation. Atomic promotion rechecks Reset generation and prior
+revision before replacing the authoritative ciphertext. Failed capture, encryption,
+quota, transactions, or read-back retain the previous verified snapshot. In-memory
+rows do not count as saved, and an unsuccessful empty replacement retains visible
+rows and their counts. The failure diagnostic exposes only a typed code and stage.
+Owner Reset removes both authoritative and pending ciphertext and fences old scans.
+
 ## Feed and payout updates
 
 The authenticated app shares one `/api/consent/document-feed/{uid}` stream per

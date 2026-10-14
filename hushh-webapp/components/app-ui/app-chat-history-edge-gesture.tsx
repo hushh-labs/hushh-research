@@ -76,7 +76,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
     ) || 0);
 
     const clear = (current: Gesture) => {
-      for (const property of ["transition", "transform", "translate", "will-change"]) current.panel.style.removeProperty(property);
+      for (const property of ["transition", "transform", "translate", "visibility", "will-change"]) current.panel.style.removeProperty(property);
       for (const property of ["transition", "opacity", "visibility", "will-change"]) current.scrim.style.removeProperty(property);
     };
     const place = (current: Gesture, distance: number, phase: "drag" | "open" | "close") => {
@@ -88,6 +88,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       // Tailwind v4's resting translate is independent of transform. Disable
       // it for the pull, otherwise both offsets add and the panel stays hidden.
       current.panel.style.translate = "none";
+      current.panel.style.visibility = "visible";
       current.scrim.style.transition = phase === "drag" || reduced ? "none"
         : `opacity var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
       current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;
