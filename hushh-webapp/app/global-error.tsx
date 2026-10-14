@@ -42,14 +42,14 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
             <div className="mt-5 flex justify-center gap-3">
               <button
                 type="button"
-                className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background"
+                className="rounded-lg bg-foreground px-4 py-2 text-sm font-[650] text-background"
                 onClick={reset}
               >
                 Retry
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-normal"
                 onClick={() => window.history.back()}
               >
                 Back

@@ -191,7 +191,7 @@ for (const width of [320, 390, 1440]) {
     expect(await tabs.locator("[data-ui-role=agent-tab-label]").evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
     expect(await tabs.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe("10px");
     expect((await page.getByRole("tablist", { name: "Schedule views" }).boundingBox())!.height).toBeLessThan(tabBounds.height);
-    expect(await page.getByRole("heading", { name: "Calendar", exact: true }).evaluate(element => getComputedStyle(element).fontFamily)).toMatch(/Inter/);
+    expect(await page.getByRole("heading", { name: "Calendar", exact: true }).evaluate(element => getComputedStyle(element).fontFamily)).toMatch(/Plus Jakarta Sans/);
     await expect(page.getByText("qa-owner@example.com", { exact: true })).toBeVisible();
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "All-day events" })).toBeVisible();

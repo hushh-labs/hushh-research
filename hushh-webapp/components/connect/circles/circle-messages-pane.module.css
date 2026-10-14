@@ -1,6 +1,6 @@
 .pane { display: grid; grid-template-columns: 370px minmax(0,1fr); min-height: 0; height: 100%; width: 100%; color: var(--chat-text); }
 .list { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--chat-glass-edge); background: var(--chat-glass-strong); backdrop-filter: blur(28px) saturate(145%); -webkit-backdrop-filter: blur(28px) saturate(145%); }
-.listHeader { flex-shrink: 0; min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 20px; font-weight: 700; }
+.listHeader { flex-shrink: 0; min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 20px; font-weight: 600; }
 /* Keep the local heading in the same layer as the global h1 foundation. */
 @layer base {
   .pane .listHeader h1 {
@@ -8,7 +8,7 @@
     color: var(--chat-text);
     font-family: var(--font-app-heading);
     font-size: 20px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     line-height: 1.2 !important;
     letter-spacing: -.02em !important;
   }

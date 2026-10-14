@@ -1,16 +1,16 @@
 // hussh.type.ts - type system - Foundation v1.0
-// SF Pro via the system stack only. Do not bundle or @font-face Apple fonts.
+// Plus Jakarta Sans is self-hosted by app/globals.css for the web and WebView.
 
 export const fontFamily = {
-  display: 'SF Pro Display, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
-  text: 'SF Pro Text, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif',
+  display: '"Plus Jakarta Sans", system-ui, sans-serif',
+  text: '"Plus Jakarta Sans", system-ui, sans-serif',
 } as const;
 
 export const weight = { regular: "400", semibold: "600", bold: "700" } as const;
 
 export const type = {
-  display: { size: 34, weight: 700, line: 36, tracking: -0.75 },
-  title1: { size: 28, weight: 700, line: 31, tracking: -0.56 },
+  display: { size: 34, weight: 600, line: 36, tracking: -0.75 },
+  title1: { size: 28, weight: 600, line: 31, tracking: -0.56 },
   title2: { size: 22, weight: 600, line: 26, tracking: -0.35 },
   title3: { size: 20, weight: 600, line: 24, tracking: -0.24 },
   headline: { size: 17, weight: 600, line: 22, tracking: -0.17 },
@@ -18,8 +18,8 @@ export const type = {
   callout: { size: 16, weight: 400, line: 23, tracking: 0 },
   subhead: { size: 15, weight: 400, line: 21, tracking: 0 },
   footnote: { size: 13, weight: 400, line: 18, tracking: 0 },
-  caption: { size: 12, weight: 600, line: 16, tracking: 1.9, upper: true },
-  micro: { size: 11, weight: 600, line: 14, tracking: 2.2, upper: true },
+  caption: { size: 12, weight: 400, line: 16, tracking: 1.9, upper: true },
+  micro: { size: 11, weight: 400, line: 14, tracking: 2.2, upper: true },
 } as const;
 
 export const maxFontScale = {
