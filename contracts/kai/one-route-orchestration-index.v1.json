@@ -7332,9 +7332,9 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.world_model.invite",
-        "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+        "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
         "screen": "app",
-        "entry_cue": "Review your starting profile, then continue when ready.",
+        "entry_cue": "Check your invitation, then continue when ready.",
         "proactivity": "ambient",
         "primary_action_id": null,
         "happy_path_action_ids": [],

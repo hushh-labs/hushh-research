@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createPortal } from "react-dom";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { readWorldModelInvitationHandoff } from "@/lib/world-model/invitation-handoff";
 
 const mocks = vi.hoisted(() => ({
   checkVault: vi.fn(),
@@ -273,6 +274,8 @@ describe("VaultLockGuard", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/one/profile");
     mocks.authState.user = { uid: "user_1" };
     mocks.authState.loading = false;
     mocks.authState.sessionVerificationRequired = false;
@@ -282,6 +285,21 @@ describe("VaultLockGuard", () => {
     mocks.vaultUnlocked = false;
     mocks.ownerTokenStatus = "valid";
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("keeps a protected PWM claim token out of the login redirect on session loss", async () => {
+    const token = "a".repeat(43);
+    mocks.authState.user = null;
+    window.history.replaceState({}, "", `/one/profile/world-model#claim=${token}`);
+    render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledTimes(1));
+    const login = new URL(mocks.replace.mock.calls[0][0], "https://one.local");
+    expect(login.pathname).toBe("/login");
+    const destination = login.searchParams.get("redirect")!;
+    expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
+    expect(decodeURIComponent(login.href)).not.toContain(token);
+    const id = new URL(destination, "https://one.local").searchParams.get("handoff")!;
+    expect(readWorldModelInvitationHandoff(id, null)).toBe(token);
   });
 
   it("uses the focused hard-gate unlock surface instead of a route hero", async () => {

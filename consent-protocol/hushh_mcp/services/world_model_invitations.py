@@ -250,8 +250,12 @@ async def preview(token):
         hashlib.sha256(token.encode()).hexdigest(),
         timeout=5,
     )
-    if not row or not row["preview_envelope"]:
+    if not row:
         raise ValueError("Preview unavailable")
+    if not row["preview_envelope"]:
+        # A claim link can be issued without a professional preview. Possession of
+        # a live token proves only that this invitation is available to continue.
+        return {"has_preview": False}
     return open_preview(token, row["id"], row["preview_envelope"])
 
 
