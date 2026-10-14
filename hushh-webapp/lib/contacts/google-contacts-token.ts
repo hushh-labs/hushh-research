@@ -48,7 +48,8 @@ type GoogleIdentityServices = {
   };
 };
 
-function gis(): GoogleIdentityServices | null {
+/** Shared GIS capability; individual callers keep their own scope policy. */
+export function getGoogleIdentityServices(): GoogleIdentityServices | null {
   const candidate = (globalThis as Record<string, unknown>).google;
   return (candidate as GoogleIdentityServices) ?? null;
 }
@@ -57,8 +58,9 @@ let scriptPromise: Promise<void> | null = null;
 
 const GIS_LOADER_ATTRIBUTE = "data-hushh-google-contacts-loader";
 
-function loadGis(): Promise<void> {
-  if (gis()?.accounts?.oauth2) return Promise.resolve();
+/** Load the shared SDK; callers retain their own OAuth client/scope policy. */
+export function preloadGoogleIdentityServices(): Promise<void> {
+  if (getGoogleIdentityServices()?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
 
   scriptPromise = new Promise<void>((resolve, reject) => {
@@ -104,7 +106,7 @@ function loadGis(): Promise<void> {
     }
     function handleLoad(): void {
       if (settled) return;
-      if (!gis()?.accounts?.oauth2) {
+      if (!getGoogleIdentityServices()?.accounts?.oauth2) {
         fail();
         return;
       }
@@ -144,8 +146,8 @@ function googleContactsClientId(): string {
  */
 export async function preloadGoogleContactsAuth(): Promise<void> {
   if (!googleContactsClientId()) return;
-  await loadGis();
-  if (!gis()?.accounts?.oauth2) {
+  await preloadGoogleIdentityServices();
+  if (!getGoogleIdentityServices()?.accounts?.oauth2) {
     throw new Error("Could not reach Google sign-in.");
   }
 }
@@ -207,7 +209,7 @@ export function requestGoogleContactsToken(
     );
   }
 
-  const oauth2 = gis()?.accounts?.oauth2;
+  const oauth2 = getGoogleIdentityServices()?.accounts?.oauth2;
   if (!oauth2) {
     // Recover a failed/slow preload without trying to open a popup after an
     // async boundary. The next explicit tap can request access synchronously.

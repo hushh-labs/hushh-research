@@ -19,7 +19,7 @@ initials fallback as Connect. No invented people or inferred trust appears.
 
 | Signup | Initial source | Consent/recovery |
 | --- | --- | --- |
-| Google, web | Saved Google Contacts | Development/UAT signup requests `contacts.readonly`; explicit retry uses existing browser GIS |
+| Google, web | Saved Google Contacts | Development/UAT signup uses one GIS consent for identity and optional `contacts.readonly`, then directly exchanges that token for a Firebase credential |
 | Google, iOS | Saved Google Contacts | Development/UAT sign-in requests the scope; the native bridge captures a fresh, owner-bound SDK grant |
 | Google, Android | Saved Google Contacts | Development/UAT uses the same selected signup account through `AuthorizationClient`; no account reconnection |
 | Apple, iOS/Android | Device address book | Optional permission/read action after phone verification; limited iOS access works |
@@ -48,6 +48,26 @@ The signup screen offers “Find people I know” and explains the shared roster
 Turning it off omits the signup Contacts scope. Contact denial, cancellation,
 an older bridge, unavailable service, or no matches never prevents signup,
 phone verification, setup completion or Continue.
+
+The login screen's web Google sign-in preloads the existing GIS script before the tap, so the
+consent popup opens within the browser gesture. Firebase authenticates the
+returned Google credential and determines account newness; only a confirmed
+Contacts grant reaches the memory-only reader. Declining Contacts while granting
+identity completes authentication. Replacing an attempt aborts its pending grant
+before credential exchange, and the provider controls stay busy during exchange.
+Returning web sign-in uses the same Firebase credential handoff with identity
+scopes only; native providers and callers without an explicit sign-in purpose
+retain their existing SDK flows.
+An unfinished popup now leaves an explicit retry message on the login screen.
+
+`NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID` identifies the Firebase-trusted Google
+identity client. It is separate from the Contacts-only
+`NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`; one must never substitute for the other.
+Builds resolve the optional identity client through an ephemeral artifact. Only
+a missing value retains the existing Firebase SDK path; invalid values or access
+failures stop the build. Verify the client's authorized JavaScript origins and
+Firebase credential compatibility before configuring it. This is public OAuth
+client configuration, not a welcome-enrollment flag.
 
 ## Processing and authority
 
