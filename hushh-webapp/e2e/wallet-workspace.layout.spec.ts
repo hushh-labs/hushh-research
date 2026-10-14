@@ -217,6 +217,10 @@ async function open(
   await page.route(`${origin}/**`, async (route) => {
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
+    if (assetPath === "/wallet/apple-wallet-icon.png") {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/png" });
+      return;
+    }
     if (assetPath === "/wallet/wallet-cards-hero.webp") {
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;

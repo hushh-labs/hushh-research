@@ -1,5 +1,6 @@
 "use client";
 
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
@@ -714,7 +715,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
                   >
-                    <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
+                    <AppleWalletIcon />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
                 ) : imageShareAction}
