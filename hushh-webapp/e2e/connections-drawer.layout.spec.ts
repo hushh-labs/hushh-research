@@ -1833,10 +1833,14 @@ test.describe("One profile artwork and animated presence", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true, thinking: true }));
-    const profile = panel.locator("[data-one-presence-state]");
+    const profile = panel.locator('[data-one-presence-state="working"]');
+    const layer = profile.locator('[data-one-presence-artwork="working"]');
+    // A single outgoing layer can precede the incoming runtime's React commit.
+    // Wait for the requested painted layer before asserting fade settlement.
+    await expectPresencePlayback(layer);
     await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
-    const canvas = profile.locator("canvas");
-    const poster = profile.locator("img");
+    const canvas = layer.locator("canvas");
+    const poster = layer.locator("img");
     await expect(canvas).toHaveCSS("visibility", "visible");
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1885,6 +1889,9 @@ test.describe("One profile artwork and animated presence", () => {
       // HD artwork and three complete tab round trips share this scenario's budget.
       // Geometry/state expectations retain their individual deadlines.
       test.setTimeout(60_000);
+      // Layout is independent of playback. Exercise supported reduced motion;
+      // the dedicated native cases above verify movement, fades and lifecycle.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize(viewport);
       await page.route("**/api/one/feed**", route => route.fulfill({
         contentType: "application/json",

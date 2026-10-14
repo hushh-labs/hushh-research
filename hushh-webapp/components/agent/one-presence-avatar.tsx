@@ -233,9 +233,8 @@ function OnePresencePlayback({ request, presentation, onReady }: {
             canvas,
             src: `/one-presence/${state}.riv`,
             enableRiveAssetCDN: false,
-            // Repaint every active frame of these small image-backed loops;
-            // offscreen and lifecycle guards still stop rendering entirely.
-            drawingOptions: runtime.DrawOptimizationOptions.AlwaysDraw,
+            // Let Rive redraw changed frames; the idle loop holds one image
+            // for most of its timeline, so continuous bitmap redraws add work.
             stateMachine,
             shouldDisableRiveListeners: true,
             autoplay: false,
