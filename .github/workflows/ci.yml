@@ -306,7 +306,7 @@ jobs:
               - 'hushh-webapp/e2e/fixtures/text-attachment-viewer.tsx'
               - 'hushh-webapp/e2e/fixtures/product-font.ts'
               - 'hushh-webapp/e2e/tsconfig.json'
-              - 'hushh-webapp/public/fonts/Inter/InterVariable.woff2'
+              - 'hushh-webapp/public/fonts/PlusJakartaSans/**'
               - 'hushh-webapp/components/agent/agent-message-attachments.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-editor.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-viewer.tsx'
