@@ -438,6 +438,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var historyChoiceStage = "none"
     private var historyTapCount = 0
     private var historyEvidenceSequence = 0
+    private var profileSampleSequence = 0
     private var diagnosticsEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell
     }
@@ -554,7 +555,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func sampleProfileBackAdmission() {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         profileBackAdmission?.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
-        guard privacy.appIsActive, !privacy.shielded, !profileBackAdmissionInFlight, let web = bridge?.webView else { return }
+        guard privacy.appIsActive, !privacy.shielded, !profileBackAdmissionInFlight,
+              let sampledDocument = document, let web = bridge?.webView else { return }
         profileBackAdmissionInFlight = true
         web.evaluateJavaScript("""
         (() => {
@@ -563,6 +565,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
           let state = {};
           try { if (status?.textContent.startsWith('NATIVE_SELECTOR_STATUS ')) state = JSON.parse(status.textContent.slice(23)); } catch (_) {}
           const rect = slot?.getBoundingClientRect();
+          const pane = slot?.closest('[data-native-feature-pane="profile"]');
+          const paneRect = pane?.getBoundingClientRect();
           const historySlot = document.querySelector('[data-native-chrome-slot="chat-history-toggle"]');
           const historyStatus = document.getElementById('native-control-status-chat-history-toggle');
           const closeSlot = document.querySelector('[data-native-chrome-slot="profile-close"]');
@@ -574,6 +578,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
           return JSON.stringify({stage: state.stage, outcome: state.outcome, code: state.code,
             present: !!slot, focused: !!slot?.contains(document.activeElement), inert: !!slot?.closest('[inert]'),
             width: rect?.width ?? 0, height: rect?.height ?? 0, top: rect?.top ?? 0,
+            paneReady: pane?.dataset.nativePaneReady === 'true', paneX: paneRect?.left ?? 0,
+            paneY: paneRect?.top ?? 0, paneWidth: paneRect?.width ?? 0, paneHeight: paneRect?.height ?? 0,
             profileBackChoice: state.choice, profileBackAllowed: state.allowed === true,
             profileCloseChoice: close.choice, profileCloseAllowed: close.allowed === true,
             profileClosePresent: !!closeSlot, profileCloseInert: !!closeSlot?.closest('[inert]'),
@@ -586,7 +592,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard let raw = result as? String, raw.utf8.count <= 1024,
                   let bytes = raw.data(using: .utf8), let packet = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return }
             let current = HushhSessionPrivacyShield.shared.snapshot()
-            guard current.appIsActive, !current.shielded, current.generation == privacy.generation else { return }
+            guard current.appIsActive, !current.shielded, current.generation == privacy.generation,
+                  self.document == sampledDocument,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(sampledDocument) else { return }
+            self.profileSampleSequence = self.profileSampleSequence % 1_000_000 + 1
             func choice(_ key: String, _ allowed: [String]) -> String {
                 guard let value = packet[key] as? String, allowed.contains(value) else { return "none" }
                 return value
@@ -610,6 +619,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let outcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
                 "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
             let profileChoices = "profileBackChoice=\(choice("profileBackChoice", outcomes));profileBackAllowed=\(packet["profileBackAllowed"] as? Bool == true);profileCloseChoice=\(choice("profileCloseChoice", outcomes));profileCloseAllowed=\(packet["profileCloseAllowed"] as? Bool == true);profileClosePresent=\(packet["profileClosePresent"] as? Bool == true);profileCloseInert=\(packet["profileCloseInert"] as? Bool == true)"
+            let paneGeometry = "paneSample=\(self.profileSampleSequence);paneReady=\(packet["paneReady"] as? Bool == true);paneX=\(dimension("paneX"));paneY=\(dimension("paneY"));paneWidth=\(dimension("paneWidth"));paneHeight=\(dimension("paneHeight"))"
+            if packet["paneReady"] as? Bool == true {
+                // Active details need their own fresh DOM paint bounds. WebKit
+                // projects title hulls, not the dialog's CSS rectangle. Keep
+                // this public packet bounded and exclude withdrawn History.
+                self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));\(profileChoices);\(paneGeometry)")
+                return
+            }
             self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage);historyTaps=\(self.historyTapCount);\(profileChoices)")
         }
     }

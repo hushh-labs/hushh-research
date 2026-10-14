@@ -3644,6 +3644,20 @@ final class AppUITests: XCTestCase {
         let back = app.buttons["Back in Profile"].firstMatch
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
+        func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
+            let probe = app.buttons["native-profile-back-admission"].firstMatch
+            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024 else { return nil }
+            let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
+                let pair = item.split(separator: "=", maxSplits: 1)
+                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+            }, uniquingKeysWith: { _, latest in latest })
+            guard fields["paneReady"] == "true", let sample = Int(fields["paneSample"] ?? ""),
+                  sample > 0, sample <= 1_000_000,
+                  let x = Double(fields["paneX"] ?? ""), let y = Double(fields["paneY"] ?? ""),
+                  let width = Double(fields["paneWidth"] ?? ""), let height = Double(fields["paneHeight"] ?? ""),
+                  [x, y, width, height].allSatisfy({ $0.isFinite && abs($0) <= 10_000 }), width >= 200, height > 100 else { return nil }
+            return (sample, CGRect(x: x, y: y, width: width, height: height))
+        }
         func row(_ title: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
         }
@@ -3702,6 +3716,7 @@ final class AppUITests: XCTestCase {
                 menu.swipeUp()
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
             if id == "invite" {
                 // Invite now opens the authored Referrals route, not a nested
@@ -3744,23 +3759,17 @@ final class AppUITests: XCTestCase {
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
             let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
             _ = containers.firstMatch.waitForExistence(timeout: 5)
-            let frames = containers.allElementsBoundByIndex.filter {
-                ![XCUIElement.ElementType.application, .window, .webView].contains($0.elementType)
-            }.map(\.frame).filter {
-                // WebKit can omit the dialog's own AX name. Require its
-                // current title and actual bounds containing the native header;
-                // a title, body-only scroll frame or whole viewport cannot pass.
-                $0.width >= 200 && $0.height > 100 &&
-                    $0.contains(CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)) &&
-                    (web.frame.width < 600 || $0.width < web.frame.width - 1)
-            }
-            guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
-                print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
-                for (index, candidate) in containers.allElementsBoundByIndex.prefix(6).enumerated() {
-                    let frame = candidate.frame
-                    print("PROFILE_DETAIL_PUBLIC_CANDIDATE index=\(index) role=\(candidate.elementType.rawValue) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
-                }
-                print("PROFILE_DETAIL_PUBLIC_CLOSE x=\(Int(detailClose.frame.minX.rounded())) y=\(Int(detailClose.frame.minY.rounded())) width=\(Int(detailClose.frame.width.rounded())) height=\(Int(detailClose.frame.height.rounded()))")
+            var detailFrame: CGRect?
+            let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard containers.firstMatch.exists, let pane = publicPaneGeometry(), pane.sample > previousPaneSample,
+                      pane.frame.contains(CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)),
+                      (web.frame.width < 600 || pane.frame.width < web.frame.width - 1) else { return false }
+                detailFrame = pane.frame
+                return true
+            }, object: app)
+            guard XCTWaiter.wait(for: [fresh], timeout: 10) == .completed, let detailFrame else {
+                print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=0")
+                printCoherentPresentationAdmission(app)
                 XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
             }
             print("PROFILE_DETAIL_PUBLIC_FRAME top=\(Int(detailFrame.minY)) bottom=\(Int(detailFrame.maxY)) expected_top=\(Int(app.frame.minY)) expected_bottom=\(Int(app.frame.maxY))")
