@@ -26,7 +26,6 @@ import {
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
@@ -124,7 +123,7 @@ export function OnboardingJourneyGuard({
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
-    (!initialContactOnboardingEnabled() || normalizedGuardPathname === ROUTES.ONE_WELCOME ||
+    (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
       Boolean(userId && InitialContacts.wasDismissed(userId)) ||
       cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
     (persistentSetupResolved ||
@@ -204,10 +203,29 @@ export function OnboardingJourneyGuard({
         return;
       }
 
-      if (initialContactOnboardingEnabled() && !InitialContacts.wasDismissed(userId)) {
+      let admissionState = cachedState;
+      if (!InitialContacts.wasDismissed(userId)) {
         // The setup latch does not acknowledge the optional welcome. Check its
         // existing lifecycle owner before admitting an agent on cold entry.
-        const welcomeState = cachedState ?? await PreVaultUserStateService.bootstrapState(userId).catch(() => null);
+        if (!admissionState) {
+          try {
+            admissionState = await PreVaultUserStateService.bootstrapState(userId);
+          } catch {
+            await waitForBootstrapRetry();
+            if (cancelled) return;
+            try {
+              admissionState = await PreVaultUserStateService.bootstrapState(userId, { force: true });
+            } catch {
+              if (cancelled) return;
+              // Optional welcome discovery must not block an established
+              // account whose ordinary setup admission is already durable.
+              setError(!persistentSetupResolved);
+              setChecking(false);
+              return;
+            }
+          }
+        }
+        const welcomeState = admissionState;
         if (cancelled) return;
         if (welcomeState?.setupCompleted === true && welcomeState.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
           const target = buildInitialContactsWelcomeRoute(currentHref);
@@ -271,7 +289,7 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(false);
       try {
-        let state = cachedState;
+        let state = admissionState;
         if (!state) {
           try {
             state = await PreVaultUserStateService.bootstrapState(userId);

@@ -1007,9 +1007,6 @@ hydrate_frontend_cloud() {
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "$env_name"
   # Deliberate build opt-in; preserve an explicitly enabled local/UAT profile.
-  if ! grep -q '^NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=' "$file"; then
-    upsert_env_value "$file" "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED" "false"
-  fi
 
   local backend_url=""
   local frontend_url=""

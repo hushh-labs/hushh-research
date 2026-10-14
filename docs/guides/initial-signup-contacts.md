@@ -112,27 +112,22 @@ generation changes suppress late reads, matches, mutations and UI callbacks.
   continue; a later session can retry the welcome without restoring removed
   members. Deleted Circles stay deleted.
 
-## Activation and rollback
+## Deployment and rollback
 
-`NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED` defaults to false. It is a
-build-time option in Docker, both frontend Cloud Build lanes and native profile
-generation. `_INITIAL_CONTACTS_ONBOARDING_ENABLED=true` opts a reviewed Cloud
-Build image in. Runtime-only Cloud Run changes cannot enable compiled UI.
-Native assets and binaries must be rebuilt and synced for their new method.
+Initial Contacts is ordinary new-user onboarding on web, iOS and Android.
+There is no environment flag or workflow opt-in. Eligibility remains owned by
+positive new-account evidence and server setup/welcome state; existing accounts
+are not enrolled. Successfully deleted accounts can enter again through fresh
+signup after deletion has finished. Contact permission and Trusted membership
+remain optional user choices.
 
-After the reviewed SHA has landed and its required gates pass, the governed
-`Deploy to UAT` and `Ship iOS to TestFlight` workflows accept the optional
-`initial_contacts_onboarding=true` input. Both default to false. Deploy the exact
-landed SHA with `scope=auto`, which includes each service's complete outstanding
-changes, and enable the input for the separately authorized TestFlight release.
-This passes the flag to the web image and
-bundled native assets; existing actor, main-SHA, provenance and release gates
-still apply. No workflow is dispatched by creating this PR.
-
-For a local UAT native build, set
-`NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=true` in the process or UAT
-profile before `npm run ios:prepare:uat`; the generated native environment
-preserves the selected value. Production release defaults stay off.
+Deploy the reviewed landed SHA through the governed workflow with `scope=auto`.
+The scope resolver pairs changes to the initial signup source/enrollment contract
+and migration 337 with both runtimes, including when a narrow scope is requested.
+Unrelated frontend changes can retain the already compatible backend. Native
+assets and binaries must be rebuilt and synced; older installed binaries retain
+their compiled behavior. Actor, main-SHA, schema and provenance gates still apply.
+Production and TestFlight publishing remain separate authorized releases.
 
 Migration **337 must precede any deployment of this backend**, even with the
 UI flag off: bootstrap selects the new columns. All three release schema
@@ -164,8 +159,8 @@ validation, UAT migration application and authenticated route verification.
 Native iOS compilation is covered by the exact-head Xcode CI lane. Local browser fixtures
 prove presentation/interaction, not live OAuth or a real address book.
 
-Rollback first rebuilds with the flag off and restores the compatible backend,
-then optionally applies `337_initial_contacts_onboarding.rollback.sql`. The SQL
+Rollback restores a reviewed compatible frontend/backend release through the
+governed workflow, then optionally applies `337_initial_contacts_onboarding.rollback.sql`. The SQL
 rollback removes metadata only. Existing Circles, connections and memberships
 are preserved. Do not drop columns while this backend still selects them.
 
@@ -192,5 +187,3 @@ compilation passed. A production web build with the feature enabled compiled
 and generated all 173 pages, including `/one/welcome`. Browser screenshots use synthetic names, profiles and
 counts; the production component uses confirmed server profile information.
 These results do not substitute for the release proof listed above.
-
-An enabled hosted UAT build requires a paired backend deployment. The workflow rejects initial_contacts_onboarding=true when scope resolves without backend deployment; use scope=all, or auto when it selects the backend. This prevents new signup Circle semantics from reaching an older backend.
