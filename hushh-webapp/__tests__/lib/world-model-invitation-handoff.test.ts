@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   clearWorldModelInvitationHandoffsForToken,
   createWorldModelInvitationHandoff,
+  needsWorldModelInvitationAccountSwitch,
   readWorldModelInvitationHandoff,
   safeWorldModelInvitationReturnPath,
+  switchWorldModelInvitationHandoffAccount,
   worldModelInvitationClaimRoute,
   worldModelInvitationHandoffRoute,
 } from "@/lib/world-model/invitation-handoff";
@@ -27,6 +29,10 @@ it("keeps a capability in per-tab storage and binds its nonce to the first accou
   expect(readWorldModelInvitationHandoff(id!, null)).toBe(token);
   expect(readWorldModelInvitationHandoff(id!, "recipient-a")).toBe(token);
   expect(readWorldModelInvitationHandoff(id!, "recipient-b")).toBeNull();
+  expect(needsWorldModelInvitationAccountSwitch(id!, "recipient-b")).toBe(true);
+  expect(readWorldModelInvitationHandoff(id!, "recipient-a")).toBe(token);
+  expect(switchWorldModelInvitationHandoffAccount(id!, "recipient-b")).toBe(token);
+  expect(readWorldModelInvitationHandoff(id!, "recipient-b")).toBe(token);
   expect(readWorldModelInvitationHandoff(id!, "recipient-a")).toBeNull();
 });
 
@@ -37,6 +43,7 @@ it("refuses a missing, expired, or malformed handoff", () => {
   expect(readWorldModelInvitationHandoff("missing", "recipient")).toBeNull();
   vi.advanceTimersByTime(2 * 60 * 60 * 1000);
   expect(readWorldModelInvitationHandoff(id, "recipient")).toBeNull();
+  expect(switchWorldModelInvitationHandoffAccount(id, "recipient")).toBeNull();
   expect(window.sessionStorage.length).toBe(0);
 });
 

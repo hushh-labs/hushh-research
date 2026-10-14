@@ -45,6 +45,7 @@ vi.mock("@/lib/services/post-auth-route-service", () => ({
 import Page from "@/app/world-model/invite/page";
 import { buildOneSetupRoute } from "@/lib/navigation/routes";
 import { readWorldModelInvitationHandoff } from "@/lib/world-model/invitation-handoff";
+import { worldModelInvitationHandoffRoute } from "@/lib/world-model/invitation-handoff";
 const token = "a".repeat(43),
   path = `/world-model/invite#claim=${token}`;
 const result = {
@@ -209,6 +210,35 @@ it("resumes a verification-required session for the same account", async () => {
   const claim = lastPush();
   expect(new URL(claim, "https://one.local").pathname).toBe("/one/profile/world-model");
   expect(readWorldModelInvitationHandoff(handoffFrom(claim), "recipient")).toBe(token);
+});
+it("lets the intended recipient explicitly recover a handoff opened under another account", async () => {
+  mock.preview.mockResolvedValue({ has_preview: false });
+  mock.user = { uid: "wrong-account" };
+  mock.unlocked = true;
+  const wrongAccount = render(<Page />);
+  await screen.findByRole("button", { name: "Continue to verify" });
+  fireEvent.click(screen.getByRole("button", { name: "Continue to verify" }));
+  await waitFor(() => expect(mock.push).toHaveBeenCalledTimes(1));
+  const originalId = handoffFrom(lastPush());
+  wrongAccount.unmount();
+
+  mock.user = { uid: "intended-recipient" };
+  mock.push.mockClear();
+  window.history.replaceState({}, "", worldModelInvitationHandoffRoute(originalId));
+  render(<Page />);
+  expect(await screen.findByText(/opened with another account/i)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Continue to verify" })).not.toBeInTheDocument();
+  expect(mock.preview).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Continue with this account" }));
+  expect(readWorldModelInvitationHandoff(originalId, "intended-recipient")).toBe(token);
+  await screen.findByRole("button", { name: "Continue to verify" });
+  fireEvent.click(screen.getByRole("button", { name: "Continue to verify" }));
+  await waitFor(() => expect(mock.push).toHaveBeenCalledTimes(1));
+  const claim = lastPush();
+  expect(new URL(claim, "https://one.local").pathname).toBe("/one/profile/world-model");
+  expect(decodeURIComponent(claim)).not.toContain(token);
+  expect(readWorldModelInvitationHandoff(handoffFrom(claim), "intended-recipient")).toBe(token);
+  expect(readWorldModelInvitationHandoff(originalId, "wrong-account")).toBeNull();
 });
 it("does not offer continuation for an expired invitation", async () => {
   mock.preview.mockRejectedValue(new Error("expired"));

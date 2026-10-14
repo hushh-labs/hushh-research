@@ -23,7 +23,9 @@ import { shareLink, isShareCancellationError } from "@/lib/share/share-link";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   clearWorldModelInvitationHandoffsForToken,
+  needsWorldModelInvitationAccountSwitch,
   readWorldModelInvitationHandoff,
+  worldModelInvitationHandoffRoute,
 } from "@/lib/world-model/invitation-handoff";
 
 export function WorldModelInvitations({
@@ -40,6 +42,7 @@ export function WorldModelInvitations({
   const router = useRouter();
   const query = useSearchParams();
   const [claimToken, setClaimToken] = useState<string | null>(null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [name, setName] = useState(""),
     [sourceUrl, setSourceUrl] = useState(""),
     [introduction, setIntroduction] = useState("");
@@ -58,8 +61,16 @@ export function WorldModelInvitations({
   useEffect(() => {
     const syncToken = () => {
       const handoff = query.get("handoff");
+      const recovered = handoff
+        ? readWorldModelInvitationHandoff(handoff, ownerId)
+        : null;
+      setAccountSwitchHandoff(
+        handoff && !recovered && needsWorldModelInvitationAccountSwitch(handoff, ownerId)
+          ? handoff
+          : null,
+      );
       setClaimToken(
-        (handoff && readWorldModelInvitationHandoff(handoff, ownerId)) ||
+        recovered ||
           new URLSearchParams(window.location.hash.slice(1)).get("claim"),
       );
     };
@@ -159,6 +170,19 @@ export function WorldModelInvitations({
         </HelperText>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-0">
+        {accountSwitchHandoff && (
+          <div className="space-y-2 rounded-lg border border-border p-3 text-[13px]">
+            <p>This invitation was opened with another account.</p>
+            <Button
+              size="compact"
+              onClick={() =>
+                router.replace(worldModelInvitationHandoffRoute(accountSwitchHandoff))
+              }
+            >
+              Review invitation with this account
+            </Button>
+          </div>
+        )}
         {claimToken && (
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-[13px]">

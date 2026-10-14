@@ -129,3 +129,20 @@ it("clears the handoff after the recipient rejects the invitation", async () => 
     ),
   ).toBeNull();
 });
+
+it("routes a different signed-in account back to explicit invitation recovery", async () => {
+  render(
+    <WorldModelInvitations
+      ownerId="different-account"
+      vaultKey="vault-key"
+      vaultOwnerToken="owner-token"
+    />,
+  );
+  expect(await screen.findByText(/opened with another account/i)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Claim my model" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Review invitation with this account" }));
+  const destination = mock.replace.mock.lastCall![0] as string;
+  expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
+  expect(destination).not.toContain(token);
+  expect(mock.claim).not.toHaveBeenCalled();
+});

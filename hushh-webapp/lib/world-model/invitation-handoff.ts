@@ -103,7 +103,6 @@ export function readWorldModelInvitationHandoff(
   const pending = readEntry(store, id);
   if (!pending) return null;
   if (pending.ownerId && pending.ownerId !== ownerId) {
-    if (ownerId) clearWorldModelInvitationHandoff(id);
     return null;
   }
   if (!pending.ownerId && ownerId) {
@@ -114,6 +113,34 @@ export function readWorldModelInvitationHandoff(
     }
   }
   return pending.token;
+}
+
+/** Account changes require a separate, explicit action before token recovery. */
+export function needsWorldModelInvitationAccountSwitch(
+  id: string,
+  ownerId: string | null,
+): boolean {
+  if (!ownerId) return false;
+  const store = storage();
+  const pending = store && readEntry(store, id);
+  return Boolean(pending?.ownerId && pending.ownerId !== ownerId);
+}
+
+export function switchWorldModelInvitationHandoffAccount(
+  id: string,
+  ownerId: string,
+): string | null {
+  if (!ownerId) return null;
+  const store = storage();
+  if (!store) return null;
+  const pending = readEntry(store, id);
+  if (!pending) return null;
+  try {
+    store.setItem(key(id), JSON.stringify({ ...pending, ownerId }));
+    return pending.token;
+  } catch {
+    return null;
+  }
 }
 
 export function clearWorldModelInvitationHandoff(id: string): void {

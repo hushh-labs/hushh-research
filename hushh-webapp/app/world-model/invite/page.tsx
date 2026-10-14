@@ -14,7 +14,9 @@ import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 import {
   createWorldModelInvitationHandoff,
+  needsWorldModelInvitationAccountSwitch,
   readWorldModelInvitationHandoff,
+  switchWorldModelInvitationHandoffAccount,
   worldModelInvitationClaimRoute,
   worldModelInvitationHandoffRoute,
 } from "@/lib/world-model/invitation-handoff";
@@ -26,6 +28,7 @@ export default function WorldModelInvitePage() {
   const { user, loading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
   const [token, setToken] = useState<string | null>(null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("Checking your invitation…");
   const [busy, setBusy] = useState(false);
@@ -33,22 +36,26 @@ export default function WorldModelInvitePage() {
     const read = () => {
       const fromFragment = new URLSearchParams(window.location.hash.slice(1)).get("claim");
       if (fromFragment) {
+        setAccountSwitchHandoff(null);
         setToken(fromFragment);
         return;
       }
       const handoff = new URLSearchParams(window.location.search).get("handoff");
       if (handoff && loading) {
+        setAccountSwitchHandoff(null);
         setToken(null);
         return;
       }
-      setToken(
-        handoff
-          ? readWorldModelInvitationHandoff(
-              handoff,
-              sessionVerificationRequired ? null : user?.uid ?? null,
-            ) || ""
-          : "",
+      const ownerId = sessionVerificationRequired ? null : user?.uid ?? null;
+      const recovered = handoff
+        ? readWorldModelInvitationHandoff(handoff, ownerId)
+        : null;
+      setAccountSwitchHandoff(
+        handoff && !recovered && needsWorldModelInvitationAccountSwitch(handoff, ownerId)
+          ? handoff
+          : null,
       );
+      setToken(recovered || "");
     };
     read();
     window.addEventListener("hashchange", read);
@@ -58,6 +65,12 @@ export default function WorldModelInvitePage() {
     let active = true;
     setPreview(null);
     if (token === null) return;
+    if (accountSwitchHandoff) {
+      setMessage(
+        "This invitation was opened with another account. Continue with this account to verify the invited contact.",
+      );
+      return;
+    }
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
       setMessage(
         "This invitation is unavailable. Ask the sender for a new link.",
@@ -81,7 +94,19 @@ export default function WorldModelInvitePage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [accountSwitchHandoff, token]);
+  function continueWithThisAccount() {
+    if (!accountSwitchHandoff || !user || loading || sessionVerificationRequired) return;
+    const recovered = switchWorldModelInvitationHandoffAccount(
+      accountSwitchHandoff,
+      user.uid,
+    );
+    setAccountSwitchHandoff(null);
+    setToken(recovered || "");
+    if (!recovered) {
+      setMessage("This invitation is unavailable. Ask the sender for a new link.");
+    }
+  }
   async function continueToClaim() {
     if (!preview || !token || busy) return;
     const id = createWorldModelInvitationHandoff(
@@ -192,6 +217,11 @@ export default function WorldModelInvitePage() {
           </>
         )}
         {message && <HelperText role="status">{message}</HelperText>}
+        {accountSwitchHandoff && user && !loading && !sessionVerificationRequired && (
+          <Button size="compact" onClick={continueWithThisAccount}>
+            Continue with this account
+          </Button>
+        )}
       </div>
     </AppPageShell>
   );
