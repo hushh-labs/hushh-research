@@ -38,7 +38,10 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
 
 const CIRCLE_CHAT_MAX_REQUEST_BYTES = 9_000_000;
 const DIRECT_MESSAGE_MAX_REQUEST_BYTES = 7_054_508;
-async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
+async function readCircleChatBody(
+  request: NextRequest,
+  maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES,
+): Promise<string> {
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
     throw new RangeError("Chat request is too large");
@@ -48,7 +51,10 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
   const chunks: Uint8Array[] = [];
   let size = 0;
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, 30_000);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel();
+  }, 30_000);
   try {
     while (true) {
       const chunk = await reader.read();
@@ -57,12 +63,20 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
       if (size > maximum) throw new RangeError("Chat request is too large");
       chunks.push(chunk.value);
     }
-    if (timedOut) throw new DOMException("Chat request timed out", "TimeoutError");
+    if (timedOut)
+      throw new DOMException("Chat request timed out", "TimeoutError");
     const body = new Uint8Array(size);
     let offset = 0;
-    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return new TextDecoder().decode(body);
-  } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
+  } finally {
+    clearTimeout(timeout);
+    await reader.cancel();
+    reader.releaseLock();
+  }
 }
 
 function privateResponseHeaders(upstream?: Response): Headers {
@@ -137,8 +151,11 @@ function resolveOneUpstreamTimeoutMs(
   if (/^u\/[^/]+\/turn$/.test(path)) {
     return ONE_TURN_TIMEOUT_MS;
   }
-  if (path === "email/draft" || path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
-  if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
+  if (path === "files/analyze") return 130_000;
+  if (path === "email/draft" || path === "email/draft/save")
+    return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/information-requests/scan")
+    return ONE_KYC_SCAN_TIMEOUT_MS;
   // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
   // asks for text/event-stream) hold open far longer than a JSON call, so the
   // 45s API deadline would sever them mid-body. They get the stream budget.
@@ -212,13 +229,32 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
     if (acceptHeader) headers.set("Accept", acceptHeader);
     if (voiceTurnIdHeader) headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
+    if (path.startsWith("files/")) {
+      for (const name of ["X-Files-Library-Id", "X-Files-Mutation-Lease"]) {
+        const value = request.headers.get(name);
+        if (value) headers.set(name, value);
+      }
+    }
 
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
-      body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
-        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) :
-        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : path.startsWith("wallet/card-access") ? readCircleChatBody(request, 16384) : request.text())) || undefined;
+      body =
+        (await (/^circles\/[^/]+\/photo$/.test(path)
+          ? readCircleChatBody(request, 430000)
+          : /^circles\/[^/]+\/chat(?:\/|$)/.test(path)
+            ? readCircleChatBody(request)
+            : path === "messages" && request.method === "POST"
+              ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES)
+              : path.startsWith("wallet/card-access")
+                ? readCircleChatBody(request, 16384)
+                : /^files\/objects\/[a-f0-9]{64}\/[a-f0-9]{64}$/.test(path)
+                  ? readCircleChatBody(request, 5_770_000)
+                  : path === "files/analyze"
+                    ? readCircleChatBody(request, 393216)
+                    : path === "files/storage"
+                      ? readCircleChatBody(request, 512)
+                      : request.text())) || undefined;
     }
 
     const response = await fetch(url, {
@@ -239,9 +275,18 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // for the same reason. Gated on the upstream content type, so every JSON
     // route on this proxy keeps the exact behaviour it had.
     const responseContentType = response.headers.get("content-type");
-    if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
+    if (
+      request.method === "GET" &&
+      /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(
+        path,
+      ) &&
+      response.ok
+    ) {
       const headers = privateResponseHeaders(response);
-      headers.set("Content-Type", responseContentType || "application/octet-stream");
+      headers.set(
+        "Content-Type",
+        responseContentType || "application/octet-stream",
+      );
       headers.set("Content-Disposition", "attachment");
       headers.set("X-Content-Type-Options", "nosniff");
       headers.set("x-request-id", requestId);
@@ -278,8 +323,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     });
   } catch (error) {
     if (error instanceof RangeError) {
-      return withRequestIdJson(requestId, { error: "Chat request is too large" },
-        { status: 413, headers: privateResponseHeaders() });
+      return withRequestIdJson(
+        requestId,
+        { error: "Chat request is too large" },
+        { status: 413, headers: privateResponseHeaders() },
+      );
     }
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
@@ -310,7 +358,7 @@ export async function POST(
 
 export async function PUT(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }

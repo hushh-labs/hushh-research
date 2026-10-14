@@ -146,7 +146,7 @@ export function FilesEntryRow({
     entry.kind === "file" &&
     entry.state === "ready" &&
     settings?.analysis &&
-    settings.backgroundAvailable &&
+    (settings.backgroundAvailable || settings.foregroundOnly) &&
     !ancestorExcluded &&
     !settings.excluded.includes(entry.id)
   ) {
@@ -164,7 +164,11 @@ export function FilesEntryRow({
           false,
         ),
     });
-    actions.push({ id: "schedule", label: "Schedule organization…", onSelect: () => setScheduleOpen(true) });
+    actions.push({
+      id: "schedule",
+      label: "Schedule organization…",
+      onSelect: () => setScheduleOpen(true),
+    });
   }
   actions.push({
     id: trash ? "restore" : "trash",
@@ -331,7 +335,13 @@ export function FilesEntryRow({
           }
         />
       )}
-      {scheduleOpen && <ScheduleFileDialog file={entry} open={scheduleOpen} onOpenChange={setScheduleOpen} />}
+      {scheduleOpen && (
+        <ScheduleFileDialog
+          file={entry}
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+        />
+      )}
       <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>
         <AlertDialogContent>
           <AlertDialogHeader>

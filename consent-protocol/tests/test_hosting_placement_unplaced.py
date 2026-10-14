@@ -453,3 +453,6 @@ def test_the_intent_window_is_fresh_after_a_late_detach():
         "created_at": AFTER + timedelta(minutes=1),
     }
     assert _mode(row=_detached(), job=late) == "pending"
+
+
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

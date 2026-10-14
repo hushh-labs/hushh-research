@@ -23,6 +23,8 @@ describe("Files form submission", () => {
     });
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
       filesActivationAvailable: false,
+      hostingMode: "byoc",
+      state: "active",
     });
   });
   it("waits for the initial library read before enabling file actions", async () => {
@@ -37,13 +39,14 @@ describe("Files form submission", () => {
         }),
     );
     render(<FilesWorkspace />);
-    const create = screen.getByRole("button", {
+    const create = await screen.findByRole("button", {
       name: "New folder",
       exact: true,
     });
     expect(create).toBeDisabled();
     fireEvent.click(create);
     expect(files.createFolder).not.toHaveBeenCalled();
+    await waitFor(() => expect(files.list).toHaveBeenCalled());
     completeRead({ entries: [], cursor: "" });
     await waitFor(() => expect(create).toBeEnabled());
   });
@@ -60,6 +63,7 @@ describe("Files form submission", () => {
     );
     render(<FilesWorkspace />);
     expect(files.settings).not.toHaveBeenCalled();
+    await waitFor(() => expect(files.list).toHaveBeenCalled());
     completeRead({ entries: [], cursor: "" });
     await waitFor(() => expect(files.settings).toHaveBeenCalledTimes(1));
   });

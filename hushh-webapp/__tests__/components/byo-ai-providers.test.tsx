@@ -34,10 +34,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({
-  morphyToast: { success: mocks.toastSuccess, error: mocks.toastError, promise: vi.fn() },
+  morphyToast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+    promise: vi.fn(),
+  },
 }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: mocks.apiFetch, getFirebaseIdToken: async () => "firebase-token" },
+  ApiService: {
+    apiFetch: mocks.apiFetch,
+    getFirebaseIdToken: async () => "firebase-token",
+  },
 }));
 vi.mock("@/lib/one/ai-selection-agent", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/one/ai-selection-agent")>()),
@@ -48,6 +55,9 @@ vi.mock("@/lib/one/ai-selection-agent", async (importOriginal) => ({
 }));
 vi.mock("@/lib/one/ai-selection-vault", () => ({
   hasSavedOpenAiKey: mocks.hasSavedKey,
+  hasSavedAzureKey: mocks.hasSavedKey,
+  recordAzureSelection: mocks.record,
+  removeAzureSelection: mocks.remove,
   recordOpenAiSelection: mocks.record,
   removeOpenAiSelection: mocks.remove,
 }));
@@ -57,14 +67,26 @@ vi.mock("@/lib/one/agent-update-approval", () => ({
   agentUpdateApprovalToast: () => ({ loading: "", success: "", error: "" }),
 }));
 
-const VAULT = { userId: "owner-1", vaultKey: "vault-key-fixture", vaultOwnerToken: "owner-token-fixture" };
+const VAULT = {
+  userId: "owner-1",
+  vaultKey: "vault-key-fixture",
+  vaultOwnerToken: "owner-token-fixture",
+};
 const READY = { readiness: { kind: "ready" }, selection: null };
 const IN_USE = {
   readiness: { kind: "ready" },
-  selection: { configured: true, provider: "openai", model: "gpt-fixture", checkedAtMs: 1, lastFailure: null },
+  selection: {
+    configured: true,
+    provider: "openai",
+    model: "gpt-fixture",
+    checkedAtMs: 1,
+    lastFailure: null,
+  },
 };
 
-function renderCard(overrides: Partial<Parameters<typeof OpenAiKeyCard>[0]> = {}) {
+function renderCard(
+  overrides: Partial<Parameters<typeof OpenAiKeyCard>[0]> = {},
+) {
   const props = {
     ...VAULT,
     needsVaultCreation: false,
@@ -79,7 +101,9 @@ function renderCard(overrides: Partial<Parameters<typeof OpenAiKeyCard>[0]> = {}
 }
 
 async function submitKey(key = "sk-fixture-not-a-real-key") {
-  fireEvent.change(await screen.findByLabelText("OpenAI API key"), { target: { value: key } });
+  fireEvent.change(await screen.findByLabelText("OpenAI API key"), {
+    target: { value: key },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Check and use" }));
 }
 
@@ -98,74 +122,151 @@ beforeEach(() => {
 
 describe("OpenAiKeyCard", () => {
   it("explains that an own key needs a private agent and links to setting one up", async () => {
-    mocks.loadAgentAiState.mockResolvedValue({ readiness: { kind: "no_agent" }, selection: null });
+    mocks.loadAgentAiState.mockResolvedValue({
+      readiness: { kind: "no_agent" },
+      selection: null,
+    });
     renderCard();
-    expect(await screen.findByText(/Your own key runs on your private agent/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Your own key runs on your private agent/),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Set up your private agent" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Set up your private agent" }),
+    );
     expect(mocks.push).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD);
   });
 
   it("offers the existing owner-approved update when the agent is too old for OpenAI", async () => {
     mocks.loadAgentAiState.mockResolvedValue({
-      readiness: { kind: "needs_update", update: { releaseId: "rel_fixture", deploymentTarget: "user_gcp", installable: true, working: false } },
+      readiness: {
+        kind: "needs_update",
+        update: {
+          releaseId: "rel_fixture",
+          deploymentTarget: "user_gcp",
+          installable: true,
+          working: false,
+        },
+      },
       selection: null,
     });
     mocks.approve.mockResolvedValue("scheduled");
     renderCard();
-    expect(await screen.findByText("Your agent needs an update to use OpenAI.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Your agent needs an update to use OpenAI."),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Update your agent" }));
-    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(
-      expect.objectContaining({ releaseId: "rel_fixture", deploymentTarget: "user_gcp" }),
-    ));
+    await waitFor(() =>
+      expect(mocks.approve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          releaseId: "rel_fixture",
+          deploymentTarget: "user_gcp",
+        }),
+      ),
+    );
   });
 
   it("approves an Azure agent's update in a popup opened by the click, so the person stays on the card", async () => {
     mocks.loadAgentAiState.mockResolvedValue({
-      readiness: { kind: "needs_update", update: { releaseId: "rel_fixture", deploymentTarget: "user_azure", installable: true, working: false } },
+      readiness: {
+        kind: "needs_update",
+        update: {
+          releaseId: "rel_fixture",
+          deploymentTarget: "user_azure",
+          installable: true,
+          working: false,
+        },
+      },
       selection: null,
     });
     const popup = { closed: false };
     mocks.openPopup.mockReturnValue(popup);
     mocks.approve.mockResolvedValue("signing_in_popup");
     renderCard();
-    fireEvent.click(await screen.findByRole("button", { name: "Update your agent" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Update your agent" }),
+    );
     // Opened inside the click, before the approval's first await: blockers need the gesture.
     expect(mocks.openPopup).toHaveBeenCalledWith("user_azure");
-    expect(mocks.openPopup.mock.invocationCallOrder[0]).toBeLessThan(mocks.approve.mock.invocationCallOrder[0]);
-    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(
-      expect.objectContaining({ releaseId: "rel_fixture", deploymentTarget: "user_azure", popup }),
-    ));
+    expect(mocks.openPopup.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.approve.mock.invocationCallOrder[0],
+    );
+    await waitFor(() =>
+      expect(mocks.approve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          releaseId: "rel_fixture",
+          deploymentTarget: "user_azure",
+          popup,
+        }),
+      ),
+    );
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("asks the agent first, then records the accepted selection in the Vault", async () => {
-    mocks.send.mockResolvedValue({ ok: true, provider: "openai", model: "gpt-fixture", checkedAtMs: 1 });
+    mocks.send.mockResolvedValue({
+      ok: true,
+      provider: "openai",
+      model: "gpt-fixture",
+      checkedAtMs: 1,
+    });
     renderCard();
     await screen.findByLabelText("OpenAI API key");
     mocks.loadAgentAiState.mockResolvedValue(IN_USE); // the agent now reports what it accepted
     await submitKey();
-    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Using OpenAI on your agent."));
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        "Using OpenAI on your agent.",
+      ),
+    );
     expect(mocks.send).toHaveBeenCalledWith({
-      provider: "openai", model: null, apiKey: "sk-fixture-not-a-real-key", transport: null, vertexProject: null, vertexLocation: null,
+      provider: "openai",
+      model: null,
+      apiKey: "sk-fixture-not-a-real-key",
+      transport: null,
+      vertexProject: null,
+      vertexLocation: null,
     });
-    expect(mocks.record).toHaveBeenCalledWith({ ...VAULT, apiKey: "sk-fixture-not-a-real-key", model: null });
-    expect(mocks.send.mock.invocationCallOrder[0]).toBeLessThan(mocks.record.mock.invocationCallOrder[0]);
+    expect(mocks.record).toHaveBeenCalledWith({
+      ...VAULT,
+      apiKey: "sk-fixture-not-a-real-key",
+      model: null,
+    });
+    expect(mocks.send.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.record.mock.invocationCallOrder[0],
+    );
     expect(await screen.findByText("In use")).toBeInTheDocument();
-    expect(screen.getByText("Using OpenAI on your agent (gpt-fixture).")).toBeInTheDocument();
+    expect(
+      screen.getByText("Using OpenAI on your agent (gpt-fixture)."),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("OpenAI API key")).toHaveValue("");
   });
 
   it.each([
     ["KEY_REFUSED", "OpenAI did not accept this key. Check it and try again."],
-    ["QUOTA_EXCEEDED", "This OpenAI key is out of quota. Check your OpenAI account, then try again."],
-    ["MODEL_UNAVAILABLE", "This OpenAI key cannot use the selected model. Check your OpenAI account, then try again."],
-    ["PROVIDER_UNREACHABLE", "OpenAI could not be reached. Try again in a moment."],
+    [
+      "QUOTA_EXCEEDED",
+      "This OpenAI key is out of quota. Check your OpenAI account, then try again.",
+    ],
+    [
+      "MODEL_UNAVAILABLE",
+      "This OpenAI key cannot use the selected model. Check your OpenAI account, then try again.",
+    ],
+    [
+      "PROVIDER_UNREACHABLE",
+      "OpenAI could not be reached. Try again in a moment.",
+    ],
     ["PROVIDER_UNSUPPORTED", "Your agent needs an update to use OpenAI."],
     ["STALE_SELECTION", "This setting changed on another device. Try again."],
-    ["BAD_ENVELOPE", "Your agent could not read this request. Refresh the app and try again."],
-    ["AGENT_UNREACHABLE", "Your private agent could not be reached. Try again in a moment."],
+    [
+      "BAD_ENVELOPE",
+      "Your agent could not read this request. Refresh the app and try again.",
+    ],
+    [
+      "AGENT_UNREACHABLE",
+      "Your private agent could not be reached. Try again in a moment.",
+    ],
   ])("shows plain copy for %s and saves nothing", async (code, copy) => {
     mocks.send.mockResolvedValue({ ok: false, code });
     renderCard();
@@ -174,13 +275,20 @@ describe("OpenAiKeyCard", () => {
     expect(mocks.record).not.toHaveBeenCalled();
   });
 
-  it("withdraws the agent's selection when the Vault cannot record it", async () => {
-    mocks.send.mockResolvedValue({ ok: true, provider: "openai", model: null, checkedAtMs: 1 });
+  it("preserves the accepted agent selection when its vault backup fails", async () => {
+    mocks.send.mockResolvedValue({
+      ok: true,
+      provider: "openai",
+      model: null,
+      checkedAtMs: 1,
+    });
     mocks.record.mockRejectedValue(new Error("PKM_WRITE_FAILED"));
     renderCard();
     await submitKey();
-    expect(await screen.findByRole("alert")).toHaveTextContent("your agent will not use it");
-    expect(mocks.clear).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "accepted the key, but its vault backup",
+    );
+    expect(mocks.clear).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 
@@ -189,21 +297,31 @@ describe("OpenAiKeyCard", () => {
     mocks.hasSavedKey.mockResolvedValue(true);
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
-    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Your OpenAI key was removed."));
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        "Your OpenAI key was removed.",
+      ),
+    );
     expect(mocks.clearFor).toHaveBeenCalledWith("openai");
-    expect(mocks.clearFor.mock.invocationCallOrder[0]).toBeLessThan(mocks.remove.mock.invocationCallOrder[0]);
+    expect(mocks.clearFor.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.remove.mock.invocationCallOrder[0],
+    );
 
     vi.clearAllMocks();
     mocks.loadAgentAiState.mockResolvedValue(IN_USE);
     mocks.clearFor.mockResolvedValue("failed");
     fireEvent.click(screen.getByRole("button", { name: "Remove key" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("may still use this key");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "may still use this key",
+    );
     expect(mocks.remove).not.toHaveBeenCalled();
   });
 
   it("asks for the vault before any key is taken", async () => {
     const props = renderCard({ vaultKey: null, needsUnlock: true });
-    fireEvent.click(await screen.findByRole("button", { name: "Unlock your vault" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Unlock your vault" }),
+    );
     expect(props.onRequestVaultUnlock).toHaveBeenCalledOnce();
     expect(screen.queryByLabelText("OpenAI API key")).toBeNull();
   });
@@ -213,43 +331,132 @@ describe("provider catalog (C5)", () => {
   const SERVER_CATALOG = {
     version: 1,
     providers: [
-      { id: "gemini", name: "Google Gemini", availability: "available", methods: ["own_key"] },
-      { id: "openai", name: "OpenAI", availability: "available", methods: ["own_key"], defaultModel: "gpt-fixture" },
-      { id: "anthropic", name: "Claude", availability: "available", methods: ["oauth_link"] },
-      { id: "mistral", name: "Mistral", availability: "available", methods: ["own_key"] },
+      {
+        id: "gemini",
+        name: "Google Gemini",
+        availability: "available",
+        methods: ["own_key"],
+      },
+      {
+        id: "openai",
+        name: "OpenAI",
+        availability: "available",
+        methods: ["own_key"],
+        defaultModel: "gpt-fixture",
+      },
+      {
+        id: "anthropic",
+        name: "Claude",
+        availability: "available",
+        methods: ["oauth_link"],
+      },
+      {
+        id: "mistral",
+        name: "Mistral",
+        availability: "available",
+        methods: ["own_key"],
+      },
       { id: "grok", name: "Grok", availability: "coming_soon", methods: [] },
     ],
   };
 
   it("offers only what this build can configure and shows the rest as a newer version", async () => {
-    mocks.apiFetch.mockResolvedValue(new Response(JSON.stringify(SERVER_CATALOG)));
-    render(<BringYourOwnAiProviders {...VAULT} needsVaultCreation={false} needsUnlock={false}
-      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()} />);
-    expect(await screen.findByTestId("profile-openai-runtime")).toBeInTheDocument();
-    for (const [id, name] of [["mistral", "Mistral"], ["anthropic", "Claude"]] as const) {
+    mocks.apiFetch.mockResolvedValue(
+      new Response(JSON.stringify(SERVER_CATALOG)),
+    );
+    render(
+      <BringYourOwnAiProviders
+        {...VAULT}
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+      />,
+    );
+    expect(
+      await screen.findByTestId("profile-openai-runtime"),
+    ).toBeInTheDocument();
+    for (const [id, name] of [
+      ["mistral", "Mistral"],
+      ["anthropic", "Claude"],
+    ] as const) {
       const row = screen.getByTestId(`profile-newer-runtime-${id}`);
       expect(row).toHaveTextContent(name);
       expect(row).toHaveTextContent("Available in a newer version of Hussh.");
       expect(row).toHaveClass("cursor-not-allowed");
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
-    expect(screen.getByTestId("profile-coming-soon-grok")).toHaveTextContent("Grok");
+    expect(screen.getByTestId("profile-coming-soon-grok")).toHaveTextContent(
+      "Grok",
+    );
     expect(screen.queryByTestId("profile-coming-soon-gemini")).toBeNull();
   });
 
   it("falls back to the bundled list, where OpenAI stays coming soon, when the server is unreachable", async () => {
     mocks.apiFetch.mockRejectedValue(new TypeError("Failed to fetch"));
-    render(<BringYourOwnAiProviders {...VAULT} needsVaultCreation={false} needsUnlock={false}
-      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()} />);
+    render(
+      <BringYourOwnAiProviders
+        {...VAULT}
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+      />,
+    );
     await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalled());
-    expect(screen.getByTestId("profile-coming-soon-openai")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("profile-coming-soon-openai"),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("profile-openai-runtime")).toBeNull();
   });
 
   it("refuses a payload that is not a catalog, and malformed entries inside one", () => {
     expect(resolveRuntimeProviderCatalog({ version: 1 })).toBeNull();
-    expect(resolveRuntimeProviderCatalog({
-      providers: [{ id: "Bad Id" }, null, { id: "openai", availability: "available", methods: ["own_key"] }, { id: "openai" }],
-    })?.map((provider) => [provider.id, provider.state])).toEqual([["openai", "configurable"]]);
+    expect(
+      resolveRuntimeProviderCatalog({
+        providers: [
+          { id: "Bad Id" },
+          null,
+          { id: "openai", availability: "available", methods: ["own_key"] },
+          { id: "openai" },
+        ],
+      })?.map((provider) => [provider.id, provider.state]),
+    ).toEqual([["openai", "configurable"]]);
   });
+});
+
+it("checks the exact Azure endpoint/deployment/key before encrypted backup", async () => {
+  mocks.send.mockResolvedValue({
+    ok: true,
+    provider: "azure_openai",
+    model: "owner-deployment",
+    checkedAtMs: 1,
+  });
+  renderCard({ provider: "azure_openai" });
+  fireEvent.change(await screen.findByLabelText("Azure AI endpoint"), {
+    target: { value: "https://synthetic-resource.openai.azure.com/" },
+  });
+  fireEvent.change(screen.getByLabelText("Azure AI deployment"), {
+    target: { value: "owner-deployment" },
+  });
+  fireEvent.change(screen.getByLabelText("Azure AI API key"), {
+    target: { value: "synthetic-azure-key" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Check and use" }));
+  await waitFor(() =>
+    expect(mocks.record).toHaveBeenCalledWith({
+      ...VAULT,
+      apiKey: "synthetic-azure-key",
+      endpoint: "https://synthetic-resource.openai.azure.com/",
+      model: "owner-deployment",
+    }),
+  );
+  expect(mocks.send.mock.calls[0][0]).toMatchObject({
+    provider: "azure_openai",
+    azureEndpoint: "https://synthetic-resource.openai.azure.com/",
+    model: "owner-deployment",
+  });
+  expect(mocks.send.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.record.mock.invocationCallOrder[0],
+  );
 });

@@ -93,9 +93,23 @@ def owner_selected_turn(
         ) from None
     if selection is None:
         return None
+    credential = selection.api_key
+    if selection.provider == "azure_openai":
+        from hushh_mcp.runtime_providers.owner_azure_key import credential_bundle  # noqa: PLC0415
+
+        try:
+            credential = credential_bundle(
+                endpoint=selection.azure_endpoint or "",
+                deployment=selection.model or "",
+                api_key=selection.api_key,
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=503, detail={"code": "OWNER_AI_SELECTION_UNAVAILABLE"}
+            ) from None
     owned = payload.model_copy(
         update={
-            "runtime_credential": selection.api_key,
+            "runtime_credential": credential,
             "runtime_credential_transport": selection.transport or "developer_api",
             "vertex_project": selection.vertex_project,
             "vertex_location": selection.vertex_location,

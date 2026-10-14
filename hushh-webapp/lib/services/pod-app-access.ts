@@ -226,7 +226,7 @@ export async function ownerPodRequest(
   }
   if (
     route === "ai-selection" &&
-    ((method !== "GET" && method !== "DELETE") ||
+    ((method !== "GET" && method !== "DELETE" && method !== "PATCH") ||
       (body !== undefined && body !== null))
   ) {
     // The plaintext selection is sealed HERE, to the hub-signed key of exactly

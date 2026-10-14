@@ -125,3 +125,6 @@ async def test_a_provisioning_failure_never_escapes_into_phone_verification(
     await ais.ActorIdentityService()._register_pending_personal_agent(_UID, _PHONE)
 
     assert _RecordingService.instances[-1].registered == [(_UID, _PHONE)]
+
+
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

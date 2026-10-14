@@ -1,6 +1,7 @@
 # hushh_mcp/services/account_service.py
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
+import json
 import logging
 import os
 from collections.abc import Iterable
@@ -1558,6 +1559,34 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        if self._table_exists(conn, "shared_files_storage"):
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT state,receipt,writes FROM shared_files_storage WHERE user_id=:user_id FOR UPDATE"
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+            if row:
+                receipt = row["receipt"]
+                receipt = json.loads(receipt) if isinstance(receipt, str) else receipt
+                writes = row["writes"]
+                writes = json.loads(writes) if isinstance(writes, str) else writes
+                if (
+                    row["state"] != "erased"
+                    or writes
+                    or not isinstance(receipt, dict)
+                    or receipt.get("complete") is not True
+                ):
+                    raise ValueError("SHARED_FILES_ERASURE_REQUIRED")
+                conn.execute(
+                    text("DELETE FROM shared_files_storage WHERE user_id=:user_id"), params
+                )
+            results["shared_files_storage"] = True
+
         self._clear_external_connector_data(conn, user_id, results, permanent=False)
         self._delete_optional_user_tables(
             conn,
@@ -1815,6 +1844,44 @@ class AccountService:
             "setup_state_updated_at_ms": int(updated) if updated is not None else None,
         }
 
+    async def _erase_shared_files_if_present(
+        self, user_id: str, *, backend_only: bool = False
+    ) -> Dict[str, Any] | None:
+        with get_db_connection() as conn:
+            if not self._table_exists(conn, "shared_files_storage"):
+                return None
+            present = conn.execute(
+                text("SELECT 1 FROM shared_files_storage WHERE user_id=:user_id"),
+                {"user_id": user_id},
+            ).first()
+        if not present:
+            return None
+        if backend_only:
+            return {
+                "success": False,
+                "error_code": "SHARED_FILES_EXTERNAL_CLEANUP_REQUIRED",
+                "account_deleted": False,
+            }
+        from hushh_mcp.services.pod_files.contracts import FilesRefused
+        from hushh_mcp.services.shared_files.erasure import erase
+
+        try:
+            await erase(user_id)
+        except FilesRefused as exc:
+            return {
+                "success": False,
+                "error_code": exc.code,
+                "account_deleted": False,
+                "message": "Files deletion is pending. Access is fenced; retry to continue cleanup.",
+            }
+        except Exception:
+            return {
+                "success": False,
+                "error_code": "SHARED_FILES_CLEANUP_UNCONFIRMED",
+                "account_deleted": False,
+            }
+        return None
+
     async def reset_account(self, user_id: str) -> Dict[str, Any]:
         """Reset the One account to a fresh, just-onboarded state.
 
@@ -1824,6 +1891,9 @@ class AccountService:
         actor_profiles spine. The dashboard re-provisions lazily on next use, and the
         user re-runs onboarding.
         """
+        cleanup = await self._erase_shared_files_if_present(user_id)
+        if cleanup is not None:
+            return cleanup
         logger.warning("♻️ ACCOUNT RESET requested for %s", user_id)
         results: dict[str, bool] = {}
         try:
@@ -1937,6 +2007,9 @@ class AccountService:
             or os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "") != UAT_INSTANCE
         ):
             raise ValueError("backend_only_erasure_requires_uat_database")
+        cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
+        if cleanup is not None:
+            return cleanup
         result = await self._delete_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
@@ -2447,6 +2520,14 @@ class AccountService:
                     conn, table_name="vault_key_wrappers", params=params
                 )
                 results["vault_key_wrappers"] = True
+                if self._table_exists(conn, "shared_files_storage"):
+                    conn.execute(
+                        text(
+                            "DELETE FROM shared_files_storage WHERE user_id=:user_id AND state='erased' AND writes='{}'::jsonb AND receipt->>'complete'='true'"
+                        ),
+                        params,
+                    )
+                    results["shared_files_storage"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
 

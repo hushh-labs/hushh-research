@@ -256,7 +256,7 @@
         "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "not_applicable_reason": "Admitted private library or explicitly consented Shared foreground projection; no remote A2A, native plugin or MCP execution.",
         "voice": false,
         "web": true
       },
@@ -6698,7 +6698,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "3e36c9a3ea8e6d8580527b797e0fb54c60c0af07bd352aaa19fc524be4d2b265",
-    "agent_registry": "b498e5b323a147fba4c458f76f8734e6a26a4cf06dec5ebf3b372d8138298c95",
+    "agent_registry": "44e0c41229125c23e5ee40a5b9c00efac7899fc78f9ac3b35172319ff3bae9ee",
     "cache_manifest": "c7262af5c5aef35ab22518245c58d001a7637304a61f2416b702877b0b6b3102",
     "data_plane": "fc5a7f75045bd9a8b6e3e7c7512f72672e133f6f72f2c8c9eb8821f33a074025",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",

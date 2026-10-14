@@ -1,6 +1,11 @@
 /** Public status projection; lifecycle authority stays on the server. */
 export type PersonalAgentStatus = {
   filesActivationAvailable?: boolean;
+  aiSelection?: {
+    version: number;
+    providers: string[];
+    defaultVerification?: true;
+  } | null;
   state?: string | null;
   featureEnabled?: boolean;
   hushhId?: string | null;
@@ -9,7 +14,8 @@ export type PersonalAgentStatus = {
   cloudProject?: string | null;
   cloudRegion?: string | null;
   deploymentTarget?: string | null;
-  hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | "unplaced";
+  hostingMode?:
+    "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | "unplaced";
   credentialMode?: string | null;
   runningImage?: string | null;
   targetImage?: string | null;
@@ -23,7 +29,11 @@ export type PersonalAgentStatus = {
   installedReleaseVerified?: boolean;
   installedReleaseVerifiedAt?: string;
   releaseCheckedAt?: string;
-  installedRelease?: { version: string; sourceRevision?: string; imageDigest?: string };
+  installedRelease?: {
+    version: string;
+    sourceRevision?: string;
+    imageDigest?: string;
+  };
   completedUpdate?: {
     operationId: string;
     releaseId: string;
@@ -43,8 +53,15 @@ export type PersonalAgentStatus = {
   update?: {
     releaseId?: string;
     summary: string;
-    presentationState: "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked";
-    phase?: "scheduled" | "preparing" | "installing" | "verifying" | "verified" | "blocked";
+    presentationState:
+      "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked";
+    phase?:
+      | "scheduled"
+      | "preparing"
+      | "installing"
+      | "verifying"
+      | "verified"
+      | "blocked";
     remindAt?: string;
     reminderDue?: boolean;
     operationId?: string;

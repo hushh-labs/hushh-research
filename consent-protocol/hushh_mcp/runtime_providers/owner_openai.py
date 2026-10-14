@@ -114,6 +114,10 @@ def build_owner_adk_model(model: str, *, mode: str, provider: str, api_key: str 
     Callers dispatch here BEFORE any Gemini alias rewrite, because ``default`` is a
     legal Azure deployment name and an OpenAI default is not a Gemini one.
     """
+    if provider == "azure_openai" and mode == "byok":
+        from .owner_azure_key import build_adk_model  # noqa: PLC0415
+
+        return build_adk_model(model, credential=api_key)
     if _is_azure(provider, mode):
         return azure_openai.build_owner_azure_adk_model(
             model, mode=mode, provider=provider, api_key=api_key
@@ -123,6 +127,10 @@ def build_owner_adk_model(model: str, *, mode: str, provider: str, api_key: str 
 
 def owner_model_client(runtime_provider: str, runtime_mode: str, credential: str | None) -> Any:
     """The only client door for an owner-cloud model, for a turn or a specialist."""
+    if runtime_provider == "azure_openai" and runtime_mode == "byok":
+        from .owner_azure_key import build_transport  # noqa: PLC0415
+
+        return build_transport(credential)
     if _is_azure(runtime_provider, runtime_mode):
         return azure_openai.owner_azure_client(runtime_provider, runtime_mode, credential)
     return build_owner_openai_transport(

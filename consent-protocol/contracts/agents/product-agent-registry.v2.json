@@ -1600,7 +1600,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Organize and read the owner's private pod library through bounded, consented tools.",
+      "description": "Organize and read the owner's consented Files library through bounded, consented tools.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -1676,11 +1676,11 @@
         "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "not_applicable_reason": "Admitted private library or explicitly consented Shared foreground projection; no remote A2A, native plugin or MCP execution.",
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "9976ce64025981828531ba466586f59a257eb4063a46a617e4b06625865668da",
+      "system_instruction_sha256": "8829c9f173835aaccdb26da535a9b728420ed8b8c48f645af70fde164c77a014",
       "telemetry_namespace": "agent.files",
       "tools": [
         {

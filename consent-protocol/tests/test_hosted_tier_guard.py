@@ -1,20 +1,7 @@
-"""hussh may only stand up a pod it operates on a lane that said so, and aimed it.
+"""Managed creation is disabled until sharded capacity and per-pod custody qualify.
 
-This file replaces `test_hushh_managed_is_simulation_only.py`, which asserted the
-doctrine reversed on 2026-08-25 ("no hussh-hosted production tier, no exceptions").
-The hosted tier is now a production path under the testable conditions in
-`docs/reference/architecture/private-agent-north-star.md`, so the boundary question
-changed from *is this a dev lane?* to *did this lane deliberately opt in, and does
-it know where the fleet lives?*
-
-Three properties are asserted here, and the second two matter more than the first:
-
-  1. the guard denies unless all three conditions hold;
-  2. **the split held** — opening the hosted tier does not open the reviewer
-     phone-verification bypass, which shared a flag with it until this change;
-  3. **a broken guard fails closed** — if the guard module raises for any reason,
-     zero Cloud Run services are created. A guard that fails open is a guard that
-     is absent on precisely the day something is wrong.
+Configuration cannot bypass that gate; planning and existing resource inspection
+remain available. Reviewer phone-verification and BYOC are separate authorities.
 """
 
 from __future__ import annotations
@@ -106,27 +93,19 @@ def test_lane_and_project_without_the_flag_denies(clean_env):
     assert hosted_pod_creates_permitted() is False
 
 
-def test_the_full_triple_permits(clean_env):
+def test_configuration_cannot_bypass_capacity_and_custody_qualification(clean_env):
     clean_env.setenv("HUSSH_HOSTED_POD_TIER_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
     clean_env.setenv("HUSSH_POD_PROJECT", "hussh-one-pods-dev")
-    assert hosted_pod_creates_permitted() is True
+    assert hosted_pod_creates_permitted() is False
 
 
-def test_production_is_not_special_cased(clean_env):
-    """Deliberately NOT a dev-only fence.
-
-    `dev_simulation_guard` forbids production because a reviewer bypass must
-    never exist there. A hosted pod in production is the intended state, so an
-    environment allowlist here would encode the doctrine that was reversed. Lane
-    admission is a deployment decision — which lanes set the flag — and this test
-    exists so a future edit that re-adds a forbidden-environment list has to
-    argue with it first.
-    """
+def test_production_configuration_is_not_qualification(clean_env):
+    """Neither a dev nor production flag proves isolated custody or capacity."""
     clean_env.setenv("HUSSH_HOSTED_POD_TIER_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "production")
     clean_env.setenv("HUSSH_POD_PROJECT", "hussh-one-pods-prod")
-    assert hosted_pod_creates_permitted() is True
+    assert hosted_pod_creates_permitted() is False
 
 
 def test_garbage_flag_values_deny(clean_env):
@@ -207,7 +186,7 @@ def test_opening_the_hosted_tier_does_not_open_the_reviewer_bypass(clean_env):
     clean_env.setenv("HUSHH_DEPLOY_ENV", "production")
     clean_env.setenv("HUSSH_POD_PROJECT", "hussh-one-pods-prod")
 
-    assert hosted_pod_creates_permitted() is True
+    assert hosted_pod_creates_permitted() is False
     assert simulation_permitted() is False
 
 
@@ -252,3 +231,15 @@ async def test_a_broken_guard_creates_nothing(clean_env, monkeypatch):
         await backend._execute(_SPEC, {"metadata": {"name": "one-pod-ha1x"}})
 
     assert client.created == []
+
+
+def test_configured_existing_maintenance_does_not_enable_new_managed_pods(clean_env):
+    from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_maintenance_permitted
+
+    with pytest.raises(HostedTierNotPermittedError):
+        require_hosted_pod_maintenance_permitted()
+    clean_env.setenv("HUSSH_HOSTED_POD_TIER_ENABLED", "1")
+    clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
+    clean_env.setenv("HUSSH_POD_PROJECT", "synthetic-existing-fleet")
+    require_hosted_pod_maintenance_permitted()
+    assert hosted_pod_creates_permitted() is False

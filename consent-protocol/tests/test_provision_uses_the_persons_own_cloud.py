@@ -271,3 +271,6 @@ async def test_an_unreadable_registry_never_builds_on_the_deployment_default(mon
 
     assert "could not be read" in str(caught.value)
     assert substrate.specs == [], "infrastructure was applied for a cloud nobody could read"
+
+
+pytestmark = pytest.mark.usefixtures("legacy_shared_files_absent")

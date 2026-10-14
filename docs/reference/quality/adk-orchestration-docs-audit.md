@@ -18,6 +18,24 @@ The next candidate adds restart-safe private command/MCP recovery; local evidenc
 is not deployed acceptance. Computer Use and cross-cloud moves remain disabled.
 Existing owners retain their resources and selected configuration.
 
+## Current implementation slice — Azure AI and Shared Files
+
+**2026-10-13; unserved implementation based on `1284040247`.** The peer's root integration
+is now `68719864ed`; it has not yet been combined with this slice.
+
+| Journey | Source / local evidence | Dev / release status |
+| --- | --- | --- |
+| Provider-aware AI | Azure workload identity, GCP Vertex and Shared Gemini use placement-aware labels; sealed Azure endpoint/deployment/key support uses the Azure v1 API, strict Azure hosts, no environment proxies or credential redirects and the existing selection log. Private Gemini checks also stay on the pod. Verified cloud defaults collapse to a confirmation with Change AI and authored Back. Returning to cloud default requires a provider/model/check receipt. 259 affected backend cases and the separate 114-case AI/maintenance lane passed. Files transfer and provider UI checks passed; a fresh final candidate still needs its required gates | Not deployed; hosted exact-SHA CI and live custom-key/default responses remain required |
+| Shared Files | Browser encryption, opaque GCS ciphertext transport, paginated metadata, conditional revisions, byte-exact resumed download, reversible explorer operations and vault-lock refusal have local evidence. Real disposable PostgreSQL verifies leases, stale generations, wrong owners and deletion fencing | Disabled; migration 959 is dev-only. Cloud IAM, retention, transfer and deletion acceptance remain required |
+| Selected analysis | Existing authored Files specialist receives a selected bounded projection only; browser checks consent, exclusions, revision and job state before applying reversible proposals under a lease | Local authority cases pass; live foreground provider acceptance is unverified. No background decryption grant |
+| Managed Hussh Pods | Project shards selected; capacity/cost worksheet and per-pod custody requirements recorded. Backend creation refuses even if deployment flags are present | No provisioning offer or qualified shard yet |
+| Transfers / continuation | Shared library enrollment and placement writes share transactional admission; active/unresolved libraries refuse unqualified cloud cutover even with Files disabled. Existing browser and Files-only scheduling commits remain preserved; private execution gates remain closed | Shared-to-pod, reverse and cross-cloud Files transfer remain unavailable pending destination/readability and cleanup evidence |
+
+Unknown create-only provider writes and crashed inflight writers deliberately retain
+cleanup fences. An independent provider-completion/absence reconciliation procedure
+must be qualified before enabling Shared Files; elapsed lease time cannot prove
+those requests are gone. Local fixtures are not owner-cloud acceptance.
+
 ## Source and serving evidence
 
 | Surface | Verified evidence | Limit |

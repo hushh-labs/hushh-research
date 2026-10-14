@@ -64,6 +64,12 @@ Non-owned surfaces:
 
 9. Private command and MCP recovery must retain original expiry, exact owner/pod authority and dispatch-before-effect journals. Read the streaming implementation guide before changing those adapters; native resume must not replay a user turn or revive an uncertain effect.
 
+Files retains one authored specialist across placements. Review the
+[Files storage/processing boundary](../../../docs/reference/operations/private-files-library.md#shared-files--source-pilot-not-deployed-acceptance)
+before changing its tool ports: Shared receives a selected foreground projection;
+pod execution keeps its own admitted storage and background authority. Generated
+registries never substitute for either boundary's live acceptance.
+
 ## Handoff Rules
 
 1. If the request is still broad or ambiguous, route it back to `backend`.

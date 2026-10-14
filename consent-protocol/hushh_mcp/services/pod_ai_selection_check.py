@@ -45,6 +45,19 @@ def selection_model(provider: str, model: Optional[str], *, gemini_default: str)
 
 def selection_client(selection: Any) -> Any:
     """The client a turn on ``selection`` will use, built the same way."""
+    if selection.provider == "azure_openai":
+        from hushh_mcp.runtime_providers.owner_azure_key import (  # noqa: PLC0415
+            build_transport,
+            credential_bundle,
+        )
+
+        return build_transport(
+            credential_bundle(
+                endpoint=selection.azure_endpoint or "",
+                deployment=selection.model or "",
+                api_key=selection.api_key,
+            )
+        )
     if selection.provider == "openai":
         from hushh_mcp.runtime_providers.owner_openai import (  # noqa: PLC0415
             OWNER_OPENAI_MODE,

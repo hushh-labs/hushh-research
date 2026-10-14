@@ -67,6 +67,7 @@ from .runtime import router as runtime_router
 from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
+from .shared_files import router as shared_files_router
 from .voice import router as voice_router
 from .wallet_card_access import router as wallet_card_access_router
 from .webauthn import router as webauthn_router
@@ -151,3 +152,6 @@ router.include_router(runtime_providers_router)
 router.include_router(byoc_azure_router)
 router.include_router(webauthn_router)
 router.include_router(voice_router)
+
+# Shared ciphertext library; the private pod Files runtime is never mounted here.
+router.include_router(shared_files_router)

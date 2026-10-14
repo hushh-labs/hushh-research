@@ -356,7 +356,7 @@ async def _settle_job(
     return {"state": latest["state"]}
 
 
-async def _organize(file_id: str) -> OrganizationResult:
+async def _organize(file_id: str, *, model: Any = None) -> OrganizationResult:
     from google.adk.agents.run_config import RunConfig
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
@@ -370,10 +370,11 @@ async def _organize(file_id: str) -> OrganizationResult:
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
     from hushh_mcp.services.pod_files.model_binding import organization_model_binding
 
-    binding = organization_model_binding()
-    model = binding.build_adk_model(
-        resolve_fleet_model_name(manifest.model_config_for_runtime().name)
-    )
+    if model is None:
+        binding = organization_model_binding()
+        model = binding.build_adk_model(
+            resolve_fleet_model_name(manifest.model_config_for_runtime().name)
+        )
     agent = build_files_agent(manifest, model=model, output_schema=OrganizationResult)
     sessions = InMemorySessionService()
     app, user, session_id = "files_organization", "private_job", uuid4().hex

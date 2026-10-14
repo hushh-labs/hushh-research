@@ -627,6 +627,7 @@
     "329_public_profile_bridge.sql": "rollback/329_public_profile_bridge.rollback.sql",
     "330_one_placement_reader_foundation.sql": "rollback/330_one_placement_reader_foundation.rollback.sql",
     "331_one_legacy_shared_continuity.sql": "rollback/331_one_legacy_shared_continuity.rollback.sql",
-    "332_stripe_payout_source_binding.sql": "rollback/332_stripe_payout_source_binding.rollback.sql"
+    "332_stripe_payout_source_binding.sql": "rollback/332_stripe_payout_source_binding.rollback.sql",
+    "959_shared_files_storage_lifecycle.sql": "rollback/959_shared_files_storage_lifecycle.rollback.sql"
   }
 }

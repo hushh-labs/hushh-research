@@ -1,8 +1,10 @@
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import type { FileEntry, FilesSettings } from "@/lib/files/service";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 const session = vi.hoisted(() => ({
   vaultKey: "synthetic-memory-only" as string | null,
+  vaultOwnerToken: "synthetic-token",
 }));
 const files = vi.hoisted(() => ({
   list: vi.fn<
@@ -46,7 +48,11 @@ vi.mock("@/components/files/files-organization-history", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getPersonalAgentStatus: vi.fn<() => Promise<PersonalAgentStatus>>(
-      async () => ({ filesActivationAvailable: false }),
+      async () => ({
+        filesActivationAvailable: false,
+        hostingMode: "byoc",
+        state: "active",
+      }),
     ),
   },
 }));
@@ -99,3 +105,8 @@ export function fileEntry(fields: Partial<FileEntry>): FileEntry {
 }
 
 export { files, session };
+
+beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("synthetic-owner");
+});

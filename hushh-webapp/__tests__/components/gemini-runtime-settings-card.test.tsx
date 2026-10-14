@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
@@ -12,7 +18,8 @@ const {
   storeRuntimeSecretMock,
   toastErrorMock,
   toastSuccessMock,
-  getByocSetupStatusMock,
+  getPersonalAgentStatusMock,
+  ownerPodRequestMock,
   routerPushMock,
 } = vi.hoisted(() => ({
   selectManagedGeminiRuntimeMock: vi.fn(),
@@ -22,7 +29,8 @@ const {
   storeRuntimeSecretMock: vi.fn(),
   toastErrorMock: vi.fn(),
   toastSuccessMock: vi.fn(),
-  getByocSetupStatusMock: vi.fn(),
+  getPersonalAgentStatusMock: vi.fn(),
+  ownerPodRequestMock: vi.fn(),
   routerPushMock: vi.fn(),
 }));
 
@@ -34,6 +42,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 // grant; the test harness mounts no Next.js App Router, so provide a stub push.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushMock }),
+  usePathname: () => "/one/profile/ai",
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -44,7 +53,9 @@ vi.mock("@/lib/services/api-service", () => ({
       selectManagedGeminiRuntimeMock(...args),
     // Mounted-effect poll for a previously-recorded BYOC project; a neutral
     // (non-"recorded") status keeps the card in its default managed-first state.
-    getByocSetupStatus: (...args: unknown[]) => getByocSetupStatusMock(...args),
+    getPersonalAgentStatus: (...args: unknown[]) =>
+      getPersonalAgentStatusMock(...args),
+    ownerPodRequest: (...args: unknown[]) => ownerPodRequestMock(...args),
   },
 }));
 
@@ -72,7 +83,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     vi.clearAllMocks();
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionOwner("fresh-user");
-    getByocSetupStatusMock.mockResolvedValue({ status: "not_started", projectId: null });
+    getPersonalAgentStatusMock.mockResolvedValue({ hostingMode: "shared" });
     loadRuntimeSecretMock.mockResolvedValue(null);
     storeRuntimeSecretMock.mockResolvedValue({ success: true });
     removeRuntimeSecretMock.mockResolvedValue({ success: true });
@@ -105,7 +116,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.queryByText("Selected")).toBeNull();
   });
 
-  it("on the first-run step keeps Gemini selectable and defers the coming-soon models", () => {
+  it("on the first-run step keeps Gemini selectable and defers the coming-soon models", async () => {
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -121,8 +132,8 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    expect(screen.getByText("Use Hussh's AI")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
+    expect(screen.getByText("Use Hussh's Gemini")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI connection" })).toBeTruthy();
     // Restraint Charter: the mandatory first-run step lets the person choose only
     // Gemini, so the future-providers list is deferred to the settings context
     // rather than competing with the one decision here.
@@ -164,27 +175,61 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   it("keeps own-key editing available and blocks Continue when saved-key loading fails", async () => {
     loadRuntimeSecretMock.mockRejectedValue(new Error("Fixture load failure"));
     const onCanContinueChange = vi.fn();
-    render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture"
-      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
-      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
-      requiresExplicitSelection initiallyConfigured initialSetupChoice="byok_pending_vault"
-      onCanContinueChange={onCanContinueChange} />);
-    await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(false));
-    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("true");
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey="fixture"
+        vaultOwnerToken="fixture"
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured
+        initialSetupChoice="byok_pending_vault"
+        onCanContinueChange={onCanContinueChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(onCanContinueChange).toHaveBeenLastCalledWith(false),
+    );
+    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
   });
 
   it("keeps the radio selection aligned after removing a saved key", async () => {
     loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
-      credentialRef.endsWith("credential_mode") ? "byok" :
-      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
-    render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture"
-      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
-      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
-      requiresExplicitSelection initiallyConfigured initialSetupChoice="byok_pending_vault" />);
+      credentialRef.endsWith("credential_mode")
+        ? "byok"
+        : credentialRef.endsWith("gemini_api_key")
+          ? "fixture-key"
+          : null,
+    );
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey="fixture"
+        vaultOwnerToken="fixture"
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured
+        initialSetupChoice="byok_pending_vault"
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
-    await waitFor(() => expect(screen.getAllByRole("radio")[0].getAttribute("aria-checked")).toBe("true"));
-    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("false");
+    await waitFor(() =>
+      expect(screen.getAllByRole("radio")[0].getAttribute("aria-checked")).toBe(
+        "true",
+      ),
+    );
+    expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe(
+      "false",
+    );
     fireEvent.click(screen.getAllByRole("radio")[1]);
     expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
   });
@@ -206,6 +251,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(runtimeChoice("profile-managed-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-managed-runtime"));
 
     await waitFor(() =>
@@ -241,12 +289,16 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     return onSelectionReadyChange;
   };
 
-  const clickManaged = () =>
+  const clickManaged = async () => {
+    await waitFor(() =>
+      expect(runtimeChoice("profile-managed-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-managed-runtime"));
+  };
 
   it("tells the server about the managed choice", async () => {
     renderSetupCard();
-    clickManaged();
+    await clickManaged();
     await waitFor(() =>
       expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(1),
     );
@@ -272,7 +324,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     });
 
     renderSetupCard(onSelectionReadyChange);
-    clickManaged();
+    await clickManaged();
 
     await waitFor(() =>
       expect(onSelectionReadyChange).toHaveBeenCalledTimes(1),
@@ -287,7 +339,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
 
     renderSetupCard(onSelectionReadyChange);
-    clickManaged();
+    await clickManaged();
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledTimes(1));
     expect(onSelectionReadyChange).not.toHaveBeenCalled();
@@ -307,16 +359,18 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       agentReason: "ai connection verified",
     });
     renderSetupCard();
-    clickManaged();
+    await clickManaged();
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("private agent is being built");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "private agent is being built",
+    );
     expect(toastSuccessMock.mock.calls[0][1]?.description).toBeUndefined();
   });
 
   it("does not promise an agent when none was scheduled", async () => {
     renderSetupCard();
-    clickManaged();
+    await clickManaged();
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
     expect(String(toastSuccessMock.mock.calls[0][0])).not.toContain(
@@ -343,6 +397,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
 
     expect(onSelectionReadyChange).not.toHaveBeenCalled();
@@ -370,6 +427,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
     fireEvent.change(screen.getByLabelText("Gemini API key"), {
       target: { value: "test-gemini-key" },
@@ -416,9 +476,13 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     await waitFor(() =>
-      expect(
-        runtimeChoice("profile-byok-runtime"),
-      ).toHaveAttribute("aria-pressed", "true"),
+      expect(runtimeChoice("profile-byok-runtime")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await waitFor(() =>
+      expect(runtimeChoice("profile-managed-runtime")).toBeEnabled(),
     );
     fireEvent.click(runtimeChoice("profile-managed-runtime"));
 
@@ -427,9 +491,10 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         "This setting changed on another device. Refresh and try again.",
       ),
     );
-    expect(
-      runtimeChoice("profile-byok-runtime"),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(runtimeChoice("profile-byok-runtime")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("requires a responding Gemini key before confirmation and encrypted storage", async () => {
@@ -449,6 +514,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "test-gemini-key" } });
@@ -492,6 +560,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "first-key" } });
@@ -511,7 +582,10 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   function deferred<T>() {
     let resolve!: (value: T) => void;
     let reject!: (reason: Error) => void;
-    const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+    const promise = new Promise<T>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
     return { promise, resolve, reject };
   }
 
@@ -528,50 +602,74 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     onSelectionReadyChange,
   });
   const selectionResult = {
-    status: "ready", model: "synthetic-model", location: "global",
-    agentScheduled: false, agentReason: "synthetic prior-owner outcome",
+    status: "ready",
+    model: "synthetic-model",
+    location: "global",
+    agentScheduled: false,
+    agentReason: "synthetic prior-owner outcome",
   };
 
-  it.each([false, true])("discards a pending prior-owner selection, including return to A=%s", async (returnToA) => {
-    const pending = deferred<typeof selectionResult>();
-    selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
-    const committed = vi.fn();
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />);
-    clickManaged();
-    publishValidatedAuthSessionOwner("owner-b");
-    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    if (returnToA) {
-      publishValidatedAuthSessionOwner("fresh-user");
-      view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
-    }
-    await act(async () => { pending.resolve(selectionResult); });
-    expect(committed).not.toHaveBeenCalled();
-    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
-    expect(toastSuccessMock).not.toHaveBeenCalled();
-    expect(screen.queryByText(/synthetic prior-owner outcome/)).toBeNull();
-    expect(screen.queryByText("Selected")).toBeNull();
-  });
+  it.each([false, true])(
+    "discards a pending prior-owner selection, including return to A=%s",
+    async (returnToA) => {
+      const pending = deferred<typeof selectionResult>();
+      selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
+      const committed = vi.fn();
+      const view = render(
+        <GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />,
+      );
+      await clickManaged();
+      publishValidatedAuthSessionOwner("owner-b");
+      view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+      if (returnToA) {
+        publishValidatedAuthSessionOwner("fresh-user");
+        view.rerender(
+          <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
+        );
+      }
+      await act(async () => {
+        pending.resolve(selectionResult);
+      });
+      expect(committed).not.toHaveBeenCalled();
+      expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(screen.queryByText(/synthetic prior-owner outcome/)).toBeNull();
+      expect(screen.queryByText("Selected")).toBeNull();
+    },
+  );
 
   it("does not start an old-owner vault write after the managed provider response", async () => {
     const pending = deferred<typeof selectionResult>();
     selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
-      requiresExplicitSelection={false} vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
-    clickManaged();
+    const view = render(
+      <GeminiRuntimeSettingsCard
+        {...ownerProps("fresh-user")}
+        requiresExplicitSelection={false}
+        vaultKey="synthetic-key-a"
+        vaultOwnerToken="synthetic-token-a"
+      />,
+    );
+    await clickManaged();
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await act(async () => { pending.resolve(selectionResult); });
+    await act(async () => {
+      pending.resolve(selectionResult);
+    });
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
   });
 
   it("does not route or toast a stale cloud-recovery failure", async () => {
     const pending = deferred<typeof selectionResult>();
     selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
-    clickManaged();
+    const view = render(
+      <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
+    );
+    await clickManaged();
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await act(async () => { pending.reject(new Error("CLOUD_GRANT_REVOKED")); });
+    await act(async () => {
+      pending.reject(new Error("CLOUD_GRANT_REVOKED"));
+    });
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(routerPushMock).not.toHaveBeenCalled();
   });
@@ -579,38 +677,74 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   it("does not let A's finally release B's pending selection", async () => {
     const first = deferred<typeof selectionResult>();
     const second = deferred<typeof selectionResult>();
-    selectManagedGeminiRuntimeMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    selectManagedGeminiRuntimeMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
     const completedB = vi.fn();
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
-    clickManaged();
+    const view = render(
+      <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
+    );
+    await clickManaged();
     publishValidatedAuthSessionOwner("owner-b");
-    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b", completedB)} />);
-    clickManaged();
-    await act(async () => { first.resolve(selectionResult); });
-    clickManaged();
+    view.rerender(
+      <GeminiRuntimeSettingsCard {...ownerProps("owner-b", completedB)} />,
+    );
+    await clickManaged();
+    await act(async () => {
+      first.resolve(selectionResult);
+    });
+    fireEvent.click(runtimeChoice("profile-managed-runtime"));
     expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(2);
-    await act(async () => { second.resolve(selectionResult); });
+    await act(async () => {
+      second.resolve(selectionResult);
+    });
     expect(completedB).toHaveBeenCalledOnce();
   });
 
   it("never publishes an old owner's delayed project lookup", async () => {
-    const pending = deferred<{ status: string; projectId: string }>();
-    getByocSetupStatusMock.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ status: "recorded", projectId: "synthetic-project-b" });
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    const pending = deferred<{
+      hostingMode: string;
+      state: string;
+      deploymentTarget: string;
+      cloudProject: string;
+    }>();
+    getPersonalAgentStatusMock
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({
+        hostingMode: "byoc",
+        state: "active",
+        deploymentTarget: "user_gcp",
+        cloudProject: "synthetic-project-b",
+      });
+    const view = render(
+      <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
+    );
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await screen.findByText(/synthetic-project-b/);
-    await act(async () => { pending.resolve({ status: "recorded", projectId: "synthetic-project-a" }); });
+    await screen.findByText(/Use your agent’s Vertex AI/);
+    await act(async () => {
+      pending.resolve({
+        hostingMode: "byoc",
+        state: "active",
+        deploymentTarget: "user_gcp",
+        cloudProject: "synthetic-project-a",
+      });
+    });
     expect(screen.queryByText(/synthetic-project-a/)).toBeNull();
-    expect(screen.getByText(/synthetic-project-b/)).toBeTruthy();
+    expect(screen.getByText(/Use your agent’s Vertex AI/)).toBeTruthy();
   });
 
-  it("refuses reads and provider requests when the validated owner differs", () => {
+  it("refuses reads and provider requests when the validated owner differs", async () => {
     publishValidatedAuthSessionOwner("owner-b");
-    render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
-      vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
-    clickManaged();
-    expect(getByocSetupStatusMock).not.toHaveBeenCalled();
+    render(
+      <GeminiRuntimeSettingsCard
+        {...ownerProps("fresh-user")}
+        vaultKey="synthetic-key-a"
+        vaultOwnerToken="synthetic-token-a"
+      />,
+    );
+    fireEvent.click(runtimeChoice("profile-managed-runtime"));
+    expect(getPersonalAgentStatusMock).not.toHaveBeenCalled();
     expect(loadRuntimeSecretMock).not.toHaveBeenCalled();
     expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
   });
@@ -619,60 +753,104 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     const pending = deferred<typeof selectionResult>();
     selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
     const committed = vi.fn();
-    render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />);
-    clickManaged();
+    render(
+      <GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />,
+    );
+    await clickManaged();
     publishValidatedAuthSessionOwner("owner-b");
     publishValidatedAuthSessionOwner("fresh-user");
-    await act(async () => { pending.resolve(selectionResult); });
+    await act(async () => {
+      pending.resolve(selectionResult);
+    });
     expect(committed).not.toHaveBeenCalled();
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/synthetic prior-owner outcome/)).toBeNull();
-    clickManaged();
+    await clickManaged();
     await waitFor(() => expect(committed).toHaveBeenCalledOnce());
   });
 
   it("clears a prior owner's draft and ignores delayed BYOK validation", async () => {
     const pending = deferred<{ status: string }>();
     validateGeminiRuntimeCredentialMock.mockReturnValueOnce(pending.promise);
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    const view = render(
+      <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
+    );
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
-    fireEvent.change(screen.getByLabelText("Gemini API key"), { target: { value: "synthetic-owner-a-key" } });
+    fireEvent.change(screen.getByLabelText("Gemini API key"), {
+      target: { value: "synthetic-owner-a-key" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await act(async () => { pending.resolve({ status: "ready" }); });
+    await act(async () => {
+      pending.resolve({ status: "ready" });
+    });
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
     fireEvent.click(runtimeChoice("profile-byok-runtime"));
     expect(screen.getByLabelText("Gemini API key")).toHaveValue("");
-    expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Confirm and save" }),
+    ).toBeNull();
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
   });
 
   it("stops the remaining credential removals after an account switch", async () => {
     const pending = deferred<{ success: boolean }>();
-    loadRuntimeSecretMock.mockImplementation(({ credentialRef }: { credentialRef: string }) =>
-      Promise.resolve(credentialRef.includes("credential_mode") ? "byok" : "synthetic-saved-value"));
+    loadRuntimeSecretMock.mockImplementation(
+      ({ credentialRef }: { credentialRef: string }) =>
+        Promise.resolve(
+          credentialRef.includes("credential_mode")
+            ? "byok"
+            : "synthetic-saved-value",
+        ),
+    );
     removeRuntimeSecretMock.mockReturnValueOnce(pending.promise);
-    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
-      requiresExplicitSelection={false} vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
+    const view = render(
+      <GeminiRuntimeSettingsCard
+        {...ownerProps("fresh-user")}
+        requiresExplicitSelection={false}
+        vaultKey="synthetic-key-a"
+        vaultOwnerToken="synthetic-token-a"
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
-    await waitFor(() => expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1)); // after the agent is asked to stop
+    await waitFor(() =>
+      expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1),
+    ); // after the agent is asked to stop
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
-    await act(async () => { pending.resolve({ success: true }); });
+    await act(async () => {
+      pending.resolve({ success: true });
+    });
     expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1);
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).not.toHaveBeenCalled();
   });
   it("keeps readiness tied to the current saved radio choice and shows key errors inline", async () => {
     const readiness = vi.fn();
-    render(<GeminiRuntimeSettingsCard userId="fresh-user" needsVaultCreation needsUnlock={false}
-      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
-      requiresExplicitSelection initiallyConfigured={false}
-      onSelectionReadyChange={vi.fn().mockResolvedValue(undefined)}
-      onPreVaultDraftStaged={vi.fn()} onCanContinueChange={readiness} />);
-    const managed = screen.getByRole("radio", { name: /Use Hussh's AI/ });
-    const own = screen.getByRole("radio", { name: /Use your own key/ });
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured={false}
+        onSelectionReadyChange={vi.fn().mockResolvedValue(undefined)}
+        onPreVaultDraftStaged={vi.fn()}
+        onCanContinueChange={readiness}
+      />,
+    );
+    const managed = screen.getByRole("radio", { name: /Use Hussh's Gemini/ });
+    const own = screen.getByRole("radio", { name: /Use your own Gemini key/ });
     expect(managed).toHaveAttribute("aria-checked", "false");
+    await waitFor(() => expect(managed).toBeEnabled());
     fireEvent.click(managed);
     await waitFor(() => expect(readiness).toHaveBeenLastCalledWith(true));
     expect(managed).toHaveAttribute("aria-checked", "true");
@@ -681,15 +859,155 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(own).toHaveAttribute("aria-checked", "true");
     expect(readiness).toHaveBeenLastCalledWith(false);
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter your Gemini API key.");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter your Gemini API key.",
+    );
     const key = screen.getByLabelText("Gemini API key");
     expect(key).toHaveAttribute("aria-invalid", "true");
     fireEvent.change(key, { target: { value: "fixture-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm and save" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Confirm and save" }),
+    );
     await waitFor(() => expect(readiness).toHaveBeenLastCalledWith(true));
     fireEvent.change(key, { target: { value: "changed-key" } });
     expect(readiness).toHaveBeenLastCalledWith(false);
   });
+});
 
+it("presents Azure's connection without manufacturing a Vertex identity", async () => {
+  getPersonalAgentStatusMock.mockResolvedValue({
+    hostingMode: "byoc",
+    deploymentTarget: "user_azure",
+    state: "active",
+  });
+  render(
+    <GeminiRuntimeSettingsCard
+      userId="fresh-user"
+      vaultKey={null}
+      vaultOwnerToken={null}
+      needsVaultCreation
+      needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()}
+      onRequestVaultCreation={vi.fn()}
+    />,
+  );
+  await screen.findByText("Use your Azure AI");
+  expect(screen.queryByText(/Use your agent’s Vertex AI/)).toBeNull();
+  expect(
+    screen.getByText(/Check AI connection.*your Azure deployment/),
+  ).toBeTruthy();
+  expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "checks Gemini privately on Azure before backup (%s)",
+  async (accepted) => {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("fresh-user");
+    getPersonalAgentStatusMock.mockResolvedValue({
+      hostingMode: "byoc",
+      deploymentTarget: "user_azure",
+      state: "active",
+    });
+    loadRuntimeSecretMock.mockResolvedValue(null);
+    storeRuntimeSecretMock.mockResolvedValue({ success: true });
+    ownerPodRequestMock.mockResolvedValue(
+      accepted
+        ? Response.json({
+            status: "active",
+            provider: "gemini",
+            model: "fixture",
+            checkedAtMs: 1,
+          })
+        : Response.json({ code: "KEY_REFUSED" }, { status: 422 }),
+    );
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey="fixture-key"
+        vaultOwnerToken="fixture-token"
+        needsVaultCreation={false}
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+      />,
+    );
+    await screen.findByText("Use your Azure AI");
+    await waitFor(() =>
+      expect(runtimeChoice("profile-byok-runtime")).toBeEnabled(),
+    );
+    fireEvent.click(runtimeChoice("profile-byok-runtime"));
+    fireEvent.change(screen.getByLabelText("Gemini API key"), {
+      target: { value: "synthetic-gemini-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check and use" }));
+    await waitFor(() => expect(ownerPodRequestMock).toHaveBeenCalledOnce());
+    expect(ownerPodRequestMock.mock.calls[0][0]).toBe("ai-selection");
+    expect(validateGeminiRuntimeCredentialMock).not.toHaveBeenCalled();
+    if (accepted)
+      await waitFor(() => expect(storeRuntimeSecretMock).toHaveBeenCalled());
+    else {
+      await screen.findByText(
+        "Gemini did not accept this key. Check it and try again.",
+      );
+      expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+    }
+  },
+);
+
+it("confirms a verified Azure default concisely and cancels AI editing through authored Back", async () => {
+  const { unwindBackLayer } = await import("@/lib/navigation/back-layers");
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("fresh-user");
+  getPersonalAgentStatusMock.mockResolvedValue({
+    hostingMode: "byoc",
+    deploymentTarget: "user_azure",
+    state: "active",
+    aiSelection: {
+      version: 1,
+      providers: ["gemini", "azure_openai"],
+      defaultVerification: true,
+    },
+  });
+  loadRuntimeSecretMock.mockResolvedValue(null);
+  ownerPodRequestMock.mockResolvedValue(
+    Response.json({
+      status: "cleared",
+      defaultProvider: "azure_openai",
+      defaultModel: "synthetic-deployment",
+      checkedAtMs: 1,
+    }),
+  );
+  render(
+    <GeminiRuntimeSettingsCard
+      userId="fresh-user"
+      vaultKey="fixture-key"
+      vaultOwnerToken="fixture-token"
+      needsVaultCreation={false}
+      needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()}
+      onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection
+      onSelectionReadyChange={vi.fn().mockResolvedValue(undefined)}
+    />,
+  );
+  await waitFor(() =>
+    expect(runtimeChoice("profile-managed-runtime")).toBeEnabled(),
+  );
+  fireEvent.click(runtimeChoice("profile-managed-runtime"));
+  await screen.findByRole("button", { name: "Change AI" });
+  expect(screen.queryByTestId("profile-byok-runtime")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Change AI" }));
+  fireEvent.click(runtimeChoice("profile-byok-runtime"));
+  fireEvent.change(screen.getByLabelText("Gemini API key"), {
+    target: { value: "synthetic-unapproved-key" },
+  });
+  await act(async () => {
+    expect(unwindBackLayer("/one/profile/ai")).toBe(true);
+  });
+  expect(screen.queryByLabelText("Gemini API key")).toBeNull();
+  expect(screen.getByRole("button", { name: "Change AI" })).toBeVisible();
+  expect(ownerPodRequestMock).toHaveBeenCalledOnce();
+  expect(ownerPodRequestMock.mock.calls[0][1].method).toBe("PATCH");
 });

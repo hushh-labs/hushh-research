@@ -706,10 +706,10 @@ class GcpBackend:
                 },
             )
         from hushh_mcp.services.gcp_run_client import GcpRunClient
-        from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_creates_permitted
+        from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_maintenance_permitted
 
         # A fleet that is not aimed may not be rolled either.
-        require_hosted_pod_creates_permitted("hussh-managed pod upgrade")
+        require_hosted_pod_maintenance_permitted("hussh-managed pod upgrade")
         expected_uid = spec.expected_service_uid
         if not isinstance(expected_uid, str) or not expected_uid.strip():
             raise RuntimeError("pod incarnation unverified; recovery required before upgrade")

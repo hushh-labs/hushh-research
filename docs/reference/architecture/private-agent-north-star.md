@@ -767,16 +767,15 @@ service per person carries a hard platform ceiling that scale-to-zero does **not
 warm one. The only lever that removes the ceiling is the person's own project, which
 reframes BYO-Compute from a sovereignty tier into **the scale path**.
 
-*Working answer (2026-08-25), pending the founder's decision on the scale shape.* It is a
-required **property** — one person's holdings unreachable from another's — which the
-one-service-per-person implementation currently delivers and which nothing else in the
-codebase delivers today. The ceiling is real and is not relieved by scale-to-zero, so the
-scale shape is **sharded hosting projects**: the pod's project is already recorded per row
-in `backend_metadata.project`, so a second hosting project is a routing decision at
-provision time rather than an architectural change. The person's own project remains the
-path that removes the ceiling entirely, which is why the migration button is a scale
-strategy as much as a sovereignty one. **What still needs the founder: approval of the
-sharded shape, and the measured cost-per-person that decides how urgent it is.**
+*Decision (2026-10-13):* owner isolation is the required property. Managed hosting
+will use project shards, multiple owner pods per project and separate identities,
+storage boundaries and pod-generated keys wrapped by per-pod KMS custody. The
+[capacity and cost worksheet](../../future/personal-agent/POD-AUTOPROVISION.md#managed-hosting-selected-design-qualification-required)
+defines admission and qualification. No fixed pods-per-project count is qualified.
+New Hussh Pods creation is disabled until transactional reservations, sibling
+isolation and lifecycle evidence pass. Scale-to-zero reduces active compute but
+does not free permanent service or identity slots. Hussh's administration of managed
+hosting must remain explicit; it is distinct from an owner-controlled cloud.
 
 ## How to use this file
 

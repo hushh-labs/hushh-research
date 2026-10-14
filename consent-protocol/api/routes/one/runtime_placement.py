@@ -55,8 +55,19 @@ async def require_setup_intent(
 ) -> None:
     """Both provider consent routes require the same durable pending admission."""
     from hushh_mcp.services.byoc_setup_intent import record_or_observe_intent
+    from hushh_mcp.services.pod_files.contracts import FilesRefused
+    from hushh_mcp.services.shared_files.registry import protect_placement_change
 
-    if not await record_or_observe_intent(user_id, provider=provider, project=project):
+    try:
+        async with protect_placement_change(user_id):
+            recorded = await record_or_observe_intent(user_id, provider=provider, project=project)
+    except FilesRefused as exc:
+        raise _refuse(
+            exc.status,
+            exc.code,
+            "Your Files library is unchanged. Moving it to a private agent is not available yet.",
+        ) from None
+    if not recorded:
         raise _refuse(
             503, "BYOC_SETUP_UNRECORDED", "Cloud setup could not be saved. Please try again."
         )

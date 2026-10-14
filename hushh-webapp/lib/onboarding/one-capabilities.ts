@@ -1,4 +1,3 @@
-
 import { MessageCircle, type LucideIcon } from "@/components/icons";
 
 import {
@@ -297,14 +296,14 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     id: "files",
     agentId: "agent_files",
     title: "Files",
-    description: "Store and organize files in your private cloud library.",
+    description: "Store and organize your encrypted files.",
     href: ROUTES.ONE_FILES,
     icon: customCapabilityIcon(FolderRowIcon),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
     // Match the specialist's authored rollout; workspace admission still
-    // verifies the owner's pod, installed capability and analysis consent.
+    // verifies placement, unlocked ownership, installed capability and analysis consent.
     availability: "development-only",
   },
   {
@@ -393,13 +392,20 @@ export function getOneCapability(id: string): OneCapability | undefined {
 // Tailwind's static content scanner can find and generate each utility.
 export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
 
-export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
+export function isOneCapabilityEnabled(
+  capability: OneCapability | string | undefined | null,
+): boolean {
   const resolved =
     typeof capability === "string" ? getOneCapability(capability) : capability;
-  if (!resolved || resolved.id === "marketplace" || resolved.availability === "paused") {
+  if (
+    !resolved ||
+    resolved.id === "marketplace" ||
+    resolved.availability === "paused"
+  ) {
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
-  if (resolved.availability === "development-only") return resolveAppEnvironment() === "development";
+  if (resolved.availability === "development-only")
+    return resolveAppEnvironment() === "development";
   return true;
 }
