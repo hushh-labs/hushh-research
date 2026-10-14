@@ -29,6 +29,8 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
     expect(await screen.findByText("VISA •••• 4242 | First")).toBeVisible();
     expect(screen.getByRole("region", { name: "Shared cards | 7" })).toBeVisible();
+    expect(screen.getByText("Identity verification required")).not.toBeVisible();
+    fireEvent.click(screen.getByText("Activity"));
     expect(screen.getAllByText(/share opened/)).toHaveLength(1);
     expect(screen.getByText(/15 minutes/)).toBeVisible();
     expect(screen.getByText("Identity verification required")).toBeVisible();

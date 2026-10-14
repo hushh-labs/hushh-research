@@ -120,6 +120,7 @@
     font-size: 12px !important;
     line-height: 17px !important;
   }
+  .history .directionActions button { font-size:13px !important; }
 }
 
 /* Keep the introduction compact instead of stretching its two text rows. */
@@ -131,3 +132,7 @@
   .content .hero > p { align-self: start; margin: 0; }
   .content .heroCard { margin: 0; justify-self: end; }
 }
+
+.shareStatus { overflow-wrap: anywhere; }
+.shareActivity > summary { min-height: 44px; padding-block: 13px; cursor: pointer; width: fit-content; }
+.shareActivity > summary:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: 4px; }
