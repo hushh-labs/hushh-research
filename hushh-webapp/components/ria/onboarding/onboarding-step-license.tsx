@@ -60,7 +60,7 @@ export function OnboardingStepLicense({
       >
         {verificationStatus === "verifying" ? (
           <>
-            <Loader2 className="h-5 w-5 animate-spin" />
+            <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
             Verifying...
           </>
         ) : (
@@ -87,7 +87,7 @@ export function OnboardingStepLicense({
         <div className="space-y-3">
           {verificationStatus === "verifying" ? (
             <div className="flex items-center gap-3 rounded-[18px] border border-border/60 bg-card/70 px-4 py-3 backdrop-blur dark:bg-card/45">
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-primary" />
               <p className="text-[15px] text-muted-foreground">
                 Checking regulatory databases...
               </p>
