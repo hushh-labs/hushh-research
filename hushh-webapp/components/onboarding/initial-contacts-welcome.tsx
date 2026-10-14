@@ -20,7 +20,6 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useInitialContacts } from "./initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { useContactInvitationSession } from "@/lib/contacts/use-contact-invitations";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleOverview, OneLocationCircleMember } from "@/lib/one-location/types";
@@ -74,7 +73,6 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   const circleId = snapshot.ownerId === user.uid ? snapshot.circle?.circleId : null;
 
   useEffect(() => {
-    if (!initialContactOnboardingEnabled()) { router.replace(destination); return; }
     void InitialContacts.prepareCircle(vaultOwnerToken);
   }, [vaultOwnerToken, router, destination]);
 

@@ -167,20 +167,23 @@ describe("OnboardingJourneyGuard", () => {
     clearSetupIntent();
   });
 
-  it("routes pending initial welcome before a positive root-setup latch", async () => {
-    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+  it.each(["cached", "cold"])("routes %s pending initial welcome before a positive root-setup latch", async (entry) => {
+    // Old deployment profiles cannot disable a pending new-user welcome.
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "false");
     pathnameValue = "/finance";
     window.history.replaceState(null, "", "/finance?tab=portfolio");
     isPersistentSetupResolvedMock.mockReturnValue(true);
-    getCachedBootstrapStateMock.mockReturnValue({ ...incompleteSetupState(), setupCompleted: true,
-      initialContactsWelcomeAcknowledged: false });
+    const welcomeState = { ...incompleteSetupState(), setupCompleted: true,
+      initialContactsWelcomeAcknowledged: false };
+    getCachedBootstrapStateMock.mockReturnValue(entry === "cached" ? welcomeState : null);
+    bootstrapStateMock.mockResolvedValue(welcomeState);
     render(<OnboardingJourneyGuard><div>finance agent</div></OnboardingJourneyGuard>);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/welcome?return_to=%2Ffinance%3Ftab%3Dportfolio"));
     expect(screen.queryByText("finance agent")).toBeNull();
   });
 
   it.each(["/one/welcome", "/one/welcome/", "/one/welcome/index.html"])("admits welcome alias %s without redirecting it back to setup", async (route) => {
-    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "false");
     pathnameValue = route;
     window.history.replaceState(null, "", route);
     isPersistentSetupResolvedMock.mockReturnValue(true);
@@ -222,10 +225,11 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.queryByText("Checking setup...")).toBeNull();
   });
 
-  it("admits a returning user synchronously from the positive setup latch", async () => {
+  it("checks pending welcome once on cold entry before admitting a returning user", async () => {
     pathnameValue = "/one";
     getCachedBootstrapStateMock.mockReturnValue(null);
     isPersistentSetupResolvedMock.mockReturnValue(true);
+    bootstrapStateMock.mockResolvedValue({ setupCompleted: true, initialContactsWelcomeAcknowledged: null });
 
     render(
       <OnboardingJourneyGuard>
@@ -233,9 +237,9 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    expect(screen.getByText("one home")).toBeTruthy();
+    expect(await screen.findByText("one home")).toBeTruthy();
     expect(screen.queryByText("Checking setup...")).toBeNull();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
   });
 
