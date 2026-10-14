@@ -1104,10 +1104,11 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
-  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
-  # commits as ancestors; it says nothing about whether the PR's content still
-  # HAS what those commits landed. Three ways to lose landed work, three
-  # passes (see scripts/ci/check-merge-fidelity.sh):
+  # Advisory, not required: in block mode Base Freshness Gate proves a PR
+  # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
+  # only a recent, non-overlapping tested merge); it says nothing about
+  # whether the PR's content still HAS what those commits landed. Three ways
+  # to lose landed work, three passes (see scripts/ci/check-merge-fidelity.sh):
   #   A  a conflict resolution that kept the stale side (2026-08-19 incident)
   #   B  a clean revert inside the PR — no conflict, so pass A is blind to it
   #   C  a revert committed straight onto the base tip, which neither A nor B

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # scripts/ci/check-merge-fidelity.sh
 #
-# CI orchestrator for the merge-fidelity checks. The Base Freshness Gate
-# proves a PR CONTAINS main's commits as ancestors. It says nothing about
+# CI orchestrator for the merge-fidelity checks. In block mode (merge queue,
+# integration/pr-train) the Base Freshness Gate proves a PR CONTAINS main's
+# commits as ancestors; on PRs into main it is bounded and only proves the
+# tested merge is recent with no overlapping main changes. Either way it says
+# nothing about
 # whether the PR's content still HAS what those commits landed. Three
 # different ways to lose landed work, three passes:
 #
