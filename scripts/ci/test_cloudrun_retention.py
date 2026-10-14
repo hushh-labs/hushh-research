@@ -1972,7 +1972,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 self.assertEqual(MAINTENANCE.main(), 0)
             self.assertEqual(
                 output.read_text(),
-                "verified_source_run_id=123\ndrain_not_before=13660\n",
+                "verified_source_run_id=123\ndrain_not_before=13660\n"
+                "cleanup_outcome=applied\n",
             )
 
 
@@ -2016,9 +2017,15 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 self.subTest(release=release),
                 tempfile.TemporaryDirectory() as temporary,
             ):
-                state_dir = pathlib.Path(temporary)
+                directory = pathlib.Path(temporary)
+                state_dir = directory / "state"
+                state_dir.mkdir()
+                output = directory / "output"
                 with (
-                    mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "org/repo"}),
+                    mock.patch.dict("os.environ", {
+                        "GITHUB_REPOSITORY": "org/repo",
+                        "GITHUB_OUTPUT": str(output),
+                    }),
                     mock.patch.object(
                         sys,
                         "argv",
@@ -2041,6 +2048,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         restore.assert_called_once()
                     run.assert_not_called()
                     self.assertEqual(list(state_dir.iterdir()), [])
+                    self.assertEqual(output.read_text(), "cleanup_outcome=no_live_source\n")
 
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
