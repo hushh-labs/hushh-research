@@ -13,12 +13,31 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Merged candidate and preparation authority — 2026-10-13
+
+The current candidate incorporates main through `ae85461ceb`, including Rive
+presence, World Model, Wallet and onboarding updates. Phone Chat keeps the
+compact single-row presence/name/activity layout. Chromium and WebKit pass 46
+focused layout cases, including 44-point controls and the previous stacked-header
+negative control. These browser results are not native visual acceptance.
+
+An explicitly compiled `HUSHH_NATIVE_SHELL_QUALIFICATION` candidate retains its
+coherent renderer on normal manual launches. Ordinary Debug and Release builds
+keep their existing admission policy; this is not production qualification or a
+user preference. Native controls are still subject to owner/privacy fencing.
+
+The owner authorized installing this candidate and restarting One once on both
+physical devices, superseding the earlier preserve-session preparation
+restriction below. No sign-out, account reset or backend deletion occurs.
+Subsequent acceptance runs remain attach-only. Historical installed identities
+below do not identify this new candidate; source, executable and runtime receipts
+must be recorded after its build and installation.
+
 ### Profile content handoffs and circular controls — 2026-10-13
 
-Custom-native product controls remain qualification-launch-only; they are not a
-user-facing preference and are not enabled by an ordinary app launch. The native
-bottom navigation remains independently enabled. Preserving both current device
-sessions means this follow-up is built locally, not installed or relaunched.
+At this earlier checkpoint, custom-native controls were qualification-launch-only
+and neither product was updated. The current candidate policy and installation
+authority are described above. Bottom navigation remains independently enabled.
 
 NativeDrawers v1 now negotiates `profileContentHandoff`. Its optional, Profile-only
 `surfaceOpen` field distinguishes the encompassing Profile lifetime from menu
