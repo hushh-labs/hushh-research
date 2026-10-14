@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterator
+from contextvars import ContextVar
+from copy import deepcopy
 import importlib
 import json
 import os
@@ -83,14 +85,32 @@ REQUIRED_PRODUCTION_STEPS = (
 )
 
 
+GITHUB_LOOKUP_SECONDS = 180
+_LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
+_API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
+
+
 def command(*args: str) -> str:
+    timeout = 180.0
+    deadline = _LOOKUP_DEADLINE.get()
+    if args[0] == "gh" and deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            raise retention.UnsafeState("GitHub authority lookup exceeded three minutes")
     return subprocess.run(
-        args, check=True, capture_output=True, text=True, timeout=180
+        args, check=True, capture_output=True, text=True, timeout=timeout
     ).stdout
 
 
 def api(repository: str, endpoint: str):
-    return json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    cache = _API_CACHE.get()
+    key = (repository, endpoint)
+    if cache is not None and key in cache:
+        return deepcopy(cache[key])
+    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    if cache is not None:
+        cache[key] = deepcopy(result)
+    return result
 
 
 def trusted_run(run: dict, repository: str, workflow: str) -> bool:
@@ -179,13 +199,17 @@ def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -
     result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
     jobs = result.get("jobs") or []
     by_job = {job.get("name"): job for job in jobs}
+    historical_jobs = {"Select UAT target", "Deploy UAT Scope"}
+    current_jobs = historical_jobs | {"Wait for UAT capacity outside the mutation lock"}
     if (
-        result.get("total_count") != 2
-        or len(jobs) != 2
-        or len(by_job) != 2
-        or set(by_job) != {"Select UAT target", "Deploy UAT Scope"}
-        or by_job["Select UAT target"].get("status") != "completed"
-        or by_job["Select UAT target"].get("conclusion") != "success"
+        set(by_job) not in (historical_jobs, current_jobs)
+        or result.get("total_count") != len(by_job)
+        or len(jobs) != len(by_job)
+        or any(
+            by_job[name].get("status") != "completed"
+            or by_job[name].get("conclusion") != "success"
+            for name in set(by_job) - {"Deploy UAT Scope"}
+        )
     ):
         raise retention.UnsafeState("UAT deployment job inventory is incomplete")
     job = by_job["Deploy UAT Scope"]
@@ -827,17 +851,20 @@ def restore_state(
 def latest_deploy_observation(repository: str, environment: str) -> int:
     """A completed run triggers inspection, never grants deletion authority."""
     workflow = LANES[environment]["workflow"]
+    workflows = {workflow}
     if environment == "uat":
-        runs = bounded_uat_runs(repository, workflow, "completed")
-        runs += bounded_uat_runs(repository, ONE_CHAT_WORKFLOW, "completed")
-        runs.sort(key=lambda run: int(run["id"]), reverse=True)
-        workflows = {workflow, ONE_CHAT_WORKFLOW}
-    else:
-        runs = api(
+        workflows.add(ONE_CHAT_WORKFLOW)
+    runs = []
+    for name in sorted(workflows):
+        result = api(
             repository,
-            f"workflows/{workflow}/runs?branch=main&status=completed&per_page=50",
-        )["workflow_runs"]
-        workflows = {workflow}
+            f"workflows/{name}/runs?branch=main&status=completed&per_page=50",
+        )
+        batch = result.get("workflow_runs")
+        if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
+            raise retention.UnsafeState("deployment observation inventory is invalid")
+        runs.extend(batch)
+    runs.sort(key=lambda run: int(run["id"]), reverse=True)
     for run in runs:
         if (
             run.get("path") in {f".github/workflows/{name}" for name in workflows}
@@ -1101,6 +1128,16 @@ def release_protection_flags(
 
 
 def main() -> int:
+    deadline = _LOOKUP_DEADLINE.set(time.monotonic() + GITHUB_LOOKUP_SECONDS)
+    cache = _API_CACHE.set({})
+    try:
+        return maintenance_pass()
+    finally:
+        _API_CACHE.reset(cache)
+        _LOOKUP_DEADLINE.reset(deadline)
+
+
+def maintenance_pass() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
@@ -1120,6 +1157,17 @@ def main() -> int:
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
+    if args.verify_source_only and not args.force_inspection and not maintenance_due(
+        repository,
+        args.state_dir,
+        environment=args.environment,
+        release_run_id=int(args.release_run_id) if args.release_run_id else None,
+    ):
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with Path(output).open("a") as stream:
+                stream.write("cleanup_ready=false\n")
+        return 0
     with tempfile.TemporaryDirectory() as temporary:
         found = find_release(
             repository,
@@ -1130,13 +1178,6 @@ def main() -> int:
         )
     if args.verify_source_only:
         ready = found is not None
-        if ready and not args.force_inspection:
-            ready = maintenance_due(
-                repository,
-                args.state_dir,
-                environment=args.environment,
-                release_run_id=found[0] if args.release_run_id else None,
-            )
         output = os.environ.get("GITHUB_OUTPUT")
         if output:
             with Path(output).open("a") as stream:

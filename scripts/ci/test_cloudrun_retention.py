@@ -508,6 +508,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         original_run, original_jobs, original_release = self.uat_hygiene_failure()
         defects = (
             None,
+            "current_three_jobs",
+            "failed_capacity_observer",
             "extra_failed_step",
             "missing_gate",
             "partial_jobs",
@@ -526,7 +528,14 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     (original_run, original_jobs, original_release)
                 )
                 deploy_steps = jobs["jobs"][1]["steps"]
-                if defect == "extra_failed_step":
+                if defect in {"current_three_jobs", "failed_capacity_observer"}:
+                    jobs["total_count"] = 3
+                    jobs["jobs"].append({
+                        "name": "Wait for UAT capacity outside the mutation lock",
+                        "status": "completed",
+                        "conclusion": "failure" if defect == "failed_capacity_observer" else "success",
+                    })
+                elif defect == "extra_failed_step":
                     deploy_steps.append(
                         {
                             "name": "Unexpected release failure",
@@ -585,7 +594,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         ),
                     ),
                 ):
-                    if defect is None:
+                    if defect in {None, "current_three_jobs"}:
                         found = MAINTENANCE.find_release(
                             "org/repo", "204", pathlib.Path(temporary), require_live=False
                         )
@@ -2251,6 +2260,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     mock.patch.object(
                         MAINTENANCE,
                         "find_release",
+                        side_effect=(AssertionError("settled source must skip lineage") if not expected else None),
                         return_value=(19, {"status": "healthy"}),
                     ),
                     mock.patch.object(MAINTENANCE, "restore_state"),
