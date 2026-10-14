@@ -28,7 +28,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -76,7 +76,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
       "nextRoute": "/one",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -261,7 +261,7 @@
     "route": "/circle/join",
     "mode": "hidden",
     "persistentChrome": "none",
-    "exemptionReason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
+    "exemptionReason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow.",
     "voicePlaybook": {
       "playbookId": "route.circle.join",
       "purpose": "Help the person understand and use the circle join screen through its generated controls.",
@@ -292,7 +292,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow."
+      "reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow."
     }
   },
   {
@@ -7371,6 +7371,44 @@
           }
         }
       ]
+    }
+  },
+  {
+    "route": "/world-model/invite",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "exemptionReason": "Public invitation preview preserves its token through authentication and vault setup.",
+    "voicePlaybook": {
+      "playbookId": "route.world_model.invite",
+      "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+      "screen": "app",
+      "entryCue": "Review your starting profile, then continue when ready.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+      "nextRoute": "/one/profile/world-model",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/world-model/invite",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow."
     }
   }
 ]

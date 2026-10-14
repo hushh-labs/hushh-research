@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 336,
+  "expected_migration_version": 337,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -77,7 +77,8 @@
     "notify_feed_changed",
     "stamp_drive_owner_payout_held_at",
     "invalidate_drive_collection_sync",
-    "invalidate_drive_packet_sources"
+    "invalidate_drive_packet_sources",
+    "pwm_completion_feed_projection"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2182,12 +2183,37 @@
       "created_at",
       "expires_at",
       "claimed_at",
-      "consent_version"
+      "consent_version",
+      "preview_envelope",
+      "preview_version",
+      "recipient_draft_id"
+    ],
+    "pwm_completion_events": [
+      "user_id",
+      "draft_id",
+      "generation",
+      "outcome",
+      "email_state",
+      "email_attempts",
+      "lease_id",
+      "lease_expires_at",
+      "next_attempt_at",
+      "created_at"
     ],
     "pwm_provider_budget": [
       "provider",
       "month",
       "credits"
+    ],
+    "pwm_research_preferences": [
+      "user_id",
+      "enabled",
+      "email_enabled",
+      "consent_version",
+      "generation",
+      "auto_started_at",
+      "active_draft_id",
+      "updated_at"
     ],
     "relationship_share_events": [
       "id",

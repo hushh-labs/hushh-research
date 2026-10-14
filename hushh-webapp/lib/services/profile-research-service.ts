@@ -195,6 +195,7 @@ function waitForPoll(signal: AbortSignal, milliseconds: number): Promise<void> {
 }
 
 export type ProfileReport = z.infer<typeof report>;
+export const profileReportSchema = report;
 export type ProfileResearchResult = z.infer<typeof response>;
 export const PROFILE_SECTION_LABELS = {
   business: "Business",
@@ -224,12 +225,13 @@ export const ProfileResearchService = {
     vaultKey: string;
     vaultOwnerToken: string;
     draftId?: string;
+    sourceReview?: boolean;
   }): Promise<void> {
     z.object({ discarded: z.literal(true) })
       .strict()
       .parse(
         await apiJson(
-          `/api/one/world-model/jobs${input.draftId ? `?draft_id=${encodeURIComponent(input.draftId)}` : ""}`,
+          `/api/one/world-model/${input.sourceReview ? "source-reviews" : "jobs"}${input.draftId ? `?draft_id=${encodeURIComponent(input.draftId)}` : ""}`,
           {
             method: "DELETE",
             cache: "no-store",
@@ -248,11 +250,14 @@ export const ProfileResearchService = {
     commits: { domain: string; planId: string }[];
     worldModel?: boolean;
     draftId?: string;
+    sourceReview?: boolean;
   }): Promise<void> {
     const result = await apiJson<unknown>(
-      input.worldModel
-        ? "/api/one/world-model/complete"
-        : "/api/one/profile-research/complete",
+      input.sourceReview
+        ? "/api/one/world-model/source-reviews/complete"
+        : input.worldModel
+          ? "/api/one/world-model/complete"
+          : "/api/one/profile-research/complete",
       {
         method: "POST",
         cache: "no-store",
@@ -262,7 +267,9 @@ export const ProfileResearchService = {
           ...(await oneChatKeyHeaders(input.vaultKey)),
         },
         body: JSON.stringify({
-          ...(input.worldModel ? { draft_id: input.draftId } : {}),
+          ...(input.worldModel || input.sourceReview
+            ? { draft_id: input.draftId }
+            : {}),
           commits: input.commits.map(({ domain, planId }) => ({
             domain,
             plan_id: planId,
@@ -345,3 +352,5 @@ export const ProfileResearchService = {
     }
   },
 };
+
+export const profileResearchResultSchema = response;

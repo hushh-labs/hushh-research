@@ -231,6 +231,7 @@ export const ROUTES = {
    * outside the app, like LOGIN — the destination is the reason the person
    * opened the app at all, so it must render before setup is checked.
    */
+  WORLD_MODEL_INVITE: "/world-model/invite",
   CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
@@ -842,7 +843,7 @@ const WALLET_CARD_PUBLIC_PREFIX = "/c";
 export function isInvitationPreviewRoute(pathname: string): boolean {
   const path = normalizeStaticExportPathname(pathname);
   return (
-    path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
+    path === ROUTES.WORLD_MODEL_INVITE || path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
   );
 }
 

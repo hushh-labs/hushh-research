@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-10",
-  "total_routes": 132,
-  "native_required_routes": 110,
+  "total_routes": 133,
+  "native_required_routes": 111,
   "excluded_routes": 22,
   "routes": [
     {
@@ -1541,6 +1541,20 @@
         "empty-valid",
         "unavailable-valid"
       ]
+    },
+    {
+      "route": "/world-model/invite",
+      "classification": "native-required-functional",
+      "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedMarker": "native-route-pwm-invite",
+      "expectedRoute": "/world-model/invite",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ],
+      "reason": "Public PWM preview and verified-recipient handoff."
     }
   ]
 }

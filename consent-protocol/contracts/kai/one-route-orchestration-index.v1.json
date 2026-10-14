@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1432,7 +1432,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7236,6 +7236,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/world-model/invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.world_model.invite",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.world_model.invite",
+        "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+        "screen": "app",
+        "entry_cue": "Review your starting profile, then continue when ready.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+        "next_route": "/one/profile/world-model",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pwm-invite"
     }
   ]
 }

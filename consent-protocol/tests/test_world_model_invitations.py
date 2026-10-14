@@ -138,6 +138,11 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         migration = (ROOT / "db/migrations/336_pwm_claim_invitations.sql").read_text()
         await pool.execute(migration)
         await pool.execute(migration)
+        await pool.execute("""CREATE TABLE feed_events(id bigserial PRIMARY KEY,user_id text,source_domain text,event_type text,source_row_id text,metadata jsonb,read_at timestamptz,dismissed_at timestamptz,dismissal_token text);
+            CREATE UNIQUE INDEX uq_feed_events_source_projection ON feed_events(user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL;""")
+        lifecycle = (ROOT / "db/migrations/337_pwm_research_lifecycle.sql").read_text()
+        await pool.execute(lifecycle)
+        await pool.execute(lifecycle)
         import asyncio
 
         invitation = await asyncio.wait_for(
@@ -150,9 +155,13 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         result = await asyncio.wait_for(
             invites.claim("recipient", "fixture", invitation["token"]), 2
         )
-        assert result == {"claimed": True, "sharing_granted": False, "research_started": False}
-        with pytest.raises(ValueError):
-            await invites.claim("recipient", "fixture", invitation["token"])
+        assert result == {
+            "claimed": True,
+            "sharing_granted": False,
+            "research_started": False,
+            "draft_id": None,
+        }
+        assert await invites.claim("recipient", "fixture", invitation["token"]) == result
         second = await invites.create("inviter", "fixture", "recipient@example.test")
         await invites.revoke("inviter", "fixture", UUID(second["id"]))
         with pytest.raises(ValueError):
@@ -166,18 +175,58 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute("UPDATE vault_keys SET setup_completed=false WHERE user_id='inviter'")
         with pytest.raises(PermissionError):
             await invites.create("inviter", "fixture", "recipient@example.test")
+        from uuid import uuid4
+
+        from hushh_mcp.services.world_model_preferences import checkpoint_committed
+
+        generation, draft_id = uuid4(), uuid4()
+        await pool.execute(
+            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation) VALUES ('recipient',true,true,$1)",
+            generation,
+        )
+        state = {
+            "job_id": str(draft_id),
+            "consent_generation": str(generation),
+            "status": "unavailable",
+            "result": {},
+        }
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        await pool.execute(
+            "UPDATE feed_events SET read_at=NOW(),dismissed_at=NOW(),dismissal_token='synthetic-dismissal' WHERE source_domain='pwm'"
+        )
+        state.update(status="offered", result={"report": {"match_status": "matched"}})
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+            await checkpoint_committed(conn, "recipient", state)
+        assert (
+            await pool.fetchval("SELECT count(*) FROM feed_events WHERE source_domain='pwm'") == 1
+        )
+        row = await pool.fetchrow(
+            "SELECT read_at,dismissed_at,dismissal_token,metadata->>'pwm_outcome' AS outcome FROM feed_events WHERE source_domain='pwm'"
+        )
+        assert (
+            row["read_at"]
+            and row["dismissed_at"]
+            and row["dismissal_token"] == "synthetic-dismissal"
+            and row["outcome"] == "ready"
+        )
+        assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "pending"
+        await pool.execute("UPDATE pwm_completion_events SET email_state='accepted'")
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "accepted"
+        await pool.execute("DELETE FROM pwm_research_preferences WHERE user_id='recipient'")
+        async with pool.acquire() as conn, conn.transaction():
+            with pytest.raises(PermissionError):
+                await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval("SELECT count(*) FROM pwm_completion_events") == 0
+        await pool.execute(
+            (ROOT / "db/migrations/rollback/337_pwm_research_lifecycle.rollback.sql").read_text()
+        )
         await pool.execute(
             (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()
         )
-        await pool.execute((ROOT / "db/migrations/335_pwm_provider_budget.sql").read_text())
-        from hushh_mcp.one_adk import world_model
 
-        monkeypatch.setattr("db.connection.get_pool", AsyncMock(return_value=pool))
-        assert await world_model.charge_search_credit() is True
-        await pool.execute("UPDATE pwm_provider_budget SET credits=900")
-        assert await world_model.charge_search_credit() is False
-        await pool.execute(
-            (ROOT / "db/migrations/rollback/335_pwm_provider_budget.rollback.sql").read_text()
-        )
     finally:
         await pool.close()
