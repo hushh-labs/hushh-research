@@ -78,6 +78,8 @@ BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
+    "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
+    "hussh_shared_files_bucket": "HUSSH_SHARED_FILES_BUCKET",
     "pwm_tavily_api_key": "PWM_TAVILY_API_KEY",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",

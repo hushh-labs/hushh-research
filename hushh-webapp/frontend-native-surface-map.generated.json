@@ -6603,7 +6603,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.gemini",
-          "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+          "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8320,9 +8320,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.connections",
-          "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
+          "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+          "entry_cue": "Use the verified cloud connection, or validate a supported owner key.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -10737,5 +10737,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0d3547007e3bac9c5e2a49e1b3115940480aeb9b51c91905a4b70731fbb402cb"
+  "content_sha256": "14d4cc842f8deaa79292577c4c02df23cb02cf4207d4aa0ff993f2890b07debb"
 }

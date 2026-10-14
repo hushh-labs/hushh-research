@@ -681,8 +681,19 @@ def main() -> int:
 
     sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
+    config = _build_backend_runtime_config(args)
+    retained_files_config = {}
+    if args.environment == "dev":
+        raw_config = _read_secret(args.project, "BACKEND_RUNTIME_CONFIG_JSON")
+        if raw_config:
+            retained_files_config = json.loads(raw_config)
+            if not isinstance(retained_files_config, dict):
+                raise ValueError("Existing runtime configuration must be an object")
+    config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
+        "apply_policy"
+    ](config, retained_files_config)
     backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
-        args, _build_backend_runtime_config(args)
+        args, config
     )
     if candidate_runtime_config is None:
         _upsert_secret(

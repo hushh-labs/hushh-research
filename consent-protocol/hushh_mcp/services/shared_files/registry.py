@@ -133,8 +133,17 @@ async def release(owner: str, library_id: str, lease_id: str) -> None:
 
 
 async def reserve_write(
-    owner: str, library_id: str, lease_id: str, *, path: str, digest: str, expected_generation: str
+    owner: str,
+    library_id: str,
+    lease_id: str,
+    *,
+    path: str,
+    digest: str,
+    expected_generation: str,
+    byte_count: int | None = None,
 ) -> str:
+    if byte_count is not None and not 28 <= byte_count <= 4 * 1024 * 1024 + 128 * 1024:
+        raise FilesRefused("FILES_OBJECT_INVALID", 400)
     pool = await get_pool()
     operation = uuid4().hex
     result = await pool.fetchrow(
@@ -155,7 +164,8 @@ async def reserve_write(
                 "digest": digest,
                 "expectedGeneration": expected_generation,
                 "startedAt": time.time(),
-                "state": "inflight",
+                "state": "reserved" if byte_count is not None else "inflight",
+                **({"protocol": 2, "byteCount": byte_count} if byte_count is not None else {}),
             }
         ),
     )
@@ -171,14 +181,14 @@ async def settle_write(
     if uncertain:
         await pool.execute(
             """UPDATE shared_files_storage SET writes=jsonb_set(writes,ARRAY[$3::text,'state'],'\"uncertain\"'::jsonb),updated_at=now()
-               WHERE user_id=$1 AND library_id=$2::uuid AND writes ? $3""",
+               WHERE user_id=$1 AND library_id=$2::uuid AND writes ? $3 AND writes->$3->>'protocol' IS DISTINCT FROM '2'""",
             owner,
             _epoch(library_id),
             operation,
         )
     else:
         await pool.execute(
-            "UPDATE shared_files_storage SET writes=writes-$3::text,updated_at=now() WHERE user_id=$1 AND library_id=$2::uuid",
+            "UPDATE shared_files_storage SET writes=writes-$3::text,updated_at=now() WHERE user_id=$1 AND library_id=$2::uuid AND writes->$3->>'protocol' IS DISTINCT FROM '2'",
             owner,
             _epoch(library_id),
             operation,

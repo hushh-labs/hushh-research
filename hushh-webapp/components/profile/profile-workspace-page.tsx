@@ -107,7 +107,7 @@ import {
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { Brain } from "@/components/icons";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
@@ -3636,9 +3636,9 @@ function ProfilePageContent({
       {appearanceControls}
       <SettingsGroup>
         <SettingsRow
-          leading={<GeminiLogo className="h-8 w-8" />}
-          title="Gemini"
-          description="Hussh's AI, or bring your own key."
+          leading={<Brain className="h-8 w-8" />}
+          title="AI connection"
+          description="Cloud connection or your own key."
           chevron
           onClick={() =>
             updateProfileView(
@@ -4365,8 +4365,8 @@ function ProfilePageContent({
     } else if (activeDetail === "gemini") {
       profileStackEntries.push({
         key: "detail:gemini",
-        title: "Gemini",
-        description: "Gemini access.",
+        title: "AI connection",
+        description: "Choose your AI connection.",
         content: (
           <GeminiRuntimeSettingsCard
             userId={user.uid}

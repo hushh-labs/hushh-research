@@ -17413,7 +17413,7 @@
         "gemini",
         "runtime"
       ],
-      "meaning": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "meaning": "Keeps the person's selected AI connection and returns to the One setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17425,7 +17425,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A Gemini runtime has been explicitly selected and saved."
+          "A supported AI connection has been explicitly selected and saved."
         ],
         "active_personas": [
           "investor",
@@ -17451,7 +17451,7 @@
         "one-setup-connections-terminal"
       ],
       "state_exposure": [
-        "Gemini runtime selection state"
+        "AI connection selection state"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -27759,7 +27759,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "meaning": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

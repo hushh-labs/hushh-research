@@ -10,6 +10,7 @@ from typing import Any
 from hushh_mcp.services.pod_commit_log import GcsObjectStore
 
 from . import bucket_admission, registry
+from .uploads import SharedCipherStore
 
 
 async def reconcile(row: dict[str, Any], *, maximum: int = 4) -> None:
@@ -19,13 +20,25 @@ async def reconcile(row: dict[str, Any], *, maximum: int = 4) -> None:
         return
     store = GcsObjectStore(row["bucket"], row["prefix"] + "/" + str(row["library_id"]))
     bucket_admission.verify(row, await bucket_admission.observe(store, row["bucket"]))
-    for operation, receipt in [
+    eligible = [
         (op, value)
         for op, value in writes.items()
-        if isinstance(value, dict) and value.get("state") == "uncertain"
-    ][:maximum]:
+        if isinstance(value, dict)
+        and (value.get("protocol") == 2 or value.get("state") == "uncertain")
+    ]
+    for operation, receipt in eligible[:maximum]:
         path = receipt.get("path", "")
         if not re.fullmatch(r"[a-f0-9]{64}/[a-f0-9]{64}", path):
+            continue
+        if receipt.get("protocol") == 2:
+            from .writes import reconcile as reconcile_session  # noqa: PLC0415
+
+            await reconcile_session(
+                SharedCipherStore(row["bucket"], row["prefix"] + "/" + str(row["library_id"])),
+                row,
+                operation,
+                receipt,
+            )
             continue
         data, version = await store.get_bounded_with_generation(
             path, max_bytes=4 * 1024 * 1024 + 128 * 1024

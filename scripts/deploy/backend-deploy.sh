@@ -228,6 +228,12 @@ fi
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
+# Bind the qualified ciphertext pilot only on the new dev revision. Changing
+# canonical :latest before rollout could enable an older one-shot writer.
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  append_optional_secret "HUSSH_SHARED_FILES_ENABLED" "HUSSH_SHARED_FILES_ENABLED"
+  append_optional_secret "HUSSH_SHARED_FILES_BUCKET" "HUSSH_SHARED_FILES_BUCKET"
+fi
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID"
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
 append_optional_secret "${_GMAIL_OAUTH_REDIRECT_URI_SECRET}" "GMAIL_OAUTH_REDIRECT_URI"

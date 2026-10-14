@@ -21,9 +21,9 @@ from fastapi.responses import JSONResponse
 
 from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_owner
 from hushh_mcp.services.pod_files.contracts import FilesRefused
-from hushh_mcp.services.pod_files.storage import FilesGcsStore
 from hushh_mcp.services.pod_object_version import decimal_generation
-from hushh_mcp.services.shared_files import bucket_admission, registry
+from hushh_mcp.services.shared_files import bucket_admission, registry, writes
+from hushh_mcp.services.shared_files.uploads import SharedCipherStore
 
 router = APIRouter(prefix="/api/one/files", tags=["Files ciphertext"])
 MAX_CIPHERTEXT_BYTES = 4 * 1024 * 1024 + 128 * 1024
@@ -39,10 +39,6 @@ def _identifier(value: str) -> str:
     if not _OPAQUE.fullmatch(value):
         raise _refuse("FILES_OBJECT_INVALID", 400)
     return value
-
-
-class SharedCipherStore(FilesGcsStore):
-    """Ciphertext-only owner prefix; no private-library decryption runtime."""
 
 
 @lru_cache(maxsize=128)
@@ -208,36 +204,18 @@ async def write_object(
     await _security(store, row)
     await _fresh_owner(request, token["user_id"])
     await _active(token["user_id"], str(row["library_id"]))
-    import hashlib  # noqa: PLC0415
-
     path = _identifier(namespace) + "/" + _identifier(object_id)
     lease = request.headers.get("x-files-mutation-lease", "")
+
+    async def check() -> None:
+        await _security(store, row)
+        await _fresh_owner(request, token["user_id"])
+        await _active(token["user_id"], str(row["library_id"]))
+
     try:
-        operation = await registry.reserve_write(
-            token["user_id"],
-            str(row["library_id"]),
-            lease,
-            path=path,
-            digest=hashlib.sha256(data).hexdigest(),
-            expected_generation=generation,
-        )
+        written = await writes.write(store, row, lease, path, data, generation, check)
     except FilesRefused as exc:
         raise _refuse(exc.code, exc.status) from None
-    try:
-        written = await store.put_if_generation(path, data, generation)
-        await _security(store, row)
-    except BaseException:
-        # Keep the durable permit when cancellation/network loss leaves a cloud
-        # outcome unknown. Erasure never interprets an elapsed lease as absence.
-        await asyncio.shield(
-            registry.settle_write(
-                token["user_id"], str(row["library_id"]), operation, uncertain=True
-            )
-        )
-        raise
-    await registry.settle_write(token["user_id"], str(row["library_id"]), operation)
-    if written is None:
-        raise _refuse("FILES_REVISION_CONFLICT")
     await _fresh_owner(request, token["user_id"])
     await _active(token["user_id"], str(row["library_id"]))
     return _response({"generation": written})

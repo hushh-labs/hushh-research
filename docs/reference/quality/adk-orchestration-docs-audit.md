@@ -9,7 +9,7 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 ## Decision — 2026-10-14 UTC
 
 **Hold the application merge and production BYOC rollout.** The hub and frontend
-currently serve `7dffd92928`; the personal Azure pod completed its Dev 19
+currently serve verified `5c2d1483aa`; the personal Azure pod completed its Dev 19
 Settings-approved installation. Recovery,
 installed digest, unchanged hosting, post-update Puppy streaming/Stop and
 byte-exact interrupted Files transfer passed. Dev 19's active-at-handoff overlap
@@ -21,29 +21,32 @@ Existing owners retain their resources and selected configuration.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**2026-10-14; unserved source pilot.** Frozen ADK `3501811eb6b` and browser/scheduling work are preserved. Exact candidate `810733d7fc` passed the local core in 647 seconds and every required hosted lane in [run 38552254645](https://github.com/hushh-labs/hushh-research/actions/runs/38552254645). Governed [dev run 38554694721](https://github.com/hushh-labs/hushh-research/actions/runs/38554694721) failed before traffic promotion: the frontend upload filter omitted its native-Google configuration helper. The original failed receipt is retained. The corrected filter passes the nearest 101 cases; both original frontend negative controls fail. The published peer union `bd3e866dbd` is preserved and independently reviewed. The final union requires its own exact-SHA validation and governed retry. ADC readback confirms the prior backend `00170-s9x` and frontend `00145-pzd` still receive 100% traffic; no owner-pod installation occurred. Published migration checksums remain unchanged.
+**2026-10-14; application deployed, Shared Files activation pending.** Exact `5c2d1483aa` passed the core mirror (615 s), [full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251). Verified ADC readback confirms backend `00172-7q4` and frontend `00146-l8q`, both 100% traffic; schema guard reports zero violations. The original failed helper-upload deployment remains retained. Frozen ADK `3501811eb6b` and concurrent root work are preserved. Owner pods retain their separately verified installed images.
+
+The local continuation corrects outer AI Settings labels and adds encrypted resumable-upload receipts, exact SQL recovery ownership and staged dev configuration. The nearest 110 storage/runtime cases, type checks, UI contracts and provider-label checks pass. Real GCS proved completion, cancellation and three finalize/cancel races; its disposable bucket was removed. Actual workload qualification and the final candidate's core/hosted/deployment receipts remain separate gates.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |
 | Provider-aware AI | Placement-aware Shared Gemini, owner GCP Vertex and Azure identity defaults; sealed private Azure keys use strict hosts, public DNS pinning and no proxies/redirects. Working connections survive failed validation; returning to a default requires a verified receipt. One AI step follows Hosting | Source checks pass; live custom-key/default responses require the new release |
-| Shared Files | Browser encryption, bounded ciphertext transfers, immutable revisions, owner/vault fencing and reversible explorer operations. SQL records the bucket incarnation before its first write and rejects legacy adoption, replacement and uncertain cleanup | Disabled; dev migration 959. Isolated GCS proved encrypted bytes, CAS, bounded reads and incarnation-bound prefix erasure; the synthetic bucket was removed. Workload IAM and live owner API acceptance remain required |
+| Shared Files | Browser encryption, bounded ciphertext transfers, immutable revisions, owner/vault fencing and reversible explorer operations. SQL records the bucket incarnation before its first write and rejects legacy adoption, replacement and uncertain cleanup | Dev migration 959; activation remains off. Isolated GCS proves bytes, conditional writes, resumable terminal states and bounded cleanup. Workload IAM and live owner API acceptance remain required |
 | Selected analysis | Existing authored Files specialist receives a selected bounded projection only; sibling folder labels are excluded in both browser payload and server schema; browser checks consent, exclusions, revision and job state before applying reversible proposals under a lease | Local authority cases pass; live foreground provider acceptance is unverified. No background decryption grant |
 | Managed Hussh Pods | Project shards selected; capacity/cost worksheet and per-pod custody requirements recorded. Verified dev quota reads show service-account admission is tighter than service/queue slots; reservations must not double-count observed resources. Consumption, KMS isolation, transactional admission and cleanup remain unqualified. Backend creation refuses even if deployment flags are present | No provisioning offer or qualified shard yet |
 | Transfers / continuation | Shared library enrollment and placement writes share transactional admission; active/unresolved libraries refuse unqualified cloud cutover even with Files disabled. Existing browser and Files-only scheduling commits remain preserved; private execution gates remain closed | Shared-to-pod, reverse and cross-cloud Files transfer remain unavailable pending destination/readability and cleanup evidence |
 
 Cloud-default verification uses the same authorized model modes as chat; fleet configuration alone cannot discard an owner key.
 
-Unknown create-only provider writes and crashed inflight writers deliberately retain
-cleanup fences. An independent provider-completion/absence reconciliation procedure
-must be qualified before enabling Shared Files; elapsed lease time cannot prove
-those requests are gone. Local fixtures are not owner-cloud acceptance.
+Legacy unknown one-shot writes remain fenced. New source uses encrypted resumable
+session receipts and conditional recovery; elapsed lease time alone never clears a
+provider write. The live GCS race exposed cancellation after exact bytes landed;
+recovery now checks that terminal outcome explicitly. Local fixtures and admin
+probes do not establish owner-cloud acceptance.
 
 ## Source and serving evidence
 
 | Surface | Verified evidence | Limit |
 | --- | --- | --- |
 | Frozen implementation | Dev 19 metadata `49074b1f72a1` serves the exact qualified `e04b76c61433` executable image. Frozen integration `22c7d3cac422` includes main `1d691714135e` and local ADK `63b4b60aac89`. Local browser/scheduling implementation `5a02603976ff`, integration repairs `ce4bdfb7ef` and final fixture/UI repair `cf3a2e9737` are committed; command/MCP restart recovery has local evidence | Concurrent root/ADK/PDF edits are preserved. Candidate changes are not installed on owner pods. |
-| Current hub/frontend preflight — Oct 13 | Approved admin ADC verified exact `7dffd92928` on backend `00170-s9x` and frontend `00145-pzd`, both 100% traffic; governed [run 38499266500](https://github.com/hushh-labs/hushh-research/actions/runs/38499266500) succeeded | This is the concurrent branch deployment; the AI/Shared Files candidate is not serving. Existing Dev 19 pod installation evidence remains separate. |
+| Current hub/frontend — Oct 14 | Verified ADC readback: `5c2d1483aa`, backend `00172-7q4`, frontend `00146-l8q`, 100% traffic; governed [run 38563449251](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251) healthy | Shared Files is not enabled yet; new local upload/label corrections are unserved. Owner Dev 19 evidence remains separate. |
 | Exact-SHA CI | [Run 38324970426](https://github.com/hushh-labs/hushh-research/actions/runs/38324970426) passed for exact Dev 19 `49074b1f72a1`; [runtime run 38319211087](https://github.com/hushh-labs/hushh-research/actions/runs/38319211087) passed for `e04b76c61433` | Failed receipts remain. The next executable candidate requires its own core mirror and exact-SHA hosted CI. |
 | Local verification | Exact `e04b76c61433` canonical core passed in 687.9 s, including 18,113 backend and 860 isolated PostgreSQL cases, web-core, MCP, integration and PKM | Local and disposable-fixture evidence is not personal-owner acceptance. |
 | Browser/scheduling local verification — Oct 13 | Frozen `ce4bdfb7ef` passed 18,614 non-DB backend cases. Its retained core failure exposed one Shared fixture dependency and three lint issues, repaired in `cf3a2e9737`: 179 affected PostgreSQL/authority cases, 73 UI cases, regenerated UI contracts, web-core production build, MCP verification, integration (388 PKM cases) and unchanged architecture ratchet pass | Stage-specific recovery evidence, not an exact-SHA green canonical core or hosted run. Root integration is concurrently in progress; reconcile before the final release freeze. No new browser/scheduling source serves. |

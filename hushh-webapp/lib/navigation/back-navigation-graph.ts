@@ -198,7 +198,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail === "sharing") return "Sharing";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Finance preferences";
-  if (detail === "gemini") return "Gemini";
+  if (detail === "gemini") return "AI connection";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
@@ -268,7 +268,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: ROUTES.CONNECT,
         width: "content",
         align: "center",
-        items: [{ label: "Connect", href: ROUTES.CONNECT }, { label: "Gemini" }],
+        items: [{ label: "Connect", href: ROUTES.CONNECT }, { label: "AI connection" }],
       };
     },
   },

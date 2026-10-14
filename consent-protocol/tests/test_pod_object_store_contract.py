@@ -61,6 +61,80 @@ async def test_absence_is_the_absent_version(store):
     assert await store.get("head.json") is None
 
 
+@pytest.mark.parametrize(
+    "outcome", ["complete", "incomplete", "cancel_completed", "expired", "lost_cancel"]
+)
+async def test_shared_resumable_recovery_requires_provider_terminal_proof(monkeypatch, outcome):
+    import hashlib
+    import uuid
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.shared_files import bucket_admission, write_receipts, writes
+
+    body = b"synthetic-encrypted-file-content"
+    receipt = {
+        "protocol": 2,
+        "state": "uncertain",
+        "path": "a" * 64 + "/" + "b" * 64,
+        "digest": hashlib.sha256(body).hexdigest(),
+        "byteCount": len(body),
+        "expectedGeneration": "",
+        "session": {"ciphertext": "sealed"},
+    }
+    row = {"user_id": "alice", "library_id": str(uuid.uuid4()), "bucket": "synthetic-files"}
+    transitions = AsyncMock(return_value=True)
+    monkeypatch.setattr(write_receipts, "transition", transitions)
+    monkeypatch.setattr(write_receipts, "restore", lambda *args: "private-session-memory-only")
+    monkeypatch.setattr(bucket_admission, "observe", AsyncMock(return_value={}))
+    monkeypatch.setattr(bucket_admission, "verify", lambda *args: None)
+    store = type("Store", (), {})()
+    store.status = AsyncMock(
+        return_value="uncertain"
+        if outcome == "expired"
+        else "complete"
+        if outcome == "complete"
+        else "incomplete"
+    )
+    store.cancel = AsyncMock(return_value=True)
+    if outcome == "lost_cancel":
+        store.cancel.side_effect = TimeoutError("synthetic lost response")
+    store.get_bounded_with_generation = AsyncMock(
+        return_value=(body, "3") if outcome in {"complete", "cancel_completed"} else (None, "")
+    )
+    if outcome == "lost_cancel":
+        with pytest.raises(TimeoutError):
+            await writes.reconcile(store, row, "operation", receipt)
+    else:
+        await writes.reconcile(store, row, "operation", receipt)
+    terminal = [call for call in transitions.await_args_list if call.args[3] is None]
+    assert bool(terminal) == (outcome in {"complete", "incomplete", "cancel_completed"})
+    if outcome == "expired":
+        store.cancel.assert_not_awaited()
+        store.get_bounded_with_generation.assert_not_awaited()
+    assert transitions.await_args_list[-1].args[3]["state"] == "uncertain"
+
+
+@pytest.mark.parametrize(
+    "bad_uri",
+    [
+        "http://storage.googleapis.com/upload/storage/v1/b/synthetic-files/o?uploadType=resumable&upload_id=x",
+        "https://metadata.google.internal/upload/storage/v1/b/synthetic-files/o?uploadType=resumable&upload_id=x",
+        "https://storage.googleapis.com/upload/storage/v1/b/other-owner/o?uploadType=resumable&upload_id=x",
+    ],
+)
+async def test_shared_upload_refuses_unbound_session_destination_without_request(bad_uri):
+    from hushh_mcp.services.pod_files.contracts import FilesRefused
+    from hushh_mcp.services.shared_files.uploads import SharedCipherStore
+
+    class Transport:
+        def put(self, *args, **kwargs):
+            raise AssertionError("An unbound destination must never receive a request")
+
+    store = SharedCipherStore("synthetic-files", "owner/library", session=Transport())
+    with pytest.raises(FilesRefused, match="FILES_UPLOAD_SESSION_INVALID"):
+        await store.send(bad_uri, "opaque", b"K" * 28)
+
+
 async def test_bounded_snapshot_keeps_version_and_refuses_oversize(store):
     from hushh_mcp.services.pod_bounded_object import ObjectReadTooLarge
 

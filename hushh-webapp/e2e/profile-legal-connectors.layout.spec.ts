@@ -193,6 +193,11 @@ test("Profile chrome and Preferences keep their grid while the panel follows a p
   }, measured.settledRight);
   expect(afterCancellation.inlineTransform).toBe("");
   expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
+  await preferences.getByRole("button", { name: "AI connection", exact: false }).click({ timeout: 5_000 });
+  await expect.poll(() => query(page).get("profile_detail")).toBe("gemini");
+  await page.getByRole("button", { name: "Back in Profile", exact: true }).click();
+  await expect.poll(() => query(page).get("profile_detail")).toBeNull();
+  await expect(preferences).toBeVisible();
 });
 
 test("Accent stays coherent through repeated selection and Profile close/reopen", async ({ page }) => {

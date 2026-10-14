@@ -458,3 +458,30 @@ def test_dev_bank_defaults_preserve_other_lanes_and_explicit_bindings(deploy_env
         else values
     )
     assert result.stdout.splitlines() == list(expected)
+
+
+@pytest.mark.parametrize("deploy_env", ["dev", "uat", "production"])
+def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisions(deploy_env):
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("# Bind the qualified ciphertext pilot")
+    end = script.index('append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}"', start)
+    result = subprocess.run(  # noqa: S603 - reviewed repository shell block, synthetic environment only
+        [
+            "bash",
+            "-eu",
+            "-c",
+            'append_optional_secret() { printf "%s=%s\\n" "$2" "$1"; }\n' + script[start:end],
+        ],
+        env={"_DEPLOY_ENV": deploy_env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == (
+        [
+            "HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED",
+            "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
+        ]
+        if deploy_env == "dev"
+        else []
+    )

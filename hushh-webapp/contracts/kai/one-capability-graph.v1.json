@@ -20660,7 +20660,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "description": "Keeps the person's selected AI connection and returns to the One setup hub.",
       "execution": {
         "binding_ref": "semantic_action:setup.finish_connections",
         "executor": {
@@ -34533,7 +34533,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "description": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "execution": {
         "binding_ref": "route:/one/setup/connections",
         "executor": {
@@ -40965,7 +40965,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "861c0038a843238e0d53b11e54c146982415e5d78cb6ea1ea08ef923165641d3",
+      "projection_digest": "569c7a12afee559c09e44db60f97b78f5b60b7f2d0bff9c121be6602394c9517",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40975,7 +40975,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b5c5b1acf521eb62f5cc8aedfb8b0703a3f8a9f2934386962f3151dae49e8b18",
+        "capability_graph_evolution": "c9b811e012030d176f15692788b9577b63d295f015fd365056c43fd08af736ce",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -40984,7 +40984,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "86a81ce5c2ff6a00",
+      "source_revision": "7dd629da33ebfc6c",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -42502,7 +42502,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "86a81ce5c2ff6a00",
+    "source_revision": "7dd629da33ebfc6c",
     "web": {
       "actions": [
         {
@@ -42545,7 +42545,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "076e2ce1c84f29a5650b4afdf941e83dfb25532b516f618008c93c4a55724772",
+      "projection_digest": "e8e525fa884e297968112a5ab6f43c8c6f90320853c6b5694ad32ba0716ea69f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42555,7 +42555,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b5c5b1acf521eb62f5cc8aedfb8b0703a3f8a9f2934386962f3151dae49e8b18",
+        "capability_graph_evolution": "c9b811e012030d176f15692788b9577b63d295f015fd365056c43fd08af736ce",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -42564,7 +42564,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "86a81ce5c2ff6a00",
+      "source_revision": "7dd629da33ebfc6c",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -44121,7 +44121,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "86a81ce5c2ff6a00",
+  "revision": "7dd629da33ebfc6c",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46047,13 +46047,20 @@
     "breaking": [],
     "changed": [
       "actions:route.profile_payouts",
+      "actions:setup.finish_connections",
+      "actions:setup.open_connections",
       "screens:screen:/one",
-      "screens:screen:/one/setup"
+      "screens:screen:/one/setup",
+      "workflows:workflow.setup.connections"
     ],
     "compatible": [
       "actions:route.profile_payouts"
     ],
-    "deprecated": [],
+    "deprecated": [
+      "actions:setup.finish_connections",
+      "actions:setup.open_connections",
+      "workflows:workflow.setup.connections"
+    ],
     "from_revision": "ec4de76bb707c51c",
     "migrated": [],
     "removed": []
@@ -48344,21 +48351,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "b5c5b1acf521eb62f5cc8aedfb8b0703a3f8a9f2934386962f3151dae49e8b18",
+    "capability_graph_evolution": "c9b811e012030d176f15692788b9577b63d295f015fd365056c43fd08af736ce",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "691d2c937e8bfae8c21392928e987cdd04a593595e1d92440a36a6c778f9d9c3",
+    "kai_action_gateway": "0eac407833810a8388108d2a752d0c5844be4a5a8cb7536680b60ef166570e52",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "a2f5e4286f0b1120cf3f3652a4898384e673be145aff17ad5abad9f61bea3292",
-    "route_orchestration_index": "045220cf170084a25cf735b2fc847449bb096cf440ec19dc1b8e507050b7b24b",
+    "route_orchestration_index": "ec0a3aec59aecbfdaaf48c270e5ba17f7ec0b801b6cab836c3fd5bcdf4fb5f95",
     "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
   },
-  "source_revision": "86a81ce5c2ff6a00",
+  "source_revision": "7dd629da33ebfc6c",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "86a81ce5c2ff6a00",
+    "current_graph_revision": "7dd629da33ebfc6c",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -48454,6 +48461,7 @@
           "82e741080f6a22ff",
           "83966cd4fefe54f6",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -48574,6 +48582,7 @@
           "764b9cd170a9b7b3",
           "7e725415993cda04",
           "7fe68d8f752aa842",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "9683f26dff3798f0",
@@ -48592,10 +48601,11 @@
         "workflow_version": 1
       },
       {
-        "compatible_graph_revisions": [
+        "compatible_graph_revisions": [],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
-          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0f847cb897c39c4a",
@@ -48618,7 +48628,6 @@
           "2b74dd366e283e03",
           "2c5daa16c578e219",
           "2d19aa697c321877",
-          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "34ab4e29e27a1679",
@@ -48632,11 +48641,9 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
-          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
-          "49f1882f17ca746a",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
@@ -48649,11 +48656,8 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
-          "60f9c47270b215a8",
-          "6372c447ad7f5790",
           "6448b901792d40a4",
           "66bd2c14003aab77",
-          "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
@@ -48664,29 +48668,18 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
-          "6d4f353397278c4c",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "715bed22457a573a",
           "71ed8af339174fae",
           "72155688eff9b624",
-          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
-          "7d29dd99f31ad3ca",
-          "7e725415993cda04",
-          "7fe68d8f752aa842",
           "804a8fd643783c90",
-          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
-          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
-          "83966cd4fefe54f6",
           "847b5d41cc16757e",
-          "8745d0a365c9c536",
-          "8788bf4b6751557b",
-          "8a957610367a7fda",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -48694,27 +48687,20 @@
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
-          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
-          "9901faaed410026a",
           "99f8c9ff56a09d49",
-          "9b520324ac39c69f",
-          "9b9069c8c60c02f9",
-          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
-          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
-          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
@@ -48732,7 +48718,6 @@
           "be22fe6e0fa3f322",
           "bec5fd5f0ffddc6c",
           "bfea0bb3d07eca1f",
-          "c055c42ec3fc7da8",
           "c118b9582508fec4",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
@@ -48742,11 +48727,9 @@
           "c58f84b46c451af7",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
-          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
-          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
@@ -48755,26 +48738,19 @@
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
-          "d71ad90b1264bb6c",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
-          "db2187647b28df19",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
-          "dd0bf20a1ad852d3",
           "df37a235665ef89d",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
-          "e5fc447004cb9ff6",
           "e64a0a56bd563562",
-          "e6cd5a9cfb4bf0a3",
-          "e816c23283695a99",
           "e957417b1eacbe4b",
           "ea183f0f5321f862",
-          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "edaa00dc65d3cb12",
@@ -48790,9 +48766,7 @@
           "fb7a6340d119acec",
           "fbac9497545a7c39"
         ],
-        "migration_required_graph_revisions": [],
-        "rejected_graph_revisions": [],
-        "workflow_digest": "736fdb278397b17bc8fe2f3f64ad5fa57ec8ab102006060cd67104eb89d4cf7f",
+        "workflow_digest": "a57e6d6053f930b2d585a5e583b194c63d3b8bb5f8a8a33aff7e2b0a22dbfeb4",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
@@ -48854,6 +48828,7 @@
           "81a213ceb7f54de5",
           "81da1803f271bd92",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -49086,6 +49061,7 @@
           "82e741080f6a22ff",
           "83966cd4fefe54f6",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -49291,6 +49267,7 @@
           "82e741080f6a22ff",
           "83966cd4fefe54f6",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -49496,6 +49473,7 @@
           "82e741080f6a22ff",
           "83966cd4fefe54f6",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -49701,6 +49679,7 @@
           "82e741080f6a22ff",
           "83966cd4fefe54f6",
           "847b5d41cc16757e",
+          "86a81ce5c2ff6a00",
           "8745d0a365c9c536",
           "8788bf4b6751557b",
           "8a957610367a7fda",
@@ -50402,7 +50381,7 @@
       "completion_action_ids": [
         "setup.finish_connections"
       ],
-      "description": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "description": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "entry_action_id": "setup.open_connections",
       "execution": {
         "mode": "generated_setup_workflow",

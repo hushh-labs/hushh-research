@@ -312,7 +312,7 @@ function OwnerRuntimeConfigurationPage({
           description={
             setupMode
               ? "Your pod's AI, or your own key."
-              : "Choose how your private agent reaches Gemini."
+              : "Choose your AI connection."
           }
           accent="neutral"
           className={setupMode ? setupStyles.setupHeader : undefined}
@@ -344,7 +344,7 @@ function OwnerRuntimeConfigurationPage({
           disabled={!canContinue || finishing}
           controlId="one-setup-connections-terminal"
           actionId="setup.finish_connections"
-          purpose="Record the selected Gemini runtime and return to setup."
+          purpose="Record the selected AI connection and return to setup."
           supportingText="Pick one to continue."
         />
       ) : null}
@@ -358,7 +358,7 @@ function OwnerRuntimeConfigurationPage({
               ? "Set up your private vault"
               : "Open your private vault"
           }
-          description="Gemini access stays in your vault."
+          description="Manage your AI connection securely."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}

@@ -41,9 +41,15 @@ sanitization. See [bucket identity and metageneration](https://docs.cloud.google
 and [soft-delete retention](https://docs.cloud.google.com/storage/docs/disable-soft-delete).
 
 A durable exclusive lease serializes hierarchy mutations across browser tabs.
-Conditional writes protect immutable chunks and metadata revisions. Uncertain
-provider writes retain their fence; account reset/deletion cannot claim erasure
-while they might still complete. Cleanup validates the exact owner prefix, deletes
+Conditional writes protect immutable chunks and metadata revisions. Shared uploads
+persist a purpose-bound encrypted GCS session receipt before dispatching bytes.
+The existing credential-encryption key protects this provider bearer; it is not a
+library key. Exact per-operation SQL transitions fence stale writers and competing
+recovery. Completion requires exact ciphertext; cancellation requires the provider's
+terminal receipt and observed absence, unchanged predecessor, or exact completed bytes.
+Missing/expired sessions and lost cancellation replies remain fenced. Legacy one-shot
+uncertainty is not automatically cleared. Account reset/deletion cannot claim erasure
+while a write might still complete. Cleanup validates the exact owner prefix, deletes
 bounded version batches and waits for soft-deletion/retention to complete. Trash is
 reversible metadata, not physical deletion. Never drop inventory to bypass cleanup.
 
@@ -72,9 +78,23 @@ Shared-to-pod, reverse and cross-cloud Files moves remain
 unavailable until destination readability, identities, revisions, tombstones and
 byte integrity are proven before cutover; source cleanup is a separate receipt.
 
-Local SQL/crypto fixtures do not prove cloud IAM, retention or provider acceptance.
-Keep the pilot disabled until the exact combined candidate passes CI and governed
-dev setup, transfer, foreground consent, recovery and deletion rehearsals.
+Local SQL/crypto fixtures do not prove cloud IAM, retention or owner acceptance.
+The dev deploy binds optional `HUSSH_SHARED_FILES_ENABLED` and
+`HUSSH_SHARED_FILES_BUCKET` runtime secrets only to its new revision; existing
+revisions and UAT/production do not inherit these bindings. Explicit secret environment
+values take precedence over structured runtime defaults. Do not enable canonical
+`:latest` on an older one-shot writer. Structured configuration retains an explicit
+dev pilot; other environments remain off.
+
+Bucket IAM edits change metadata generation. The qualified dev pilot uses exact-bucket
+conditional project grants (`storage.objectUser` and `storage.bucketViewer`) so its
+creation-time disabled soft-delete metadata remains independently checkable. These
+conditions do not grant access to sibling buckets. If metadata changes, retained-object
+listing is mandatory; an unsupported listing is never proof of absence.
+
+Enable only after workload-identity storage checks, exact-SHA CI and governed deployment.
+Owner transfer, foreground consent, recovery and deletion acceptance still requires a
+live rehearsal. Admin probes alone do not qualify the application.
 
 ```mermaid
 flowchart LR

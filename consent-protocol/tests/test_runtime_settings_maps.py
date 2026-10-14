@@ -29,6 +29,29 @@ def test_google_maps_api_key_defaults_empty(monkeypatch):
     runtime_settings.get_core_security_settings.cache_clear()
 
 
+def test_shared_files_rollout_preserves_only_explicit_dev_configuration(monkeypatch):
+    from runpy import run_path
+
+    apply = run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/ops/shared_files_runtime_policy.py")
+    )["apply_policy"]
+    configured = {
+        "hussh_shared_files_enabled": True,
+        "hussh_shared_files_bucket": "synthetic-files",
+    }
+    policy = apply({"environment": "dev"}, configured)
+    for key in ("HUSSH_SHARED_FILES_ENABLED", "HUSSH_SHARED_FILES_BUCKET"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(policy))
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ["HUSSH_SHARED_FILES_ENABLED"] == "true"
+    assert os.environ["HUSSH_SHARED_FILES_BUCKET"] == "synthetic-files"
+    assert apply({"environment": "dev"}, {})["hussh_shared_files_enabled"] is False
+    assert apply({"environment": "production"}, configured)["hussh_shared_files_enabled"] is False
+    with pytest.raises(ValueError):
+        apply({"environment": "dev"}, {"hussh_shared_files_enabled": True})
+
+
 def test_trusted_device_rollout_is_hydrated_from_canonical_runtime_config(monkeypatch):
     monkeypatch.delenv("HUSSH_TRUSTED_DEVICE_ENABLED", raising=False)
     monkeypatch.delenv("HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST", raising=False)
