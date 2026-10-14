@@ -41,6 +41,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
@@ -2537,6 +2538,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     tokenExpiresAt,
     getVaultOwnerToken,
   } = useVault();
+  const oneDisplayName = useOneDisplayName();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
   const emailScopeRef = useRef({ ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch });
   if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
@@ -9283,7 +9285,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   screen rather than the workspace. */}
               <div className="min-w-0">
                 <div className="truncate text-base font-medium leading-5 text-foreground">
-                  {isPuppySurface ? "Puppy One" : "One"}
+                  {isPuppySurface ? "Puppy One" : oneDisplayName}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({
                   isPuppySurface,
@@ -10007,6 +10009,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultKey={vaultKey ?? null}
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
+                onPromptSelect={handleWelcomePromptSelect}
+                promptDisabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
               />
 
               {hasChatAccess && !isPuppySurface && user?.uid ? (

@@ -17,12 +17,11 @@ import {
   Loader2,
   AlertCircle,
   Key,
+  AccentedKeyIcon,
   Check,
   Copy,
   Download,
   Fingerprint,
-  Eye,
-  EyeOff,
   type LucideIcon,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -42,6 +41,10 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  ProfilePanePreviewIcon,
+  ProfilePanePreviewOffIcon,
+} from "@/components/profile/profile-pane-icons";
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
@@ -597,7 +600,7 @@ export function VaultFlow({
   const createPassphraseHelperText = createPassphraseTooShort
     ? "Minimum 8 characters required."
     : createPassphraseMismatch
-      ? "Passphrases do not match."
+      ? "Passwords do not match."
       : null;
   const canCreatePassphrase =
     !isUnlocking &&
@@ -889,7 +892,7 @@ export function VaultFlow({
       return;
     }
     if (passphrase !== confirmPassphrase) {
-      toast.error("Passphrases do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
 
@@ -928,7 +931,7 @@ export function VaultFlow({
         vaultData.vaultKeyHex
       );
       if (!VaultService.getWrapperByMethod(persistedState, "passphrase")) {
-        throw new Error("Vault setup verification failed: passphrase wrapper missing.");
+        throw new Error("Vault setup verification failed: password wrapper missing.");
       }
       if (!isCurrentAttempt(attempt)) return;
 
@@ -1011,7 +1014,7 @@ export function VaultFlow({
           result: "expected_error",
           error_class: "no_match",
         });
-        const message = "That passphrase did not match. Please try again.";
+        const message = "That password did not match. Please try again.";
         setError(message);
         toast.error(message);
       }
@@ -1183,7 +1186,7 @@ export function VaultFlow({
         });
 
         if (!decryptedKey) {
-          throw new Error("Quick unlock is not ready. Use your passphrase.");
+          throw new Error("Quick unlock is not ready. Use your password.");
         }
 
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
@@ -1361,7 +1364,7 @@ export function VaultFlow({
             // so the only thing lost is the shortcut.
             if (!isWebAuthnCancellationError(quickUnlockError)) {
               console.warn("Quick unlock enable failed:", quickUnlockError);
-              toast.error("Couldn't turn that on. Your passphrase still works.");
+              toast.error("Couldn't turn that on. Your password still works.");
             }
           }
         } else {
@@ -1388,8 +1391,8 @@ export function VaultFlow({
       // If auto-unlock fails, send user to unlock screen to try manually.
       toast.error(
         vaultMode === "passphrase"
-          ? "Quick unlock was not available. Enter your passphrase."
-          : "Quick unlock was not available. Try passphrase or recovery key."
+          ? "Quick unlock was not available. Enter your password."
+          : "Quick unlock was not available. Try password or recovery key."
       );
       setStep("unlock");
       return;
@@ -1567,12 +1570,12 @@ export function VaultFlow({
     </div>
   ) : null;
   const lostVaultDeleteEscape = onSignOut ? (
-    <div className="mx-auto max-w-[21rem] space-y-1 pt-[var(--app-form-section-gap)] text-center type-footnote">
+    <div className="mx-auto flex max-w-[21rem] flex-col items-center gap-[var(--app-form-related-gap)] pt-[var(--app-form-section-gap)] text-center type-footnote">
       <p className="text-muted-foreground">Lost every way in?</p>
       <button
         type="button"
         data-testid="vault-delete-and-start-fresh"
-        className="min-h-11 font-semibold text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
+        className="min-h-11 inline-flex items-start justify-center font-semibold leading-5 text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
         onClick={() => setShowLostVaultDeletion(true)}
         disabled={isSigningOut}
       >
@@ -1620,7 +1623,7 @@ export function VaultFlow({
                 }}
                 disabled={isSigningOut}
               >
-                Passphrase
+                Password
               </Button>
             ) : null}
             {showVaultKeyAlternative && showPasskeyFallbackAlternative ? (
@@ -1698,7 +1701,7 @@ export function VaultFlow({
               }}
               disabled={isSigningOut}
             >
-              Passphrase
+              Password
             </Button>
             {recoveryStepHasPasskeyAlternative ? (
               <>
@@ -1826,7 +1829,7 @@ export function VaultFlow({
                    something else, so the screen announced one name and showed
                    another. It also stops naming the mechanism: what the person
                    is doing is locking their private place, and the passphrase
-                   is merely how. The fields below still say "Passphrase",
+                   is merely how. The fields below still say "Password",
                    which is where that word belongs. */
                 title="Set a lock"
                 // Carries the promise the removed "private place" invitation
@@ -1835,7 +1838,7 @@ export function VaultFlow({
               />
               <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
-                  Passphrase
+                  Password
                 </Label>
                   <div
                     className={cn(
@@ -1843,11 +1846,11 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="passphrase"
                       type={showPassphrase ? "text" : "password"}
-                      placeholder="Create passphrase"
+                      placeholder="Create password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                       autoFocus
@@ -1861,16 +1864,16 @@ export function VaultFlow({
                       type="button"
                       onClick={() => setShowPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
-                      aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
-                      title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                      aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
+                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
               </div>
               <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="confirm" className="type-footnote font-medium text-muted-foreground">
-                  Confirm passphrase
+                  Confirm password
                 </Label>
                   <div
                     className={cn(
@@ -1878,11 +1881,11 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="confirm"
                       type={showConfirmPassphrase ? "text" : "password"}
-                      placeholder="Confirm passphrase"
+                      placeholder="Confirm password"
                       value={confirmPassphrase}
                       onChange={(e) => setConfirmPassphrase(e.target.value)}
                       autoComplete="new-password"
@@ -1895,10 +1898,10 @@ export function VaultFlow({
                       type="button"
                       onClick={() => setShowConfirmPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
-                      aria-label={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
-                      title={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
+                      aria-label={showConfirmPassphrase ? "Hide password" : "Show password"}
+                      title={showConfirmPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showConfirmPassphrase ? Eye : EyeOff} size={18} />
+                      {showConfirmPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
                 {createPassphraseHelperText && (
@@ -1930,7 +1933,7 @@ export function VaultFlow({
                       Also unlock with {createQuickUnlockLabel}
                     </span>
                     <span className="block type-footnote leading-snug text-muted-foreground">
-                      Your passphrase and recovery key still work.
+                      Your password and recovery key still work.
                     </span>
                   </span>
                   <Switch
@@ -1955,7 +1958,7 @@ export function VaultFlow({
                     <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating...
                   </>
                 ) : (
-                  "Create passphrase"
+                  "Create password"
                 )}
               </Button>
             </form>
@@ -1971,7 +1974,7 @@ export function VaultFlow({
                 description={
                   isGeneratedVaultMode
                     ? "Confirm with your device."
-                    : "Enter your passphrase."
+                    : "Enter your password."
                 }
                 hint={unlockHint}
               />
@@ -1996,7 +1999,7 @@ export function VaultFlow({
                     htmlFor="unlock-passphrase"
                     className="type-footnote font-medium text-muted-foreground"
                   >
-                    Passphrase
+                    Password
                   </Label>
                   <div
                     className={cn(
@@ -2004,12 +2007,12 @@ export function VaultFlow({
                       "border-black/10 dark:border-white/15",
                     )}
                   >
-                    <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
+                    <AccentedKeyIcon size={18} className="shrink-0" />
                     <Input
                       id="unlock-passphrase"
                       type={showPassphrase ? "text" : "password"}
-                      placeholder="Enter passphrase"
-                      aria-label="Vault passphrase"
+                      placeholder="Enter password"
+                      aria-label="Vault password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                       onKeyDown={(e) =>
@@ -2026,10 +2029,10 @@ export function VaultFlow({
                       type="button"
                       onClick={() => setShowPassphrase((prev) => !prev)}
                       className={VAULT_INPUT_VISIBILITY_CLASS}
-                      aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
-                      title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                      aria-label={showPassphrase ? "Hide password" : "Show password"}
+                      title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
+                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
                     </button>
                   </div>
                 </div>
@@ -2110,7 +2113,7 @@ export function VaultFlow({
                 user={user}
                 icon={Key}
                 title="Enter recovery key"
-                description="Use this if your passphrase is unavailable."
+                description="Use this if your password is unavailable."
               />
               <div className={VAULT_FIELD_STACK_CLASS}>
                 <Label htmlFor="recovery-key" className="text-xs font-medium sm:text-sm">Recovery Key</Label>
@@ -2164,13 +2167,13 @@ export function VaultFlow({
                     : Fingerprint
                 }
                 title="Enable quicker unlock?"
-                description={`You can keep passphrase unlock, or enable ${
+                description={`You can keep password unlock, or enable ${
                   recommendedQuickMethod === "generated_default_web_prf" ||
                   recommendedQuickMethod ===
                     "generated_default_native_passkey_prf"
                     ? "passkey"
                     : biometricLabel
-                } and still retain passphrase and recovery-key backup.`}
+                } and still retain password and recovery-key backup.`}
               />
 
               {error ? (
@@ -2225,7 +2228,7 @@ export function VaultFlow({
                       if (!isCurrentAttempt(attempt)) return;
                       if (isWebAuthnCancellationError(err)) {
                         setError(
-                          "Quick unlock setup was cancelled. Your passphrase still works."
+                          "Quick unlock setup was cancelled. Your password still works."
                         );
                       } else {
                         console.error("Quick unlock enable failed:", err);
@@ -2285,7 +2288,7 @@ export function VaultFlow({
                     } finally { finishAttempt(attempt); }
                   }}
                 >
-                  Not now, continue with passphrase
+                  Not now, continue with password
                 </Button>
               </div>
             </div>

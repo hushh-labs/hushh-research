@@ -268,6 +268,17 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
     : { depth };
 }
 
+/** Browser Back must preserve this owner-authored stack beneath a modal. */
+export function profilePaneHistoryDepth(state: unknown): number {
+  if (!state || typeof state !== "object") return 0;
+  const pane = (state as Record<string, unknown>)[PROFILE_PANE_HISTORY_KEY];
+  if (!pane || typeof pane !== "object") return 0;
+  const depth = (pane as Record<string, unknown>).depth;
+  return typeof depth === "number" && Number.isFinite(depth) && depth > 0
+    ? depth
+    : 0;
+}
+
 function emitHistoryUpdate(): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));

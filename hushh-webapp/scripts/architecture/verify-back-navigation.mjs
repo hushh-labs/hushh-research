@@ -8,6 +8,7 @@ import { syncReviewReceipt } from './ui-review-receipts.mjs';
 // Existing specialised owners only. New calls, files or aliases fail the ratchet.
 const reviewedHistoryOwners = new Map([
   ['lib/navigation/profile-pane.ts', 3], // Its tested, bounded pane-depth history is the owner.
+  ['lib/navigation/web-history-back.ts', 1], // Inverse traversal of a consumed Profile pop; never selects an application parent.
   ['components/one-location/location-immersive-map.tsx', 1], // Existing check-in overlay history; separate from route Back.
   ['app/register-phone/page.tsx', 1], // Auth-owned entry recovery.
   ['app/not-found.tsx', 1], // Unknown-route recovery.

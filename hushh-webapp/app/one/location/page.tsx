@@ -76,11 +76,13 @@ import {
   addSavedLocation,
   defaultLabelForCategory,
   DuplicateSavedLocationError,
+  LOCATION_PKM_DOMAIN,
   loadSavedLocations,
   removeSavedLocation,
   type SavedLocation,
   type SavedLocationCategory,
 } from "@/lib/one-location/saved-locations";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
 import {
   buildSavedLocationAddress,
   type SavedLocationAddressDetails,
@@ -2281,7 +2283,36 @@ export function OneLocationAgentPageContent({
     getIdToken: auth.user ? resolveContactPrivacyIdToken : null,
     actionLabel: "Find contacts",
   });
-  const { vaultOwnerToken, vaultKey } = useVault();
+  const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
+  const savedPlacesRevision = usePkmDomainChangeRevision(auth.userId, LOCATION_PKM_DOMAIN);
+  const savedPlacesVaultSession = useMemo(() => (
+    auth.userId && isVaultUnlocked && vaultKey && vaultOwnerToken
+      ? { userId: auth.userId, vaultKey, vaultOwnerToken }
+      : null
+  ), [auth.userId, isVaultUnlocked, vaultKey, vaultOwnerToken]);
+  const [savedPlacesAvailability, setSavedPlacesAvailability] = useState<{
+    session: NonNullable<typeof savedPlacesVaultSession>;
+    revision: number;
+    empty: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSavedPlacesAvailability(null);
+    if (!savedPlacesVaultSession) return;
+    // The optional reminder appears only after this owner's encrypted places
+    // have been read. Unknown, locked, failed and superseded reads stay hidden.
+    void loadSavedLocations(savedPlacesVaultSession)
+      .then((places) => {
+        if (!cancelled) setSavedPlacesAvailability({
+          session: savedPlacesVaultSession,
+          revision: savedPlacesRevision,
+          empty: places.length === 0,
+        });
+      })
+      .catch(() => { /* A failed read never establishes that there are no places. */ });
+    return () => { cancelled = true; };
+  }, [savedPlacesVaultSession, savedPlacesRevision]);
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
     [searchParams],
@@ -4405,8 +4436,8 @@ export function OneLocationAgentPageContent({
        * Lets a caller whose request has been superseded discard the fix instead
        * of applying it. A capture can outlive the intent that started it, and
        * `activateMyLocation` un-pauses — so a stale fix from an abandoned "turn
-       * on" would otherwise reverse the pause that replaced it. Only the
-       * on/off control passes this; every other caller keeps today's behaviour.
+       * on" would otherwise reverse the pause that replaced it. The toggle
+       * and explicit saved-place capture share this intent ordering.
        */
       isStale?: () => boolean;
       /**
@@ -13390,23 +13421,28 @@ export function OneLocationAgentPageContent({
 
       const userId = auth.userId;
       const sessionEpoch = savedLocationSessionEpochRef.current;
+      // Join an existing turn-on intent instead of stealing its optimistic
+      // state/busy cleanup. A subsequent turn-off still supersedes this read.
+      const locationIntent = locationIntentSeqRef.current;
       const sessionIsCurrent = () =>
         savedLocationSessionEpochRef.current === sessionEpoch &&
         savedLocationSessionUserId === userId;
+      const intentIsCurrent = () =>
+        sessionIsCurrent() && locationIntentSeqRef.current === locationIntent;
       setSavedPlaceCaptureBusy(true);
       let attempt: Promise<boolean>;
       attempt = (async (): Promise<boolean> => {
         // One shared acquisition: browsers prompt through capture; native bridges
         // request their OS permission when needed. The returned fix is reused.
         const readiness = await ensureForegroundLocationReady({
-          capturePoint: false,
+          capturePoint: true,
           requirePoint: true,
           requireMeasurement: true,
-          isStale: () => !sessionIsCurrent(),
+          isStale: () => !intentIsCurrent(),
           autoOpenSettings: false,
           announce: true,
         });
-        if (!sessionIsCurrent() || !readiness.ready) return false;
+        if (!intentIsCurrent() || !readiness.ready) return false;
         const point = readiness.point;
         if (!point) return false;
 
@@ -14012,7 +14048,11 @@ export function OneLocationAgentPageContent({
     userId: auth.userId ?? null,
     canShare,
     savedPlacesBanner: {
-      visible: placesBannerEntry.key === placesBannerKey && !placesBannerEntry.dismissed,
+      visible: Boolean(savedPlacesVaultSession &&
+        savedPlacesAvailability?.session === savedPlacesVaultSession &&
+        savedPlacesAvailability.revision === savedPlacesRevision &&
+        savedPlacesAvailability.empty &&
+        placesBannerEntry.key === placesBannerKey && !placesBannerEntry.dismissed),
       busy: savedPlaceCaptureBusy,
       onSave: () => void openSavedPlaceFromBanner(),
       onDismiss: () => {

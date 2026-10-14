@@ -303,8 +303,10 @@ describe("Wallet video browser workspace", () => {
     vi.restoreAllMocks();
   });
   it("opens the matching card after selecting a search result", async () => {
-    await open();
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    const view = await open();
+    navigationMock.search = "q=1001";
+    view.rerender(<WalletWorkspace />);
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Search cards" }), { target: { value: "1001" } });
     const result = await screen.findByRole("button", { name: "Card 1 · Visa ending 1001" });
     fireEvent.click(result);

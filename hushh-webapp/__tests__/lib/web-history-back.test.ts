@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   decideWebHistoryBackCorrection,
   isBackwardHistoryTraversal,
+  dismissProfileConfirmationOnBack,
   useWebHistoryBack,
   type RouteLocation,
 } from "@/lib/navigation/web-history-back";
@@ -23,6 +24,59 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 function loc(pathname: string, search = ""): RouteLocation {
   return { pathname, search };
 }
+
+describe("confirmation above Profile", () => {
+  function paneState(depth: number) {
+    return { __hushhProfilePane: { depth, returnsToOrigin: true } };
+  }
+  function documentWithOverlay(role: "dialog" | "alertdialog") {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = `<div role="dialog" data-state="open"></div><div role="${role}" data-state="open"></div>`;
+    return doc;
+  }
+  const previous = loc("/one", "?profile_pane=1&profile_panel=account");
+
+  it("dismisses the frontmost confirmation before an Account-to-Profile Back", () => {
+    const doc = documentWithOverlay("alertdialog");
+    const cancel = vi.fn();
+    doc.body.lastElementChild!.addEventListener("keydown", cancel);
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1), doc,
+    })).toBe(true);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel.mock.calls[0][0].key).toBe("Escape");
+  });
+
+  it("leaves Forward and ordinary Profile pane navigation to their history owner", () => {
+    const doc = documentWithOverlay("alertdialog");
+    const cancel = vi.fn();
+    doc.body.lastElementChild!.addEventListener("keydown", cancel);
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(1), revealedHistoryState: paneState(2), doc,
+    })).toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
+    for (const revealedEntryIndex of [4, 5]) {
+      expect(dismissProfileConfirmationOnBack({
+        previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+        previousEntryIndex: 4, revealedEntryIndex, doc,
+      })).toBe(false);
+    }
+    expect(cancel).not.toHaveBeenCalled();
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+      doc: documentWithOverlay("dialog"),
+    })).toBe(false);
+  });
+
+  it("honors a confirmation that refuses Escape without navigating the pane", () => {
+    const doc = documentWithOverlay("alertdialog");
+    doc.body.lastElementChild!.addEventListener("keydown", event => event.preventDefault());
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: null, doc,
+    })).toBe(true);
+    expect(doc.querySelector('[role="alertdialog"]')).not.toBeNull();
+  });
+});
 
 describe("decideWebHistoryBackCorrection (pure)", () => {
   it("does nothing with no prior location", () => {

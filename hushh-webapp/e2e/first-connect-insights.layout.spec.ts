@@ -129,5 +129,18 @@ for (const [width, dark] of [[320, false], [390, false], [1280, false], [390, tr
     await page.screenshot({ path: test.info().outputPath(`insight-controls-${width}${dark ? "-dark" : ""}.png`), animations: "disabled" });
     await forget.click();
     await expect(page.getByTestId("first-connect-insight")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Show my week" })).toHaveCount(0);
+    await page.getByTestId("first-connect-insight-forget").click();
+    const showWeek = page.getByRole("button", { name: "Show my week" });
+    await expect(showWeek).toBeVisible();
+    const target = (await showWeek.boundingBox())!;
+    expect(target.height).toBeGreaterThanOrEqual(44);
+    expect(target.x).toBeGreaterThanOrEqual(16);
+    expect(target.x + target.width).toBeLessThanOrEqual(width - 16);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`calendar-follow-up-${width}${dark ? "-dark" : ""}.png`), animations: "disabled" });
+    await showWeek.click();
+    await expect(page.getByRole("status")).toHaveText("What's on my calendar this week?");
+    await expect(showWeek).toHaveCount(0);
   });
 }
