@@ -132,6 +132,15 @@ steps:
           exit 1
         fi
 
+        google_sign_in_client_id_file="/workspace/.google-sign-in-client-id"
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" == "true" ]]; then
+          : > "$${google_sign_in_client_id_file}"
+          chmod 600 "$${google_sign_in_client_id_file}"
+        else
+          bash scripts/deploy/resolve-google-sign-in-client.sh \
+            "$PROJECT_ID" "$${google_sign_in_client_id_file}"
+        fi
+
         # Receipt logos are optional and resolved for UAT only. Never bind a
         # missing resource through availableSecrets or echo its public token.
         receipt_logo_url_template_file="/workspace/.receipt-logo-url-template"
@@ -248,13 +257,19 @@ steps:
         fi
         PASSKEY_RP_ID="$$(cat "$${passkey_rp_id_file}")"
         GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
+        google_sign_in_client_id_file="/workspace/.google-sign-in-client-id"
+        if [[ ! -f "$${google_sign_in_client_id_file}" ]]; then
+          echo "Google sign-in OAuth client resolver artifact is missing."
+          exit 1
+        fi
+        GOOGLE_SIGN_IN_CLIENT_ID_VAL="$$(cat "$${google_sign_in_client_id_file}")"
         receipt_logo_url_template_file="/workspace/.receipt-logo-url-template"
         if [[ ! -f "$${receipt_logo_url_template_file}" ]]; then
           echo "Receipt-logo resolver artifact is missing."
           exit 1
         fi
         RECEIPT_LOGO_URL_TEMPLATE_VAL="$$(cat "$${receipt_logo_url_template_file}")"
-        trap 'rm -f "$${google_contacts_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"' EXIT
+        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"' EXIT
 
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
@@ -291,6 +306,7 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
           --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID=$$GOOGLE_SIGN_IN_CLIENT_ID_VAL" \
           --build-arg "NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE=$$RECEIPT_LOGO_URL_TEMPLATE_VAL" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
