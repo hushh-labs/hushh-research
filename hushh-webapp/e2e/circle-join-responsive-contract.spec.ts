@@ -5,11 +5,12 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const CODE = "SWDX-ENDP-B954";
 const ROUTE = `/circle/join?code=${CODE}`;
 const STORY_TITLES = [
-  "Start with a clearer day.",
-  "Find what you already have.",
-  "Make the next move easier.",
-  "Share only what you choose.",
+  "Big plans.Less busywork.",
+  "Find answers.Not more tabs.",
+  "Your people.Right here.",
+  "Your information.Your call.",
 ] as const;
+const STORY_IDS = ["ask", "know", "connect", "control"] as const;
 const VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 360, height: 640 },
@@ -37,7 +38,7 @@ test.beforeEach(async ({ page, baseURL }) => {
 });
 
 function storyCard(preview: Locator, index: number) {
-  return preview.locator(`[data-intro-v2-card][data-story-index="${index}"]`);
+  return preview.locator(`.ao-slide[data-story="${STORY_IDS[index - 1]}"]`);
 }
 
 async function advanceToFinalStory(preview: Locator) {
@@ -45,24 +46,24 @@ async function advanceToFinalStory(preview: Locator) {
   for (let index = 1; index < STORY_TITLES.length; index++) {
     await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
     await expect(storyCard(preview, index).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[index - 1]);
-    await storyCard(preview, index).getByRole("button", { name: "Next screen" }).click();
+    await preview.getByRole("button", { name: "Next", exact: true }).click();
   }
   await expect(preview).toHaveAttribute("data-preview-step", "5");
   await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
   await expect(storyCard(preview, 4).locator("[data-intro-v2-title]")).toHaveText(STORY_TITLES[3]);
 }
 
-test("only the explicit One invite opens the introduction at the root", async ({ page }) => {
+test("the public root stays reachable and preserves an explicit One invite through sign-in and Back", async ({ page }) => {
   // Cold WebKit must settle Firebase restoration before deciding guest entry.
   test.setTimeout(60000);
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL((url) => url.pathname === "/login", { timeout: 30000 });
-  await expect(page.getByTestId("guest-preview")).toHaveCount(0);
+  await expect(page.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1", { timeout: 30000 });
+  await expect(page).toHaveURL((url) => url.pathname === "/" && !url.search);
   await page.goto("/?invite=one", { waitUntil: "domcontentloaded" });
   const preview = page.getByTestId("guest-preview");
   await expect(preview).toHaveAttribute("data-preview-step", "1");
   await advanceToFinalStory(preview);
-  await storyCard(preview, 4).getByRole("button", { name: "Start with One" }).click();
+  await preview.getByRole("button", { name: "Get started", exact: true }).click();
   await expect(page).toHaveURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === "/?invite=one");
   await expect(page.getByTestId("auth-step-primary")).toBeVisible();
   await page.getByRole("button", { name: "Go back", exact: true }).click();
@@ -70,12 +71,12 @@ test("only the explicit One invite opens the introduction at the root", async ({
   await expect(preview).toBeVisible();
 });
 
-test("the desktop carousel reaches the invitation through one card at a time", async ({ page }) => {
+test("the desktop carousel reaches the invitation through one story at a time", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(ROUTE);
   const preview = page.getByTestId("guest-preview");
   await advanceToFinalStory(preview);
-  const finalAction = storyCard(preview, 4).getByRole("button", { name: "Join this Circle", exact: true });
+  const finalAction = preview.getByRole("button", { name: "Join this Circle", exact: true });
   await expect(finalAction).toBeEnabled();
   await finalAction.click();
   await expect(page).toHaveURL(
@@ -152,8 +153,8 @@ for (const viewport of VIEWPORTS) {
       expect(measurements.ellipsis).not.toBe("ellipsis");
       const cta = step === 1
         ? preview.getByRole("button", { name: "Create your One", exact: true })
-        : storyCard(preview, step - 1).getByRole("button", {
-            name: step === 5 ? "Join this Circle" : "Next screen",
+        : preview.getByRole("button", {
+            name: step === 5 ? "Join this Circle" : "Next",
             exact: true,
           });
       await expect(cta).toBeEnabled();
@@ -185,7 +186,7 @@ test("the account action preserves the invite through sign-in and cancellation",
   await page.goto(ROUTE);
   const preview = page.getByTestId("guest-preview");
   await advanceToFinalStory(preview);
-  await storyCard(preview, 4).getByRole("button", { name: "Join this Circle", exact: true }).click();
+  await preview.getByRole("button", { name: "Join this Circle", exact: true }).click();
   await page.waitForURL(
     (url) =>
       url.pathname === "/login" && url.searchParams.get("redirect") === ROUTE,
@@ -196,6 +197,21 @@ test("the account action preserves the invite through sign-in and cancellation",
       url.pathname === "/circle/join" && url.searchParams.get("code") === CODE,
   );
   await expect(preview).toBeVisible();
+});
+
+test("Skip preserves the invitation and opens sign-in without claiming membership", async ({ page }) => {
+  let claims = 0;
+  await page.route("**/api/one/location/circle-invites/*/claim", (route) => {
+    claims++;
+    return route.fulfill({ status: 403, json: {} });
+  });
+  await page.goto(ROUTE);
+  const preview = page.getByTestId("guest-preview");
+  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
+  await expect(preview).toHaveAttribute("data-preview-step", "2");
+  await preview.getByRole("button", { name: "Skip", exact: true }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === ROUTE);
+  expect(claims).toBe(0);
 });
 
 for (const { name, destination } of [
