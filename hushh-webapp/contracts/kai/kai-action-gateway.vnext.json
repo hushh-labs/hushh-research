@@ -14341,7 +14341,9 @@
         "add funds",
         "purchase balance",
         "information-access earnings",
-        "wallet"
+        "wallet",
+        "open payouts",
+        "payments and earnings"
       ],
       "search_keywords": [
         "link my bank",

@@ -23,10 +23,63 @@ Checked-in code implements a USD funded-balance and owner tariff lane for existi
 consented scope requests. Source checks, focused contracts and isolated local
 PostgreSQL acceptance establish the bounded behavior below; they do not establish Stripe acceptance, connected-account readiness,
 complete Sandbox/live financial acceptance, native browser returns, or legal/tax
-approval. Signed capital and the first requester funding settlement on shared Dev
-are separately verified below; they do not prove a consumer purchase or payout.
+approval. Both reviewers' signed funding settlements and platform capital on
+shared Dev are separately verified below; they do not prove a consumer purchase
+or payout.
 
 ### Current Dev evidence — 2026-10-14 UTC
+
+Candidate `5c2d1483aa0691134c72615b244da7c3bc0e1747` passed the canonical core
+in 615 seconds and [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913),
+including iOS, Android and every frontend shard. Its
+[shared-Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251)
+completed successfully. Independent serving readback at `2026-10-14T12:45:40Z`
+verified both services at 100% of that exact source. The release artifact reports
+successful parity, provenance, semantic, database-contract and required reviewer
+BYOK gates. This proves the shared application release, not a private-pod image
+publication or complete financial acceptance.
+
+At `2026-10-14T12:46:36Z`, the primary's authenticated document-bank read
+returned HTTP 200 in test mode. No document account is bound yet; **Link bank**
+is visible and enabled, and the original unlocked vault remains available.
+The dedicated Connect credential and signed connected-event secret are mounted
+on Dev, with the exact `https://dev.one.hussh.ai` return origin. The former
+`PAYOUT_UNAVAILABLE` read is corrected. A successful document-bank hosted
+click/return is still required; scope payout eligibility does not prove it.
+
+The counterpart's headless rehearsal on this release verifies cold authentication
+and unlock, warm **Payments and earnings** navigation, normal Profile dismissal
+and Memory's visible **Saved** and **Add** tabs, without a Sharing tab. Both
+queued release notices are dismissed through their ordinary **Got it** controls.
+Vault continuity is retained throughout. The prior overlay-ordering regression
+is no longer reproduced. Normally encrypted synthetic fixtures and scope
+delivery remain separate acceptance work.
+
+The provider/ledger observation at `2026-10-14T13:02:14Z` confirms the Sandbox
+account/test pin, $10.50 funded per reviewer, $15 tagged operating capital,
+matching receipts, balanced liabilities, settled backing and conserved fees.
+Do not repeat those funding payments or Topups. The counterpart's
+information-access payout account is eligible. The primary still requires
+individual name, USD bank destination and terms completion. Its fresh hosted
+setup has reached Stripe's embedded form in a task-owned background Chrome tab;
+opening or advancing that form is not an eligibility receipt.
+
+All 17 aggregate Monitoring metrics were verified at `2026-10-14T13:02:03Z`,
+with fresh worker/provider observations and no shortfall, unbalanced journals,
+receipt failures or unresolved work. No paid scope purchase, revocation refund,
+maturity, withdrawal or bank payout has yet been accepted. One's authenticated
+Stripe account/balance reads and the physical iOS handoff remain outstanding.
+
+An additional source correction makes incomplete information-access payout
+setup discoverable through **Set up information-access payouts** instead of
+burying it under a withdrawal label. Eligible accounts retain the withdrawal
+label and account-management control. Readiness guidance names the same
+**Payments and earnings** destination; existing action identifiers retain their
+meaning with additive search aliases. Focused frontend checks pass 69 cases,
+and generated UI contracts pass all 460 Back behavior cases and parity checks.
+This correction is local and requires its own core, exact-source CI and release.
+
+### Earlier qualification and failure evidence — 2026-10-14 UTC
 
 Candidate `7dffd92928fd53f1ce167a9e8491cc48304e36f9` passed canonical core
 in 581 seconds and all 25 jobs of [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38497133647).
