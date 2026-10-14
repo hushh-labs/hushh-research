@@ -198,6 +198,7 @@ def deferred_drain_ready(
     plan: Plan,
     drain_seconds: int,
     release_run_id: str,
+    carry_uat_clock: bool = False,
 ) -> bool:
     """Persist drainage evidence between short maintenance runs, never sleep.
 
@@ -222,14 +223,31 @@ def deferred_drain_ready(
     if not isinstance(prior, dict):
         raise UnsafeState("invalid deferred retention state")
     observed_at = prior.get("observed_at")
-    valid = (
-        all(prior.get(key) == value for key, value in identity.items())
+    same_service_drain = (
+        all(
+            prior.get(key) == value
+            for key, value in identity.items()
+            if key != "release_run_id"
+        )
         and isinstance(observed_at, int)
         and not isinstance(observed_at, bool)
         and 0 < observed_at <= now
         and isinstance(prior.get("revisions"), list)
         and all(isinstance(name, str) for name in prior["revisions"])
         and set(plan.delete_revisions).issubset(prior["revisions"])
+    )
+    # A frontend-only UAT release changes the workflow run ID without
+    # changing the backend service. The fingerprint includes its generation,
+    # so a backend traffic update still starts a new drain interval.
+    prior_run_id = prior.get("release_run_id")
+    valid = same_service_drain and (
+        prior_run_id == release_run_id
+        or (
+            carry_uat_clock
+            and isinstance(prior_run_id, str)
+            and prior_run_id.isdigit()
+            and int(prior_run_id) > 0
+        )
     )
     if not valid:
         observed_at = now
@@ -280,6 +298,11 @@ def main() -> int:
         help="persist drain state; return instead of sleeping",
     )
     parser.add_argument("--release-run-id", default="")
+    parser.add_argument(
+        "--carry-uat-clock",
+        action="store_true",
+        help="preserve an unchanged UAT service drain across release run IDs",
+    )
     args = parser.parse_args()
     if args.keep_count < 1 or args.drain_seconds < 0:
         parser.error("keep_count must be positive and drain-seconds nonnegative")
@@ -289,6 +312,10 @@ def main() -> int:
         parser.error("--tags-only and --defer-state cannot be combined")
     if args.defer_state and (not args.apply or not args.release_run_id.isdigit()):
         parser.error("--defer-state requires --apply and a numeric --release-run-id")
+    if args.carry_uat_clock and (
+        not args.defer_state or args.project != "hushh-pda-uat"
+    ):
+        parser.error("--carry-uat-clock requires deferred cleanup in the UAT project")
     protected = {
         name
         for name in (
@@ -364,6 +391,7 @@ def main() -> int:
                 plan=plan,
                 drain_seconds=drain_seconds,
                 release_run_id=args.release_run_id,
+                carry_uat_clock=args.carry_uat_clock,
             ):
                 return 0
         # This also covers a retry after an earlier run removed tags but failed
