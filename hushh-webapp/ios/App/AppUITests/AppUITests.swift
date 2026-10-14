@@ -187,6 +187,15 @@ final class AppUITests: XCTestCase {
                   let width = Int(fields["width"] ?? ""), let height = Int(fields["height"] ?? ""), let top = Int(fields["top"] ?? ""),
                   [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
             print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
+            let choiceOutcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
+                "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
+            for (control, prefix, present) in [("back", "profileBack", fields["present"]), ("close", "profileClose", fields["profileClosePresent"])] {
+                if let choice = fields["\(prefix)Choice"], choiceOutcomes.contains(choice),
+                   let allowed = fields["\(prefix)Allowed"], ["true", "false"].contains(allowed),
+                   let present, ["true", "false"].contains(present) {
+                    print("COHERENT_PROFILE_CHOICE control=\(control) outcome=\(choice) allowed=\(allowed) present=\(present)")
+                }
+            }
             let historyStage = fields["historyStage"] ?? "none", historyOutcome = fields["historyOutcome"] ?? "none"
             let historyCode = fields["historyCode"] ?? "none"
             let historyChoice = fields["historyChoice"] ?? "none", historyNative = fields["historyNative"] ?? "none"

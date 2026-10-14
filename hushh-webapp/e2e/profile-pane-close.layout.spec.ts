@@ -239,7 +239,7 @@ test.describe("Profile pane custom close layout", () => {
       // The same product component/CSS must keep nested details in the full
       // pane, not return to the shorter reserved-band layout. Bridge acceptance
       // is covered by the focused lifecycle tests, not this geometry fixture.
-      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }]) {
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }, { width: 1194, height: 834 }]) {
         await page.setViewportSize(viewport);
         await page.setContent(`<style>${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
         await page.addScriptTag({ content: script });

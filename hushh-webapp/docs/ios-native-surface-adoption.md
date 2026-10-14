@@ -56,6 +56,16 @@ them. Body push/pop remains owned by the existing `ProfileStackNavigator`; no
 new outer-pane animation is introduced. This correction is not yet in the
 installed executable above.
 
+Dismissal now revokes both native header bindings immediately through `open`;
+closing DOM fallbacks are disabled while the existing pane keeps exit isolation.
+Both deferred-confirmation cases pass and fail when the former eligibility
+expressions are restored. The nearest native-chrome suite passes 152 cases.
+This fixes a stale-action window, not the still-unclassified first-tap failure.
+The Debug-only physical probe now includes bounded Back/Close choice outcomes;
+when packet space is exhausted inside a detail, it prioritizes those outcomes
+over withdrawn base-History hit geometry. No protected payload or authority is
+added to diagnostics.
+
 ### Profile content handoffs and circular controls — 2026-10-13
 
 At this earlier checkpoint, custom-native controls were qualification-launch-only
