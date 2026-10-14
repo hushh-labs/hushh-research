@@ -37,7 +37,7 @@ function routeSort(left, right) {
 }
 
 function routeFromPageFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app"), filePath);
+  const relative = path.relative(path.join(appRoot, "app"), filePath).replaceAll("\\", "/");
   const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
   return route ? `/${route}` : "/";
 }
@@ -323,7 +323,9 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
 }
 
 function buildManifest() {
-  const pageRoutes = walkFiles(path.join(appRoot, "app"), (filePath) => filePath.endsWith("/page.tsx"))
+  const pageRoutes = walkFiles(path.join(appRoot, "app"), (filePath) =>
+    filePath.replaceAll("\\", "/").endsWith("/page.tsx")
+  )
     .map(routeFromPageFile)
     .sort(routeSort);
   const routesFromTs = routeValuesFromRoutesTs(read(path.join(appRoot, "lib/navigation/routes.ts")));
