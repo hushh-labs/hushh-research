@@ -1523,6 +1523,9 @@ async function presencePixels(artwork: Locator) {
 
 async function expectPresencePlayback(artwork: Locator) {
   try {
+    // Cold WASM/asset loading precedes the component's bounded first-paint
+    // probe. Diagnose each phase separately instead of timing paint from click.
+    await expect(artwork.locator("canvas")).toHaveAttribute("data-one-presence-playback", /waiting-for-paint|playing|paint-timeout|asset-error|runtime-error/, { timeout: 10000 });
     await expect(artwork.locator("canvas")).toHaveCSS("visibility", "visible");
   } catch (error) {
     console.log("One playback failure", await artwork.evaluate(element => ({
@@ -1567,7 +1570,25 @@ test.describe("One profile artwork and animated presence", () => {
       const sample = document.createElement("canvas");
       sample.width = sample.height = 32;
       const context = sample.getContext("2d")!;
-      const proof = { blank: 0, detached: 0, minPeakAlpha: 255, interrupted: false, minLayers: [] as unknown[], frames: 0, intervals: [] as number[], previous: performance.now(), stop: false };
+      const proof = { blank: 0, detached: 0, minPeakAlpha: 255, interrupted: false, interruptedOpacity: 0, minLayers: [] as unknown[], frames: 0, intervals: [] as number[], previous: performance.now(), stop: false };
+      // Hold the real CSS transitions halfway before requesting the next
+      // phase. A busy runner can otherwise skip the entire 150ms window between
+      // RAF samples. Native Rive playback and the continuity probe keep running.
+      const interrupt = new MutationObserver(() => {
+        const thinking = nodes.at(-1)?.querySelector<HTMLElement>('[data-one-presence-artwork="thinking"]');
+        if (proof.interrupted || thinking?.style.opacity !== "1" || !thinking.getAnimations().length) return;
+        const fades = nodes.flatMap(node => [...node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")].flatMap(layer => layer.getAnimations()));
+        for (const fade of fades) {
+          fade.pause();
+          fade.currentTime = Number(fade.effect!.getComputedTiming().duration) / 2;
+        }
+        proof.interruptedOpacity = Number(getComputedStyle(thinking).opacity);
+        proof.interrupted = true;
+        interrupt.disconnect();
+        (window as any).__setOnePresenceWork({ drafting: false, answering: true, thinking: true });
+        requestAnimationFrame(() => requestAnimationFrame(() => fades.forEach(fade => fade.play())));
+      });
+      for (const node of nodes) interrupt.observe(node, { subtree: true, attributes: true, attributeFilter: ["style"] });
       const sampleFrame = (now: number) => {
         if (proof.stop) return;
         proof.frames++;
@@ -1597,12 +1618,6 @@ test.describe("One profile artwork and animated presence", () => {
             });
           }
         }
-        const thinking = nodes.at(-1)?.querySelector<HTMLElement>('[data-one-presence-artwork="thinking"]');
-        const opacity = thinking ? Number(getComputedStyle(thinking).opacity) : 0;
-        if (!proof.interrupted && opacity > 0 && opacity < 1) {
-          proof.interrupted = true;
-          (window as any).__setOnePresenceWork({ drafting: false, answering: true, thinking: true });
-        }
         requestAnimationFrame(sampleFrame);
       };
       Object.assign(window, { __presenceContinuity: proof });
@@ -1627,6 +1642,8 @@ test.describe("One profile artwork and animated presence", () => {
     fs.writeFileSync(probePath, JSON.stringify(proof, null, 2));
     await test.info().attach("presence-transition-frame-probe", { path: probePath, contentType: "application/json" });
     expect(proof.frames).toBeGreaterThan(5);
+    expect(proof.interruptedOpacity).toBeGreaterThan(0);
+    expect(proof.interruptedOpacity).toBeLessThan(1);
     expect(proof.blank, "no empty animation frame").toBe(0);
     expect(proof.detached, "avatar geometry stays mounted").toBe(0);
     expect(proof.minPeakAlpha, JSON.stringify(proof.minLayers)).toBeGreaterThanOrEqual(250);
