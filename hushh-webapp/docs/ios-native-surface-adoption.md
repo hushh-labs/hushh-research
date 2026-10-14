@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-12.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-14.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,39 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+### Profile continuity and system-resume repair — 2026-10-14
+
+Source `c99498179e` corrects three demonstrated contract gaps: drawer admission
+now observes acknowledged privacy releases even without another native event;
+nested Back retention includes its exact content-pane identity; transient motion
+quarantine changes hit testing and accessibility, not authored disabled appearance.
+Retiring drawers remain isolation owners until their popup and host disappear.
+Profile header/body use the same responsive gutter; route Back stays inside its
+authored reading frame rather than using a negative margin.
+
+Both new bridge regressions fail against the broken source. Focused bridge,
+Profile and privacy checks pass; optimized Chromium/WebKit layout checks pass
+16/16, including the former fixed-inset negative control. Three actual native
+simulator tests pass for motion quarantine, popup retirement and Profile handoff.
+UI contract build/check, typecheck, signed iPhone build and exact local core pass
+(535 seconds). Simulator results do not qualify physical interaction or material.
+
+The built UAT qualification candidate is Debug 1.4.0 (69), executable SHA-256
+`60cacf2510aac712309adc714acabca9e2aa313589c1418eb1b875f706e9f476`.
+Only its runner has been installed. The iPhone product still has the installed
+identity documented below; candidate installation/restart awaits draft-loss
+approval. The old-product resume rehearsal stopped at unavailable Chat controls
+before exercising the system interruption. It is neither a reproduced resume
+cycle nor a candidate pass. Physical resume, transition-frame, accessibility and
+performance acceptance remain open; no renderer family was newly qualified.
+
+Consumers of lifecycle state must observe authoritative validation receipts as
+well as events. Preserve generation/owner fences, require fresh admission, and
+never release the privacy cover on a presentation timeout alone. Distinguish
+semantic disabled/busy appearance from temporary touch/accessibility quarantine.
+Bounded native choice adapters exist; complex multiselects and route pagers remain
+React-owned until their complete overlapping presentation is separately qualified.
 
 ### Active Profile parity correction — 2026-10-13
 
