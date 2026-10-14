@@ -146,6 +146,116 @@ def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
         cwd=tmp_path,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / ".receipt-logo-url-template").read_text() == ""
+
+
+@pytest.mark.parametrize(
+    "environment,receipt_status,key_prefix,suffix,expected_code",
+    [
+        ("uat", "present", "pk_", "&fallback=404&redirect=404", 0),
+        ("uat", "missing", "pk_", "&fallback=404&redirect=404", 0),
+        ("uat", "denied", "pk_", "&fallback=404&redirect=404", 1),
+        ("uat", "present", "sk_", "&fallback=404&redirect=404", 1),
+        ("uat", "present", "pk_", "&fallback=monogram&redirect=404", 1),
+        ("uat", "present", "pk_", "&fallback=404", 1),
+        ("production", "denied", "pk_", "&fallback=404&redirect=404", 0),
+        ("dev", "denied", "pk_", "&fallback=404&redirect=404", 0),
+    ],
+)
+def test_receipt_logo_build_boundary(
+    tmp_path, environment, receipt_status, key_prefix, suffix, expected_code
+):
+    # Synthetic credentials only. No provider or deployment is contacted.
+    template = "https://img.logo.dev/{domain}?token=" + key_prefix + "x" * 32 + suffix
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text())
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values["_DEPLOY_ENV"] = environment
+    script = (
+        _substitute(
+            _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+        )
+        .replace("$$", "$")
+        .replace("/workspace/", str(tmp_path) + "/")
+    )
+    guards = """gcloud() {
+      case "$*" in
+        *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
+          printf '%s' 'synthetic.apps.googleusercontent.com' ;;
+        *--secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE*)
+          case "$TEST_RECEIPT_STATUS" in
+            present) printf '%s' "$TEST_RECEIPT_TEMPLATE" ;;
+            missing) echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;;
+            denied) echo "PERMISSION_DENIED: $TEST_RECEIPT_TEMPLATE" >&2; return 1 ;;
+          esac ;;
+        *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;;
+      esac
+    };
+"""
+    guards += f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
+    origin = "one.hussh.si" if environment == "production" else f"{environment}.one.hussh.si"
+    result = _run(
+        guards + script,
+        env={
+            "APP_FRONTEND_ORIGIN_VAL": "https://" + origin,
+            "PROJECT_ID": "synthetic-project",
+            "TEST_RECEIPT_STATUS": receipt_status,
+            "TEST_RECEIPT_TEMPLATE": template,
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == expected_code, output
+    assert template not in output
+    assert key_prefix + "x" * 32 not in output
+    assert "UNEXPECTED_" not in output
+    if expected_code:
+        assert "receipt-logo" in output
+        return
+
+    expected = template if environment == "uat" and receipt_status == "present" else ""
+    artifact = tmp_path / ".receipt-logo-url-template"
+    assert artifact.read_text() == expected
+    assert artifact.stat().st_mode & 0o777 == 0o600
+
+    # Execute the real Docker step, capture arguments without running Docker,
+    # and prove query separators/braces survive as one build argument.
+    build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
+    build = build.replace("$$", "$").replace("/workspace/", str(tmp_path) + "/")
+    capture = tmp_path / "docker-args.txt"
+    build_guards = (
+        "gcloud() { return 0; };\n"
+        "docker() { "
+        f'if [ "$1 $2" = "buildx build" ]; then printf "%s\\n" "$@" > "{capture}"; fi; '
+        "return 0; };\n"
+    )
+    build_env = {
+        name: "synthetic"
+        for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
+    }
+    build_env["PROJECT_ID"] = "synthetic-project"
+    built = _run(build_guards + build, env=build_env)
+    assert built.returncode == 0, built.stdout + built.stderr
+    assert f"NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE={expected}" in capture.read_text().splitlines()
+    assert template not in built.stdout + built.stderr
+    assert not artifact.exists()
+
+    # Docker exposes ARG in RUN's environment. Exercise the actual build RUN
+    # with a guarded npm command, proving the empty value is truly unset.
+    dockerfile = (ROOT / "hushh-webapp" / "Dockerfile").read_text()
+    assert "ARG NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE\n" in dockerfile
+    run = re.search(r"^RUN if .*?npm run build$", dockerfile, re.MULTILINE | re.DOTALL)
+    assert run is not None
+    npm_guards = (
+        "npm() { "
+        'if [ "$1 $2" != "run build" ]; then return 95; fi; '
+        'if [ -n "$TEST_EXPECTED_TEMPLATE" ]; then '
+        '[ "$NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE" = "$TEST_EXPECTED_TEMPLATE" ]; '
+        'else [ "${NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE+x}" != x ]; fi; };\n'
+    )
+    next_build = _run(
+        npm_guards + run.group(0).removeprefix("RUN "),
+        env={"NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE": expected, "TEST_EXPECTED_TEMPLATE": expected},
+    )
+    assert next_build.returncode == 0, next_build.stdout + next_build.stderr
 
 
 def test_image_build_config_never_deploys() -> None:

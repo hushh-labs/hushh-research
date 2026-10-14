@@ -308,3 +308,56 @@ def test_voice_candidate_parity_blocks_missing_runtime_configuration(
     report = json.loads(report_path.read_text())
     assert report["status"] == ("blocked" if missing_voice_key else "healthy")
     assert len(report["runtime_contract"]["backend_voice"]) == 3
+
+
+@pytest.mark.parametrize("missing_credential", [False, True])
+def test_hosted_profile_does_not_require_legacy_location_but_keeps_credentials(
+    monkeypatch, tmp_path, missing_credential
+) -> None:
+    omitted = {"GOOGLE_CLOUD_LOCATION"}
+    if missing_credential:
+        omitted.add("VAULT_DATA_KEY")
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {
+            "containers": [
+                {
+                    "env": [
+                        {
+                            "name": key,
+                            "valueFrom": {"secretKeyRef": {"name": key, "key": "latest"}},
+                        }
+                        for key in parity.BACKEND_RUNTIME_REQUIRED
+                        if key not in omitted
+                    ]
+                }
+            ]
+        },
+    }
+    monkeypatch.setattr(parity, "_has_secret", lambda *_: True)
+    monkeypatch.setattr(parity, "_domain_runtime_contract", lambda *_: {"status": "valid"})
+    monkeypatch.setattr(parity, "_describe_run_service", lambda *_: {})
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    report_path = tmp_path / "parity.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify-env-secrets-parity.py",
+            "--project",
+            "test-project",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert parity.main() == (1 if missing_credential else 0)
+    report = json.loads(report_path.read_text())
+    assert report["status"] == ("blocked" if missing_credential else "healthy")
+    assert "GOOGLE_CLOUD_LOCATION" not in {
+        row["key"] for row in report["runtime_contract"]["backend"]
+    }
+    if missing_credential:
+        assert "runtime_mount_missing" in report["classifications"]

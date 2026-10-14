@@ -2,7 +2,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import sharp from "sharp";
 import {
   awaitProductFont,
   productFontStyle,
@@ -95,9 +94,14 @@ test.beforeEach(async ({ page }) => {
   await page.route("http://one-preview.test/_next/image*", async (route) => {
     const source = new URL(route.request().url()).searchParams.get("url") ?? "";
     const introPrefix = "/onboarding/intro-v2/";
+    const welcomePrefix = "/onboarding/welcome-stitch/";
     await route.fulfill({
       path: source.startsWith(introPrefix)
         ? path.join(process.cwd(), "public/onboarding/intro-v2", source.slice(introPrefix.length))
+        : source.startsWith(welcomePrefix)
+          ? path.join(process.cwd(), "public/onboarding/welcome-stitch", source.slice(welcomePrefix.length))
+          : source === "/onboarding/figma/one-light.svg"
+            ? path.join(process.cwd(), "public/onboarding/figma/one-light.svg")
         : path.join(process.cwd(), "public/brand/hushh-mark.png"),
     });
   });
@@ -105,13 +109,17 @@ test.beforeEach(async ({ page }) => {
     const name = new URL(route.request().url()).pathname.split("/").pop()!;
     await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/figma", name) });
   });
+  await page.route("http://one-preview.test/onboarding/welcome-stitch/**", async (route) => {
+    const relativePath = new URL(route.request().url()).pathname.slice("/onboarding/welcome-stitch/".length);
+    await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/welcome-stitch", relativePath) });
+  });
   await page.route("http://one-preview.test/onboarding/intro-v2/**", async (route) => {
     const relativePath = new URL(route.request().url()).pathname.slice("/onboarding/intro-v2/".length);
     await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/intro-v2", relativePath) });
   });
 });
 
-test("dark welcome never exposes the baked logo when the shared image fails", async ({
+test("welcome headline and action remain usable when decorative images fail", async ({
   page,
 }) => {
   await page.route("http://one-preview.test/_next/image*", (route) =>
@@ -120,35 +128,19 @@ test("dark welcome never exposes the baked logo when the shared image fails", as
   await page.route("http://one-preview.test/brand/hushh-mark.png*", (route) =>
     route.abort(),
   );
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize({ width: 320, height: 568 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setContent(
     `<html class="dark"><head><base href="http://one-preview.test/"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; }</style></head><body><div id="root"></div></body></html>`,
   );
   await page.addScriptTag({ content: script });
-  await page.evaluate(async () => {
-    const artwork = new Image();
-    artwork.src = "/onboarding/figma/screen-8-art.png";
-    await artwork.decode();
-  });
-  const mark = page.getByTestId("guest-preview").locator("[data-hushh-mark]");
-  const pixels = await sharp(await mark.screenshot())
-    .removeAlpha()
-    .raw()
-    .toBuffer();
-  let goldPixels = 0;
-  for (let index = 0; index < pixels.length; index += 3) {
-    if (
-      pixels[index] > 130 &&
-      pixels[index + 1] > 80 &&
-      pixels[index + 2] < pixels[index] * 0.72
-    )
-      goldPixels++;
-  }
-  expect(
-    goldPixels,
-    "the old golden face must be absent before the new logo loads",
-  ).toBe(0);
+  const preview = page.getByTestId("guest-preview");
+  await expect(preview.getByRole("heading", { name: "Your private AI agent for everyday life." })).toBeVisible();
+  const cta = preview.getByRole("button", { name: "Create your One", exact: true });
+  await cta.scrollIntoViewIfNeeded();
+  await expect(cta).toBeInViewport();
+  await cta.click();
+  await expect(preview).toHaveAttribute("data-preview-step", "2");
 });
 
 const STORY_TITLES = [
@@ -182,7 +174,13 @@ test("welcome leads into four stories and only the last action starts", async ({
     viewport: { width: 393, height: 852, top: 59, bottom: 34 },
   });
   await expect(preview).toHaveAttribute("data-preview-step", "1");
-  await expect(preview.locator("[data-hushh-mark] img")).toBeVisible();
+  await expect(preview.getByRole("heading", { name: "Your private AI agent for everyday life." })).toBeVisible();
+  await expect.poll(() => preview.locator('img[src*="one-mascot"]').evaluate((image) =>
+    image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+  )).toBe(true);
+  for (const cue of ["Find a time", "Catch me up", "My access"]) {
+    await expect(preview.getByText(cue, { exact: true })).toBeVisible();
+  }
   await preview.getByRole("button", { name: "Create your One", exact: true }).click();
   await expect(preview).toHaveAttribute("data-preview-step", "2");
   await storyCard(preview, 1).getByRole("button", { name: "Previous screen" }).click();
@@ -220,6 +218,10 @@ for (const viewport of [
   { width: 393, height: 852, top: 59, bottom: 34 },
   { width: 390, height: 664, top: 0, bottom: 0 },
   { width: 768, height: 1024, top: 24, bottom: 20 },
+  { width: 900, height: 600, top: 0, bottom: 0 },
+  { width: 901, height: 600, top: 0, bottom: 0 },
+  { width: 1024, height: 768, top: 0, bottom: 0 },
+  { width: 1320, height: 800, top: 0, bottom: 0 },
   { width: 1440, height: 900, top: 0, bottom: 0 },
 ]) {
   for (const dark of [false, true]) {
@@ -228,7 +230,9 @@ for (const viewport of [
       page.on("pageerror", (error) => errors.push(error.message));
       const preview = await mountPreview(page, { dark, viewport });
       await expect(preview).toHaveAttribute("data-preview-step", "1");
-      await expect(preview.getByRole("heading", { level: 1 })).toBeVisible();
+      const welcomeTitle = preview.getByRole("heading", { level: 1 });
+      await expect(welcomeTitle).toBeVisible();
+      expect(await welcomeTitle.evaluate((element) => element.scrollWidth - element.clientWidth), "welcome title is not clipped").toBeLessThanOrEqual(1);
       await preview.getByRole("button", { name: "Create your One", exact: true }).click();
 
       for (let index = 1; index <= STORY_TITLES.length; index++) {
@@ -237,7 +241,12 @@ for (const viewport of [
         await expect(preview).toHaveAttribute("data-preview-step", String(index + 1));
         await expect(title).toHaveText(STORY_TITLES[index - 1]);
         await expect(card).toBeVisible();
-        await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(viewport.width <= 900 ? 1 : 4);
+        await expect(preview.locator("[data-intro-v2-card]:visible")).toHaveCount(1);
+        if (viewport.width > 900) {
+          const cardBounds = (await card.boundingBox())!;
+          expect(cardBounds.width, "desktop remains a card carousel").toBeLessThanOrEqual(441);
+          expect(Math.abs(cardBounds.x + cardBounds.width / 2 - viewport.width / 2), "active card is centered").toBeLessThanOrEqual(2);
+        }
         await expect.poll(
           () => card.locator("img").evaluateAll((images) =>
             images.filter((image) => image.complete && image.naturalWidth > 0).length),
