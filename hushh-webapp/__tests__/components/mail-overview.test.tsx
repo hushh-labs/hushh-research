@@ -27,6 +27,8 @@ describe("Mail overview", () => {
     const { rerender } = render(<MailOverview {...props} fetching receiptDetail="Fetching your latest purchases…" />);
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(screen.queryByText("Agent One")).not.toBeInTheDocument();
+    expect(screen.queryByText("Receipt sync")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fetching your latest purchases…")).not.toBeInTheDocument();
     rerender(<MailOverview {...props} fetching={false} receiptDetail="Your latest receipts are ready." />);
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(screen.queryByText("Your latest receipts are ready.")).not.toBeInTheDocument();
