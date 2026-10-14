@@ -119,8 +119,14 @@ steps:
         # UAT's cross-project release runs a mandatory no-traffic candidate
         # probe as the runtime identity before promotion. Cloud Build's separate
         # build identity need not read managed AI API state or IAM policy.
-        # Direct builds and other environments retain the static preflight.
-        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" && "${_CLOUD_RUN_NO_TRAFFIC}" == "true" && "${_VERIFY_MANAGED_VERTEX_RUNTIME}" == "true" ]]; then
+        # Other environments retain the static preflight. UAT cannot fall back
+        # to an administrative read when its required candidate proof is absent.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ]] || \
+            ! [[ "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ && "${_DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "UAT cross-project Vertex requires a no-traffic candidate, immutable image, exact SHA and successful runtime probe." >&2
+            exit 1
+          fi
           echo "UAT cross-project Vertex access will be verified by the required runtime-identity candidate probe."
         else
           vertex_api_name="$(gcloud services list --enabled \
@@ -634,6 +640,35 @@ steps:
             or verdict.get("one_voice_probe_ok") is not True
         ):
             raise SystemExit("One voice Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
+        # This lane replaces cross-project administrative reads with positive
+        # capability evidence. It must never accept the legacy outage advisory.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          if [[ "${execute_status}" -ne 0 ]]; then
+            echo "Required UAT runtime-identity probe execution failed." >&2
+            exit 1
+          fi
+          PROBE_LINE="${probe_line}" python3 - <<'PY'
+        import json
+        import os
+
+        try:
+            verdict = json.loads(os.environ["PROBE_LINE"].split("managed_vertex_probe_result", 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("Required UAT runtime probe verdict is missing") from None
+        probes = verdict.get("probes")
+        if (
+            verdict.get("check") != "managed_vertex_runtime"
+            or verdict.get("ok") is not True
+            or verdict.get("classification") != "dependency_ok"
+            or verdict.get("candidate_models_exercised") is not True
+            or not isinstance(probes, list)
+            or not probes
+            or any(not isinstance(probe, dict) or probe.get("ok") is not True
+                   or probe.get("classification") != "dependency_ok" for probe in probes)
+        ):
+            raise SystemExit("Required UAT runtime probe did not fully pass")
         PY
         fi
         if [[ "${execute_status}" -eq 0 ]]; then
