@@ -81,9 +81,6 @@ export function MailConnectionStatus({
       ) : (
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Status
-            </p>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
               {statusSummary.title}
             </h2>
