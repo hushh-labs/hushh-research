@@ -325,6 +325,12 @@ export function SavedLocationsSection() {
       ) {
         return;
       }
+      // A successful explicit acquisition uses the same per-owner switch
+      // state as the hub. A later pause was rejected by the guards above.
+      updateOneLocationControlState(userId, (current) => ({
+        ...current,
+        selfPreviewEnabled: true,
+      }));
       setSaveLocationPoint(point);
       setSaveLocationAddress(null);
       setSaveLocationAddressLoading(true);

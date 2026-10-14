@@ -266,6 +266,33 @@ describe("LocationPickerMap", () => {
     vi.useRealTimers();
   });
 
+  it("recovers the interactive map when the SDK arrives after the fallback timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      mapsStatus.current = "loading";
+      const onConfirm = vi.fn();
+      const props = {
+        initialLatitude: 28.6139, initialLongitude: 77.209,
+        reverseGeocode: vi.fn().mockResolvedValue("Updated address"),
+        onConfirm, onCancel: vi.fn(),
+      };
+      const view = render(<LocationPickerMap {...props} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByText(/interactive map isn't available/i)).toBeTruthy();
+      mapsStatus.current = "ready";
+      view.rerender(<LocationPickerMap {...props} />);
+      expect(mapConstructor).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/interactive map isn't available/i)).toBeNull();
+      currentCenter = { lat: 28.6142, lng: 77.2094 };
+      act(() => { listeners.get("dragstart")?.(); listeners.get("idle")?.(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm location" }));
+      expect(onConfirm).toHaveBeenCalledWith({ latitude: 28.6142, longitude: 77.2094, address: "Updated address" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets the owner continue manually when the provider map is unavailable", () => {
     mapsStatus.current = "error";
     const onConfirm = vi.fn();
