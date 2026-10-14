@@ -105,6 +105,20 @@ bootstrap cases pass. Warm observations remain distinct from visible unlock and
 cold recovery. This correction still requires its own core, exact-source full CI
 and serving verification; no new purchase or deployment is implied.
 
+Main `4e92edf790ba` is integrated through normal merge `0948a34c7499` on
+the original infrastructure branch, including published teammate work at
+`810733d7fcea`. The composition preserves owner-retirement guards, Wallet revoke
+controls, private Calendar processing and exact payment-source separation while
+retaining incoming Password presentation, compact card details and confirmation
+Back behavior. The nearest checks pass 259 frontend cases, 460 Back cases,
+18 reviewer cases and nine CI-lane cases; typecheck and generated UI contracts
+pass. Independent source/hash review qualifies only 14 inherited or composed
+module-size ceilings. Existing findings, history, scanner and 500/250/80 budgets
+remain intact, and a future-growth negative control still fails. Ten unrelated
+workspace hashes remain unchanged. Exact-candidate core, full CI, Dev serving
+readback and the reviewer purchase/refund/maturity/withdrawal receipts remain
+required; this source integration is not payment acceptance.
+
 Main `9f017ef6fcde` was merged normally into the existing infrastructure branch.
 The first combined core run passed web-core and 19,071 protocol cases, but failed
 the unchanged Cloud Build argument-size gate. Extracting the identical native
