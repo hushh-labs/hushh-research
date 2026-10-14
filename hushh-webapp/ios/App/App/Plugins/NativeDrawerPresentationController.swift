@@ -117,6 +117,22 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
     var requestReadmission: (() -> Void)?
+    #if DEBUG
+    private var observedCloseSequence = 0
+    private var observedCloseStage = "none"
+    func observeClose(sequence: Int, confirmed: Bool? = nil) {
+        if let confirmed {
+            guard sequence == observedCloseSequence else { return }
+            observedCloseStage = confirmed ? "confirmed" : "rejected"
+        } else {
+            observedCloseSequence = sequence
+            observedCloseStage = "emitted"
+        }
+    }
+    var closeDiagnostic: String {
+        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission)"
+    }
+    #endif
     var leadingHeaderFrame: (() -> CGRect?)?
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
     // Keep the last committed layout's travel while reconstructing a drag

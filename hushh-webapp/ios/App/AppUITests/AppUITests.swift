@@ -160,6 +160,11 @@ final class AppUITests: XCTestCase {
                 let pair = item.split(separator: "=", maxSplits: 1)
                 return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
             }, uniquingKeysWith: { _, newest in newest })
+            if let stage = fields["drawerCloseStage"], ["none", "emitted", "confirmed", "rejected"].contains(stage),
+               ["drawerOpen", "drawerInteractive", "drawerAwaiting", "profileQueryOpen"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }),
+               let depth = Int(fields["profileHistoryDepth"] ?? ""), (0...10000).contains(depth) {
+                print("PROFILE_CLOSE_BOUNDARY stage=\(stage) open=\(fields["drawerOpen"]!) interactive=\(fields["drawerInteractive"]!) awaiting=\(fields["drawerAwaiting"]!) query_open=\(fields["profileQueryOpen"]!) depth=\(depth)")
+            }
             let bits = ["hLayout", "hPending", "hEnabled", "hDocument", "hPrivacy", "hViewport", "hAdmitted", "hAllowed", "hIsolated", "hPane", "hHidden", "hTouchBlocked", "hAXHidden"]
             if fields["hActive"] == "1", fields["hAvailable"] == "1",
                let sequence = Int(fields["hSeq"] ?? ""), (1...1_000_000).contains(sequence),

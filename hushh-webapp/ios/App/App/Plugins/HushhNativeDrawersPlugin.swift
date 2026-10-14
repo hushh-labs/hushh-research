@@ -182,6 +182,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         guard sessionFence.contains(state.identity), privacy.appIsActive, !privacy.shielded, state.privacyGeneration == privacy.generation,
               let sequence = lease.emit(action: action, row: row, state: state, text: text) else { return false }
         leases[family] = lease
+        #if DEBUG
+        if action == "close" { controller.observeClose(sequence: sequence) }
+        #endif
         if action == "row" { controller.model.pendingSequence = sequence }
         var event = receipt(state, phase: "active")
         event.removeValue(forKey: "phase")
@@ -208,6 +211,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 interaction: call.getInt("interactionGeneration") ?? -1,
                 action: action, row: row, allowed: allowed, text: text)
             self.leases[identity.family] = lease
+            #if DEBUG
+            if action == "close" { controller.observeClose(sequence: call.getInt("sequence") ?? -1, confirmed: valid) }
+            #endif
             call.resolve(["valid": valid])
         }
     }
