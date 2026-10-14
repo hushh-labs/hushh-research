@@ -15,6 +15,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
+  unlocked: true,
   events: [
     {
       id: "calendar-event-1",
@@ -30,7 +31,7 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
-    isVaultUnlocked: true,
+    isVaultUnlocked: mocks.unlocked,
     vaultKey: "test-vault-key",
     vaultOwnerToken: "test-owner-token",
   }),
@@ -71,6 +72,14 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 describe("TodoListPage row actions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.unlocked = true;
+    mocks.events = [
+      {
+        id: "calendar-event-1",
+        title: "Review the plan",
+        start: { date: "2026-10-10" },
+      },
+    ];
     vi.spyOn(TodoListPkmService, "load").mockResolvedValue({ tasks: [] });
     vi.spyOn(TodoListPkmService, "remove").mockResolvedValue({
       success: true,
@@ -188,5 +197,93 @@ describe("TodoListPage row actions", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Add item" })).toHaveFocus(),
     );
+  });
+  it("counts only today's scheduled cohort in daily progress", async () => {
+    mocks.events = [];
+    const date = new Date();
+    const today = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+    const anotherDate = today === "2026-01-01" ? "2026-01-02" : "2026-01-01";
+    const due = buildTodo({ id: "due", title: "Today's item", date: today });
+    const finished = {
+      ...buildTodo({ id: "done", title: "Done today", date: today }),
+      status: "done" as const,
+    };
+    const historical = {
+      ...buildTodo({
+        id: "history",
+        title: "Historical item",
+        date: anotherDate,
+      }),
+      status: "done" as const,
+    };
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({
+      tasks: [due, finished, historical],
+    });
+    vi.spyOn(TodoListPkmService, "setStatus").mockResolvedValue({
+      success: true,
+      saveState: "saved",
+      fullBlob: {},
+    });
+    render(<TodoListPage />);
+    const progress = await screen.findByRole("progressbar", {
+      name: "Today's completion",
+    });
+    expect(progress).toHaveAttribute("aria-valuemax", "2");
+    expect(progress).toHaveAttribute("aria-valuenow", "1");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Mark Today's item as completed" }),
+    );
+    await waitFor(() => expect(progress).toHaveAttribute("aria-valuenow", "2"));
+    expect(
+      screen.queryByRole("heading", { name: "Today's item" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps task titles and daily progress hidden while the vault is locked", () => {
+    mocks.unlocked = false;
+    render(<TodoListPage />);
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(TodoListPkmService.load).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Add item" })).toBeDisabled();
+  });
+
+  it("dismisses protected dialogs when the vault locks without mutating the item", async () => {
+    const view = render(<TodoListPage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete Review the plan" }),
+    );
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+
+    mocks.unlocked = false;
+    view.rerender(<TodoListPage />);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("Review the plan")).not.toBeInTheDocument();
+    expect(TodoListPkmService.remove).not.toHaveBeenCalled();
+
+    mocks.unlocked = true;
+    view.rerender(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add item" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Title", exact: true }),
+      { target: { value: "Private draft" } },
+    );
+    mocks.unlocked = false;
+    view.rerender(<TodoListPage />);
+    expect(
+      screen.queryByRole("textbox", { name: "Title", exact: true }),
+    ).not.toBeInTheDocument();
+    mocks.unlocked = true;
+    view.rerender(<TodoListPage />);
+    await screen.findByRole("button", { name: "Delete Review the plan" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    expect(
+      screen.getByRole("textbox", { name: "Title", exact: true }),
+    ).toHaveValue("");
   });
 });
