@@ -26,9 +26,7 @@ import {
   ArrowUpRight,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
-import { useVault } from "@/lib/vault/vault-context";
-import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { ownerStyleFromBranch } from "@/lib/agent/owner-style-settings";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -179,18 +177,7 @@ export function OneAgentProfileSheet({
   presenceState?: OnePresenceState;
 }) {
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const identity = usePkmDomainResource({
-    userId: user?.uid ?? "",
-    domain: "identity",
-    vaultKey,
-    vaultOwnerToken,
-    enabled: open && isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken),
-  });
-  const profileName = isVaultUnlocked && vaultKey && vaultOwnerToken &&
-    identity.data?.key.userId === user?.uid
-    ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || "One"
-    : "One";
+  const profileName = useOneDisplayName(open);
   const router = useRouter();
   const [tab, setTab] = useState("feed");
   const scrollRef = useRef<HTMLDivElement>(null);
