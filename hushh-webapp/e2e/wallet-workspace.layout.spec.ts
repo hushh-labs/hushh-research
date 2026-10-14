@@ -707,6 +707,10 @@ for (const width of [320, 390, 1440]) {
     await expect(revoke).toBeEnabled();
     await revoke.scrollIntoViewIfNeeded();
     const revokeBounds = (await revoke.boundingBox())!;
+    expect(revokeBounds.height).toBeGreaterThanOrEqual(44);
+    const backBounds = (await detail.getByRole("button", { name: "Back to sharing history" }).boundingBox())!;
+    expect(backBounds.width).toBeGreaterThanOrEqual(44);
+    expect(backBounds.height).toBeGreaterThanOrEqual(44);
     expect(revokeBounds.x).toBeGreaterThanOrEqual(0);
     expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(width);
     await revoke.click();
