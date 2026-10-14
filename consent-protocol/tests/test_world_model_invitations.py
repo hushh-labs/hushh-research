@@ -169,7 +169,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute(
             (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()
         )
-        await pool.execute((ROOT / "db/migrations/339_pwm_provider_budget.sql").read_text())
+        await pool.execute((ROOT / "db/migrations/340_pwm_provider_budget.sql").read_text())
         from hushh_mcp.one_adk import world_model
 
         monkeypatch.setattr("db.connection.get_pool", AsyncMock(return_value=pool))
@@ -177,7 +177,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         await pool.execute("UPDATE pwm_provider_budget SET credits=900")
         assert await world_model.charge_search_credit() is False
         await pool.execute(
-            (ROOT / "db/migrations/rollback/339_pwm_provider_budget.rollback.sql").read_text()
+            (ROOT / "db/migrations/rollback/340_pwm_provider_budget.rollback.sql").read_text()
         )
     finally:
         await pool.close()

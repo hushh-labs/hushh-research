@@ -11,6 +11,7 @@ from .answer_requests import router as answer_requests_router
 from .answer_work_drain import router as answer_work_drain_router
 from .business_suggestions import router as business_suggestions_router
 from .calendar import router as calendar_router
+from .calendar_workspace import router as calendar_workspace_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -66,6 +67,7 @@ router.include_router(connections_router)
 router.include_router(messages_router)
 router.include_router(wallet_card_access_router)
 router.include_router(calendar_router)
+router.include_router(calendar_workspace_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)
 router.include_router(capability_runtime_router)

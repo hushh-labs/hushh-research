@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-10-10",
-  "total_routes": 133,
+  "total_routes": 134,
   "native_required_routes": 111,
-  "excluded_routes": 22,
+  "excluded_routes": 23,
   "routes": [
     {
       "route": "/wallet/open",
@@ -1550,6 +1550,11 @@
       "expectedRoute": "/one/welcome",
       "autoReviewerLogin": true,
       "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
+    },
+    {
+      "route": "/calendar/reschedule",
+      "classification": "excluded-web-only",
+      "reason": "External recipients use this anonymous browser capability link; it requires no app install and grants no booking or native workspace authority."
     }
   ]
 }

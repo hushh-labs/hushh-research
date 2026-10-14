@@ -134,6 +134,7 @@ export default function RootLayout({
             }}
           />
         ) : null}
+        <Script id="calendar-capability-consume" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: "if(window.location.pathname.replace(/\\/$/,'')==='/calendar/reschedule'&&window.location.hash){window.__oneCalendarReschedulingCapability=window.location.hash.slice(1);window.history.replaceState(window.history.state,'',window.location.pathname);}" }} />
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script
