@@ -129,6 +129,13 @@ asynchronous pre-navigation admission; all 33 nearest cases pass, and the
 original unawaited implementation fails the new admission negative controls.
 The completed correction still requires its own core and exact-source full CI.
 
+The same hosted run subsequently finished with one failing native artwork test:
+its former 15-entry inventory and two accent expectations lag the current
+generated 17-entry Profile menu and World Model accent. The nearest test now
+asserts the exact authored IDs, retains bundled-image/template and unknown-ID
+negative controls, and includes the current accent. Swift parsing and native
+static/Siri parity pass; full XCTest remains required in the next exact-source CI.
+
 The fresh aggregate Monitoring observation at `2026-10-14T08:12:13Z` verifies
 all 17 metrics, a worker completion at `08:12:03Z`, timestamped provider backing,
 and no shortfall, unbalanced journals, receipt failures or unresolved work.
