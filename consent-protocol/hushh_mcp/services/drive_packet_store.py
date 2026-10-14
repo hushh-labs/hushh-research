@@ -750,6 +750,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             result = []
             for item in rows[: max(1, min(100, limit))]:
                 row = dict(item)
+                policy_stale = row["policy_version"] != policy
                 current = (
                     not paused
                     and row["version"] is not None
@@ -758,7 +759,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 manifest = self._manifest(row) if row["version"] else None
                 assessment = manifest["assessment"] if manifest else {}
                 key = self._key(row) if user_id == owner else {}
-                gaps = list(assessment.get("gaps", []))
+                gaps = list(assessment.get("gaps", [])) if not policy_stale else []
                 if not current and not gaps:
                     gaps = [
                         "Processing is paused."
@@ -766,15 +767,19 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         else "The private agent is checking current evidence."
                     ]
                 purchasable = bool(current and 0 < (row["document_count"] or 0) <= 120)
-                description = assessment.get("description", key.get("description", ""))
-                if not self._collection_complete(
+                description = (
+                    "Current source evidence is being checked."
+                    if policy_stale
+                    else assessment.get("description", key.get("description", ""))
+                )
+                if not policy_stale and not self._collection_complete(
                     connection, owner, active["connection_generation"], policy
                 ):
                     description = description[:790] + (
                         " Covers only its verified documents and stated span. Other Drive files remain unverified;"
                         " this is not a complete inventory of matching records."
                     )
-                if (row["document_count"] or 0) > 120:
+                if not policy_stale and (row["document_count"] or 0) > 120:
                     description = (
                         description[:930]
                         + " This packet exceeds the current 120-document purchase limit."
@@ -784,23 +789,25 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         "packetId": str(row["packet_id"]),
                         "version": row["version"] or 0,
                         "listingRevision": row["listing_revision"] or 0,
-                        "title": assessment.get("title", key.get("title", "Document packet")),
+                        "title": "Packet being checked"
+                        if policy_stale
+                        else assessment.get("title", key.get("title", "Document packet")),
                         "description": description,
-                        "state": row["state"] if row["policy_version"] == policy else "incomplete",
-                        "coverageSummary": assessment.get(
-                            "coverage_summary", "Evidence is being prepared."
-                        ),
+                        "state": "incomplete" if policy_stale else row["state"],
+                        "coverageSummary": "Coverage is being checked."
+                        if policy_stale
+                        else assessment.get("coverage_summary", "Evidence is being prepared."),
                         "gaps": gaps,
                         "documentCount": row["document_count"] or 0,
                         "verifiedAt": row["verified_at"].isoformat()
-                        if row["verified_at"]
+                        if row["verified_at"] and not policy_stale
                         else None,
                         "freshness": "paused" if paused else "current" if current else "stale",
                         "assessmentScore": assessment.get("assessment_score"),
                         "importance": assessment.get("importance"),
                         "suggestedPriceCents": row["suggested_price_cents"],
                         "priceCents": row["listing_price"] or row["suggested_price_cents"],
-                        "listingEnabled": bool(row["listing_enabled"]),
+                        "listingEnabled": bool(row["listing_enabled"] and not policy_stale),
                         "canRequest": bool(
                             purchasable and row["listing_enabled"] and user_id != owner
                         ),

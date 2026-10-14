@@ -276,15 +276,38 @@ async def test_new_facts_policy_hides_prior_ready_listing_until_rechecked(reusab
     assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
         "packets"
     ]
+    with reusable.facts.db.engine.connect() as connection:
+        saved_version = dict(
+            connection.execute(
+                text("SELECT manifest_envelope,digest,available FROM drive_packet_versions")
+            )
+            .mappings()
+            .one()
+        )
     monkeypatch.setattr(
         "hushh_mcp.services.drive_packet_intelligence.facts_policy_version",
         lambda: "new-facts-policy",
     )
     owner = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
     assert owner["state"] == "incomplete" and not owner["canList"]
+    assert owner["title"] == "Packet being checked"
+    assert owner["coverageSummary"] == "Coverage is being checked."
+    assert owner["description"] == "Current source evidence is being checked."
+    assert owner["verifiedAt"] is None and not owner["listingEnabled"]
     assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
         "packets"
     ] == []
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            dict(
+                connection.execute(
+                    text("SELECT manifest_envelope,digest,available FROM drive_packet_versions")
+                )
+                .mappings()
+                .one()
+            )
+            == saved_version
+        )
     with pytest.raises(DriveReadError, match="packet_unavailable"):
         await reusable.packets.current_packet_manifest(
             owner_user_id="owner", packet_id=packet["packetId"], version=1
