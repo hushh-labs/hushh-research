@@ -230,6 +230,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });

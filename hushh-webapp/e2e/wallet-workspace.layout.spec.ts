@@ -883,6 +883,13 @@ for (const width of [390, 1440]) {
     const icons = details.locator('[data-slot="settings-row-icon"] svg');
     await expect(icons).toHaveCount(8);
     expect(await icons.evaluateAll(elements => elements.slice(0, 7).every(icon => {
+      const keyAccent = icon.querySelector('defs pattern circle');
+      if (keyAccent) {
+        const ink = icon.querySelector('defs pattern rect');
+        return ink && getComputedStyle(keyAccent).fill === 'rgb(0, 122, 255)' &&
+          getComputedStyle(ink).fill !== getComputedStyle(keyAccent).fill &&
+          !icon.querySelector('[opacity="0.2"]');
+      }
       const accent = icon.querySelector('.profile-pane-icon-accent');
       return accent && getComputedStyle(accent).stroke !== getComputedStyle(icon).stroke;
     }))).toBe(true);
@@ -1140,7 +1147,8 @@ for (const width of [320, 1440]) {
         expect(action.x).toBeGreaterThan(geometry.qrRight);
         expect(action.right).toBeLessThanOrEqual(geometry.right);
         expect(action.right - action.x).toBeGreaterThanOrEqual(124);
-        expect(action.height).toBeGreaterThanOrEqual(44);
+        // A transformed 44px target can measure 43.99994px on CI browsers.
+        expect(action.height + 0.0001).toBeGreaterThanOrEqual(44);
         expect(action.font).toBe("13px");
         if (i) expect(action.y).toBeGreaterThanOrEqual(geometry.actions[i - 1].bottom);
       });
