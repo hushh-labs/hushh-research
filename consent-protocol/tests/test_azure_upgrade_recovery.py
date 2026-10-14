@@ -125,11 +125,34 @@ async def test_an_activating_revision_keeps_the_lease(crashed):
     assert result["skipped"] == "in_progress" and registry.writes == []
 
 
-async def test_the_new_revision_serving_settles_the_update_and_releases_the_lease(crashed):
+@pytest.mark.parametrize("configuration", ["legacy", "frozen", "missing", "malformed"])
+async def test_the_new_revision_serving_settles_the_update_and_releases_the_lease(
+    crashed, monkeypatch, configuration
+):
     arm, backend, row, revision, uid = crashed
+    receipt = row["backend_metadata"]["upgradeAcknowledgement"]
+    entries = arm.resources[backend.app_id]["properties"]["template"]["containers"][0]["env"]
+    wanted = [{"name": "APP_FRONTEND_ORIGIN", "value": "https://dev.one.hussh.ai"}]
+    if configuration == "legacy":
+        receipt.pop("connectorEnvironment")
+    elif configuration == "malformed":
+        receipt["connectorEnvironment"] = None
+    else:
+        receipt["connectorEnvironment"] = wanted
+        if configuration == "frozen":
+            entries.extend(copy.deepcopy(wanted))
+    # A recovery observes the admitted receipt, even after the hub is updated.
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.one.hussh.ai")
     arm.resources[backend.app_id]["properties"].update(
         latestReadyRevisionName=revision, provisioningState="Succeeded"
     )
+    if configuration in {"missing", "malformed"}:
+        with pytest.raises(RuntimeError):
+            await backend.observe_upgrade(
+                _spec(expected_service_uid=uid, upgrade_attempt_id=ATTEMPT), receipt
+            )
+        assert not arm.writes()
+        return
     result, registry = await _reconcile(arm, backend, row, uid)
     assert result["reconciled"] is True and result["upgraded"] is True
     saved = registry.row["backend_metadata"]

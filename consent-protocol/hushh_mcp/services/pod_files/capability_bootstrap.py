@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
 from hushh_mcp.services.pod_files.provisioning import bootstrap_calls, bucket_matches
 from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, UserGcpBootstrap
@@ -156,3 +157,27 @@ class FilesCapabilityBootstrap(UserGcpBootstrap):
             if attempt < 6:
                 time.sleep(5)
         raise BootstrapError("Files queue permissions are not effective yet")
+
+
+def apply_upgrade_configuration(
+    capability: FilesCapabilityPlan,
+    client: Any,
+    spec: PodSpec,
+    existing: dict[str, Any],
+    desired: dict[str, Any],
+    *,
+    bootstrap_sa: str,
+    service_name: str,
+) -> None:
+    """Apply the approved delta, checkpoint it, then re-observe before replacement."""
+    from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+    token = mint_bootstrap_token(bootstrap_sa=bootstrap_sa)
+    bootstrap = FilesCapabilityBootstrap(capability=capability, token=token)
+    bootstrap.apply_delta(
+        checkpoint=spec.on_files_upgrade_checkpoint,
+        completed_prefix=spec.files_upgrade_completed_steps,
+    )
+    latest = client.get_service(service_name)
+    capability.require_observation(latest)
+    capability.apply_configuration(existing=existing, desired=desired)

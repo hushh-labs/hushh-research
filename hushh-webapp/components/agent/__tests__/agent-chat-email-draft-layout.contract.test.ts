@@ -25,7 +25,7 @@ function historyCallbacks() {
     useRef: <T,>(value: T) => ({ current: value }),
     user: { uid: "history-owner" },
     workspaceOwnerIdRef: { current: "history-owner" },
-    historyListOwner: { current: null },
+    historyListOwner: { current: null as { auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null },
     snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent,
     snapshotVaultSessionEpoch, isVaultSessionEpochCurrent,
     getVaultOwnerToken: () => "synthetic-capability",
@@ -49,6 +49,8 @@ function historyCallbacks() {
 describe("History caller authority", () => {
   it.each(["current", "owner ABA", "vault change"])("publishes deferred list and rename only for %s", async (transition) => {
     const { callbacks, deps } = historyCallbacks();
+    const admittedAuth = snapshotValidatedAuthSessionOwner();
+    const admittedEpoch = snapshotVaultSessionEpoch();
     let settleList!: (value: { conversations: { id: string }[] }) => void;
     let settleRename!: (value: { id: string }) => void;
     deps.warmAgentChatHistoryCache.mockReturnValueOnce(new Promise(resolve => { settleList = resolve; }));
@@ -65,11 +67,13 @@ describe("History caller authority", () => {
     if (transition === "current") {
       expect(deps.setConversations).toHaveBeenCalled();
       expect(deps.toast.success).toHaveBeenCalledWith("Agent chat renamed.");
+      expect(deps.historyListOwner.current).toEqual({ auth: admittedAuth, epoch: admittedEpoch });
     } else {
       expect(deps.setConversations).not.toHaveBeenCalled();
       expect(deps.toast.success).not.toHaveBeenCalled();
       expect(deps.setIsLoadingHistory).not.toHaveBeenCalled();
       expect(deps.setHistoryActionPendingId).not.toHaveBeenCalled();
+      expect(deps.historyListOwner.current).toBeNull();
     }
     publishValidatedAuthSessionOwner(null);
   });

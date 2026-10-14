@@ -52,3 +52,21 @@ def scope_commerce_test_pin_environment(environment: Mapping[str, str]) -> list[
         {"name": "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "value": account},
         {"name": "SCOPE_COMMERCE_STRIPE_LIVEMODE", "value": "false"},
     ]
+
+
+def pod_connector_public_environment(environment: Mapping[str, str]) -> list[dict[str, str]]:
+    """Carry the exact public callback and test pin, never provider credentials."""
+    from hushh_mcp.services.oauth_redirect_policy import mcp_oauth_callback
+
+    entries = scope_commerce_test_pin_environment(environment)
+    origin = environment.get("APP_FRONTEND_ORIGIN", "").strip()
+    if origin:
+        callback = mcp_oauth_callback(origin, environment="pod")
+        entries.insert(
+            0,
+            {
+                "name": "APP_FRONTEND_ORIGIN",
+                "value": callback.removesuffix("/one/profile/connectors/oauth/return"),
+            },
+        )
+    return entries

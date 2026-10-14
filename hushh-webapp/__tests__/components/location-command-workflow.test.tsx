@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { privateCommandRefusal } from "../fixtures/private-command-refusal";
 
 const h = vi.hoisted(() => ({
   api: vi.fn(),
@@ -755,7 +756,6 @@ it("an uncertain writer response offers explicit task recovery without automatic
   expect(screen.queryByText(/Location setup complete/)).not.toBeInTheDocument();
 });
 
-
 it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
   "refuses command content before hub or device work when placement is %s",
   async (placement) => {
@@ -782,25 +782,24 @@ it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
   },
 );
 
-it("keeps a refused private command on its transport without hub fallback or device effects", async () => {
+it.each(["capabilities", "assessment"] as const)("keeps a %s refusal private without hub fallback or device effects", async (phase) => {
   h.hosting.mockResolvedValue({ hostingMode: "byoc" });
-  h.pod.mockResolvedValue(new Response(JSON.stringify({
-    detail: { code: "POD_DIRECT_NOT_READY" },
-  }), { status: 503 }));
+  h.pod.mockImplementation((route: string) => privateCommandRefusal(route, phase));
   render(<App />);
   fireEvent.click(screen.getByText("Begin command"));
   await screen.findByText("Your private pod connection is not ready yet.");
-  expect(h.pod).toHaveBeenCalledOnce();
   expect(h.pod).toHaveBeenCalledWith("agent-chat/capabilities", expect.any(Object));
-  // Unavailable pod capabilities refuse before any grant, plan or effect.
-  expect(calls).toEqual([]);
-  expect(h.requestPermission).not.toHaveBeenCalled();
-  expect(h.capture).not.toHaveBeenCalled();
-  expect(h.save).not.toHaveBeenCalled();
-  expect(h.execute).not.toHaveBeenCalled();
+  if (phase === "capabilities") {
+    expect(h.pod).toHaveBeenCalledOnce();
+    expect(calls).toEqual([]);
+  } else {
+    expect(h.pod.mock.calls.filter(([route]) => route === "commands/assess")).toHaveLength(1);
+    expect(h.pod).toHaveBeenCalledWith("commands/assess", expect.any(Object));
+    expect(calls).toEqual([{ path: "/api/one/agent-chat/proposals/prepare", body: undefined }]);
+  }
+  for (const effect of [h.requestPermission, h.capture, h.save, h.execute]) expect(effect).not.toHaveBeenCalled();
   expect(checkpoint.capsule).toBeNull();
 });
-
 
 it.each(["cancel", "lock_and_unlock"] as const)(
   "rejects a late private placement response after %s without restarting the task",

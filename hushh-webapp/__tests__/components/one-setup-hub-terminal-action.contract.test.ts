@@ -375,6 +375,33 @@ describe("One setup hub terminal action contract", () => {
     expect(page).toContain("returnToSetupHub();");
   });
 
+  it("names the recommended AI option so the default is not worked out by elimination", () => {
+    const card = readFileSync(
+      join(
+        process.cwd(),
+        "components/connections/gemini-runtime-settings-card.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(card).toContain('<Badge variant="outline">Recommended</Badge>');
+    expect(card).toContain("title={defaultLabel}");
+    for (const label of ["Use your Azure AI", "Use your agent’s Vertex AI", "Use Hussh's Gemini"]) {
+      expect(card).toContain(label);
+    }
+    const keyChoice = readFileSync(
+      join(process.cwd(), "components/connections/gemini-key-choice.tsx"), "utf8",
+    );
+    expect(card).toContain("GeminiKeyChoice");
+    expect(keyChoice).toContain('title="Use your own Gemini key"');
+    // System nouns and vendor plumbing stay out of the two rows a person reads.
+    expect(card).not.toContain("Hussh managed Gemini");
+    expect(card).not.toContain("Use my Gemini access");
+    expect(card).not.toContain(
+      "It stays only in this session until your private vault is ready.",
+    );
+  });
+
   it("does not retain the retired mailbox KYC setup route", () => {
     const vaultFreeSetupSurfaces = [
       "app/one/setup/location/location-onboarding-setup-client.tsx",

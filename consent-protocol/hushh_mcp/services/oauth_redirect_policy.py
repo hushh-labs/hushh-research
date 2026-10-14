@@ -6,6 +6,20 @@ import os
 from urllib.parse import urlsplit, urlunsplit
 
 
+def mcp_oauth_callback(origin: str, *, environment: str) -> str:
+    """The shared and private runtimes use one deployment-owned MCP return rule."""
+    parsed = urlsplit(origin)
+    local = environment in {"development", "test"} and parsed.hostname in {"localhost", "127.0.0.1"}
+    callback = validated_frontend_callback(origin, "/one/profile/connectors/oauth/return")
+    if (
+        not parsed.hostname
+        or not callback
+        or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
+    ):
+        raise ValueError("Connector return address is not configured.")
+    return callback
+
+
 def validated_frontend_callback(origin: str, callback_path: str) -> str:
     """Build Gmail's callback only from a complete, environment-owned origin."""
     parsed = urlsplit(origin)

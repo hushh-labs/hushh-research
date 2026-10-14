@@ -55,6 +55,8 @@ describe("Agent One chat workspace wiring contract", () => {
     const nativeActivity = source.slice(start, start + 1000);
     expect(nativeActivity).toContain("active={isHistoryDrawerOpen || driveActivityPageOpen}");
     expect(nativeActivity).toContain("open: driveActivityPageOpen");
+    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === user?.uid &&");
+    expect(source).toContain("driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface");
     expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
 

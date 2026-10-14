@@ -11,6 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from hushh_mcp.services.pod_connector_configuration import preserve_connector_configuration
 from hushh_mcp.services.pod_files.provisioning import preserve_existing_configuration
 
 _POLICY_ENV = frozenset(
@@ -43,7 +44,12 @@ def _owner_policy(name: str) -> bool:
     return name in _POLICY_ENV or name.startswith("POD_MEMORY_")
 
 
-def preserve_image_upgrade_configuration(existing: dict[str, Any], desired: dict[str, Any]) -> None:
+def preserve_image_upgrade_configuration(
+    existing: dict[str, Any],
+    desired: dict[str, Any],
+    *,
+    connector_environment: list[dict[str, str]] | None = None,
+) -> None:
     """Keep observed policy, including absence/defaults; never mutate observation."""
     old_spec = existing["spec"]["template"]["spec"]
     new_spec = desired["spec"]["template"]["spec"]
@@ -68,6 +74,9 @@ def preserve_image_upgrade_configuration(existing: dict[str, Any], desired: dict
     replacement["env"] = [
         item for item in replacement["env"] if not _owner_policy(item["name"])
     ] + deepcopy([item for item in previous.get("env", []) if _owner_policy(item["name"])])
+    replacement["env"] = preserve_connector_configuration(
+        previous.get("env", []), replacement["env"], expected=connector_environment
+    )
     for name in ("timeoutSeconds", "containerConcurrency"):
         if name in old["spec"]:
             new["spec"][name] = deepcopy(old["spec"][name])

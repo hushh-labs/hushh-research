@@ -48,7 +48,7 @@ or Topups. No paid scope purchase or withdrawal has yet been accepted.
 The primary's $10 Checkout completed through the normal auxiliary-window return:
 the hosted window closed and the original document retained its unlocked vault.
 The earlier $0.50 Checkout required separate cold recovery of the same unpaid
-intent; it is not normal warm-return evidence. At `2026-10-14T04:04:07Z`, a
+intent; it is not normal warm-return evidence. At `2026-10-14T05:03:49Z`, a
 read-only provider check confirmed that primary Connect onboarding still requires
 individual identity, bank and terms completion. The counterpart's information-access
 payout account is eligible with a verified USD destination and manual schedule.
@@ -68,7 +68,9 @@ Sandbox's account/test mode and provisioned both independent Dev secret slots,
 the exact backend connected-event endpoint and runtime secret access. No existing
 Dev document mappings were found, no financial action was submitted, and UAT was
 untouched. Mounting these slots still requires the verified candidate's normal
-Dev release. Provider setup is not yet a successful bank click/return receipt.
+Dev release. Read-only serving checks at `2026-10-14T07:35:40Z` still show the
+earlier candidate at 100% and no mounted document-bank Connect credential.
+Provider setup is not yet a successful bank click/return receipt.
 
 The primary's Memory navigation initially retained the open Payments sheet.
 Normal **Close Profile** followed by same-document navigation reveals exactly
@@ -91,20 +93,42 @@ public-client resolver into its deploy-script owner restores the size contract;
 prebuilt deployments skip source loading and native secret discovery. Focused
 build contracts and Dev/UAT source-free negative controls pass. Candidate
 `d1d7417c0922` passed canonical core in 622 seconds. Concurrent branch revision
-`e7005fca8c8b` is now being integrated normally before push; its native, AI and
-Files changes retain their existing authorities. The union preserves canonical
-migration head 348 and accepts only the separate private-lane 959 append. Focused
-build contracts pass 129 cases, and the consolidated Profile contracts pass 15
-cases with vault, financial-source and hosted-return exclusions retained. The
-combined candidate still requires core, hosted CI and Dev release.
+`e7005fca8c8b` was integrated normally, preserving native, AI and Files ownership.
+The combined `325e9dd7912d` passed canonical core in 602 seconds and was pushed
+on the original branch. Its [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38514216895)
+failed in the full web/browser and iOS lanes, so the release watcher correctly
+refused deployment. Migration head 348, the separate private-lane 959 append and
+the original preservation receipt remain unchanged.
+
+The corrective draft updates stale setup, provider, Profile and private-command
+fixtures against their current owners, while retaining vault, assessment and
+no-fallback negative controls. It splits two existing Swift UI-test expressions
+without changing their geometry/identity assertions; Swift parsing passes, while
+full compilation remains a CI requirement. A browser probe independently found
+Tailwind's generic `transform` utility overriding History's closed translation.
+Removing that conflicting utility retains authored transforms, gesture authority
+and native fencing. Closed-pose admission proves the 48px shadow clearance before
+motion; geometry checks distinguish full mobile panes from bounded desktop cards.
+Focused backend checks pass 250 cases and the corrected frontend fixtures pass
+68 cases. These results are source qualification, not a new Dev deployment.
+All 451 Back behavior cases pass; the eight mounted Chat connectors cases pass
+in Chromium and WebKit. A local WebKit motion sample exceeds the unchanged
+100ms onset requirement on the contended host; CI remains the timing authority.
 
 A read-only observation at `2026-10-14T04:31:05Z` established that both existing
 private Azure runtimes lack `APP_FRONTEND_ORIGIN`; the counterpart also lacks the
 public Sandbox test pin. The hub's correct Dev origin does not supply a pod's
-local OAuth callback. Fresh rendering and approved existing-pod configuration
-reconciliation must carry these validated public values. No SDK or webhook
+local OAuth callback. The corrective draft carries these validated public values in fresh rendering
+and the existing owner-approved update. Missing values require the approved
+handoff; mismatched bindings fail closed. Accepted update receipts freeze public
+configuration for read-only recovery, independent of later hub settings. Legacy
+helper calls preserve prior configuration without admitting a repair. No SDK or webhook
 credential belongs in a private pod. This is a verified prerequisite for One's
 separate Stripe OAuth, not evidence that the OAuth route is missing.
+The final Azure replacement check revalidates configuration after the durable
+Files checkpoint, immediately before the provider write. Its negative control
+proves that a changed origin prevents replacement without losing recovery state;
+all 39 focused Azure cases pass.
 
 The accompanying source change adds **Manage payout account** inside the
 information-access withdrawal disclosure. Its empty-body authenticated
