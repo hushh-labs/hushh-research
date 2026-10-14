@@ -19,12 +19,23 @@ initials fallback as Connect. No invented people or inferred trust appears.
 
 | Signup | Initial source | Consent/recovery |
 | --- | --- | --- |
-| Google, web | Saved Google Contacts | Signup-specific Firebase provider requests `contacts.readonly`; explicit retry uses existing browser GIS |
-| Google, iOS | Saved Google Contacts | Capawesome Google sign-in requests the scope; the native bridge captures a fresh, owner-bound SDK grant |
-| Google, Android | Saved Google Contacts | Same selected signup account authorizes Contacts through `AuthorizationClient`; no account reconnection |
+| Google, web | Saved Google Contacts | Development/UAT signup requests `contacts.readonly`; explicit retry uses existing browser GIS |
+| Google, iOS | Saved Google Contacts | Development/UAT sign-in requests the scope; the native bridge captures a fresh, owner-bound SDK grant |
+| Google, Android | Saved Google Contacts | Development/UAT uses the same selected signup account through `AuthorizationClient`; no account reconnection |
 | Apple, iOS/Android | Device address book | Optional permission/read action after phone verification; limited iOS access works |
 | Apple, web | Saved Google Contacts | Optional explicit Google Contacts action after phone verification |
 | Established returning account | Existing behavior | No new enrollment or automatic Circle fill |
+
+New-account welcome enrollment is always active and has no rollout input. While
+Contacts awaits public OAuth verification, the canonical production environment
+uses authentication-only Google sign-in on all platforms and hides the inline
+Contacts checkbox. The new account still enrolls with Google as its deferred
+source and can choose the optional existing Contacts authorization after phone
+verification. Apple routing is unchanged. The central AuthService readiness
+boundary must be updated only after Google approves public use and the live
+production client is verified; this is not a per-deployment onboarding toggle.
+The live production project (`hushh-pda`) was checked on 2026-10-14: Contacts
+is listed as not yet verified, and branding/data access review is in progress.
 
 First enrollment requires positive Firebase new-user metadata and explicitly incomplete One setup. Unknown metadata and nullable legacy setup remain on the existing flow. Only an already enrolled, unfinished signup may resume. The explicit returning Sign in action requests authentication scopes only; if it creates a genuinely new account, that account still enrolls and can optionally find contacts after verification. Signup consent is requested before Google returns the selected account's new-user status, and established accounts never start a contact read, Circle fill or welcome enrollment from that result.
 
@@ -129,8 +140,8 @@ assets and binaries must be rebuilt and synced; older installed binaries retain
 their compiled behavior. Actor, main-SHA, schema and provenance gates still apply.
 Production and TestFlight publishing remain separate authorized releases.
 
-Migration **337 must precede any deployment of this backend**, even with the
-UI flag off: bootstrap selects the new columns. All three release schema
+Migration **337 must precede any deployment of this backend**: bootstrap selects
+the new columns. All three release schema
 contracts and the release/rollback manifest include it. The generated offline
 SQLite snapshot must be regenerated from migrated UAT using its canonical
 generator; it is not hand edited against unmigrated live state. The SQLite-only

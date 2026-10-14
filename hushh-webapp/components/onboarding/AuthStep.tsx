@@ -129,7 +129,7 @@ export function AuthStep({
   const [hydrated, setHydrated] = useState(false);
   const [returningSignIn, setReturningSignIn] = useState(false);
   const [findInitialContacts, setFindInitialContacts] = useState(true);
-  const initialContactsEnabled = !returningSignIn;
+  const initialContactsEnabled = !returningSignIn && AuthService.canRequestInitialGoogleContacts();
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
