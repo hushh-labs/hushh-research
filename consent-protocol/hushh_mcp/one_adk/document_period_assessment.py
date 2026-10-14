@@ -43,6 +43,15 @@ class PeriodSourceSpan(BaseModel):
     quote: str = Field(min_length=1, max_length=4096)
 
 
+class PeriodSourceReference(BaseModel):
+    """Model-cited text; character locations are derived by exact host lookup."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source: Literal["current", "pending"] = "current"
+    message_index: int = Field(ge=0, le=16)
+    quote: str = Field(min_length=1, max_length=4096)
+
+
 class PendingPeriodContext(BaseModel):
     """Host-admitted previous request, never general conversation history."""
 
@@ -57,14 +66,13 @@ class PendingPeriodContext(BaseModel):
         return self
 
 
-class DocumentPeriodAssessment(BaseModel):
+class _DocumentPeriodMeaning(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     decision: Literal["supported", "clarify"]
     basis: Literal["absolute", "relative"] | None
     period_start: str | None = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     period_end: str | None = Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     missing_dimension: MissingDimension | None
-    source_spans: list[PeriodSourceSpan] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
     def coherent_decision(self):
@@ -80,9 +88,19 @@ class DocumentPeriodAssessment(BaseModel):
             or self.missing_dimension is None
         ):
             raise ValueError("clarification cannot assert period bounds")
-        if self.basis is None and self.missing_dimension != "requested_period":
-            raise ValueError("only an absent period may have no basis")
         return self
+
+
+class DocumentPeriodAssessment(_DocumentPeriodMeaning):
+    """Validated internal evidence, including host-located character spans."""
+
+    source_spans: list[PeriodSourceSpan] = Field(min_length=1, max_length=8)
+
+
+class DocumentPeriodAssessmentOutput(_DocumentPeriodMeaning):
+    """Wire contract leaves dates to the model and text location to the host."""
+
+    source_refs: list[PeriodSourceReference] = Field(min_length=1, max_length=8)
 
 
 class HostClockReceipt(BaseModel):
@@ -200,6 +218,43 @@ def validate_period_assessment(
     return parsed
 
 
+def locate_period_assessment(
+    value: object,
+    *,
+    current_user_texts: Sequence[str],
+    pending_context: PendingPeriodContext | None = None,
+) -> DocumentPeriodAssessment:
+    """Locate exact cited text without inferring or rewriting semantic fields."""
+    parsed = DocumentPeriodAssessmentOutput.model_validate(value)
+    spans = []
+    for reference in parsed.source_refs:
+        texts = (
+            current_user_texts
+            if reference.source == "current"
+            else pending_context.original_user_texts
+            if pending_context is not None
+            else ()
+        )
+        if reference.message_index >= len(texts) or not reference.quote.strip():
+            raise ValueError("assessment quote has no admitted source")
+        text = texts[reference.message_index]
+        start = text.find(reference.quote)
+        if start < 0 or text.find(reference.quote, start + 1) >= 0:
+            raise ValueError("assessment quote is absent or ambiguous in its source")
+        spans.append(
+            PeriodSourceSpan(
+                source=reference.source,
+                message_index=reference.message_index,
+                start=start,
+                end=start + len(reference.quote),
+                quote=reference.quote,
+            )
+        )
+    return DocumentPeriodAssessment(
+        **parsed.model_dump(exclude={"source_refs"}), source_spans=spans
+    )
+
+
 def _timeout(error: BaseException) -> bool:
     seen: set[int] = set()
     while id(error) not in seen:
@@ -283,7 +338,7 @@ async def assess_document_period(
             or gene.runtime.transport != ["in_process"]
         ):
             raise ValueError("invalid period assessment gene")
-        agent = build_single_turn_agent(gene, output_schema=DocumentPeriodAssessment)
+        agent = build_single_turn_agent(gene, output_schema=DocumentPeriodAssessmentOutput)
     except Exception:
         return DocumentPeriodResult("unavailable", reason="assessment_not_available")
     try:
@@ -294,8 +349,11 @@ async def assess_document_period(
             consent_token=consent_token,
             timeout_seconds=TIMEOUT_SECONDS,
         )
+        located = locate_period_assessment(
+            value, current_user_texts=current_user_texts, pending_context=pending_context
+        )
         parsed = validate_period_assessment(
-            value,
+            located,
             current_user_texts=current_user_texts,
             invocation_id=invocation_id,
             clock_receipt=clock_receipt,

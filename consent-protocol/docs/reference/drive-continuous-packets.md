@@ -23,8 +23,10 @@ Checkout and delivery retain the exact approved sources, version and price.
 
 One's `one_document_period` gene assesses authenticated request text independently
 before the document-request card is built. It has no tools or document access.
-The host validates exact evidence quotations, calendar bounds and any supplied
-candidate dates. Absolute dates need no clock. Relative dates need a host clock
+The gene cites exact quotations; the host locates each quote uniquely within its
+declared user message and validates calendar bounds and any supplied candidate
+dates. The model does not calculate character offsets. Absolute dates need no
+clock. Relative dates need a host clock
 bound to this invocation and message; a UTC fallback cannot authorize a range.
 An explicit current-message IANA timezone can apply to this read without changing
 saved preferences. The gene still checks that the timezone expresses the request.

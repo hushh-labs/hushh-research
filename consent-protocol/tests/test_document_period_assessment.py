@@ -27,6 +27,15 @@ def assessment(**changes):
     return value
 
 
+def model_assessment(**changes):
+    value = assessment(**changes)
+    value["source_refs"] = [
+        {key: item for key, item in span.items() if key not in {"start", "end"}}
+        for span in value.pop("source_spans")
+    ]
+    return value
+
+
 def clock(**changes):
     value = {
         "invocation_id": "turn-a",
@@ -53,10 +62,94 @@ def test_spelled_year_can_be_supported_without_clock_or_numeric_year_heuristic()
 def test_period_output_schema_converts_through_vertex_sdk_before_transport():
     # Exercise the pinned SDK conversion that rejected exclusiveMinimum in UAT.
     schema = _transformers.t_schema(
-        SimpleNamespace(vertexai=True), periods.DocumentPeriodAssessment
+        SimpleNamespace(vertexai=True), periods.DocumentPeriodAssessmentOutput
     )
     assert schema is not None
-    assert schema.properties["source_spans"].items.properties["end"].minimum == 1
+    assert set(schema.properties["source_refs"].items.properties) == {
+        "source",
+        "message_index",
+        "quote",
+    }
+
+
+def test_model_quotes_get_exact_host_locations_without_changing_date_meaning():
+    text = "मनीष: statements for the first calendar quarter of twenty twenty-six."
+    quote = "the first calendar quarter of twenty twenty-six"
+    value = model_assessment(period_end="2026-03-31")
+    value["source_refs"] = [{"message_index": 0, "quote": quote}]
+    located = periods.locate_period_assessment(value, current_user_texts=(text,))
+    assert located.period_start == value["period_start"]
+    assert located.period_end == value["period_end"]
+    span = located.source_spans[0]
+    assert (span.start, span.end) == (text.index(quote), text.index(quote) + len(quote))
+    assert (
+        periods.validate_period_assessment(
+            located, current_user_texts=(text,), invocation_id="current"
+        )
+        == located
+    )
+
+
+@pytest.mark.parametrize(
+    "texts,reference",
+    [
+        (("2026 2026",), {"message_index": 0, "quote": "2026"}),
+        (("2026", "2025"), {"message_index": 1, "quote": "2026"}),
+        (("2026",), {"message_index": 0, "quote": "2025"}),
+        (("2026",), {"source": "pending", "message_index": 0, "quote": "2026"}),
+        (("2026",), {"message_index": 0, "quote": " "}),
+        (("2026",), {"message_index": 0, "quote": "2026", "start": 0, "end": 4}),
+    ],
+)
+def test_quote_location_rejects_ambiguous_wrong_source_or_model_offsets(texts, reference):
+    value = model_assessment()
+    value["source_refs"] = [reference]
+    with pytest.raises(ValueError):
+        periods.locate_period_assessment(value, current_user_texts=texts)
+
+
+def test_quote_based_continuation_retains_pending_and_current_evidence():
+    prior, current = "Statements from February 3 through May 11", "twenty twenty-six"
+    pending = periods.PendingPeriodContext(
+        original_user_texts=[prior], asked_missing_dimension="year"
+    )
+    value = model_assessment(period_start="2026-02-03", period_end="2026-05-11")
+    value["source_refs"] = [
+        {"source": "pending", "message_index": 0, "quote": prior},
+        {"source": "current", "message_index": 0, "quote": current},
+    ]
+    located = periods.locate_period_assessment(
+        value, current_user_texts=(current,), pending_context=pending
+    )
+    assert (
+        periods.validate_period_assessment(
+            located, current_user_texts=(current,), invocation_id="current", pending_context=pending
+        ).period_start
+        == "2026-02-03"
+    )
+    value["source_refs"].pop()
+    with pytest.raises(ValueError, match="current-message"):
+        periods.validate_period_assessment(
+            periods.locate_period_assessment(
+                value, current_user_texts=(current,), pending_context=pending
+            ),
+            current_user_texts=(current,),
+            invocation_id="current",
+            pending_context=pending,
+        )
+
+
+def test_clarification_may_omit_basis_but_cannot_assert_dates():
+    value = assessment(
+        decision="clarify",
+        basis=None,
+        period_start=None,
+        period_end=None,
+        missing_dimension="year",
+    )
+    assert validate(value).missing_dimension == "year"
+    with pytest.raises(ValueError):
+        validate({**value, "period_start": "2026-01-01"})
 
 
 @pytest.mark.parametrize(
@@ -212,7 +305,7 @@ def model_seam(monkeypatch):
 
     def build(actual, *, output_schema):
         assert actual is gene
-        assert output_schema is periods.DocumentPeriodAssessment
+        assert output_schema is periods.DocumentPeriodAssessmentOutput
         builds.append(actual)
         return agent
 
@@ -222,7 +315,7 @@ def model_seam(monkeypatch):
     async def run(actual, **kwargs):
         assert actual is agent
         calls.append(kwargs)
-        return periods.DocumentPeriodAssessment.model_validate(assessment())
+        return periods.DocumentPeriodAssessmentOutput.model_validate(model_assessment())
 
     monkeypatch.setattr(periods, "run_single_turn", run)
     return calls, builds

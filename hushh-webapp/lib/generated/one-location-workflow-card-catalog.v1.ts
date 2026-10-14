@@ -2,7 +2,7 @@
 // Do not edit by hand; update CapabilityGraphV1 and regenerate.
 export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
   "schemaVersion": "one.location_workflow_card_catalog.v1",
-  "graphRevision": "c610b2f9c5fc9385",
+  "graphRevision": "fac4fe10478339eb",
   "compatibleGraphRevisions": [
     "04d7065bab2886cd",
     "04ed9dcd1e9c89ae",
@@ -132,6 +132,7 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
     "c2f60a0a18e23643",
     "c32bec5a75d64734",
     "c58f84b46c451af7",
+    "c610b2f9c5fc9385",
     "c846a385fad8df04",
     "ca45fcf41af6e723",
     "cb4b4f653c99fc16",
