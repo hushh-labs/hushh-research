@@ -54,7 +54,7 @@ NEXT_PUBLIC_WORKOS_SSO_ENABLED=true
 
 ## Run
 
-Before the first run, build the backend environment from the lockfile (the runners refuse to start if it is out of sync): `cd consent-protocol && uv sync --frozen --group dev`. Pass `--skip-activate` to the proxy and backend runners if you merged your own env files, so they are not overwritten. `hushh-webapp/.env.local.local` is the profile source the runner's doctor reads; keep `.env.local` identical to it.
+Before the first run, build the backend environment from the lockfile (the runners refuse to start if it is out of sync): `cd consent-protocol && uv sync --frozen --group dev`. Pass `--skip-activate` to the proxy and backend runners if you merged your own env files, so they are not overwritten. The runner's doctor reads a second copy of the web env file, saved next to `hushh-webapp/.env.local` with one more .local suffix; keep the two identical.
 
 Three separate terminals, one component each:
 
