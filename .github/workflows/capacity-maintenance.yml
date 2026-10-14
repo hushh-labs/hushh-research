@@ -58,11 +58,17 @@ jobs:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_NAME" = main
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-            python3 scripts/ci/assert-governed-actor.py --surface "$RELEASE_ENV" --actor "$GITHUB_ACTOR"
-          fi
+          test "$GITHUB_REF_NAME" = main || exit 1
+          case "$GITHUB_EVENT_NAME" in
+            schedule) ;;
+            workflow_dispatch)
+              [[ "$RELEASE_ENV" = uat || "$RELEASE_ENV" = production ]] || exit 1
+              [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+              python3 scripts/ci/assert-governed-actor.py --surface "$RELEASE_ENV" --actor "$GITHUB_ACTOR"
+              ;;
+            *) echo "Unsupported maintenance trigger" >&2; exit 1 ;;
+          esac
+
       - name: Verify due uat source
         id: uat
         if: github.event_name == 'schedule' || inputs.environment == 'uat'
@@ -160,6 +166,10 @@ jobs:
           CLEANUP_OUTCOME: ${{ steps.retention.outputs.cleanup_outcome }}
         run: |
           echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CLEANUP_OUTCOME" = unresolved ]; then
+            echo "Provider outcome requires operator reconciliation." >&2
+            exit 1
+          fi
 
   cleanup:
     name: Production bounded revision cleanup
@@ -239,3 +249,7 @@ jobs:
           CLEANUP_OUTCOME: ${{ steps.retention.outputs.cleanup_outcome }}
         run: |
           echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CLEANUP_OUTCOME" = unresolved ]; then
+            echo "Provider outcome requires operator reconciliation." >&2
+            exit 1
+          fi
