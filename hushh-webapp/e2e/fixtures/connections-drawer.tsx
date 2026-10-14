@@ -13,6 +13,7 @@ declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
 
 import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
+import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
@@ -203,6 +204,15 @@ function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<AgentChatConversation[]>([]);
+  const historySelections = useRef<string[]>([]);
+  Object.assign(window, {
+    __seedChatHistory: () => setHistoryRows([
+      { id: "history-one", title: "Weekly planning", status: "active", message_count: 2, updated_at: new Date().toISOString() },
+      { id: "history-two", title: "Draft email", status: "active", message_count: 1, updated_at: new Date().toISOString() },
+    ]),
+    __chatHistorySelections: historySelections.current,
+  });
   const [gestureEnabled, setGestureEnabled] = useState(true);
   Object.assign(window, { __setHistoryGestureEnabled: setGestureEnabled });
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
@@ -274,10 +284,10 @@ function Fixture() {
         externalModalOpen={external}
         chats={
           <AgentHistorySidebar
-            conversations={[]}
-            activeConversationId={null}
+            conversations={historyRows}
+            activeConversationId={historyRows[0]?.id ?? null}
             onCreateNew={() => {}}
-            onSelectConversation={() => {}}
+            onSelectConversation={id => { historySelections.current.push(id); changeOpen(false); }}
             onRenameConversation={() => {}}
             onDeleteConversation={() => {}}
             onClose={() => changeOpen(false)}
