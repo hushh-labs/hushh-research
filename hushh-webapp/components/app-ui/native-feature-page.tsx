@@ -23,7 +23,7 @@ export function NativeFeatureBack({ owner, context, layer, label = "Back to Chat
   return <NativeChatChrome kind="profile-back" label={label} owner={owner} context={context} eligible={eligible} contentPane={contentPane}
     interactionLayer={layer} focusRef={back} onActivate={onBack} onPresentationReady={onReady}
     className="flex size-11 shrink-0 items-center justify-center">
-    <ShellActionSurface ref={back} aria-label={label} onClick={onBack}><ArrowLeftIcon className="size-5" /></ShellActionSurface>
+    <ShellActionSurface ref={back} aria-label={label} disabled={!eligible} onClick={onBack}><ArrowLeftIcon className="size-5" /></ShellActionSurface>
   </NativeChatChrome>;
 }
 
@@ -72,7 +72,7 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
       onReadyRef.current?.();
     }
   }, [pane, open, bindingReady, lifetime, readinessContext]);
-  return <Dialog open={open} onOpenChange={next => { if (!next) onBack(); }} modal>
+  return <Dialog open={open} onOpenChange={next => { if (open && !next) onBack(); }} modal>
     <DialogContent {...attributes} aria-label={pane ? title : undefined} {...(pane ? { "aria-labelledby": undefined } : {})}
       data-native-feature-pane={pane && paneState.phase !== "web" ? "profile" : undefined} data-native-feature-side={side}
       data-native-pane-ready={ready} style={ready ? undefined : { visibility: "hidden" }} ref={bindContent} tabIndex={-1} showCloseButton={false} nativeLayer={layer} className="native-feature-page translate-x-0 translate-y-0" overlayClassName={pane ? "native-feature-page-overlay native-feature-pane-overlay" : "native-feature-page-overlay"}
@@ -93,13 +93,13 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
       onPointerDownOutside={event => event.preventDefault()}>
       {!authoredHeader && <header className="native-feature-page-header">
         <NativeFeatureBack owner={owner} context={context} layer={layer} label={backLabel ?? (layer === "profile-pane" ? "Back in Profile" : "Back to Chat")}
-          contentPane={paneState.identity} eligible={!pane || paneState.phase === "native"}
+          contentPane={paneState.identity} eligible={open && (!pane || paneState.phase === "native")}
           onBack={onBack} onReady={pane ? () => controlReady("back") : onReady} />
         <DialogTitle ref={heading} tabIndex={-1} className="ui-text-navigation-title min-w-0 flex-1 whitespace-normal break-words">{title}</DialogTitle>
-        {onClose ? <NativeChatChrome kind="close" label={closeLabel} owner={owner} context={pane ? lifetime : context} eligible={paneState.phase === "native"}
+        {onClose ? <NativeChatChrome kind="close" label={closeLabel} owner={owner} context={pane ? lifetime : context} eligible={open && paneState.phase === "native"}
           contentPane={paneState.identity} onPresentationReady={() => controlReady("close")}
           interactionLayer={layer} focusRef={close} onActivate={onClose} className="flex size-11 shrink-0 items-center justify-center">
-          <ShellActionSurface ref={close} aria-label={closeLabel} onClick={onClose} className="!size-11"><X className="size-5" /></ShellActionSurface>
+          <ShellActionSurface ref={close} aria-label={closeLabel} disabled={!open} onClick={onClose} className="!size-11"><X className="size-5" /></ShellActionSurface>
         </NativeChatChrome> : null}
       </header>}
       <div data-native-feature-scroll-root="true" className={bodyClassName ? `native-feature-page-body ${bodyClassName}` : "native-feature-page-body"}>{children}</div>

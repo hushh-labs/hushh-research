@@ -6,7 +6,7 @@ import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
-import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -2627,6 +2627,45 @@ describe("native chrome presentation lease", () => {
     expect(originalPane).not.toBeVisible();
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 4, updateSequence, privacyGeneration: 0 }));
     expect(close).toHaveBeenCalledTimes(2);
+    view.unmount();
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
+  });
+  it.each(["profile-back", "profile-close"] as const)("revokes pending %s on dismissal while retaining the exiting pane's isolation", async controlId => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(node => {
+      const style = computedStyle(node);
+      return node.matches('[data-slot="dialog-content"]') ? new Proxy(style, {
+        get: (target, key) => key === "animationName"
+          ? node.getAttribute("data-state") === "closed" ? "pane-exit" : "none"
+          : key === "display" ? "block" : Reflect.get(target, key, target),
+      }) : style;
+    });
+    const back = vi.fn(), close = vi.fn(), ready = vi.fn();
+    const pane = (open: boolean) => <NativeFeaturePage pane open={open} title="Preferences" owner="owner-a" context="pane"
+      onBack={back} onClose={close} onReady={ready}><p>Public preferences</p></NativeFeaturePage>;
+    const view = render(pane(true));
+    await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === controlId)).toBe(true));
+    let confirm: ((receipt: { valid: boolean }) => void) | undefined;
+    bridge.confirmChoice.mockImplementation(() => new Promise(resolve => { confirm = resolve; }));
+    const projection = bridge.prepare.mock.calls.find(([p]) => p.controlId === controlId)![0];
+    const updateSequence = bridge.update.mock.calls.filter(([p]) => p.controlId === controlId).at(-1)?.[0].updateSequence ?? 0;
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 1, updateSequence, privacyGeneration: 0 }));
+    await waitFor(() => expect(bridge.confirmChoice).toHaveBeenCalledOnce());
+    view.rerender(pane(false));
+    const exiting = document.querySelector('[data-slot="dialog-content"][data-state="closed"]');
+    expect(exiting).not.toBeNull();
+    expect(nativeShellOverlayBlocked()).toBe(true); // DOM exit still owns isolation.
+    await act(async () => { confirm?.({ valid: true }); });
+    expect(back).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(exiting!.querySelector('button[aria-label="Back in Profile"]')).toBeDisabled();
+    expect(exiting!.querySelector('button[aria-label="Close Profile"]')).toBeDisabled();
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });
