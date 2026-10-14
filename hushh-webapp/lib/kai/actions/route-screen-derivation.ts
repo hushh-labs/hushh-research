@@ -53,6 +53,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_WELCOME) {
+    return { screen: "one_welcome", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_WALLET) {
     return { screen: "one_wallet", subview: null };
   }

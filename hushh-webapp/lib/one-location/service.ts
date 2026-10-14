@@ -811,13 +811,14 @@ export class OneLocationService {
   static async bootstrapOnboardingCircle(params: {
     idToken: string;
     name: string;
+    purpose?: "signup_contacts_v1";
   }): Promise<{ circleId: string; circleName: string; code: string }> {
     const response = await apiJson<{
       invite: { circleId: string; circleName: string; code: string };
     }>("/api/one/location/circles/bootstrap", {
       method: "POST",
       headers: jsonAuthHeaders(params.idToken),
-      body: JSON.stringify({ name: params.name }),
+      body: JSON.stringify({ name: params.name, ...(params.purpose ? { purpose: params.purpose } : {}) }),
     });
     return response.invite;
   }
@@ -1111,6 +1112,7 @@ export class OneLocationService {
     vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
     operationId?: string; batchIndex?: number; batchCount?: number;
     commandDirectiveId?: string;
+    context?: "signup";
   }): Promise<{
     added: string[]; skipped: string[]; skippedReasons: Record<string, string>; invited: string[];
   }> {
@@ -1120,7 +1122,7 @@ export class OneLocationService {
     }>("/api/one/location/circle-member-invites", {
       method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({ circleId: params.circleId, inviteeUserIds: params.inviteeUserIds,
-        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount }),
+        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount, context: params.context }),
     });
     const ids = (items: string[] | undefined) => Array.from(new Set((items || []).map((id) => String(id || "").trim()).filter(Boolean)));
     return {

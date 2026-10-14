@@ -27,6 +27,8 @@ import {
 import { AuthProvider } from "@/lib/firebase";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 import { AzureReturnBootRecovery } from "@/components/connections/azure-return-boot-recovery";
+
+import { InitialContactsBridge } from "@/components/onboarding/initial-contacts-bridge";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
@@ -679,6 +681,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                     <PostAuthOnboardingSyncBridge />
+                    <InitialContactsBridge />
                     <WalletProfileBootstrap />
                     <LocationBusAccountBridge />
                     <ContactInvitationSessionProvider>

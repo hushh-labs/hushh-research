@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-13",
-  "total_routes": 138,
-  "native_required_routes": 111,
+  "generated_at": "2026-10-14",
+  "total_routes": 139,
+  "native_required_routes": 112,
   "excluded_routes": 27,
   "routes": [
     {
@@ -1573,6 +1573,15 @@
         "empty-valid",
         "unavailable-valid"
       ]
+    },
+    {
+      "route": "/one/welcome",
+      "classification": "native-required-functional",
+      "initialRoute": "/one/welcome",
+      "expectedMarker": "native-route-one-welcome",
+      "expectedRoute": "/one/welcome",
+      "autoReviewerLogin": true,
+      "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
     }
   ]
 }

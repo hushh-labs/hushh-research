@@ -319,6 +319,7 @@ steps:
           --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=${_OBSERVABILITY_ENABLED} \
+          --build-arg NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=${_INITIAL_CONTACTS_ONBOARDING_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
@@ -451,6 +452,7 @@ substitutions:
   # silently shipping in another lane's frontend image.
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
+  _INITIAL_CONTACTS_ONBOARDING_ENABLED: "false"
   _ONE_WALLET_CARD_ENABLED: "false"
   # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
   # the backend ONE_WALLET_ENABLED flag still decides whether agent_wallet exists.

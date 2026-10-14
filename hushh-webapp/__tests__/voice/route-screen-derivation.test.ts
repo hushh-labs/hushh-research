@@ -4,6 +4,7 @@ import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivatio
 
 describe("deriveVoiceRouteScreen", () => {
   it.each([
+    ["/one/welcome", "one_welcome"],
     ["/one/messages", "one_messages"],
     ["/one/wallet-card", "one_wallet_card"],
     ["/one/connected-systems/customer-crm", "connected_systems"],

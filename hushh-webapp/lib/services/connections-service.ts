@@ -289,6 +289,7 @@ export class ConnectionsService {
     idToken: string;
     lookups: ContactSyncLookup[];
     signal?: AbortSignal;
+    context?: "signup";
   }): Promise<ContactSyncBatchResult> {
     if (opts.lookups.length > 1000) {
       throw new Error("Contact sync accepts at most 1000 lookups per batch.");
@@ -301,6 +302,7 @@ export class ConnectionsService {
         headers: authHeaders(opts.idToken),
         signal: opts.signal,
         body: JSON.stringify({
+          ...(opts.context ? { context: opts.context } : {}),
           lookups: opts.lookups.map((lookup) => ({
             lookup_id: lookup.lookupId,
             hash: lookup.hash,

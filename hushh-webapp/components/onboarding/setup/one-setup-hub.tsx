@@ -21,8 +21,11 @@ import {
   VaultExplainerScreens,
 } from "@/components/onboarding/setup/local-first-vault-sequence";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
+import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
+import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
@@ -36,6 +39,7 @@ import {
   buildOneSetupCloudRoute,
   buildOneSetupFinanceImportRoute,
   buildPhoneMandateRoute,
+  buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
@@ -50,6 +54,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";
 import {
@@ -87,6 +92,8 @@ export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const initialContacts = useInitialContacts();
+  const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
@@ -365,13 +372,19 @@ export function OneSetupHub() {
         ],
   });
 
-  const resolveFinalizedSetupTarget = useCallback(
-    () =>
-      user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
-        ? buildOneSetupFinanceImportRoute(returnTo)
-        : completionTarget,
-    [completionTarget, returnTo, user?.uid],
-  );
+  const shouldShowContactsWelcome = useCallback(() => {
+    if (!user?.uid || !initialContactOnboardingEnabled()) return false;
+    const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    return bootstrap?.initialContactsWelcomeAcknowledged === false ||
+      InitialContacts.getSnapshot().ownerId === user.uid;
+  }, [user?.uid]);
+
+  const resolveFinalizedSetupTarget = useCallback(() => {
+    const target = user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+      ? buildOneSetupFinanceImportRoute(returnTo)
+      : completionTarget;
+    return shouldShowContactsWelcome() ? buildInitialContactsWelcomeRoute(target) : target;
+  }, [completionTarget, returnTo, shouldShowContactsWelcome, user?.uid]);
 
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
     if (!user?.uid) {
@@ -414,6 +427,11 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      // Queue only a typed, owner-scoped marker after the encrypted setup
+      // boundary. The Chat surface derives its summary from the unlocked
+      // in-memory context and consumes this marker once; no private values
+      // enter the route or conversation history.
+      if (!shouldShowContactsWelcome()) queueEntryWelcome(user.uid);
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       if (localFirstEnabled) {
@@ -452,7 +470,9 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
+    queueEntryWelcome,
     resolveFinalizedSetupTarget,
+    shouldShowContactsWelcome,
     localFirstEnabled,
     router,
     user?.uid,
@@ -853,6 +873,17 @@ export function OneSetupHub() {
                     until there is an agent state to report. */}
                 {runtimeChoiceComplete ? <OneAgentPresence /> : null}
               </SettingsGroup>
+              {initialContactOnboardingEnabled() && initialContacts.ownerId === user?.uid ? (
+                <SettingsGroup separatorInset>
+                  <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
+                    description={initialContacts.status === "ready"
+                      ? `${initialContacts.result?.autoConnectedCount ?? 0} new connections. Your shared circle will be ready after setup.`
+                      : "Optional. Match people you know and organize a shared Contacts circle."}
+                    trailing={initialContacts.status === "ready" ? "Checked" : ["reading", "matching"].includes(initialContacts.status) ? "Checking…" : "Find people"}
+                    disabled={["reading", "matching", "ready"].includes(initialContacts.status)}
+                    onClick={() => InitialContacts.startSource()} />
+                </SettingsGroup>
+              ) : null}
               {cloudComplete && remainingItems.length > 0 ? (
                 <SettingsGroup
                   title="Remaining"

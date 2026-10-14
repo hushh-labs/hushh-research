@@ -120,6 +120,7 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /initial-contacts-welcome\.layout\.spec\.ts/,
         /one-location-checkin-card\.layout\.spec\.ts/,
         /person-profile-actions\.layout\.spec\.ts/,
         /sms-flow\.layout\.spec\.ts/,

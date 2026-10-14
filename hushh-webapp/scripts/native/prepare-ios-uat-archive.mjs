@@ -96,6 +96,11 @@ export function buildIosUatRuntimeEnv({
     ),
     APP_RUNTIME_PROFILE: "uat",
     NEXT_PUBLIC_APP_ENV: "uat",
+    NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED: firstConfiguredValue(
+      "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED",
+      publicSources,
+      "false",
+    ),
     NEXT_PUBLIC_BACKEND_URL: backendUrl,
     NEXT_PUBLIC_APP_URL: firstConfiguredValue(
       "NEXT_PUBLIC_APP_URL",

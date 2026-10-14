@@ -166,6 +166,7 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
+  ONE_WELCOME: "/one/welcome",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
@@ -329,6 +330,20 @@ export function buildWelcomeRoute(redirect?: string | null) {
   return withQuery(ROUTES.HOME, {
     redirect: safeRedirect,
   });
+}
+
+/** A root terminal, outside the completed setup route family. */
+export function buildInitialContactsWelcomeRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_WELCOME, {
+    return_to: initialContactsWelcomeDestination(returnTo),
+  });
+}
+
+export function initialContactsWelcomeDestination(returnTo?: string | null): string {
+  const safe = normalizeInternalRouteHref(returnTo);
+  const path = normalizeStaticExportPathname(safe?.split(/[?#]/, 1)[0] ?? "");
+  const financeResume = path === ROUTES.ONE_SETUP_FINANCE_IMPORT || path === ROUTES.ONE_SETUP_FINANCE;
+  return safe && path !== ROUTES.ONE_WELCOME && (financeResume || !isOneSetupSurfaceRoute(path ?? "")) ? safe : ROUTES.HOME;
 }
 
 export function normalizeInternalRouteHref(

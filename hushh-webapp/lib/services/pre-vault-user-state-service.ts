@@ -83,6 +83,9 @@ export type PreVaultUserState = {
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
   oneChatOnboarding: OneChatOnboardingState | null;
+  initialContactsSource?: "google" | "device" | "none" | null;
+  initialContactsWelcomeAcknowledged?: boolean | null;
+  initialContactsCircleId?: string | null;
   oneRuntimeSetupChoice: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion: number | null;
   onboardingPhase:
@@ -109,6 +112,8 @@ export type PreVaultUserState = {
 type BootstrapStateResponse = Partial<PreVaultUserState>;
 
 type PreVaultStateUpdatePayload = {
+  initialContactsSource?: "google" | "device" | "none";
+  initialContactsWelcomeAcknowledged?: true;
   setupCompleted?: boolean;
   setupSkipped?: boolean;
   setupCompletedAt?: number | null;
@@ -252,6 +257,12 @@ function normalizeResponse(
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
     oneChatOnboarding: normalizeOneChatOnboarding(payload.oneChatOnboarding),
+    initialContactsSource: ["google", "device", "none"].includes(String(payload.initialContactsSource))
+      ? payload.initialContactsSource : null,
+    initialContactsWelcomeAcknowledged: typeof payload.initialContactsWelcomeAcknowledged === "boolean"
+      ? payload.initialContactsWelcomeAcknowledged : null,
+    initialContactsCircleId: typeof payload.initialContactsCircleId === "string"
+      ? payload.initialContactsCircleId : null,
     oneRuntimeSetupChoice: normalizeOneRuntimeSetupChoice(
       payload.oneRuntimeSetupChoice,
     ),
