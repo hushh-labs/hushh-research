@@ -235,7 +235,7 @@ readiness or model calls caused by an explicitly exercised product journey.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
 - **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
-- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, Swift package resolution is prefetched in the background while the native web export builds, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`. There is no Swift package `actions/cache`: pull-request caches are PR-scoped, so it never restored on a new PR, and each ~4.5GB save evicted the shared npm cache from the repository's 10GB budget.
+- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`, into a Swift package clone directory restored from `main` when `main` already resolved the same package graph (see [Build Caches](#build-caches)).
 - **Integration job** runs when either frontend or backend paths change.
 
 **How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
@@ -491,6 +491,39 @@ See [Branch Governance](./branch-governance.md).
 | uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
 
 Using a different Node or Python locally can cause “pass locally, fail in CI” if behavior or dependencies differ.
+
+---
+
+## Build Caches
+
+GitHub scopes an Actions cache to the ref that saved it. An entry saved by a
+`pull_request` run lives under `refs/pull/<N>/merge`, and no other pull request
+can restore it. An entry saved on `main` can be restored by every pull request.
+All entries share the repository's 10 GB budget. GitHub evicts an entry that
+nobody restores for 7 days, and over 10 GB it evicts the least recently used
+entries first. At 20:00Z on 2026-10-14 the budget held 10.65 GB, and
+pull-request Next.js entries that no other pull request could restore were
+5.50 GB of it.
+
+The two large build caches are therefore saved on `main` only, and only when
+the key is new. `PR Validation` restores them with `actions/cache/restore`:
+
+| Cache | Saved by | Restored by | Key |
+|---|---|---|---|
+| Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
+| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`iOS Swift Package Cache`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+
+The Swift package job skips the native web export. `cap sync ios` only needs an
+`index.html` in the web directory, and it generates the same `Package.swift`
+with or without the export. A pull request that changes the package graph
+resolves uncached until the next daily run saves the new graph; dispatch the
+workflow to re-seed sooner. The job's `setup-node` also saves the macOS npm
+cache on `main`, so the macOS pull-request lanes restore that entry instead of
+saving their own copies while their lockfile matches `main`.
+
+`scripts/ci/test_ci_cache_scopes.py`, in the governance check, fails when a
+`PR Validation` job saves either cache, or when a restore stops looking up the
+path and key its saver writes.
 
 ---
 

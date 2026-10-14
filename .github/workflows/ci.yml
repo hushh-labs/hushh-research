@@ -373,11 +373,25 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # Restore-only; Main Post-Merge Smoke is the one saver. A cache saved by
+      # a pull_request run is scoped to that PR's merge ref, so no other PR can
+      # restore it, yet every save counted against the repository's 10GB
+      # budget. At 20:00Z on 2026-10-14 the budget held 10.65GB, 13 PR-scoped
+      # Next.js entries (379-461MB each) were 5.50GB of it, and no Next.js
+      # entry older than two hours survived eviction. PR runs restore main's
+      # entry by prefix and compiled in 4.0s and 7.1s from it (38621074234,
+      # 38619305777). Path, key and restore-keys must match the saver's
+      # (scripts/ci/test_ci_cache_scopes.py).
+      - name: Resolve Next.js build cache day
+        id: nextjs-cache-day
+        shell: bash
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: hushh-webapp/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ steps.nextjs-cache-day.outputs.day }}
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
 
@@ -599,6 +613,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
+      # Also part of the Swift package cache key; the saver pins the same.
+      XCODE_VERSION: "26.3"
       XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
       XCODE_SCHEME: App
       NODE_OPTIONS: --max-old-space-size=8192
@@ -624,7 +640,7 @@ jobs:
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: ${{ env.XCODE_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -661,12 +677,6 @@ jobs:
           plutil -insert GOOGLE_APP_ID -string "1:123456789:ios:abcdef1234567890abcdef" "$PLIST"
           plutil -lint "$PLIST"
 
-      # There is deliberately no actions/cache for these packages. A cache saved
-      # by a pull_request run is scoped to that PR, so a new PR never restored
-      # one (every restore key missed on 36346187928), each save cost ~80s and
-      # ~4.5GB of the repository's 10GB cache budget, evicting the npm cache
-      # every other lane restores from main.
-      #
       # Resolution stays sequential after cap sync. A background prefetch under
       # the web export was measured on run 36371292301: the export slowed from
       # 223s to 478s on the shared macOS runner and the resolve after sync still
@@ -709,6 +719,39 @@ jobs:
           echo "SIMULATOR_ID=${SIMULATOR_ID}" >> "$GITHUB_ENV"
           nohup xcrun simctl bootstatus "${SIMULATOR_ID}" -b \
             > "${RUNNER_TEMP}/simulator-boot.log" 2>&1 &
+
+      # Restore-only, exact key. .github/workflows/ios-swift-package-cache.yml
+      # resolves this clone directory on main daily and saves it when its key
+      # is new, and only main's entries are restorable by every PR. The
+      # PR-scoped cache this lane had until 2026-09-27 never restored on a new
+      # PR (36346187928), and each ~4.5GB save evicted the npm cache the other
+      # lanes restore from main. Uncached, the resolve below took 6.5-8.8
+      # minutes on 2026-10-14 (38610933231, 38612718847, 38613036864).
+      #
+      # The key is the Xcode version, the runner, and the two files that define
+      # the package graph after cap sync: the project's Package.resolved (every
+      # remote pin, plaid-link-ios included) and the CapApp-SPM Package.swift
+      # that sync regenerates. There is no restore-keys fallback, because a
+      # partial match would hand SwiftPM another graph's checkouts and binary
+      # artifacts. A PR that changes the graph resolves cold, as every PR did
+      # before, until the next daily save. The resolve below stays the
+      # authority either way.
+      #
+      # Budget: one entry per package graph, estimated at 2.5-3GB of the 10GB.
+      # It is at most the ~4.5GB the old entry measured for this same graph
+      # (Package.resolved last changed 2026-09-22), because that entry also
+      # held ~/Library/Caches/org.swift.swiftpm and this one does not. Most of
+      # it is plaid-link-ios, ~1.5GB of history by GitHub's disk usage figure:
+      # every LinkKit.xcframework release is committed to it, and SwiftPM
+      # clones it in full. The saver logs the measured size. GitHub evicts an
+      # entry nobody restores for 7 days, and over 10GB it evicts the least
+      # recently used first. An evicted entry costs one cold resolve until the
+      # next daily save.
+      - name: Restore Swift packages resolved on main
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
 
       - name: Resolve Swift package dependencies
         shell: bash

@@ -1,0 +1,121 @@
+name: "iOS Swift Package Cache"
+
+# Saves the Swift package clone directory that PR Validation's iOS Native
+# (Xcode) lane restores before `xcodebuild -resolvePackageDependencies`.
+# GitHub scopes a cache to the ref that saved it. A pull_request save lives
+# under refs/pull/<N>/merge and no other PR can restore it; an entry saved on
+# main is restorable by every PR. So the PR lane only restores, and this
+# workflow writes the entry, on main, once per package graph. Key, size and
+# eviction budget are explained on the restore step in ci.yml.
+
+on:
+  # 05:37 UTC is in the quietest window for PR Validation: 05:00-06:59 UTC held
+  # 3 of 357 runs on 2026-10-12/13, and macOS is 5 of the org's 20 job slots.
+  # Off the hour, and clear of capacity-maintenance (:11/:26/:41/:56) and
+  # verify-protected-lists (:17).
+  schedule:
+    - cron: "37 5 * * *"
+  # Re-seed right after a Package.resolved or Capacitor plugin change lands,
+  # instead of waiting for the next morning.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-swift-package-cache
+  cancel-in-progress: false
+
+jobs:
+  save:
+    name: "Resolve and save Swift packages"
+    # Only main's entries reach every PR; a dispatch from another branch would
+    # spend a macOS runner on an entry nothing restores.
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      # Must equal ios-native-check in ci.yml: the version is part of the key.
+      XCODE_VERSION: "26.3"
+      XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
+      XCODE_SCHEME: App
+      # Same web directory and backend placeholder as ios-native-check, so
+      # capacitor.config.ts resolves the same way it does there.
+      NEXT_DIST_DIR: .next-native-ci
+      NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select release-parity Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # Same Node major as ios-native-check. setup-node's npm key has no Node
+      # version in it, so the main-scoped entry this saves is the one the macOS
+      # PR lanes look up; on an exact hit they skip saving a PR-scoped copy.
+      # Six such 276MB copies, 1.66GB in all, sat in the budget at 20:00Z on
+      # 2026-10-14.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The generated Package.swift points at the Capacitor plugins in
+      # node_modules, so the lockfile install is part of the package graph.
+      - name: Install web and local Swift-package dependencies
+        run: npm ci --prefix hushh-webapp
+
+      # The PR lane builds the native web export (3.6-4.2 minutes on
+      # 2026-10-14) before cap sync, but nothing in the export reaches the
+      # package graph. Capacitor writes CapApp-SPM/Package.swift from the
+      # installed plugins, the @capacitor/ios version and the project's
+      # deployment target, and sync only requires an index.html in the web
+      # directory. Checked with @capacitor/cli 8.4.1: a sync over a stub
+      # index.html and one over a 2,151-file web directory left every file
+      # under ios/ outside the copied web assets byte-identical, and the
+      # committed Package.swift unchanged. The rest of cap:sync:ios
+      # (verify:native:css, the Firebase plist copy) touches neither
+      # Package.swift nor Package.resolved.
+      - name: Sync the generated Capacitor iOS project without the web export
+        shell: bash
+        working-directory: hushh-webapp
+        run: |
+          set -euo pipefail
+          mkdir -p "${NEXT_DIST_DIR}"
+          printf '<!doctype html><title>Swift package cache</title>\n' > "${NEXT_DIST_DIR}/index.html"
+          node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios
+          git status --short -- ios
+
+      # Same path and key as the PR lane's restore step
+      # (scripts/ci/test_ci_cache_scopes.py). Lookup only: when this graph's
+      # entry already exists there is nothing to do.
+      - name: Look up this package graph's entry
+        id: spm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
+          lookup-only: true
+
+      # The PR lane's resolve command into the same directory. It starts from
+      # an empty directory, so the entry holds this graph and nothing older.
+      - name: Resolve Swift package dependencies
+        if: steps.spm-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+          # ci.yml states the budget as an estimate; this is the measurement.
+          du -sh "${RUNNER_TEMP}/spm" "${RUNNER_TEMP}/spm"/* || true
+
+      - name: Save Swift packages for pull requests
+        if: steps.spm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: ${{ steps.spm-cache.outputs.cache-primary-key }}
