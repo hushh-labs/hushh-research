@@ -105,27 +105,26 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     );
     const settingsSource = readSource("components/app-ui/settings-ui.tsx");
 
-    expect(source).toContain("title={PROFILE_LABELS.referrals}");
-    expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    for (const [paneIcon, routeIcon] of [
-      ["ProfilePaneAccountIcon", "AccountProfileIcon"],
-      ["ProfilePaneAppearanceIcon", "PreferencesProfileIcon"],
-      ["ProfilePaneSecurityIcon", "SecurityProfileIcon"],
-      ["ProfilePaneDevicesIcon", "DevicesProfileIcon"],
-      ["ProfilePaneInviteIcon", "InviteFriendsProfileIcon"],
-      ["ProfilePaneHelpIcon", "SupportProfileIcon"],
-      ["ProfilePaneSignOutIcon", "SignOutProfileIcon"],
+    const model = readSource("components/profile/profile-menu-model.ts");
+    const paneIcons = source.slice(source.indexOf("const paneMenuIcons ="), source.indexOf("const menuActions:"));
+    expect(model).toContain("label: PROFILE_LABELS.referrals");
+    expect(model).toContain("label: PROFILE_LABELS.developerTools");
+    for (const [id, paneIcon, routeIcon] of [
+      ["account", "ProfilePaneAccountIcon", "AccountProfileIcon"],
+      ["preferences", "ProfilePaneAppearanceIcon", "PreferencesProfileIcon"],
+      ["security", "ProfilePaneSecurityIcon", "SecurityProfileIcon"],
+      ["devices", "ProfilePaneDevicesIcon", "DevicesProfileIcon"],
+      ["invite", "ProfilePaneInviteIcon", "InviteFriendsProfileIcon"],
+      ["support", "ProfilePaneHelpIcon", "SupportProfileIcon"],
+      ["sign-out", "ProfilePaneSignOutIcon", "SignOutProfileIcon"],
     ]) {
-      expect(source).toMatch(
-        new RegExp(
-          `icon=\\{\\s*isPanePresentation\\s*\\?\\s*${paneIcon}\\s*:\\s*${routeIcon}\\s*\\}\\s+iconTone="capability"`,
-        ),
-      );
+      expect(paneIcons).toMatch(new RegExp('"?' + id + '"?: ' + paneIcon));
+      expect(model).toMatch(new RegExp('id: "' + id + '",[^\\n]+icon: ' + routeIcon));
     }
-    expect(source).toMatch(
-      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="capability"/,
-    );
-    expect(source).toContain('tone="destructive"');
+    expect(model).toContain("icon: DeveloperToolsProfileIcon");
+    expect(model).toMatch(/id: "sign-out",[^\n]+destructive: true/);
+    expect(source).toContain('paneMenuIcons[entry.id as keyof typeof paneMenuIcons] : entry.icon} iconTone="capability" title={entry.label}');
+    expect(source).toContain('tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}');
     // The capability tone leaves each presentation's authored SVG colour in place.
     expect(settingsSource).toContain(
       'color={isCapabilityTone ? undefined : "currentColor"}',

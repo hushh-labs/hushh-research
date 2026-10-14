@@ -22,12 +22,16 @@ const mocks = vi.hoisted(() => ({
   hasSavedOpenAiKey: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/one/profile/ai",
+}));
 vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: { success: vi.fn(), error: vi.fn(), promise: vi.fn() },
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    getPersonalAgentStatus: vi.fn().mockResolvedValue({ hostingMode: "shared" }),
     getByocSetupStatus: (...args: unknown[]) => mocks.getByocSetupStatus(...args),
     validateGeminiRuntimeCredential: vi.fn(),
     selectManagedGeminiRuntime: vi.fn(),

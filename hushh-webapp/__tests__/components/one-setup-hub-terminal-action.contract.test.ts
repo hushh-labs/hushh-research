@@ -369,12 +369,6 @@ describe("One setup hub terminal action contract", () => {
     // its own Continue button in front of a two-option choice is pure friction.
     expect(page).not.toContain("CapabilityCinematicIntroGate");
     expect(gate).not.toContain('"connections"');
-    // The provider marks the prologue used to carry now render inline on the
-    // real screen, so no context is lost with the screen.
-    expect(page).toContain("data-runtime-provider-lane");
-    expect(page).toContain("RUNTIME_PROVIDER_CATALOG");
-    expect(gate).not.toContain("data-runtime-provider-lane");
-
     // Saving either choice requires a separate, enabled Continue action.
     expect(page).not.toContain("void finishSetupAndGoHome();");
     expect(page).toContain("disabled={!canContinue || finishing}");
@@ -391,10 +385,15 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(card).toContain('<Badge variant="outline">Recommended</Badge>');
-    expect(card).toContain(
-      'title={ownCloudProject ? "Use your pod\'s AI" : "Use Hussh\'s AI"}',
+    expect(card).toContain("title={defaultLabel}");
+    for (const label of ["Use your Azure AI", "Use your agent’s Vertex AI", "Use Hussh's Gemini"]) {
+      expect(card).toContain(label);
+    }
+    const keyChoice = readFileSync(
+      join(process.cwd(), "components/connections/gemini-key-choice.tsx"), "utf8",
     );
-    expect(card).toContain('title="Use your own key"');
+    expect(card).toContain("GeminiKeyChoice");
+    expect(keyChoice).toContain('title="Use your own Gemini key"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");

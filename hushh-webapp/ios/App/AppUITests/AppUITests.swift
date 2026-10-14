@@ -3436,12 +3436,15 @@ final class AppUITests: XCTestCase {
         // application/window or entire tablet WebView cannot substitute for it.
         let candidates = app.descendants(matching: .any).containing(.button, identifier: "Close Profile")
         _ = candidates.firstMatch.waitForExistence(timeout: 10)
-        let frames = candidates.allElementsBoundByIndex.filter { element in
+        let admittedContainers: [XCUIElement] = candidates.allElementsBoundByIndex.filter { element in
             guard ![XCUIElement.ElementType.application, .window, .webView].contains(element.elementType) else { return false }
             return element.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Your account")).firstMatch.exists
-        }.map { $0.frame.intersection(web.frame).intersection(app.frame) }
-            .filter { !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter) }
-            .filter { web.frame.width < 600 || $0.width < web.frame.width - 1 }
+        }
+        let intersections: [CGRect] = admittedContainers.map { $0.frame.intersection(web.frame).intersection(app.frame) }
+        let boundedFrames: [CGRect] = intersections.filter {
+            !$0.isNull && $0.width >= 200 && $0.height > 100 && $0.contains(closeCenter)
+        }
+        let frames: [CGRect] = boundedFrames.filter { web.frame.width < 600 || $0.width < web.frame.width - 1 }
         guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
             print("PROFILE_PANE_PUBLIC_GEOMETRY candidates=\(candidates.count) admitted=\(frames.count) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY)) web_width=\(Int(web.frame.width)) web_height=\(Int(web.frame.height))")
             XCTFail("PROFILE_PANE_FRAME_UNAVAILABLE"); throw NSError(domain: "ProfilePaneFixture", code: 1)
@@ -3734,14 +3737,17 @@ final class AppUITests: XCTestCase {
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
             let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
             _ = containers.firstMatch.waitForExistence(timeout: 5)
-            let frames = containers.allElementsBoundByIndex.filter {
+            let admittedContainers: [XCUIElement] = containers.allElementsBoundByIndex.filter {
                 ![XCUIElement.ElementType.application, .window, .webView].contains($0.elementType)
-            }.map(\.frame).filter {
+            }
+            let containerFrames: [CGRect] = admittedContainers.map(\.frame)
+            let closeCenter = CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)
+            let frames: [CGRect] = containerFrames.filter {
                 // WebKit can omit the dialog's own AX name. Require its
                 // current title and actual bounds containing the native header;
                 // a title, body-only scroll frame or whole viewport cannot pass.
                 $0.width >= 200 && $0.height > 100 &&
-                    $0.contains(CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)) &&
+                    $0.contains(closeCenter) &&
                     (web.frame.width < 600 || $0.width < web.frame.width - 1)
             }
             guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {

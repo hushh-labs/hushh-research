@@ -258,7 +258,7 @@ export function AgentConnectionsDrawer({
             className={cn(
               // Match Profile's bounded inset card at the leading edge. The
               // shared CSS owns geometry; this owner retains focus and motion.
-              "pointer-events-none fixed z-(--z-sheet) touch-pan-y transform transition-[transform,visibility] motion-reduce:transition-none",
+              "pointer-events-none fixed z-(--z-sheet) touch-pan-y transition-[transform,visibility] motion-reduce:transition-none",
               historyDisplayed
                 ? "visible [transform:translate3d(0,0,0)] duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
                 : "invisible [transform:translate3d(calc(-100%_-_var(--agent-history-shadow-clearance)_-_var(--app-side-pane-left-inset)),0,0)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",

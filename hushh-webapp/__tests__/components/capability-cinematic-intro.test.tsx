@@ -180,20 +180,16 @@ describe("CapabilityCinematicIntroGate", () => {
   });
 
   it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
-    // The provider lane moved onto the AI access screen itself when its
-    // prologue was removed; the treatment contract travelled with it.
-    const source = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "components/connections/gemini-runtime-configuration-page.tsx",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain("data-runtime-provider-lane");
-    expect(source).toContain('className="inline-flex h-9 w-9 items-center justify-center"');
-    expect(source).not.toContain("bg-[color:var(--app-card-surface-compact)]");
-    expect(source).not.toContain("shadow-[var(--shadow-xs)]");
+    const mark = fs.readFileSync(path.resolve(process.cwd(), "components/brand/runtime-provider-mark.tsx"), "utf8");
+    expect(mark).toContain("inline-flex h-12 w-12 shrink-0 items-center justify-center");
+    expect(mark).toContain("max-h-full max-w-full object-contain");
+    expect(mark).not.toContain("bg-[color:var(--app-card-surface-compact)]");
+    expect(mark).not.toContain("shadow-[var(--shadow-xs)]");
+    for (const consumer of ["byo-ai-providers", "openai-key-card"]) {
+      const source = fs.readFileSync(path.resolve(process.cwd(), `components/connections/${consumer}.tsx`), "utf8");
+      expect(source).toContain("<RuntimeProviderMark");
+      expect(source).toContain('className="!h-8 !w-8"');
+    }
   });
 
   it("keeps authored cinematic journeys on the shared, non-durable gate", () => {

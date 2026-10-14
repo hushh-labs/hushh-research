@@ -1,5 +1,33 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+export async function expectHistoryClosed(page: Page) {
+  const panel = page.locator("[data-agent-history-drawer]");
+  await expect(panel).toHaveAttribute("aria-hidden", "true");
+  await expect(panel).toHaveAttribute("inert", "");
+  await expect(panel).toHaveCSS("visibility", "hidden");
+  const pose = await panel.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { transform: style.transform, translate: style.translate,
+      clearance: style.getPropertyValue("--agent-history-shadow-clearance"),
+      inset: style.getPropertyValue("--app-side-pane-left-inset"),
+    };
+  });
+  // An authored closed panel clears its shadow, independently of its inset.
+  await expect.poll(() => panel.evaluate(element => element.getBoundingClientRect().right), { message: JSON.stringify(pose) }).toBeCloseTo(-48, 0);
+  const scrim = page.locator("[data-agent-history-scrim]");
+  await expect(scrim).toHaveCSS("visibility", "hidden");
+  await expect(scrim).toHaveCSS("pointer-events", "none");
+}
+
+export async function expectHistoryHeaderSlot(panel: Locator, width: number) {
+  const gutter = width >= 1024 ? 24 : width >= 640 ? 20 : 16;
+  const header = panel.locator('[data-agent-history-header-layout="aligned"]');
+  expect(await header.evaluate(element => parseFloat(getComputedStyle(element).paddingLeft))).toBe(gutter);
+  const border = await panel.evaluate(element => parseFloat(getComputedStyle(element).borderLeftWidth));
+  const close = panel.getByRole("button", { name: "Close chat history", exact: true });
+  expect((await close.boundingBox())!.x - (await panel.boundingBox())!.x).toBeCloseTo(gutter + border, 0);
+}
+
 export async function expectPaneRestingAtFrame(page: Page, pane: Locator) {
   const inset = (await profileFrame(page)).x;
   await expect.poll(() => pane.evaluate((element, x) => Math.abs(element.getBoundingClientRect().left - x), inset)).toBeLessThanOrEqual(1);
@@ -53,4 +81,29 @@ export function hitAt(page: import("@playwright/test").Page, x: number, y: numbe
     if (element.closest("header.agent-chat-header") || element.closest("button")?.textContent === "Open drawer") return "header";
     return element.tagName.toLowerCase();
   }, [x, y] as const);
+}
+
+/** Compare the drawer scrim against resolved product tokens. */
+export function readDrawerScrim(scrim: Locator) {
+  return scrim.evaluate((element) => {
+        const style = getComputedStyle(element);
+        // Resolve the canonical tokens through a probe so the comparison is
+        // computed-to-computed, whatever the pointer media query picked.
+        const probe = document.createElement("div");
+        probe.style.backgroundColor = "var(--app-scrim-color)";
+        probe.style.backdropFilter = "var(--app-scrim-filter)";
+        document.body.appendChild(probe);
+        const canonical = getComputedStyle(probe);
+        const result = {
+          background: style.backgroundColor,
+          filter: style.backdropFilter,
+          canonicalBackground: canonical.backgroundColor,
+          canonicalFilter: canonical.backdropFilter,
+          opacity: style.opacity,
+          visibility: style.visibility,
+          pointer: style.pointerEvents,
+        };
+        probe.remove();
+        return result;
+      });
 }

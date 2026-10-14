@@ -51,7 +51,12 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
     expect(source).toContain("chats={renderHistorySidebar(");
-    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
+    expect(sidebar).toContain("driveActivity={!isPuppySurface && !customNativePresentationEnabled()");
+    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(2);
+    expect(source).toContain("{customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing");
+    expect(source).toContain("active={isHistoryDrawerOpen || driveActivityPageOpen}");
+    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === user?.uid &&");
+    expect(source).toContain("driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface");
     // The parent owns the owner-scoped review signal; the actual opener's
     // accessible copy and native admission are covered in native-chrome.test.
     expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
@@ -118,9 +123,14 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).toContain("historyDrawerTriggerRef.current = trigger; openHistoryConnectors();");
+    const open = source.slice(source.indexOf("const openHistoryConnectors ="), source.indexOf("const handleHistoryDrawerOpenChange ="));
+    expect(open).toContain('setDrawerMode("connections")');
+    expect(open).toContain("setIsHistoryDrawerOpen(true)");
+    expect(source).toContain("key={historyConnectorsOwner} owner={renderedWorkspaceOwnerId} context={historyConnectorsOwner}");
+    expect(source).toContain('onBack={() => setDrawerMode("chats")}');
     expect(source).not.toContain("connectionsAvailable");
-    // The catalog is Connectors in the Profile pane, opened over the chat.
+    // Inline chat cards retain Profile's destination; History owns its nested page.
     expect(source).toContain("profileConnectorsLocation(");
   });
 

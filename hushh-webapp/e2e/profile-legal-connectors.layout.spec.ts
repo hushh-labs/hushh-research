@@ -258,13 +258,12 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     { width: 393, regions: { top: 120, bottom: 280 } },
     { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
     const { width, regions } = options;
-    const rightInset = regions?.fullWindow ? 0 : width < 640 ? 12 : 18;
+    const rightInset = regions?.fullWindow || (width < 640 && !regions) ? 0 : width < 640 ? 12 : 18;
     await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
-    // The floating Profile pane keeps a 12–18px viewport gutter; it is not
-    // an edge-to-edge drawer. Keep an independent expected inset so removing
-    // the product gutter still fails this assertion.
+    // Mobile fills the viewport. Legacy reserved chrome and desktop retain
+    // bounded cards; assert their independently authored insets.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
@@ -279,10 +278,11 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
         (node as HTMLElement).style.getPropertyValue("--native-overlay-bottom"),
       ])).toEqual(regions.fullWindow ? ["0px", "0px"] : ["120px", "280px"]);
       const box = (await pane(page).boundingBox())!;
-      // React owns the floating pane: legacy native reservations must not clip it.
-      expect(box.y).toBeCloseTo(16, 0);
-      expect(box.height).toBeCloseTo(820, 0);
-      expect(box.y + box.height).toBeCloseTo(836, 0);
+      // React owns the pane; full-window support fills the viewport while
+      // legacy native reservations retain the bounded card.
+      expect(box.y).toBeCloseTo(regions.fullWindow ? 0 : 16, 0);
+      expect(box.height).toBeCloseTo(regions.fullWindow ? 852 : 820, 0);
+      expect(box.y + box.height).toBeCloseTo(regions.fullWindow ? 852 : 836, 0);
     }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();

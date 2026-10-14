@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { privateCommandRefusal } from "../fixtures/private-command-refusal";
 
 const h = vi.hoisted(() => ({
   api: vi.fn(),
@@ -784,13 +785,12 @@ it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
 
 it("keeps a refused private command on its transport without hub fallback or device effects", async () => {
   h.hosting.mockResolvedValue({ hostingMode: "byoc" });
-  h.pod.mockResolvedValue(new Response(JSON.stringify({
-    detail: { code: "POD_DIRECT_NOT_READY" },
-  }), { status: 503 }));
+  h.pod.mockImplementation(privateCommandRefusal);
   render(<App />);
   fireEvent.click(screen.getByText("Begin command"));
   await screen.findByText("Your private pod connection is not ready yet.");
-  expect(h.pod).toHaveBeenCalledOnce();
+  expect(h.pod).toHaveBeenCalledWith("agent-chat/capabilities", expect.any(Object));
+  expect(h.pod.mock.calls.filter(([route]) => route === "commands/assess")).toHaveLength(1);
   expect(h.pod).toHaveBeenCalledWith("commands/assess", expect.any(Object));
   // Grant preparation is metadata-only; no hub plan/checkpoint/effect follows.
   expect(calls).toEqual([{ path: "/api/one/agent-chat/proposals/prepare", body: undefined }]);
