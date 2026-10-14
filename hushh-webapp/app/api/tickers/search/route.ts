@@ -25,7 +25,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q") || "";
-    const limit = searchParams.get("limit") || "25";
+    const rawLimit = Number.parseInt(searchParams.get("limit") || "25", 10);
+    const limit = Number.isFinite(rawLimit)
+       ? Math.min(Math.max(rawLimit, 1), 100)
+       : 25;
 
     if (!q.trim()) {
       return NextResponse.json([], { status: 200 });
