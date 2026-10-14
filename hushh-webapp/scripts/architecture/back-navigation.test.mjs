@@ -10,6 +10,9 @@ test('new router/history Back bypasses fail even when a reviewed owner already e
     assert.throws(() => validateHistoryBypasses(new Map([['app/new/page.tsx', call]])), /hierarchy bypass/);
   }
   assert.throws(() => validateHistoryBypasses(new Map([['app/global-error.tsx', 'history.back(); history.back();']])), /hierarchy bypass/);
+  assert.doesNotThrow(() => validateHistoryBypasses(new Map([['lib/navigation/web-history-back.ts', 'window.history.go(previousDepth - revealedDepth);']])));
+  assert.throws(() => validateHistoryBypasses(new Map([['lib/navigation/web-history-back.ts', 'window.history.go(previousDepth - revealedDepth); window.history.back();']])), /hierarchy bypass/);
+  assert.throws(() => validateHistoryBypasses(new Map([['components/profile/confirmation.tsx', 'window.history.go(1);']])), /hierarchy bypass/);
   assert.doesNotThrow(() => validateHistoryBypasses(new Map([['app/new/page.tsx', '// router.back()\nconst text="history.back()"; navigateTopShellBack(params);']])));
 });
 

@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { nativeCardScanner as nativeScanner } from "@/lib/capacitor/card-scanner";
 import type { ScannedCardFields } from "@/lib/wallet/card-scan-fields";
 import { parseCardScan } from "@/lib/wallet/card-scan-fields";
+import { normalizeCardLighting } from "@/lib/wallet/card-scan-lighting";
 
 export class CardScanError extends Error {}
 
@@ -46,6 +47,7 @@ export async function scanWalletCard(file: Blob, signal: AbortSignal): Promise<S
     return fields;
   }
   const worker = new Worker(new URL("/wallet/card-scan-worker.js", window.location.href));
+  let finished = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let abort: () => void = () => {};
   try {
@@ -59,12 +61,25 @@ export async function scanWalletCard(file: Blob, signal: AbortSignal): Promise<S
         const value = event.data;
         if (!value || typeof value !== "object" || !("text" in value) || typeof value.text !== "string") { fail(); return; }
         const fields = parseCardScan(value.text);
-        if (fields) resolve(fields); else reject(new CardScanError("No readable card number found. Capture the full number in good light, without glare."));
+        const enhancedText = "enhancedText" in value && typeof value.enhancedText === "string" ? value.enhancedText : "";
+        const enhanced = parseCardScan(enhancedText);
+        const reading = fields && enhanced && fields.pan === enhanced.pan
+          ? { ...enhanced, ...fields }
+          : fields || enhanced;
+        // Conflicting valid readings need a retake, never a guessed number.
+        if (reading && !parseCardScan(value.text + "\n" + enhancedText)) {
+          reject(new CardScanError("The card number is unclear. Retake the photo or enter it manually."));
+        } else if (reading) resolve(reading);
+        else reject(new CardScanError("No readable card number found. Retake the photo or enter the details manually."));
       };
       timeout = setTimeout(fail, 60_000);
-      worker.postMessage(file);
+      void (async () => {
+        const enhanced = await normalizeCardLighting(file).catch(() => undefined);
+        if (!finished && !signal.aborted) worker.postMessage({ original: file, enhanced });
+      })().catch(fail);
     });
   } finally {
+    finished = true;
     clearTimeout(timeout);
     signal.removeEventListener("abort", abort);
     worker.terminate();

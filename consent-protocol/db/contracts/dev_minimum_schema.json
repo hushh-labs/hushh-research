@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 337,
+  "expected_migration_version": 338,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2532,7 +2532,10 @@
       "one_business_profile_saved",
       "one_magic_intelligence_saved",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "initial_contacts_source",
+      "initial_contacts_welcome_acknowledged",
+      "initial_contacts_circle_id"
     ],
     "wallet_card_access_audit": [
       "id",

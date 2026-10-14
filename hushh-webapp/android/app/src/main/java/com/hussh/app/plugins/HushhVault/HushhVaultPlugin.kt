@@ -158,7 +158,7 @@ class HushhVaultPlugin : Plugin() {
     fun deriveKey(call: PluginCall) {
         val passphrase = call.getString("passphrase")
         if (passphrase == null) {
-            call.reject("Missing required parameter: passphrase")
+            call.reject("Missing required parameter: password")
             return
         }
 
