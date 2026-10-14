@@ -42,6 +42,125 @@ def revision(number):
 
 
 class RetentionSafetyTest(unittest.TestCase):
+    def test_uat_frontend_release_keeps_unchanged_backend_drain_clock(self):
+        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
+        plan = MODULE.Plan(
+            serving=frozenset({'consent-protocol-00003-abc'}),
+            protected=frozenset({'consent-protocol-00003-abc'}),
+            remove_tags=(),
+            delete_revisions=('consent-protocol-00001-abc',),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            state = pathlib.Path(temporary) / 'consent-protocol.json'
+            with mock.patch.object(MODULE.time, 'time', return_value=10000):
+                self.assertFalse(MODULE.deferred_drain_ready(
+                    state, service='consent-protocol', project='hushh-pda-uat',
+                    region='us-central1', expected=fingerprint, plan=plan,
+                    drain_seconds=3660, release_run_id='123', carry_uat_clock=True,
+                ))
+            with mock.patch.object(MODULE.time, 'time', return_value=11000):
+                self.assertFalse(MODULE.deferred_drain_ready(
+                    state, service='consent-protocol', project='hushh-pda-uat',
+                    region='us-central1', expected=fingerprint, plan=plan,
+                    drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
+                ))
+            carried = json.loads(state.read_text())
+            self.assertEqual(carried['release_run_id'], '124')
+            self.assertEqual(carried['observed_at'], 10000)
+            self.assertEqual(carried['not_before'], 13660)
+            with mock.patch.object(MODULE.time, 'time', return_value=13660):
+                self.assertTrue(MODULE.deferred_drain_ready(
+                    state, service='consent-protocol', project='hushh-pda-uat',
+                    region='us-central1', expected=fingerprint, plan=plan,
+                    drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
+                ))
+
+    def test_uat_cross_release_clock_resets_if_backend_drain_identity_changes(self):
+        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
+        plan = MODULE.Plan(
+            serving=frozenset({'consent-protocol-00003-abc'}),
+            protected=frozenset({'consent-protocol-00003-abc'}),
+            remove_tags=(),
+            delete_revisions=('consent-protocol-00001-abc',),
+        )
+        changed = {
+            'generation': (fingerprint[:2] + (8, fingerprint[3]), plan),
+            'protected': (fingerprint, MODULE.Plan(
+                plan.serving, plan.protected | {'consent-protocol-00002-abc'},
+                (), plan.delete_revisions,
+            )),
+            'expanded_deletions': (fingerprint, MODULE.Plan(
+                plan.serving, plan.protected, (),
+                plan.delete_revisions + ('consent-protocol-00000-abc',),
+            )),
+        }
+        for reason, (new_fingerprint, new_plan) in changed.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                state = pathlib.Path(temporary) / 'consent-protocol.json'
+                with mock.patch.object(MODULE.time, 'time', return_value=10000):
+                    MODULE.deferred_drain_ready(
+                        state, service='consent-protocol', project='hushh-pda-uat',
+                        region='us-central1', expected=fingerprint, plan=plan,
+                        drain_seconds=3660, release_run_id='123', carry_uat_clock=True,
+                    )
+                with mock.patch.object(MODULE.time, 'time', return_value=11000):
+                    self.assertFalse(MODULE.deferred_drain_ready(
+                        state, service='consent-protocol', project='hushh-pda-uat',
+                        region='us-central1', expected=new_fingerprint, plan=new_plan,
+                        drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
+                    ))
+                self.assertEqual(json.loads(state.read_text())['observed_at'], 11000)
+
+    def test_production_release_change_still_resets_drain_clock(self):
+        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
+        plan = MODULE.Plan(
+            serving=frozenset({'consent-protocol-00003-abc'}),
+            protected=frozenset({'consent-protocol-00003-abc'}),
+            remove_tags=(),
+            delete_revisions=('consent-protocol-00001-abc',),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            state = pathlib.Path(temporary) / 'consent-protocol.json'
+            for now, run_id in ((10000, '123'), (11000, '124')):
+                with mock.patch.object(MODULE.time, 'time', return_value=now):
+                    self.assertFalse(MODULE.deferred_drain_ready(
+                        state, service='consent-protocol', project='hushh-pda',
+                        region='us-central1', expected=fingerprint, plan=plan,
+                        drain_seconds=3660, release_run_id=run_id,
+                    ))
+            self.assertEqual(json.loads(state.read_text())['observed_at'], 11000)
+
+    def test_cross_release_uat_artifact_carries_only_matching_service_clock(self):
+        first = {
+            'schema_version': 1, 'service': 'consent-protocol',
+            'project': 'hushh-pda-uat', 'region': 'us-central1',
+            'release_run_id': '124', 'fingerprint': [['rev', 100], '[]', 7, 'uid'],
+            'protected': ['rev'], 'revisions': ['old'],
+            'observed_at': 11000, 'not_before': 14660,
+        }
+        earlier = {**first, 'release_run_id': '123',
+                   'observed_at': 10000, 'not_before': 13660}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            current = directory / 'current.json'
+            older = directory / 'older.json'
+            current.write_text(json.dumps(first))
+            older.write_text(json.dumps(earlier))
+            self.assertTrue(MAINTENANCE.carry_earlier_uat_clock(current, older))
+            carried = json.loads(current.read_text())
+            self.assertEqual(carried['release_run_id'], '124')
+            self.assertEqual(carried['observed_at'], 10000)
+            self.assertEqual(carried['not_before'], 13660)
+            for reason, change in (
+                ('generation', {'fingerprint': [['rev', 100], '[]', 8, 'uid']}),
+                ('protected', {'protected': ['rev', 'rollback']}),
+                ('expanded_deletions', {'revisions': ['old', 'new']}),
+            ):
+                with self.subTest(reason=reason):
+                    current.write_text(json.dumps({**first, **change}))
+                    self.assertFalse(MAINTENANCE.carry_earlier_uat_clock(current, older))
+                    self.assertEqual(json.loads(current.read_text())['observed_at'], 11000)
+
     def run_deferred(self, state, revisions, directory, now):
         mutations = []
 
@@ -960,6 +1079,131 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         2,
                         protected,
                     )
+
+    def test_frontend_only_release_keeps_verified_backend_rollback_anchor(self):
+        backend = "consent-protocol-02142-poh"
+        rollback = "consent-protocol-02137-beq"
+        owner_sha = "c" * 40
+        frontend_sha = "d" * 40
+        owner = {
+            "status": "healthy", "scope": "all", "sha": owner_sha,
+            "predeploy": {"backend_revision": rollback},
+            "final": {"backend_revision": backend, "backend_sha": owner_sha},
+        }
+        release = {
+            "status": "healthy", "scope": "frontend", "sha": frontend_sha,
+            "predeploy": {"backend_revision": backend},
+            "current": {
+                "backend_candidate_revision": "", "backend_revision": backend,
+            },
+            "final": {
+                "backend_revision": backend, "backend_sha": owner_sha,
+                "frontend_sha": frontend_sha,
+            },
+            "verification": {
+                "frontend_provenance": "success", "parity_success": "true",
+                "semantic_success": "true", "blocking_classifications": "",
+            },
+        }
+        with mock.patch.object(
+            MAINTENANCE, "prior_healthy_uat_backend_release", return_value=(200, owner)
+        ):
+            MAINTENANCE.prove_frontend_inherited_backend(
+                "org/repo", {"id": 300}, release, pathlib.Path("/tmp")
+            )
+        self.assertEqual(release["_maintenance_backend_rollback_revision"], rollback)
+        self.assertEqual(
+            release["_maintenance_lane_provenance"],
+            {
+                "backend": {"run_id": 200, "sha": owner_sha},
+                "frontend": {"run_id": 300, "sha": frontend_sha},
+            },
+        )
+        with (
+            mock.patch.object(
+                MAINTENANCE.subprocess, "run", return_value=mock.Mock(returncode=0)
+            ),
+            mock.patch.object(MAINTENANCE, "command", return_value=backend),
+            mock.patch.object(
+                MAINTENANCE.retention, "revision_state",
+                return_value=[
+                    {"metadata": {"name": backend}},
+                    {"metadata": {"name": rollback}},
+                ],
+            ),
+        ):
+            flags = MAINTENANCE.release_protection_flags(
+                "consent-protocol", "backend", release
+            )
+        self.assertEqual(flags[0], backend)
+        self.assertEqual(flags[2], rollback)
+        self.assertEqual(flags[4], backend)
+
+        for defect in ("backend_changed", "owner_sha_changed", "candidate_created"):
+            with self.subTest(defect=defect):
+                bad = copy.deepcopy(release)
+                bad.pop("_maintenance_lane_provenance")
+                bad.pop("_maintenance_backend_rollback_revision")
+                if defect == "backend_changed":
+                    bad["current"]["backend_revision"] = rollback
+                elif defect == "owner_sha_changed":
+                    bad["final"]["backend_sha"] = frontend_sha
+                else:
+                    bad["current"]["backend_candidate_revision"] = rollback
+                with mock.patch.object(
+                    MAINTENANCE, "prior_healthy_uat_backend_release",
+                    return_value=(200, owner),
+                ):
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.prove_frontend_inherited_backend(
+                            "org/repo", {"id": 300}, bad, pathlib.Path("/tmp")
+                        )
+
+    def test_frontend_only_source_resolution_inherits_backend_owner(self):
+        backend = "consent-protocol-02142-poh"
+        rollback = "consent-protocol-02137-beq"
+        frontend = "hushh-webapp-01732-abc"
+        owner_sha = "c" * 40
+        frontend_sha = "d" * 40
+        owner = {
+            "status": "healthy", "scope": "all", "sha": owner_sha,
+            "predeploy": {"backend_revision": rollback},
+            "final": {"backend_revision": backend, "backend_sha": owner_sha},
+        }
+        source = {
+            "status": "healthy", "scope": "frontend", "sha": frontend_sha,
+            "predeploy": {"backend_revision": backend},
+            "current": {
+                "backend_candidate_revision": "", "backend_revision": backend,
+            },
+            "final": {
+                "backend_revision": backend, "backend_sha": owner_sha,
+                "frontend_revision": frontend, "frontend_sha": frontend_sha,
+            },
+            "verification": {
+                "frontend_provenance": "success", "parity_success": "true",
+                "semantic_success": "true", "blocking_classifications": "",
+            },
+        }
+        with (
+            mock.patch.object(MAINTENANCE, "api", return_value=self.trusted_source(300)),
+            mock.patch.object(MAINTENANCE, "load_release", return_value=source),
+            mock.patch.object(
+                MAINTENANCE, "prior_healthy_uat_backend_release", return_value=(200, owner)
+            ),
+        ):
+            found = MAINTENANCE.find_release(
+                "org/repo", "300", pathlib.Path("/tmp"), require_live=False
+            )
+        self.assertEqual(found[0], 300)
+        self.assertEqual(found[1]["_maintenance_backend_rollback_revision"], rollback)
+        self.assertEqual(
+            found[1]["_maintenance_lane_provenance"],
+            {
+                "backend": {"run_id": 200, "sha": owner_sha},
+                "frontend": {"run_id": 300, "sha": frontend_sha},
+            },
+        )
 
     def trusted_source(self, run_id, workflow="deploy-uat.yml"):
         return {
@@ -1977,7 +2221,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 mock.patch.object(MAINTENANCE, "restore_state"),
                 mock.patch.object(MAINTENANCE, "latest_deploy_observation", return_value=123),
                 mock.patch.object(MAINTENANCE, "release_protection_flags", return_value=[]),
-                mock.patch.object(MAINTENANCE.subprocess, "run", side_effect=run),
+                mock.patch.object(MAINTENANCE.subprocess, "run", side_effect=run) as cloudrun,
                 mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
             ):
                 self.assertEqual(MAINTENANCE.main(), 0)
@@ -1986,6 +2230,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 "verified_source_run_id=123\ndrain_not_before=13660\n"
                 "cleanup_outcome=applied\n",
             )
+            self.assertEqual(cloudrun.call_count, 3)
+            for call in cloudrun.call_args_list:
+                self.assertIn("--carry-uat-clock", call.args[0])
 
 
     def test_wrong_source_run_never_downloads_release_artifacts(self):
@@ -2534,6 +2781,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     command = call.args[0]
                     self.assertIn(command[2], {"consent-protocol", "hushh-webapp"})
                     self.assertIn("--defer-state", command)
+                    self.assertNotIn("--carry-uat-clock", command)
                     self.assertEqual(command[-2:], ["--project", "hushh-pda"])
                 self.assertEqual(
                     json.loads((directory / "completed.json").read_text())[
