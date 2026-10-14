@@ -23,7 +23,7 @@ jobs:
   wait-capacity:
     name: Wait for UAT One chat capacity outside the mutation lock
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 10
     permissions:
       contents: read
       checks: read
