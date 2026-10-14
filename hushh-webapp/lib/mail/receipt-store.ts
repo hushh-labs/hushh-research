@@ -1,4 +1,5 @@
 "use client";
+import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { SecureDurableResourceService, type DurableVersion } from "@/lib/services/secure-durable-resource-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -14,14 +15,14 @@ export async function receiptStoreVersion(userId: string, account: string) {
   return SecureDurableResourceService.version(userId, RECEIPT_SNAPSHOT_PREFIX + await receiptAccountBinding(account));
 }
 export async function writeReceiptSnapshot(session: ReceiptStoreSession, snapshot: ReceiptSnapshot, expected: DurableVersion) {
-  const isCurrent = guard(session); if (!isCurrent()) throw new Error("Unlock your vault to save receipts.");
-  const value = validateReceiptSnapshot(snapshot); const resourceKey = RECEIPT_SNAPSHOT_PREFIX + value.account_binding;
-  const committed = await SecureDurableResourceService.write({ ...session, resourceKey, value, expected, isCurrent });
-  if (!isCurrent()) throw new Error("Receipt authority changed.");
-  const readback = await SecureDurableResourceService.read<ReceiptSnapshot>(session.userId, resourceKey, session.vaultKey);
-  if (!isCurrent()) throw new Error("Receipt authority changed.");
-  if (!readback || readback.revision !== committed.revision || JSON.stringify(validateReceiptSnapshot(readback.value)) !== JSON.stringify(value)) throw new Error("Receipt snapshot read-back verification failed. Existing memory was kept.");
-  return committed;
+  const isCurrent = guard(session);
+  if (!session.vaultKey || !session.vaultOwnerToken)
+    throw new DurableResourceError("key_unavailable", "authority", "Unlock your vault to save receipts.");
+  if (!isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Receipt authority changed.");
+  const value = validateReceiptSnapshot(snapshot);
+  const resourceKey = RECEIPT_SNAPSHOT_PREFIX + value.account_binding;
+  return SecureDurableResourceService.write({ ...session, resourceKey, value, expected, isCurrent,
+    validateReadback: validateReceiptSnapshot });
 }
 export async function loadReceiptSnapshot(session: ReceiptStoreSession, account: string | null) {
   const isCurrent = guard(session); if (!isCurrent()) throw new Error("Unlock your vault to read saved receipts.");
