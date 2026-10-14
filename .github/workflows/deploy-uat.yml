@@ -1515,7 +1515,25 @@ jobs:
           echo "::add-mask::$reviewer_passphrase"
           export REVIEWER_UID="$reviewer_uid"
           export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
+          # Retry only a browser failure with observed Cloud Run 5xx responses
+          # for this tagged candidate's static assets. A second smoke must pass
+          # fully before either zero-traffic candidate can be promoted.
+          set +e
           npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
+          smoke_attempt_1_statuses=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${smoke_attempt_1_statuses[1]}" -ne 0 ]; then
+            exit "${smoke_attempt_1_statuses[1]}"
+          fi
+          if [ "${smoke_attempt_1_statuses[0]}" -ne 0 ]; then
+            if ! grep -Fq '"classification": "candidate_asset_unavailable"' \
+              /tmp/uat-analytics-smoke.log; then
+              exit "${smoke_attempt_1_statuses[0]}"
+            fi
+            echo "Candidate static assets returned 5xx; retrying the analytics smoke once after warmup."
+            sleep 15
+            npm run smoke:analytics:uat 2>&1 | tee -a /tmp/uat-analytics-smoke.log
+          fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
         if: always() && steps.scope.outputs.deploy_frontend == 'true'

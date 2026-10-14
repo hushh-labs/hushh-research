@@ -1865,11 +1865,15 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 def download(
                     _repository, run_id, _name, directory, has_state=has_state
                 ):
-                    self.assertEqual(run_id, 10)
+                    self.assertIn(run_id, (10, 9))
                     (directory / "README.txt").write_text("completed pass")
+                    (directory / "completed.json").write_text('{"schema_version": 1}')
                     if has_state:
                         (directory / "consent-protocol.json").write_text(
-                            '{"observed_at": 1000}'
+                            json.dumps({
+                                "observed_at": 1000 if run_id == 10 else 900,
+                                "fingerprint": [10 if run_id == 10 else 9],
+                            })
                         )
 
                 with (
@@ -1882,6 +1886,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                     {
                                         "name": MAINTENANCE.STATE_ARTIFACT,
                                         "expired": False,
+                                        "created_at": f"2026-10-14T12:{run['id']:02d}:00Z",
                                         "workflow_run": {"id": run["id"]},
                                     }
                                     for run in runs
@@ -1899,10 +1904,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 ):
                     destination = pathlib.Path(temporary)
                     MAINTENANCE.restore_state("org/repo", destination)
-                    fetch.assert_called_once_with(
+                    fetch.assert_any_call(
                         "org/repo", 10, MAINTENANCE.STATE_ARTIFACT, mock.ANY
                     )
-                    self.assertEqual(fetch.call_count, 1)
+                    self.assertEqual(fetch.call_count, 2 if has_state else 1)
                     self.assertEqual(
                         (destination / "consent-protocol.json").exists(), has_state
                     )
@@ -1919,6 +1924,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     return {"artifacts": [{
                         "name": MAINTENANCE.STATE_ARTIFACT,
                         "expired": False,
+                        "created_at": "2026-10-14T12:10:00Z",
                         "workflow_run": {"id": 10},
                     }]}
                 return good
@@ -1927,6 +1933,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 (source / "consent-protocol.json").write_text(
                     '{"observed_at": 1000}'
                 )
+                (source / "completed.json").write_text('{"schema_version": 1}')
 
             with (
                 mock.patch.object(MAINTENANCE, "api", side_effect=api),
@@ -2381,6 +2388,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     "artifacts": [{
                         "name": MAINTENANCE.STATE_ARTIFACT,
                         "expired": False,
+                        "created_at": "2026-10-14T12:56:00Z",
                         "workflow_run": {"id": trusted["id"]},
                     }]
                 }
