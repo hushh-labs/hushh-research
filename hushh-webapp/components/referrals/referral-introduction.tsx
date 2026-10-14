@@ -70,11 +70,11 @@ export function ReferralIntroduction({ onContinue, onBack, busy }: ReferralIntro
 
           <div className={styles.copy}>
             <h1 ref={titleRef} id="referral-welcome-title" className={styles.title} tabIndex={-1}>
-              Life’s better{" "}<br /><span>together.</span>
+              Stay organised with One.{" "}<br /><span>Make time for what matters.</span>
             </h1>
             <p className={styles.description}>
-              Give your people their own private agent.<br className={styles.desktopBreak} />
-              {" "}Share One. Grow your circle. Unlock rewards.
+              Share your private agent with someone you care about.<br className={styles.desktopBreak} />
+              {" "}Earn rewards when they qualify.
             </p>
             <Button
               className={styles.continue}
