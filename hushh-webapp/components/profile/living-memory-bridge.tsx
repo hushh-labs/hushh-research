@@ -17,6 +17,9 @@ import {
 } from "@/lib/pkm/memory-refresh";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { NATIVE_CONNECTOR_RETURN_EVENT, type NativeConnectorReturn } from "@/lib/navigation/use-deep-link-return";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/payout-events";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 import {
   LIVING_SOURCE_DOMAIN,
@@ -37,6 +40,14 @@ export function LivingMemoryBridge() {
     let running = false;
     let pending = false;
     let sourceDirty = true;
+    let connectionHintVersion = 0;
+    let scannedConnectionVersion = 0;
+    let payoutHintVersion = 0;
+    let scannedPayoutVersion = 0;
+    let consentHintVersion = 0;
+    let scannedConsentVersion = 0;
+    let connectorHintVersion = 0;
+    let scannedConnectorVersion = 0;
     const stopWatch = watchMemoryFreshness(userId);
     const build = async () => {
       if (stopped || !isVaultSessionEpochCurrent(epoch)) return;
@@ -55,13 +66,26 @@ export function LivingMemoryBridge() {
             sourceDirty = false;
             const idToken = await AuthService.getIdToken();
             if (!idToken) throw new Error("Source authorization unavailable");
-            if (!stopped && isVaultSessionEpochCurrent(epoch))
+            const connectionVersion = connectionHintVersion;
+            const payoutVersion = payoutHintVersion;
+            const consentVersion = consentHintVersion;
+            const connectorVersion = connectorHintVersion;
+            if (!stopped && isVaultSessionEpochCurrent(epoch)) {
               await syncLivingSources({
                 userId,
                 vaultKey,
                 vaultOwnerToken,
                 idToken,
+                forceConnections: connectionVersion > scannedConnectionVersion,
+                forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                forceConsent: consentVersion > scannedConsentVersion,
+                forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
               });
+              scannedConnectionVersion = connectionVersion;
+              scannedPayoutVersion = payoutVersion;
+              scannedConsentVersion = consentVersion;
+              scannedConnectorVersion = connectorVersion;
+            }
           }
           if (stopped || !isVaultSessionEpochCurrent(epoch)) break;
           const metadata = await PersonalKnowledgeModelService.getMetadata(
@@ -131,7 +155,31 @@ export function LivingMemoryBridge() {
         }
       }
     });
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refreshSources);
+    const onConsentChanged = (event: Event) => {
+      const owner = (event as CustomEvent<{ userId?: string }>).detail?.userId;
+      if (owner && owner !== userId) return;
+      consentHintVersion++;
+      refreshSources();
+    };
+    const onNativeConnectorReturn = (event: Event) => {
+      if ((event as CustomEvent<NativeConnectorReturn>).detail?.outcome !== "ready") return;
+      connectorHintVersion++;
+      refreshSources();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+    window.addEventListener(NATIVE_CONNECTOR_RETURN_EVENT, onNativeConnectorReturn);
+    const stopConnectionChanges = subscribeToConnectionGraphChanges((detail) => {
+      if (detail.userId === userId) {
+        connectionHintVersion++;
+        refreshSources();
+      }
+    });
+    const stopPayoutChanges = subscribePayoutStateChanged((detail) => {
+      if (payoutChangeTouches(detail, ["earnings"])) {
+        payoutHintVersion++;
+        refreshSources();
+      }
+    });
     window.addEventListener(
       AGENT_CHAT_HISTORY_INVALIDATED_EVENT,
       refreshSources,
@@ -145,8 +193,11 @@ export function LivingMemoryBridge() {
       stopChanges();
       stopWatch();
       stopCache();
+      stopConnectionChanges();
+      stopPayoutChanges();
       window.clearInterval(timer);
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refreshSources);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+      window.removeEventListener(NATIVE_CONNECTOR_RETURN_EVENT, onNativeConnectorReturn);
       window.removeEventListener(
         AGENT_CHAT_HISTORY_INVALIDATED_EVENT,
         refreshSources,
