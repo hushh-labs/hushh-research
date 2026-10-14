@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
 import { ReferralHeroArtwork } from "./referral-hero-artwork";
@@ -25,7 +24,6 @@ import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   ReferralService,
   type CircleLeaderboardEntry,
-  type CircleSelection,
   type EngagementStatus,
   type LeaderboardPage,
   type MilestoneProgress,
@@ -258,9 +256,7 @@ function ReferralDashboardContent() {
   const [challengeRes, reloadChallenge] = useReferralResource(user, "challenge", (idToken) =>
     ReferralService.getChallenge({ idToken }),
   );
-  const [circleRes, reloadCircle] = useReferralResource(user, "circleselection", (idToken) =>
-    ReferralService.getCircleSelection({ idToken }),
-  );
+
 
   const reloadAll = useCallback(() => {
     reloadSummary();
@@ -271,7 +267,6 @@ function ReferralDashboardContent() {
     reloadPolicy();
     reloadEngagement();
     reloadChallenge();
-    reloadCircle();
   }, [
     reloadSummary,
     reloadPoints,
@@ -281,7 +276,6 @@ function ReferralDashboardContent() {
     reloadPolicy,
     reloadEngagement,
     reloadChallenge,
-    reloadCircle,
   ]);
 
   // A pushed "something changed" doorbell re-reads everything: the server
@@ -373,14 +367,10 @@ function ReferralDashboardContent() {
               onRetryPoints={reloadPoints}
               leaderboardRes={leaderboardRes}
               onRetryLeaderboard={reloadLeaderboard}
-              circleLeaderboardRes={circleLeaderboardRes}
-              onRetryCircleLeaderboard={reloadCircleLeaderboard}
               engagementRes={engagementRes}
               onRetryEngagement={reloadEngagement}
               challengeRes={challengeRes}
               onRetryChallenge={reloadChallenge}
-              circleRes={circleRes}
-              onRetryCircle={reloadCircle}
               countdown={countdown}
               link={link}
               onShare={onShare}
@@ -452,7 +442,7 @@ function ShellRoot({
             </button>
           ) : undefined}
         />
-        {!showHowItWorks && <div className="referral-tab-row mt-6">
+        {!showHowItWorks && <div className="referral-tab-row mt-4">
           <SegmentedTabs
             value={tab}
             onValueChange={(value) => onTabChange(value as TabKey)}
@@ -504,14 +494,10 @@ function YouTab({
   onRetryPoints,
   leaderboardRes,
   onRetryLeaderboard,
-  circleLeaderboardRes,
-  onRetryCircleLeaderboard,
   engagementRes,
   onRetryEngagement,
   challengeRes,
   onRetryChallenge,
-  circleRes,
-  onRetryCircle,
   countdown,
   link,
   onShare,
@@ -522,54 +508,51 @@ function YouTab({
   onRetryPoints: () => void;
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
-  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
-  onRetryCircleLeaderboard: () => void;
   engagementRes: Res<EngagementStatus>;
   onRetryEngagement: () => void;
   challengeRes: Res<WeeklyChallenge>;
   onRetryChallenge: () => void;
-  circleRes: Res<CircleSelection>;
-  onRetryCircle: () => void;
   countdown: string | null;
   link: string;
   onShare: () => void;
 }) {
   return (
     <>
-      <SurfaceCard tone="feature" className="referral-hero">
-        <div className="referral-hero-copy">
-          <p className="referral-hero-eyebrow">One · Your private agent</p>
-          <h2 className="referral-hero-title"><span className="referral-hero-lead">Stay organised with One.</span> <span className="referral-hero-invitation">Make time for what matters.</span></h2>
+      <div className="referral-overview-layout">
+        <section className="referral-hero" aria-label="Invite friends to One">
+          <div className="referral-hero-media">
+            <ReferralHeroArtwork active={active} />
+          </div>
+        </section>
+
+        <div className="referral-overview-invite">
           {link ? (
             <ReferralInviteActions key={link} active={active} link={link} onShare={onShare} />
           ) : null}
         </div>
-        <div className="referral-hero-media">
-          <ReferralHeroArtwork active={active} />
-        </div>
-      </SurfaceCard>
 
-      <section className="referral-progress-region" aria-labelledby="referral-progress-heading">
-        <header className="referral-progress-header">
-          <h2 id="referral-progress-heading" className="referral-section-heading">Your progress</h2>
+        <section className="referral-progress-region" aria-labelledby="referral-progress-heading">
+          <header className="referral-progress-header">
+            <h2 id="referral-progress-heading" className="referral-section-heading">Your progress</h2>
+          </header>
+          <StatsGrid
+            pointsRes={pointsRes}
+            onRetryPoints={onRetryPoints}
+            leaderboardRes={leaderboardRes}
+            onRetryLeaderboard={onRetryLeaderboard}
+            summary={summary}
+            engagementRes={engagementRes}
+            onRetryEngagement={onRetryEngagement}
+          />
           <ChallengeClock
             challengeRes={challengeRes}
             onRetryChallenge={onRetryChallenge}
             countdown={countdown}
           />
-        </header>
-        <StatsGrid
-          pointsRes={pointsRes}
-          onRetryPoints={onRetryPoints}
-          leaderboardRes={leaderboardRes}
-          onRetryLeaderboard={onRetryLeaderboard}
-          summary={summary}
-          engagementRes={engagementRes}
-          onRetryEngagement={onRetryEngagement}
-        />
-      </section>
+        </section>
+      </div>
 
-      <div className="referral-duo grid gap-4 sm:grid-cols-2">
+      <div className="referral-recent-section">
         <Card className="referral-activity-card p-[22px]">
           <div className="referral-activity-heading">
             <h3 className="referral-section-heading">Recent referrals</h3>
@@ -599,29 +582,9 @@ function YouTab({
                 </li>
               ))}
             </ul>
-          ) : <p className="mt-3 referral-type-support" style={{ color: COLORS.text2 }}>Share One to start your circle.</p>}
+          ) : <p className="mt-3 referral-type-support" style={{ color: COLORS.text2 }}>Invite a friend to get started.</p>}
         </Card>
 
-        <Card className="referral-circle-card p-[22px]">
-          <h3 className="referral-section-heading referral-circle-heading">
-            <span className="referral-circle-symbol" aria-hidden="true"><Users size={19} /></span>
-            Your circle
-          </h3>
-          <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
-            {(circle) => (
-              <CircleCardBody
-                circle={circle}
-                circleLeaderboardRes={circleLeaderboardRes}
-                onRetryCircleLeaderboard={onRetryCircleLeaderboard}
-              />
-            )}
-          </Section>
-          <div className="referral-circle-preview">
-            <Trophy size={20} weight="fill" aria-hidden="true" />
-            <span>Circle Wars</span>
-            <span className="referral-preview-label">Not active</span>
-          </div>
-        </Card>
       </div>
     </>
   );
@@ -885,64 +848,6 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
   );
 }
 
-function CircleCardBody({
-  circle,
-  circleLeaderboardRes,
-  onRetryCircleLeaderboard,
-}: {
-  circle: CircleSelection;
-  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
-  onRetryCircleLeaderboard: () => void;
-}) {
-  if (!circle.circle_id) {
-    return (
-      <div className="referral-circle-empty">
-        <div className="referral-circle-illustration" aria-hidden="true">
-          <span><Users size={24} /></span><span><Users size={28} /></span>
-        </div>
-        <p className="referral-circle-empty-title">No circle selected</p>
-        <p className="referral-type-support">Your circle’s shared progress will appear here.</p>
-      </div>
-    );
-  }
-  return (
-    <Section
-      res={circleLeaderboardRes}
-      onRetry={onRetryCircleLeaderboard}
-      retryLabel="your team's standing"
-    >
-      {(teams) => {
-        // `get_team_rankings` returns rows already ordered by
-        // contribution_count DESC; rank is the 1-based position in that
-        // order, not a server field.
-        const index = teams.findIndex((t) => t.circle_id === circle.circle_id);
-        const myCircle = index >= 0 ? teams[index] : null;
-        return (
-          <>
-            <p className="mt-1 referral-type-label">
-              {myCircle?.circle_name ?? "Selected circle"}
-            </p>
-            <dl className="mt-4 flex justify-between gap-4 border-t pt-4" style={{ borderColor: COLORS.sep }}>
-              <div>
-                <dt className="referral-type-caption" style={{ color: COLORS.text2 }}>Team rank</dt>
-                <dd className="mt-0.5 referral-type-label tabular-nums">
-                  {index >= 0 ? `#${index + 1}` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="referral-type-caption" style={{ color: COLORS.text2 }}>Team referrals</dt>
-                <dd className="mt-0.5 referral-type-label tabular-nums">
-                  {myCircle ? fmt(myCircle.contribution_count) : "—"}
-                </dd>
-              </div>
-            </dl>
-          </>
-        );
-      }}
-    </Section>
-  );
-}
-
 function StandingsTab({
   leaderboardRes,
   onRetryLeaderboard,
@@ -1132,6 +1037,10 @@ const REWARD_PRODUCTS: Record<string, string> = {
   voucher_10: "voucher", earbuds_100: "earbuds", airpods_500: "airpods", iphone_10000: "iphone",
 };
 
+function rewardDisplayTitle(title: string) {
+  return title === "$25 Amazon voucher" ? "Amazon voucher" : title;
+}
+
 function RewardArtwork({ milestoneKey, title, priority = false }: { milestoneKey: string; title: string; priority?: boolean }) {
   // A catalogue revision keeps milestone identity; historical entitlements keep their artwork.
   const product = milestoneKey === "airpods_500" && title === "Apple Watch"
@@ -1140,7 +1049,7 @@ function RewardArtwork({ milestoneKey, title, priority = false }: { milestoneKey
       ? "voucher-black"
       : milestoneKey === "iphone_10000" ? "iphone-premium" : REWARD_PRODUCTS[milestoneKey];
   if (!product) return null;
-  return <Image src={`/referrals/product-${product}.svg`} alt={title} width={600} height={600} unoptimized loading="eager" fetchPriority={priority ? "high" : "auto"} className="referral-product-art" />;
+  return <Image src={product === "voucher-black" ? "/referrals/product-voucher-symbols.webp" : `/referrals/product-${product}.svg`} alt={rewardDisplayTitle(title)} width={600} height={600} unoptimized loading="eager" fetchPriority={priority ? "high" : "auto"} className="referral-product-art" />;
 }
 
 function RewardsTab({
@@ -1193,7 +1102,7 @@ function RewardsTab({
                   <div>
                     <p className="referral-reward-eyebrow"><Trophy size={14} aria-hidden="true" />{awaitingAward ? "Milestone reached" : "Your next reward"}</p>
                     <h3 className="referral-reward-title ui-text-section-title">
-                      {nextLabel[0]}
+                      {rewardDisplayTitle(nextLabel[0] ?? next.reward)}
                     </h3>
                     <p className="referral-reward-description">
                       {awaitingAward ? "Your reward is being confirmed." : `${fmt(next.threshold - next.progress)} ${next.threshold - next.progress === 1 ? "referral" : "referrals"} to go.`}
@@ -1210,7 +1119,7 @@ function RewardsTab({
                       <span className="referral-reward-target">{Math.floor(next.progress / next.threshold * 100)}% complete</span>
                     </div>
                     <Progress
-                      aria-label={`${nextLabel[0]} milestone`}
+                      aria-label={`${rewardDisplayTitle(nextLabel[0] ?? next.reward)} milestone`}
                       aria-valuetext={`${fmt(next.progress)} of ${fmt(next.threshold)} qualified referrals; ${fmt(next.threshold - next.progress)} more to go`}
                       value={(next.progress / next.threshold) * 100}
                       className="mt-2.5"
@@ -1254,7 +1163,7 @@ function RewardsTab({
                             style={{ color: earned ? "#137a35" : "#006dcc", visibility: earned || isNext ? "visible" : "hidden" }}
                           >{earned ? "Unlocked" : isNext && awaitingAward ? "Confirming" : "Up next"}</span>
                         </div>
-                        <h4 className="ui-text-headline">{label[0]}</h4>
+                        <h4 className="ui-text-headline">{rewardDisplayTitle(label[0] ?? entry.reward)}</h4>
                         <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? "#137a35" : COLORS.text2 }}>
                           {earned ? `Unlocked at ${fmt(entry.threshold)}` : `${fmt(entry.threshold)} referrals`}
                         </p>

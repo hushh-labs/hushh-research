@@ -137,8 +137,9 @@ describe("ReferralDashboardPage", () => {
   });
 
   it("closes sharing before route Back and releases the layer when its pane is inactive or unmounted", async () => {
-    const { unmount } = render(<ReferralDashboardPage />);
-    const share = await screen.findByRole("button", { name: "Share One", expanded: false });
+    let unmount!: () => void;
+    await act(async () => { ({ unmount } = render(<ReferralDashboardPage />)); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $", expanded: false });
     expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
 
@@ -154,7 +155,7 @@ describe("ReferralDashboardPage", () => {
     );
     const navigate = ({ href }: { href: string }) => mocks.push(href);
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
-    expect(screen.getByRole("button", { name: "Share One", expanded: false })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toHaveFocus();
     expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(mocks.push).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
@@ -164,15 +165,15 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
     expect(unwindBackLayer("/one/referrals")).toBe(false);
     fireEvent.click(screen.getByRole("tab", { name: "You" }));
-    expect(screen.getByRole("button", { name: "Share One", expanded: false })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toBeInTheDocument();
     fireEvent.click(share);
     unmount();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
-  it("restores focus to Share One when Escape hides a focused sharing action", async () => {
-    render(<ReferralDashboardPage />);
-    const share = await screen.findByRole("button", { name: "Share One" });
+  it("restores focus to Invite & earn $ when Escape hides a focused sharing action", async () => {
+    await act(async () => { render(<ReferralDashboardPage />); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $" });
     fireEvent.click(share);
     const sms = screen.getByRole("link", { name: "Share by SMS" });
     sms.focus();
@@ -184,8 +185,8 @@ describe("ReferralDashboardPage", () => {
   });
 
   it("preserves outside focus when the sharing bubbles are dismissed", async () => {
-    render(<ReferralDashboardPage />);
-    const share = await screen.findByRole("button", { name: "Share One" });
+    await act(async () => { render(<ReferralDashboardPage />); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $" });
     fireEvent.click(share);
     const ranking = screen.getByRole("tab", { name: "Ranking" });
     act(() => { ranking.focus(); });
@@ -400,8 +401,7 @@ describe("ReferralDashboardPage", () => {
 
     await screen.findByText("Weekly challenge ends in");
 
-    const inviteButton = screen.getByRole("button", { name: "Share One" });
-    expect(inviteButton.style.background).toBe("var(--app-accent)");
+    const inviteButton = screen.getByRole("button", { name: "Invite & earn $" });
     // The shared token is deliberately overridden at this route, so a saved
     // account accent cannot recolour the approved referral design.
     const css = readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");

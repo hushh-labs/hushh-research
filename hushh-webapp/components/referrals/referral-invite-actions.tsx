@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { GiftIcon } from "@phosphor-icons/react";
 import { ShellActionSurface, SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ArrowRightIcon, MoreHorizontal } from "@/components/icons";
@@ -66,13 +67,18 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
             ref={triggerRef}
             variant="pill"
             className="referral-share-toggle !h-11"
-            aria-label={open ? "Close share options" : "Share One"}
+            contentClassName="referral-share-content"
+            aria-label={open ? "Close share options" : "Invite & earn $"}
             aria-expanded={open}
             rippleEffect="fill"
-            style={{ background: "var(--app-accent)", color: "#fff" }}
           >
-            <span>Share One</span>
-            <ArrowRightIcon className="referral-share-arrow size-4" aria-hidden="true" />
+            <span className="referral-share-gift" aria-hidden="true">
+              <GiftIcon size={18} weight="duotone" />
+            </span>
+            <span className="referral-share-label">Invite &amp; earn $</span>
+            <span className="referral-share-arrow-surface" aria-hidden="true">
+              <ArrowRightIcon className="referral-share-arrow size-4" weight="bold" />
+            </span>
           </ShellActionSurface>
         </CollapsibleTrigger>
         <CollapsibleContent

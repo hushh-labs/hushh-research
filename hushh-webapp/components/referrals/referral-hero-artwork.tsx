@@ -23,7 +23,7 @@ const AGENTS = [
 const REWARD_PATH = "M1000 370 C1010 430 1065 490 1145 535";
 const ORBIT_SECONDS = 60;
 const AGENT_STEP_DEGREES = 360 / AGENTS.length;
-// The closest point on the elliptical orbit to the example card is -121 degrees.
+// The upper-left example is closest to the orbit at -121 degrees.
 // Begin each example half a badge-spacing before its agent reaches that point.
 const exampleDelay = (index: number) => {
   const startAngle = -90 + index * AGENT_STEP_DEGREES;
@@ -186,20 +186,20 @@ export function ReferralHeroArtworkSvg({
         </mask>
       </defs>
       <g className="referral-photo-background">
-        <rect width={1774} height={887} fill="#e4f1ff" />
         <g mask={`url(#${photoId}-portrait)`}>
           <use href={`#${photoId}`} transform="translate(190 72) scale(.82)" />
         </g>
       </g>
       <path d={REWARD_PATH} fill="none" stroke="#ffffff" strokeWidth={4} strokeDasharray="1 12" strokeLinecap="round" />
       <path d="M958 436 Q1010 442 1037 425" fill="none" stroke="#ffffff" strokeWidth={3} strokeDasharray="1 11" strokeLinecap="round" opacity={0.85} />
-      <g fontFamily="Arial, sans-serif" transform="translate(880 175)">
-        <rect className="referral-example-card" width={270} height={88} rx={20} fill="#ffffff" fillOpacity={0.96} />
+      <g fontFamily="Arial, sans-serif" transform="translate(880 165)">
+        <rect y={5} width={300} height={100} rx={24} fill="#5278aa" fillOpacity={0.08} />
+        <rect className="referral-example-card" width={300} height={100} rx={24} fill="#ffffff" stroke="#d7e6f7" strokeWidth={1.5} />
         {AGENTS.map(({ label, Icon, color, example }, index) => (
           <g key={label} className="referral-agent-example" data-selected={selectedExample === index} style={{ animationDelay: exampleDelay(index) }}>
-            <Icon x={18} y={28} size={32} weight="duotone" color={color} />
-            <text x={66} y={31} fill="#61758d" fontSize={18}>{label}</text>
-            <text x={66} y={62} fill="#172d47" fontSize={20} fontWeight={500}>{example}</text>
+            <Icon x={18} y={30} size={38} weight="duotone" color={color} />
+            <text x={70} y={35} fill="#526881" fontSize={20}>{label}</text>
+            <text x={70} y={70} fill="#172d47" fontSize={23} fontWeight={600}>{example}</text>
           </g>
         ))}
       </g>
@@ -217,7 +217,7 @@ export function ReferralHeroArtworkSvg({
         <text x={1420} y={400} fill="#17232d" fontSize={34} fontWeight={700}>+$10</text>
         <text x={1420} y={427} fill="#4a5763" fontSize={18}>Received</text>
       </g>
-      <ellipse cx={1200} cy={440} rx={485} ry={365} fill="none" stroke="#99b8d8" strokeOpacity={0.5} strokeWidth={1.5} />
+      <ellipse cx={1200} cy={440} rx={485} ry={365} fill="none" stroke="#7ca9dc" strokeOpacity={0.7} strokeWidth={2} />
       <g transform="translate(1200 440) scale(1 0.7525773196)">
         <g className="referral-orbit-motion">
           {AGENTS.map(({ label, Icon, color }, index) => {
@@ -226,10 +226,11 @@ export function ReferralHeroArtworkSvg({
               <g key={label} transform={`rotate(${angle}) translate(485 0) rotate(${-angle})`}>
                 <g className="referral-orbit-upright">
                   <g transform="scale(1 1.3287671233)">
-                    <circle r={42} fill="#ffffff" fillOpacity={0.96} />
-                    <circle r={40} fill={color} fillOpacity={0.035} />
-                    <Icon x={-18} y={-27} size={36} weight="duotone" color={color} />
-                    <text y={25} textAnchor="middle" fill="#45566c" fontFamily="Arial, sans-serif" fontSize={16}>
+                    <circle r={61} fill={color} fillOpacity={selectedExample === index ? 0.12 : 0} />
+                    <circle r={55} fill="#ffffff" />
+                    <circle r={54} fill="none" stroke={color} strokeOpacity={selectedExample === index ? 0.65 : 0.18} strokeWidth={2} />
+                    <Icon x={-22} y={-34} size={44} weight="duotone" color={color} />
+                    <text y={32} textAnchor="middle" fill="#34465b" fontFamily="Arial, sans-serif" fontSize={20} fontWeight={500}>
                       {label}
                     </text>
                   </g>
