@@ -713,6 +713,11 @@ jobs:
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
+          # Older deployment SHAs do not declare this substitution in both builds.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend.cloudbuild.yaml \
+            && grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend-image.cloudbuild.yaml; then
+            build_substitutions="${build_substitutions},_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}"
+          fi
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
           # A deployment SHA from before the split has no build-only config.
@@ -1045,6 +1050,11 @@ jobs:
           # Older deployment SHAs do not declare this substitution.
           if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
+          # Older deployment SHAs do not declare these. The secrets are bound by
+          # deploy/sso/bind_workos.sh only if they exist in the deploy project.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}##_WORKOS_REDIRECT_URI=${{ env.APP_FRONTEND_ORIGIN }}/login"
           fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in

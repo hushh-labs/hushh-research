@@ -11,13 +11,17 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
+import re
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hushh_mcp.runtime_settings import workos_sso_enabled
 from hushh_mcp.services.enterprise_sso import EnterpriseSsoError, EnterpriseSsoService
 from hushh_mcp.services.enterprise_sso.firebase_identity import (
     CLAIM_DEPROVISIONED_AT,
@@ -641,3 +645,24 @@ async def test_an_incomplete_quarantine_fails_the_delivery_and_a_retry_finishes_
 async def test_unrelated_events_are_acknowledged_and_ignored(world):
     body = _event("dsync.group.created", {"id": "group_1"})
     assert await _webhook(world, body) == {"received": True, "deprovisioned": 0}
+
+
+def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
+    """A rename on either side would leave a deployed lane with SSO silently off."""
+    script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
+    text = script.read_text(encoding="utf-8")
+    secrets = re.findall(r"(?m)^add_secret (WORKOS_[A-Z_]+) (WORKOS_[A-Z_]+)\s*$", text)
+    flags = re.findall(r"(?m)^add_env (WORKOS_[A-Z_]+) ", text)
+    assert secrets and flags, "the deploy script must bind the WorkOS variables"
+    # The secret is created under exactly the name the runtime reads.
+    assert all(secret == variable for secret, variable in secrets)
+    bound = [variable for _, variable in secrets] + flags
+    for name in [n for n in os.environ if n.startswith("WORKOS_")]:
+        monkeypatch.delenv(name)
+    for name in bound:
+        monkeypatch.setenv(name, "https://app.example/login" if name.endswith("_URI") else "true")
+
+    config = WorkOSConfig.from_env()
+
+    assert workos_sso_enabled()
+    assert config.sign_in_ready and config.webhook_secret
