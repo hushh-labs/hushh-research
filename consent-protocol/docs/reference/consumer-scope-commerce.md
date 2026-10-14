@@ -28,6 +28,13 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Latest main composition — 2026-10-13 UTC
 
+The next test-only main update `a8ebcb86b2c8` corrects stale four-story
+onboarding selectors. All 49 affected cases pass, retaining early voice refusal,
+shared tap/voice sign-in authority, final-button ripple, exact invitation returns
+and refusal to claim or bootstrap keys before sign-in. The preceding exact
+candidate `465ed16fefb7` passed canonical core in 605 seconds. The completed
+composition still requires its own exact-candidate core, hosted CI and Dev release.
+
 The subsequent integration merges main `519a8bac6cdf` normally into the same
 infrastructure branch at `7c6f0fcebbaf`. It preserves the incoming capacity
 workflows and responsive onboarding, the existing final authentication button,
@@ -49,8 +56,10 @@ The exact-source review qualifies five inherited measurement spans while
 preserving the prior 17-span review and all history. The adapter changes only
 the pinned historical referral replay, preserves policy rows and references,
 and creates no migration receipts or new policy activation. Its observed UAT
-v3 policy still requires the owning release lane's exact owner attestation;
-synthetic fixture validation does not supply that approval.
+v3 policy approval is recorded in [PR #7924](https://github.com/hushh-labs/hushh-research/pull/7924):
+on 2026-10-14 the requesting organization admin ratified the exact active policy
+and fingerprint for that release. This public approval is separate from the
+synthetic fixture proof; the historical writer remains unknown.
 
 The incoming UAT capacity work has a separate recovery gap: PR #7920 adds a
 third deployment job, while the hygiene-only retention verifier admits exactly
