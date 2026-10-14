@@ -3224,8 +3224,8 @@ async def propose_document_request(
 
     Absolute dates need a year and unambiguous numeric day/month order; ask one
     short clarification before calling if either is missing. For an explicitly
-    relative period, use this turn's get_current_time in the owner's timezone.
-    Clarify an unavailable anchor or materially ambiguous window. Never use
+    relative period, use this turn's get_current_time with time_zone_source=owner.
+    Clarify a fallback timezone, unavailable clock or ambiguous window. Never use
     today to invent a missing absolute year, or infer order from language or
     institution. File, model, stale and unrelated tool dates cannot fill gaps.
     A broad stated year plus narrower selected dates is clear, not contradictory.
@@ -5472,8 +5472,11 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
 
     Use this whenever the person asks what day, date, or time it is -- the
     model has no other grounding for "now" and must not guess from training data.
+    time_zone_source identifies an owner timezone or the UTC fallback. Relative
+    document periods need an owner timezone; ask which zone to use on fallback.
     """
     zone_name = _resolve_timezone(tool_context)
+    declared_zone = str(tool_context.state.get(_STATE_TIMEZONE) or "").strip()
     now = datetime.now(ZoneInfo(zone_name))
     # %-I / %-d (no leading zero) are glibc/BSD-only strftime extensions that
     # raise ValueError on Windows -- computed by hand instead so this tool
@@ -5487,6 +5490,9 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
         "time": clock_time,
         "weekday": now.strftime("%A"),
         "time_zone": zone_name,
+        "time_zone_source": (
+            "owner" if declared_zone and declared_zone == zone_name else "utc_fallback"
+        ),
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
 
