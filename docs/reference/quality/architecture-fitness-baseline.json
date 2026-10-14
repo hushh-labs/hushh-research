@@ -22369,7 +22369,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1828
+      "value": 1829
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22450,7 +22450,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1128
+      "value": 1157
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -43211,6 +43211,30 @@
       "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
       "consent-protocol/scripts/workos_sso_local.py"
     ]
+  },
+  "scope_commerce_main5d_test_composition_review_20261014": {
+    "boundary": "Exactly two independently reviewed test-module ceilings. All previous occurrences, metadata, detector, exclusions and 500/250/80 budgets retained; future one-line growth negative controls fail. Browser CI remains required.",
+    "entries": [
+      {
+        "after": 1829,
+        "before": 1828,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "28fef2d1514c2cbc1f9ac32e24355f250ba2bbbcdea94cd8b494f8af00e80f1d"
+      },
+      {
+        "after": 1157,
+        "before": 1128,
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c59d47439ea638bcc3892f82fb180581e643550e7291e4663204da8aa64cee73"
+      }
+    ],
+    "incoming_main": "5d4b7c51df32caf67df0ce330b428d4b053ff69e",
+    "review": "Connections retains nominal 44px targets with 0.0001px WebKit arithmetic precision allowance; a 43px target still fails. Wallet extends the existing Add regression with loaded artwork, single chooser, required fields, paired geometry and no runtime errors. Test counts remain 34 and 26; existing privacy, consent, revocation and navigation assertions remain.",
+    "source_revision": "dbd87490f1fd3ec23f611eb9a2c7f98d936e86fa"
   },
   "scope_commerce_main_document_payout_union_20261012": {
     "added_slots": [
