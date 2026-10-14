@@ -58,9 +58,9 @@ function searchOf(href: string): string {
  * to resync Next's router after each direct write. A real native pop while
  * the pane is open already reveals the authored parent -- this mechanism
  * must do nothing there,
- * for two independent reasons: (1) the primary guard below ignores untrusted
- * (synthetic) events entirely, since profile-pane.ts's own popstate is never
- * user-trusted; (2) belt-and-suspenders, skip explicitly whenever either side
+ * for two independent reasons: (1) untrusted (synthetic) events below only
+ * refresh the owner's snapshot and never navigate; (2) belt-and-suspenders,
+ * skip explicitly whenever either side
  * of a transition is Profile-Pane-governed, independent of isTrusted fidelity.
  */
 function isProfilePaneGoverned(location: RouteLocation): boolean {
@@ -162,19 +162,14 @@ export function dismissProfileConfirmationOnBack(params: {
  * handlers: gated to exactly the platforms those two don't cover.
  */
 export function useWebHistoryBack(pathname: string, search: string): void {
-  // useLayoutEffect, not useEffect: the popstate listener below reads
-  // `lastSettled` and must see the location current as of the last *render*,
-  // before any later effect queues a navigation -- same reasoning as
-  // back-layers.ts's useBackLayer keeping its callback ref current via
-  // useLayoutEffect.
+  // Pair the browser URL with its history state before passive navigation
+  // effects run. Profile can write its entry before Next's query render
+  // settles, so delayed router props must not replace the owner's snapshot.
   useLayoutEffect(() => {
-    // Normalize to window.location.search's own shape (a leading `?`, or
-    // empty) regardless of what the caller passed -- AppShellFrame's own
-    // `searchParams?.toString()` omits the leading `?`, but `revealed.search`
-    // (read from window.location.search inside the popstate handler below)
-    // always includes it, and the two are compared directly.
-    const normalizedSearch = search ? (search.startsWith("?") ? search : `?${search}`) : "";
-    lastSettled = { pathname, search: normalizedSearch };
+    lastSettled = {
+      pathname: window.location.pathname,
+      search: window.location.search,
+    };
     lastSettledHistoryState = window.history.state;
   }, [pathname, search]);
 
@@ -185,18 +180,27 @@ export function useWebHistoryBack(pathname: string, search: string): void {
     if (typeof window === "undefined") return;
 
     const onPopState = (event: PopStateEvent) => {
-      // Ignore synthetic/programmatic popstate (profile-pane.ts's own
-      // emitHistoryUpdate, or anything else dispatching one by hand) -- only
-      // a real OS/browser back gesture is trusted.
-      if (!event.isTrusted) return;
+      // Profile writes its history synchronously, while Next's query render
+      // can settle later. Keep the snapshot at the owner's actual entry so
+      // the first browser Back sees Account even before that render commits.
+      // Synthetic notifications refresh evidence only; they never navigate.
+      if (!event.isTrusted) {
+        lastSettled = {
+          pathname: window.location.pathname,
+          search: window.location.search,
+        };
+        lastSettledHistoryState = window.history.state;
+        return;
+      }
       const previous = lastSettled;
+      const previousHistoryState = lastSettledHistoryState;
       const revealed: RouteLocation = {
         pathname: window.location.pathname,
         search: window.location.search,
       };
       if (dismissProfileConfirmationOnBack({
         previous,
-        previousHistoryState: lastSettledHistoryState,
+        previousHistoryState,
         revealedHistoryState: event.state,
       })) {
         // Run before Next observes the popped parent. Return to the original
@@ -204,7 +208,7 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         // The returning pop has equal depth and follows normal pane handling.
         event.stopImmediatePropagation();
         window.history.go(
-          profilePaneHistoryDepth(lastSettledHistoryState) -
+          profilePaneHistoryDepth(previousHistoryState) -
           profilePaneHistoryDepth(event.state),
         );
         return;

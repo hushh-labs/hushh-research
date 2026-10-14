@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import path from "node:path";
 
 let script: string;
+let css: string;
 test.beforeAll(async () => {
   const { build } = await import("vite");
   const root = process.cwd();
@@ -17,20 +18,26 @@ test.beforeAll(async () => {
     },
   });
   const outputs = Array.isArray(result) ? result : [result];
-  script = outputs.flatMap(output => "output" in output ? output.output : [])
-    .filter(chunk => chunk.type === "chunk").map(chunk => chunk.code).join("\n");
+  const chunks = outputs.flatMap(output => "output" in output ? output.output : []);
+  script = chunks.filter(chunk => chunk.type === "chunk").map(chunk => chunk.code).join("\n");
+  css = chunks.filter(chunk => chunk.type === "asset" && chunk.fileName.endsWith(".css"))
+    .map(chunk => String(chunk.source)).join("\n");
 });
 
 test.beforeEach(async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("https://profile-back.test/**", route => route.fulfill({
-    contentType: "text/html",
-    body: `<html><head><title>Profile Back contract</title><style>
+    contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Profile Back contract</title><style>
+      * { box-sizing: border-box; }
       body { margin: 24px; font-family: sans-serif; }
       button { padding: 12px; margin: 6px; }
-      [data-slot=sheet-content] { position: fixed; inset: 0 0 0 auto; width: 430px; background: white; z-index: 712; }
-      [data-slot=alert-dialog-content] { position: fixed; top: 35%; left: 30%; width: 350px; padding: 24px; background: white; z-index: 900; }
+      [data-slot=sheet-content] { position: fixed; inset: 0 0 0 auto; width: min(430px, 100vw); background: white; z-index: 712; }
+      [data-slot=alert-dialog-content] { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 350px; padding: 24px; background: white; z-index: 900; }
+      [data-display-name-actions] { display: flex; justify-content: flex-end; gap: 8px; }
+      #display-name { display: block; width: 100%; }
+      ${css}
     </style></head><body><div id="root"></div><script>${script}</script></body></html>`,
   }));
   await page.goto("https://profile-back.test/one");
@@ -88,3 +95,42 @@ test("a confirmation can refuse Back without moving the pane below it", async ({
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await expect(page.getByTestId("mutation-count")).toHaveText("0");
 });
+
+for (const action of ["Reset", "Delete"] as const) {
+  test(`${action}: Profile owner history settles before the shell router rerenders`, async ({ page }) => {
+    await page.goto("https://profile-back.test/one?lagged-shell=1");
+    await page.getByRole("button", { name: "Open Profile", exact: true }).click();
+    await page.getByRole("button", { name: "Open Account", exact: true }).click();
+    await page.getByRole("button", { name: "Commit stale shell query", exact: true }).click();
+    const accountUrl = page.url();
+    const before = await page.evaluate(() => ({ state: history.state, length: history.length }));
+    await page.getByRole("button", { name: `${action} confirmation`, exact: true }).click();
+    await page.goBack();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page).toHaveURL(accountUrl);
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => ({ state: history.state, length: history.length }))).toEqual(before);
+    await page.goBack();
+    await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
+    await expect(page.getByTestId("mutation-count")).toHaveText("0");
+  });
+}
+
+for (const width of [1280, 320]) {
+  test(`account actions share a compact 36px height at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole("button", { name: "Edit display name", exact: true }).click();
+    const editorActions = page.locator("[data-display-name-actions] > button");
+    const heights = await editorActions.evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
+    expect(heights).toEqual([36, 36]);
+    expect((await page.getByLabel("Display name", { exact: true }).boundingBox())!.height).toBe(44);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    for (const action of ["Reset", "Delete"]) {
+      await page.getByRole("button", { name: `${action} confirmation`, exact: true }).click();
+      const buttons = page.getByRole("alertdialog").locator("[data-slot=alert-dialog-footer] > button");
+      expect(await buttons.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height))).toEqual([36, 36]);
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    }
+    await expect(page.getByTestId("mutation-count")).toHaveText("0");
+  });
+}

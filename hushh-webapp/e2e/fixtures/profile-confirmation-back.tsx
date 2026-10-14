@@ -8,17 +8,24 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "../../components/ui/alert-dialog";
 
+import accountStyles from "../../components/profile/profile-your-account.module.css";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+
 const subscribe = (listener: () => void) => {
   window.addEventListener("popstate", listener);
   return () => window.removeEventListener("popstate", listener);
 };
 const snapshot = () => window.location.search;
+const laggedShell = new URLSearchParams(window.location.search).has("lagged-shell");
 
 function Fixture() {
   const search = useSyncExternalStore(subscribe, snapshot);
-  useWebHistoryBack("/one", search);
+  const [shellSearch, setShellSearch] = useState("");
+  useWebHistoryBack("/one", laggedShell ? shellSearch : search);
   const pane = resolveProfilePaneUrlState(search);
   const [confirmation, setConfirmation] = useState<"Reset" | "Delete" | "Refusing" | null>(null);
+  const [editingName, setEditingName] = useState(false);
   const [mutations, setMutations] = useState(0);
   const title = pane.location.detail ? "Details" : pane.location.panel ? "Account" : "Profile";
   return (
@@ -34,26 +41,38 @@ function Fixture() {
             <button onClick={() => pushProfilePaneLocation("/one", search, { panel: "account", detail: null })}>Open Account</button>
           ) : (
             <>
+              {laggedShell ? <button onClick={() => setShellSearch("previous=1")}>Commit stale shell query</button> : null}
+              <button onClick={() => setEditingName(true)}>Edit display name</button>
+              {editingName ? (
+                <div className={accountStyles.paneEditor}>
+                  <label htmlFor="display-name">Display name</label>
+                  <Input id="display-name" defaultValue="Test Person" />
+                  <div data-display-name-actions>
+                    <Button size="compact" variant="outline" onClick={() => setEditingName(false)}>Cancel</Button>
+                    <Button size="compact">Save name</Button>
+                  </div>
+                </div>
+              ) : null}
               <button onClick={() => pushProfilePaneLocation("/one", search, { panel: "account", detail: "phone" })}>Open Details</button>
               {(["Reset", "Delete", "Refusing"] as const).map(action => (
                 <button key={action} onClick={() => setConfirmation(action)}>{action} confirmation</button>
               ))}
             </>
           )}
+          <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}>
+            <AlertDialogContent className={`${accountStyles.accountDialogCompact} ${accountStyles.accountDialog}`} onEscapeKeyDown={event => { if (confirmation === "Refusing") event.preventDefault(); }}>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{confirmation} account?</AlertDialogTitle>
+                <AlertDialogDescription>Cancel or confirm the account action.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction variant={confirmation === "Delete" ? "destructive" : "default"} onClick={() => setMutations(count => count + 1)}>{confirmation === "Refusing" ? "Confirm" : `${confirmation} account`}</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </SheetContent>
       </Sheet>
-      <AlertDialog open={confirmation !== null} onOpenChange={open => { if (!open) setConfirmation(null); }}>
-        <AlertDialogContent onEscapeKeyDown={event => { if (confirmation === "Refusing") event.preventDefault(); }}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirmation} account?</AlertDialogTitle>
-            <AlertDialogDescription>Cancel or confirm the account action.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => setMutations(count => count + 1)}>Confirm</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
