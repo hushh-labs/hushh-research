@@ -158,6 +158,35 @@ Invalid cursors and limits return a private 422; unavailable storage returns a
 private 503. Web uses the existing `/api/one` catch-all proxy; native clients
 use the same backend route.
 
+### Hosted Live Memory pilot review intent
+
+`GET`, `POST` and `DELETE /api/one/hosted-memory/pilot` require the authenticated
+owner's `VAULT_OWNER` token and return `private, no-store`. There is no owner ID
+in the URL or request body. `POST` accepts only
+`{"sourceKind":"curated_oauth_connector","reviewVersion":"hosted_memory_pilot.v1","expectedGeneration":"0","acknowledgeHostedCustody":true,"acknowledgeSourceScope":true}`.
+Unknown fields, including attempted vault keys or owner tokens, are rejected
+with a private 422. The response contains `status` (`off`, `pending`, `expired`,
+or `revoked`), an opaque `grantId`, decimal-string `generation`, selected source,
+review version and timestamps. `expectedGeneration` must match the current
+decimal-string generation from GET; the first request uses `"0"`. A delayed
+pre-revocation POST receives a private 409 and cannot rearm the row.
+It always reports `captureEnabled:false` and `workerPaired:false`. A pending
+review expires after 15 minutes. Repeating POST within that window is
+idempotent at the current generation; a fresh request after expiration or
+revocation gets a new grant ID and higher generation. DELETE is idempotent and
+advances the generation on the first revocation; if no review row exists yet,
+it creates a revoked generation-1 fence so a delayed initial POST cannot
+restore pending intent. Owner account reset erases the
+pending record; full account erasure cascades from `vault_keys`.
+
+This endpoint records review intent only. It stores no vault key, owner token,
+DEK, wrapped key, attestation, source value, or runtime credential. No endpoint
+activates a worker or authorizes closed-app source reads. A missing or
+unavailable table returns a private 503 rather than claiming capture is active.
+The owner-facing enrollment and separately reviewed key-custody protocol in
+[the hosted custody ADR](./hosted-confidential-memory-custody-adr.md) remain
+future work.
+
 ### Wallet Profile lifecycle
 
 The Wallet cards surface and `/one/wallet-card` share the same identity pass

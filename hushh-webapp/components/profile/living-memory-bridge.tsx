@@ -49,6 +49,8 @@ export function LivingMemoryBridge() {
     let scannedActivityVersion = 0;
     let consentHintVersion = 0;
     let scannedConsentVersion = 0;
+    let requestPaymentHintVersion = 0;
+    let scannedRequestPaymentVersion = 0;
     let connectorHintVersion = 0;
     let scannedConnectorVersion = 0;
     let connectorJournalCursor = "0";
@@ -90,6 +92,7 @@ export function LivingMemoryBridge() {
             const payoutVersion = payoutHintVersion;
             const activityVersion = activityHintVersion;
             const consentVersion = consentHintVersion;
+            const requestPaymentVersion = requestPaymentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
               await syncLivingSources({
@@ -101,12 +104,14 @@ export function LivingMemoryBridge() {
                 forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
                 forcePayoutActivity: activityVersion > scannedActivityVersion,
                 forceConsent: consentVersion > scannedConsentVersion,
+                forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
                 forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
               });
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
               scannedActivityVersion = activityVersion;
               scannedConsentVersion = consentVersion;
+              scannedRequestPaymentVersion = requestPaymentVersion;
               scannedConnectorVersion = connectorVersion;
               if (journalHead !== null) connectorJournalCursor = journalHead;
             }
@@ -183,6 +188,9 @@ export function LivingMemoryBridge() {
       const owner = (event as CustomEvent<{ userId?: string }>).detail?.userId;
       if (owner && owner !== userId) return;
       consentHintVersion++;
+      // Committed payment ready, paid and refund document events use this
+      // request-scoped feed signal. The snapshot remains the authority.
+      requestPaymentHintVersion++;
       refreshSources();
     };
     const onNativeConnectorReturn = (event: Event) => {

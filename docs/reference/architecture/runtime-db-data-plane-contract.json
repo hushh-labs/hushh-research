@@ -1827,6 +1827,21 @@
       "expected_row_growth": "bounded_2048_events_plus_one_stream_row_per_owner"
     },
     {
+      "id": "live_memory_hosted_pilot_review",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_hosted_pilot_grants"
+      ],
+      "primary_access_path": "Owner-token GET/POST/DELETE /api/one/hosted-memory/pilot. Pending intent only; there is no active worker or capture authorization.",
+      "retention_policy": "A pending intent expires after 15 minutes. Its single owner row remains for visible expiry or revocation state until a renewed review, account reset or full erasure; there is no background time purge.",
+      "deletion_behavior": "Account reset explicitly deletes the row while preserving vault_keys. Full account erasure cascades from vault_keys. Revocation increments the generation and preserves a revoked marker until re-review or erasure.",
+      "trust_boundary": "Stores internal owner UID, opaque grant ID, monotonic generation, one admitted source kind, review contract version and timestamps only. No vault key, owner token, DEK, wrapped key, attestation, source record, worker credential or active capture state. The owner token authenticates each route but is never persisted.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_row_per_owner"
+    },
+    {
       "id": "pwm_provider_budget",
       "owner": "backend-agents-operons",
       "data_class": "workflow_state",

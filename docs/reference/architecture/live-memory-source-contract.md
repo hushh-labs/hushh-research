@@ -121,7 +121,7 @@ the resulting data flow and source contract before extending either allowlist.
       "signal": {
         "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
         "anchor": "window.setInterval(refreshSources, 60_000)",
-        "rule": "An owner native OAuth return forces a reread. Open-and-unlocked focus and connectivity checks plus the 60-second bridge wake recover missed changes when the prior complete catalog verification is five minutes old."
+        "rule": "The owner client replays committed connector metadata hints through source-journal-service.ts on the 60-second bridge wake; a changed or reset cursor forces an authoritative overview reread before checkpointing. Native OAuth return also forces a reread. Focus and connectivity checks plus five-minute complete catalog verification recover missed hints while open and unlocked."
       },
       "snapshot": {
         "path": "hushh-webapp/lib/services/external-connector-service.ts",
@@ -184,6 +184,42 @@ the resulting data flow and source contract before extending either allowlist.
         "anchor": "entries.length > MAX_DOCUMENT_EARNINGS"
       },
       "evidence": ["hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts", "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx"]
+    },
+    {
+      "kind": "document_request_payment",
+      "source_file": "hushh-webapp/lib/pkm/living-source-sync.ts",
+      "source_anchor": "kind: \"document_request_payment\"",
+      "authority": "Owner-token GET /api/one/source-snapshots/document-request-payments reads the complete first-party requester payment orders and their single refund status in one repeatable-read snapshot",
+      "signal": {
+        "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+        "anchor": "forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion",
+        "rule": "Committed document payment ready, confirmed and refund events produce a request-scoped Feed notification that dispatches CONSENT_STATE_CHANGED_EVENT and forces a requester payment reread. The 60-second unlocked bridge checks the five-minute verification age for missed or non-signalled changes."
+      },
+      "snapshot": {
+        "path": "hushh-webapp/lib/services/document-request-payment-source-service.ts",
+        "anchor": "parseDocumentRequestPaymentSnapshot",
+        "rule": "No-store VAULT_OWNER request requires schema version 1, exact owner ID, sourceReadVerified true, at most 5,000 complete rows, unique UUIDs, valid currency/status/mode/refund metadata and timestamp shape. Two equal sorted snapshots are required before projection."
+      },
+      "owner_isolation": "The backend derives requester_user_id from the owner token; the client requires response.ownerUserId to equal the authenticated userId and fences encrypted save by the current owner vault session epoch.",
+      "fields": ["requestId", "owner-scoped opaque counterpartRef", "mode", "status", "amountCents", "currency", "paidAt", "refundStatus", "refundAmountCents", "reconciliationRequired", "createdAt", "updatedAt"],
+      "exclusions": ["raw counterpart user ID", "Stripe session, intent and refund IDs", "document name, contents and description", "checkout URL", "provider payload", "bank and card details"],
+      "revision": "Stable document_request_payment:requestId key; local revision increments when an allowlisted payment or refund value changes. verifiedAt tracks the last complete two-snapshot read separately from content revision.",
+      "tombstone": "Only two matching complete owner snapshots may tombstone an absent request. Failed, racing, wrong-owner, malformed or over-cap reads retain prior records. Legally retained anonymous payment obligations are not reimported after requester erasure.",
+      "freshness_errors": "Open-and-unlocked only; the 60-second bridge checks a five-minute verification age, while a committed request-scoped feed hint forces a reread. A private SOURCE_CAPACITY_EXCEEDED 503 backs off five minutes unless a hint forces retry; other failures retry normally and leave the inventory incomplete.",
+      "exposure": "Owner-only one_living_sources._private; a payment record is not an entitlement, grant, purchasable answer scope or automatic share.",
+      "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion. No raw payment provider reference, counterpart identity, document content or plaintext value enters telemetry.",
+      "capacity": {
+        "mode": "bounded",
+        "max_records": 5000,
+        "limit_symbol": "MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS",
+        "max_retained_records": 10000,
+        "retained_limit_symbol": "MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS",
+        "retained_anchor": "[\"document_request_payment\", MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS]",
+        "overflow": "More than 5,000 active rows or 10,000 retained IDs including tombstones marks this source incomplete and preserves all prior records without trimming. A source capacity error is retried no more than once per five minutes unless a committed request change hint forces a scan.",
+        "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+        "anchor": "rows.length > MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS"
+      },
+      "evidence": ["hushh-webapp/__tests__/services/document-request-payment-source-service.test.ts", "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts", "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx"]
     },
     {
       "kind": "payout_activity",

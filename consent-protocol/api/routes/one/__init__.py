@@ -28,6 +28,7 @@ from .first_connect_insights import router as first_connect_insights_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
 from .google import router as google_router
+from .hosted_memory_pilot import router as hosted_memory_pilot_router
 from .information_chat import router as information_chat_router
 from .information_requests import router as information_requests_router
 from .insurance_agents import router as insurance_agents_router
@@ -50,6 +51,7 @@ from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
 from .profile_research import router as profile_research_router
 from .referrals import router as referrals_router
+from .requester_document_payment_source import router as requester_document_payment_source_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
@@ -78,6 +80,7 @@ router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(scheduled_mail_drain_router)
 router.include_router(source_journal_router)
+router.include_router(hosted_memory_pilot_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)
@@ -105,6 +108,7 @@ router.include_router(answer_work_drain_router)
 router.include_router(credits_router)
 router.include_router(payouts_router)
 router.include_router(payout_activity_router)
+router.include_router(requester_document_payment_source_router)
 router.include_router(payout_balance_router)
 router.include_router(career_router)
 router.include_router(opportunity_signals_router)

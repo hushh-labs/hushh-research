@@ -303,6 +303,15 @@ tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
+# Hosted Live Memory pilot review is owner-only, pending-only, and revoke-fenced.
+# The PostgreSQL proof exercises migration replay, row isolation, and vault erasure.
+tests/test_hosted_memory_pilot_routes.py
+tests/test_hosted_memory_pilot_postgres.py
+# Owner-scoped document request payment snapshots feed the encrypted client
+# projection without exposing Stripe, bank, or document payloads.
+tests/test_requester_document_payment_source_unit.py
+tests/test_requester_document_payment_source_routes.py
+tests/test_requester_document_payment_source_postgres.py
 tests/test_pool_acquire_is_bounded.py
 tests/test_market_advisory_lock_connection.py
 

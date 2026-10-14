@@ -305,7 +305,8 @@
     "337_initial_contacts_onboarding.sql",
     "338_one_referral_usd_catalogue.sql",
     "339_calendar_attendance_reviews.sql",
-    "340_live_memory_connector_journal.sql"
+    "340_live_memory_connector_journal.sql",
+    "341_hosted_memory_pilot_review.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -647,6 +648,7 @@
     "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql",
     "338_one_referral_usd_catalogue.sql": "rollback/338_one_referral_usd_catalogue.rollback.sql",
     "339_calendar_attendance_reviews.sql": "rollback/339_calendar_attendance_reviews.rollback.sql",
-    "340_live_memory_connector_journal.sql": "rollback/340_live_memory_connector_journal.rollback.sql"
+    "340_live_memory_connector_journal.sql": "rollback/340_live_memory_connector_journal.rollback.sql",
+    "341_hosted_memory_pilot_review.sql": "rollback/341_hosted_memory_pilot_review.rollback.sql"
   }
 }

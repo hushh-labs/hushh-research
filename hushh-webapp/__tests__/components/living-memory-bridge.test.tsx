@@ -224,7 +224,8 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
-      expect.objectContaining({ forcePayoutActivity: true, forceDocumentEarnings: false }),
+      expect.objectContaining({ forcePayoutActivity: true, forceDocumentEarnings: false,
+        forceDocumentRequestPayments: false }),
     );
     m.syncLivingSources.mockClear();
     act(() => m.payoutChangeListener?.({ kinds: ["earnings"] }));
@@ -260,7 +261,7 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
-      expect.objectContaining({ forceConsent: true }),
+      expect.objectContaining({ forceConsent: true, forceDocumentRequestPayments: true }),
     );
     m.syncLivingSources.mockClear();
     act(() => window.dispatchEvent(new CustomEvent("hushh:native-connector-return", {

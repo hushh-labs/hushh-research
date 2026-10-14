@@ -5,11 +5,16 @@ import { ConnectionsService } from "@/lib/services/connections-service";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 import { PayoutActivityService, type PayoutActivityItem } from "@/lib/services/payout-activity-service";
+import {
+  DocumentRequestPaymentSourceCapacityError,
+  DocumentRequestPaymentSourceService,
+} from "@/lib/services/document-request-payment-source-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   reconcileLivingSources,
   DOCUMENT_EARNINGS_FRESHNESS_MS,
   PAYOUT_ACTIVITY_FRESHNESS_MS,
+  DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
   CONNECTION_FRESHNESS_MS,
   CONSENT_FRESHNESS_MS,
   CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
@@ -30,6 +35,8 @@ const MAX_DOCUMENT_EARNINGS = 5_000;
 const PAYOUT_ACTIVITY_PAGE_LIMIT = 50;
 const MAX_PAYOUT_ACTIVITY_RECORDS = 5_000;
 const MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS = 10_000;
+const MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS = 5_000;
+const MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS = 10_000;
 const MAX_RETAINED_CONNECTION_RECORDS = 10_000;
 const MAX_RETAINED_DOCUMENT_EARNINGS = 10_000;
 const MAX_CONSENT_SCAN_ROWS = 5_000;
@@ -38,10 +45,12 @@ const MAX_RETAINED_CONSENT_RECORDS = 10_000;
 type CompletedScan = { epoch: number; verifiedAt: string; completedAt: string };
 const lastDocumentEarningsScan = new Map<string, CompletedScan>();
 const lastPayoutActivityScan = new Map<string, CompletedScan>();
+const lastDocumentRequestPaymentsScan = new Map<string, CompletedScan>();
 const lastConnectionScan = new Map<string, CompletedScan>();
 const lastConsentScan = new Map<string, CompletedScan>();
 const lastCuratedConnectorScan = new Map<string, CompletedScan>();
 const lastConsentOverflow = new Map<string, { epoch: number; at: string }>();
+const lastDocumentRequestPaymentOverflow = new Map<string, { epoch: number; at: string }>();
 
 class ConsentSourceCapacityError extends Error {}
 
@@ -220,6 +229,46 @@ async function collectPayoutActivity(vaultOwnerToken: string): Promise<LivingSou
   return second;
 }
 
+/** This is the requester's own paid document flow. A server-certified bounded
+ * snapshot is read twice so an intervening payment change cannot tombstone a
+ * previously verified record. No document, provider or raw counterpart ID is copied. */
+async function collectDocumentRequestPayments(
+  vaultOwnerToken: string,
+  userId: string,
+): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const rows = await DocumentRequestPaymentSourceService.snapshot(vaultOwnerToken, userId);
+    if (rows.length > MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS)
+      throw new DocumentRequestPaymentSourceCapacityError("Document request payment inventory exceeds its safe bound");
+    const entries: LivingSourceInput[] = [];
+    for (const row of rows) {
+      entries.push({
+        kind: "document_request_payment",
+        id: row.requestId,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        value: {
+          counterpartRef: row.counterpartRef,
+          mode: row.mode,
+          status: row.status,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          paidAt: row.paidAt,
+          refundStatus: row.refundStatus,
+          refundAmountCents: row.refundAmountCents,
+          reconciliationRequired: row.reconciliationRequired,
+        },
+      });
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Document request payments changed during verification; retry required");
+  return second;
+}
+
 /** The owner-token endpoint returns its complete, unpaginated catalog and
  * owner credential statuses. Strict source-read mode rejects malformed 2xx
  * responses while allowing a genuinely empty catalog. */
@@ -345,6 +394,7 @@ export async function syncLivingSources(params: {
   idToken: string;
   forceDocumentEarnings?: boolean;
   forcePayoutActivity?: boolean;
+  forceDocumentRequestPayments?: boolean;
   forceConnections?: boolean;
   forceConsent?: boolean;
   forceCuratedConnectors?: boolean;
@@ -355,29 +405,37 @@ export async function syncLivingSources(params: {
   let incomplete = false;
   let earningsScanned = false;
   let payoutActivityScanned = false;
+  let documentRequestPaymentsScanned = false;
   let connectionsScanned = false;
   let consentScanned = false;
   let curatedConnectorsScanned = false;
   let earningsVerifiedAt: string | undefined;
   let payoutActivityVerifiedAt: string | undefined;
+  let documentRequestPaymentsVerifiedAt: string | undefined;
   let connectionVerifiedAt: string | undefined;
   let consentVerifiedAt: string | undefined;
   let curatedConnectorsVerifiedAt: string | undefined;
   let consentOverflowed = false;
+  let documentRequestPaymentOverflowed = false;
+  let documentRequestPaymentOverflowCleared = false;
   const fetchSources = async (previous?: LivingSourceInventory) => {
     // A coordinator conflict can run build again. Only the final attempt may
     // publish verification and cooldown state.
     earningsScanned = false;
     payoutActivityScanned = false;
+    documentRequestPaymentsScanned = false;
     connectionsScanned = false;
     consentScanned = false;
     curatedConnectorsScanned = false;
     earningsVerifiedAt = undefined;
     payoutActivityVerifiedAt = undefined;
+    documentRequestPaymentsVerifiedAt = undefined;
     connectionVerifiedAt = undefined;
     consentVerifiedAt = undefined;
     curatedConnectorsVerifiedAt = undefined;
     consentOverflowed = false;
+    documentRequestPaymentOverflowed = false;
+    documentRequestPaymentOverflowCleared = false;
     const inputs: LivingSourceInput[] = [];
     const successful: string[] = [];
     const unavailable: string[] = [];
@@ -571,12 +629,39 @@ export async function syncLivingSources(params: {
         unavailable.push("payout_activity");
       }
     }
+    const paymentOverflow = lastDocumentRequestPaymentOverflow.get(params.userId);
+    const paymentOverflowAge = paymentOverflow
+      ? Date.parse(readStartedAt) - Date.parse(paymentOverflow.at) : Infinity;
+    if (!params.forceDocumentRequestPayments &&
+        previous?.unavailable?.includes("document_request_payment") &&
+        paymentOverflow?.epoch === epoch && paymentOverflowAge >= 0 &&
+        paymentOverflowAge < DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS) {
+      unavailable.push("document_request_payment");
+    } else if (previous?.unavailable?.includes("document_request_payment") || !canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.document_request_payment,
+      maxAge: DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
+      forced: params.forceDocumentRequestPayments,
+      cache: lastDocumentRequestPaymentsScan,
+    })) {
+      try {
+        inputs.push(...await collectDocumentRequestPayments(params.vaultOwnerToken, params.userId));
+        successful.push("document_request_payment");
+        documentRequestPaymentsScanned = true;
+        documentRequestPaymentsVerifiedAt = new Date().toISOString();
+      } catch (error) {
+        documentRequestPaymentOverflowed = error instanceof DocumentRequestPaymentSourceCapacityError;
+        documentRequestPaymentOverflowCleared = !documentRequestPaymentOverflowed;
+        unavailable.push("document_request_payment");
+      }
+    }
     // Tombstones are retained for owner provenance. Refuse a source update
     // before its encrypted retained history grows beyond its declared bound.
     for (const [kind, limit] of [
       ["connection", MAX_RETAINED_CONNECTION_RECORDS],
       ["document_earning", MAX_RETAINED_DOCUMENT_EARNINGS],
       ["payout_activity", MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS],
+      ["document_request_payment", MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS],
       ["curated_oauth_connector", MAX_RETAINED_CURATED_OAUTH_CONNECTORS],
       ["consent", MAX_RETAINED_CONSENT_RECORDS],
     ] as const) {
@@ -595,6 +680,10 @@ export async function syncLivingSources(params: {
       if (kind === "connection") connectionsScanned = false;
       if (kind === "document_earning") earningsScanned = false;
       if (kind === "payout_activity") payoutActivityScanned = false;
+      if (kind === "document_request_payment") {
+        documentRequestPaymentsScanned = false;
+        documentRequestPaymentOverflowed = true;
+      }
       if (kind === "consent") {
         consentScanned = false;
         consentOverflowed = true;
@@ -638,6 +727,7 @@ export async function syncLivingSources(params: {
           connection: connectionVerifiedAt,
           document_earning: earningsVerifiedAt,
           payout_activity: payoutActivityVerifiedAt,
+          document_request_payment: documentRequestPaymentsVerifiedAt,
           consent: consentVerifiedAt,
           curated_oauth_connector: curatedConnectorsVerifiedAt,
         },
@@ -673,6 +763,16 @@ export async function syncLivingSources(params: {
   if (payoutActivityScanned)
     lastPayoutActivityScan.set(params.userId, {
       epoch, verifiedAt: payoutActivityVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (documentRequestPaymentsScanned)
+    lastDocumentRequestPaymentsScan.set(params.userId, {
+      epoch, verifiedAt: documentRequestPaymentsVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (documentRequestPaymentsScanned || documentRequestPaymentOverflowCleared)
+    lastDocumentRequestPaymentOverflow.delete(params.userId);
+  if (documentRequestPaymentOverflowed)
+    lastDocumentRequestPaymentOverflow.set(params.userId, {
+      epoch, at: storedSnapshotAt,
     });
   if (connectionsScanned)
     lastConnectionScan.set(params.userId, {

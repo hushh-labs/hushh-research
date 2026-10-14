@@ -110,6 +110,11 @@ class AccountService:
             "one_mcp_pending_calls": text(
                 "DELETE FROM one_mcp_pending_calls WHERE user_id = :user_id"
             ),
+            # Reset preserves vault_keys, so its FK cascade cannot clear this
+            # pending hosted-memory review. No reviewed intent survives reset.
+            "live_memory_hosted_pilot_grants": text(
+                "DELETE FROM live_memory_hosted_pilot_grants WHERE user_id = :user_id"
+            ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
                 "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
@@ -1492,6 +1497,7 @@ class AccountService:
                 "one_adk_sessions",
                 "one_action_directive_ledger",
                 "one_mcp_pending_calls",
+                "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
                 "wallet_card_access_audit",
@@ -2032,6 +2038,7 @@ class AccountService:
                         "one_adk_sessions",
                         "one_action_directive_ledger",
                         "one_mcp_pending_calls",
+                        "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",
                         "wallet_card_access_audit",

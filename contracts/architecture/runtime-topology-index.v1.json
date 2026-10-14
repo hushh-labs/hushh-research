@@ -1289,6 +1289,16 @@
       "primary_access_path": "Transactional trigger on operator-owned OAuth connection row changes and owner-token GET /api/one/source-journal/connectors. Events are change hints; the owner client rereads the curated connector overview before encrypted projection."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "live_memory_hosted_pilot_grants"
+      ],
+      "id": "live_memory_hosted_pilot_review",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-token GET/POST/DELETE /api/one/hosted-memory/pilot. Pending intent only; there is no active worker or capture authorization."
+    },
+    {
       "data_class": "reference",
       "exact_tables": [],
       "id": "market_reference_and_cache",
@@ -6376,7 +6386,7 @@
     "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
     "agent_registry": "2dee6ce61ea25a330e1113534e0ebabcd5f83c788a08d9c1ed4a0a7c77971e96",
     "cache_manifest": "afb1b2fe05e404ddcaf5e108ed2f2f897a16df1238b9e4d49767c6360ccccba5",
-    "data_plane": "52d4c1721a13f26432a40d49dfb581a251dd566c4fa6516308ce7904fe8f8f4d",
+    "data_plane": "0f8752be5b6e979bbb751a98d2989ba385802e7c470923c40ef9cf8147652815",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
     "route_index": "bee17f56a0ad77e1ccbdcd0079b8bd275909b3e449d97d00739a8b54317c2073",
@@ -6395,6 +6405,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 153,
     "semantic_routes": 14,
-    "table_families": 104
+    "table_families": 105
   }
 }

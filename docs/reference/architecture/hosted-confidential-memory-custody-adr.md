@@ -1,7 +1,8 @@
 # ADR: Proposed hosted Confidential Space memory runtime and key custody
 
-Status: **Proposed for explicit owner review; not implemented or enabled.**
-Updated: 2026-10-14.
+Status: **Hosted runtime and key custody proposed; pending owner-review
+foundation implemented, capture disabled.**
+Updated: 2026-10-15.
 
 ## Visual Map
 
@@ -14,16 +15,21 @@ flowchart LR
   VM -. encrypted compare-and-swap write .-> Memory[Derived Live Memory projection]
 ```
 
-Every dotted path is proposed. The current backend has no memory decryption key
-or closed-app worker; the owner-operated device proposal is documented
-separately in the freshness ADR.
+Every dotted path is proposed. The backend has a metadata-only connector hint
+journal and an owner-only, 15-minute pending review-intent API. Neither grants
+worker access or holds a memory decryption key. There is no closed-app worker;
+the owner-operated device proposal is documented separately in the freshness
+ADR.
 
 ## Context and decision boundary
 
 Today the owner client can refresh Live Memory only while open and unlocked.
 The backend stores the existing PKM ciphertext and does not receive the
-canonical vault key. The proposed event journal, replay worker and hosted
-runtime are absent. [The freshness ADR](./living-memory-freshness-adr.md)
+canonical vault key. The connector change journal emits committed metadata
+hints; a narrow owner API can record pending review for curated OAuth status.
+The route always returns `captureEnabled:false` and `workerPaired:false` and
+has no active state or key-release endpoint. A source envelope, replay worker
+and hosted runtime are absent. [The freshness ADR](./living-memory-freshness-adr.md)
 describes the implemented boundary and the earlier owner-operated device
 proposal.
 

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 340,
+  "expected_migration_version": 341,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1696,6 +1696,19 @@
       "last_sequence",
       "first_retained_sequence",
       "updated_at"
+    ],
+    "live_memory_hosted_pilot_grants": [
+      "user_id",
+      "grant_id",
+      "generation",
+      "source_kind",
+      "review_version",
+      "status",
+      "created_at",
+      "updated_at",
+      "reviewed_at",
+      "expires_at",
+      "revoked_at"
     ],
     "marketplace_investor_actions": [
       "id",
