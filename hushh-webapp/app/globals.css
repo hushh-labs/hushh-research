@@ -8318,6 +8318,14 @@ body[data-persona-surface="ria"] {
     letter-spacing: var(--type-page-title-tracking) !important;
   }
 
+  .app-page-shell h3.receipt-month-heading {
+    font-family: var(--font-app-mono) !important;
+    font-size: var(--type-eyebrow-size) !important;
+    line-height: var(--type-eyebrow-line) !important;
+    font-weight: var(--type-eyebrow-weight) !important;
+    letter-spacing: 0.12em !important;
+  }
+
   [data-one-feature-card] [data-one-use-case-tag] {
     color: var(--app-label) !important;
     letter-spacing: normal !important;
@@ -8540,6 +8548,11 @@ body[data-persona-surface="ria"] {
 :where(p.uppercase, dt.uppercase, th.uppercase, .app-metadata-label) {
   font-family: var(--font-app-mono);
   font-weight: 400;
+}
+
+.app-metadata-label {
+  font-family: var(--font-app-mono) !important;
+  font-weight: 400 !important;
 }
 
 :is(.ui-text-section-label.uppercase, .ui-text-group-label.uppercase) {
