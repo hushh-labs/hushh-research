@@ -703,10 +703,14 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         let eventScope = accessLevel == "manage"
             ? "https://www.googleapis.com/auth/calendar.events"
             : "https://www.googleapis.com/auth/calendar.events.readonly"
+        var calendarScopes = [eventScope, "https://www.googleapis.com/auth/calendar.freebusy"]
+        if call.getBool("includeCalendarList") == true {
+            calendarScopes.append("https://www.googleapis.com/auth/calendar.calendarlist.readonly")
+        }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
             hint: nil,
-            additionalScopes: [eventScope, "https://www.googleapis.com/auth/calendar.freebusy"]
+            additionalScopes: calendarScopes
         ) { result, error in
             defer { self.googleInteractiveInFlight = false }
             if let error = error {

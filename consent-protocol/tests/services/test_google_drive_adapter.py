@@ -136,7 +136,7 @@ def test_selection_preserves_only_bounded_unique_identifiers():
         ({"size": None}, "provider_response_invalid"),
         ({"size": True}, "provider_response_invalid"),
         ({"version": ""}, "provider_response_invalid"),
-        ({"name": "x" * 1025}, "provider_response_invalid"),
+        ({"name": "x" * (drive.METADATA_LIMIT + 1)}, "provider_response_invalid"),
         ({"md5Checksum": "private-provider-message"}, "provider_response_invalid"),
     ],
 )
@@ -160,6 +160,36 @@ async def test_share_metadata_verifies_exact_video_without_requiring_download(ad
     assert observed.version == "1"
     assert observed.created_time == "2026-09-21T00:00:00Z"
     assert adapter._get.await_args.kwargs["params"]["fields"] == drive.SHARE_METADATA_FIELDS
+
+
+@pytest.mark.asyncio
+async def test_long_provider_name_survives_discovery_read_and_share_rechecks(adapter):
+    from hushh_mcp.services.drive_collection_sync import _metadata
+
+    name = "Synthetic title " + "अ" * 9500
+    payload = metadata(
+        name=name,
+        capabilities={"canShare": True, "canDownload": True, "canAccessViaGenAi": True},
+    )
+    adapter._get = AsyncMock(return_value=json.dumps(payload).encode())
+    listed = _metadata(payload)
+    read = await adapter.get_metadata(
+        file_id="selected-file", access_token="synthetic-token", require_app_authorized=False
+    )
+    share = await adapter.get_share_metadata(
+        file_id="selected-file", access_token="synthetic-token"
+    )
+    assert listed.name == read.name == share.name == name
+    assert listed.version == read.version == share.version == "1"
+
+
+@pytest.mark.parametrize("name", [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)])
+def test_provider_name_retains_type_unicode_and_metadata_byte_bounds(name):
+    from hushh_mcp.services.drive_collection_sync import _metadata
+
+    assert not drive.valid_metadata_name(name)
+    with pytest.raises(drive.DriveReadError, match="provider_response_invalid"):
+        _metadata(metadata(name=name))
 
 
 @pytest.mark.asyncio

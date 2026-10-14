@@ -7,7 +7,10 @@ from collections import Counter
 
 from sqlalchemy import text
 
-from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.connector_feature_admission import (
+    connector_feature_enabled,
+    connector_feature_owner_cohort,
+)
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
@@ -33,6 +36,9 @@ class DriveDocumentWorker:
 
     async def due_owners(self, limit: int) -> list[str]:
         def operation(connection):
+            cohort = connector_feature_owner_cohort("drive_document_indexing")
+            if cohort == ():
+                return []
             return list(
                 connection.execute(
                     text("""
@@ -41,6 +47,7 @@ class DriveDocumentWorker:
                   ON c.user_id=d.user_id AND c.connector_id='google_drive'
                     AND c.connection_generation=d.connection_generation
                 WHERE c.status='connected' AND c.validation_state='verified'
+                  AND (:all_owners OR d.user_id=ANY(CAST(:owners AS text[])))
                   AND d.processing_enabled AND (d.processing_disclosure_version=:disclosure
                     OR (d.source_profile='live' AND d.processing_disclosure_version='live-drive-collection-v1'))
                   AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
@@ -48,7 +55,12 @@ class DriveDocumentWorker:
                   AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
                 GROUP BY d.user_id ORDER BY min(d.next_attempt_at),d.user_id LIMIT :limit
             """),
-                    {"disclosure": PROCESSING_DISCLOSURE_VERSION, "limit": limit},
+                    {
+                        "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                        "limit": limit,
+                        "all_owners": cohort is None,
+                        "owners": list(cohort or ()),
+                    },
                 ).scalars()
             )
 
@@ -65,7 +77,9 @@ class DriveDocumentWorker:
         if self.packet_worker is not None:
             deadline_seconds = min(deadline_seconds, 160)
         counts: Counter = Counter()
-        semantic_budget = 2 if self.packet_worker is not None and max_jobs >= 4 else 0
+        semantic_budget = (
+            max(2, max_jobs // 3) if self.packet_worker is not None and max_jobs >= 4 else 0
+        )
         discovery_budget = (
             min(2, max_jobs - semantic_budget - 1) if self.collection_sync is not None else 0
         )
@@ -126,9 +140,13 @@ class DriveDocumentWorker:
                         counts[status] += count
 
         async def semantics():
-            if semantic_budget:
+            remaining = semantic_budget
+            while remaining:
+                # A packet sweep claims distinct owners only once. Continue a
+                # productive sweep so one large collection can use its finite
+                # budget, without concurrent jobs for the same owner/phase.
                 result = await self.packet_worker.run(
-                    max_jobs=semantic_budget, deadline_seconds=min(deadline_seconds, 160)
+                    max_jobs=remaining, deadline_seconds=min(deadline_seconds, 160)
                 )
                 for status, count in result.items():
                     target = (
@@ -143,6 +161,24 @@ class DriveDocumentWorker:
                         else "not_ready"
                     )
                     counts[target] += count
+                attempted = sum(result.values())
+                if (
+                    not attempted
+                    or result.get("deadline")
+                    or not any(
+                        result.get(status, 0)
+                        for status in (
+                            "facts_queued",
+                            "facts_complete",
+                            "packet_queued",
+                            "ready",
+                            "incomplete",
+                            "unable_to_verify",
+                        )
+                    )
+                ):
+                    break
+                remaining -= min(remaining, attempted)
 
         try:
             async with asyncio.timeout(deadline_seconds):
@@ -152,7 +188,7 @@ class DriveDocumentWorker:
                     group.create_task(semantics())
         except TimeoutError:
             counts["deadline"] += 1
-        if counts["queued"]:
+        if counts["queued"] or counts["ready"]:
             from hushh_mcp.services.drive_work_wake import wake_drive_work
 
             await wake_drive_work("documents")

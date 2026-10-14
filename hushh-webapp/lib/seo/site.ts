@@ -124,6 +124,7 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
  * authenticated product surfaces and machine endpoints.
  */
 export const DISALLOWED_PREFIXES = [
+  "/calendar/reschedule",
   "/api/",
   "/login",
   "/getting-started",

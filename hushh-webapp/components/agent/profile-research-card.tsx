@@ -50,6 +50,8 @@ import {
 
 type Props = {
   worldModel?: boolean;
+  sourceReview?: boolean;
+  initialResult?: ProfileResearchResult;
   onSaved?: () => void;
   onDiscarded?: () => void;
   ownerId: string | null;
@@ -80,6 +82,8 @@ type Phase =
 /** Explicitly started profile review; never mounted by the chat surface. */
 export function ProfileResearchCard({
   worldModel = false,
+  sourceReview = false,
+  initialResult,
   onSaved,
   onDiscarded,
   ownerId,
@@ -181,13 +185,17 @@ export function ProfileResearchCard({
       setResult(null);
       setPhase("loading");
       setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
-      void ProfileResearchService.research({
-        vaultKey,
-        vaultOwnerToken,
-        signal: controller.signal,
-        isCurrent: guard.isCurrent,
-        worldModel,
-      })
+      void (
+        initialResult
+          ? Promise.resolve(initialResult)
+          : ProfileResearchService.research({
+              vaultKey,
+              vaultOwnerToken,
+              signal: controller.signal,
+              isCurrent: guard.isCurrent,
+              worldModel,
+            })
+      )
         .then((next) => {
           if (!guard.isCurrent()) return;
           setResult(next);
@@ -233,7 +241,7 @@ export function ProfileResearchCard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel]);
+  }, [enabled, ownerId, vaultKey, vaultOwnerToken, worldModel, initialResult]);
 
   const withSession = async (
     operation: (
@@ -260,6 +268,7 @@ export function ProfileResearchCard({
         vaultKey,
         vaultOwnerToken,
         worldModel,
+        sourceReview,
         draftId: result?.status === "offered" ? result.draft_id : undefined,
         ...guard,
       });
@@ -378,7 +387,8 @@ export function ProfileResearchCard({
     void withSession(async (session) => {
       if (busy || saveStarted) return;
       try {
-        if (worldModel) await ProfileResearchService.discard(session);
+        if (worldModel || sourceReview)
+          await ProfileResearchService.discard(session);
         await session.assertCurrent();
         setPhase("skipped");
         setResult(null);

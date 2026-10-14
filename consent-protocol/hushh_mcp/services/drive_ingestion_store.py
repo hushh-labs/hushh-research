@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
 )
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
 
 LEASE_SECONDS = 190
@@ -67,7 +68,8 @@ class DriveIngestionStore(DriveDocumentStore):
         self._selection_policy(connection, user_id, feature="drive_document_indexing")
         return dict(current)
 
-    async def claim(self, *, user_id: str, generation: int) -> dict | None:
+    async def claim(self, *, user_id: str, generation: int, document_ids=None) -> dict | None:
+        targets = document_targets(document_ids)
         self.cipher._key()
 
         def operation(connection):
@@ -112,6 +114,7 @@ class DriveIngestionStore(DriveDocumentStore):
                 WITH candidate AS (
                   SELECT document_id FROM connected_documents
                   WHERE user_id=:user AND connection_generation=:generation
+                    AND (:all_documents OR document_id=ANY(CAST(:document_ids AS uuid[])))
                     AND source_profile=:profile
                     AND processing_enabled AND processing_disclosure_version=:disclosure
                     AND status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
@@ -133,6 +136,8 @@ class DriveIngestionStore(DriveDocumentStore):
                     if profile == "live"
                     else PROCESSING_DISCLOSURE_VERSION,
                     "profile": profile,
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             )
             return (
@@ -194,10 +199,66 @@ class DriveIngestionStore(DriveDocumentStore):
         from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 
         def operation(connection):
-            self._job(connection, job)
-            return DriveDocumentPageStore(cipher=self.cipher).progress(
-                connection, job, source_version
-            )
+            row = self._job(connection, job)
+            pages = DriveDocumentPageStore(cipher=self.cipher)
+            progress = pages.progress(connection, job, source_version)
+            from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+            if (
+                row.get("source_profile") == "live"
+                and progress["has_gaps"]
+                and progress.get("engine_versions", {}).get("render_policy")
+                != RENDER_POLICY_VERSION
+            ):
+                # Reuse good evidence. Only the proven legacy rendering failure
+                # justifies reprocessing unchanged bytes under the new policy.
+                after = 0
+                while True:
+                    evidence = pages.read(
+                        connection,
+                        job,
+                        source_version,
+                        after_page=after,
+                        limit=32,
+                        require_complete=False,
+                    )["pages"]
+                    if not evidence:
+                        break
+                    if any(p.error_code == "page_render_budget_exceeded" for p in evidence):
+                        params = {
+                            "document": row["document_id"],
+                            "user": row["user_id"],
+                            "version": progress["extraction_version"],
+                        }
+                        # Nulling the active version invokes the existing source
+                        # invalidation trigger before dependent facts are removed.
+                        connection.execute(
+                            text("""
+                            UPDATE connected_documents SET active_version=NULL,
+                              last_indexed_at=NULL,updated_at=clock_timestamp()
+                            WHERE document_id=:document AND user_id=:user
+                        """),
+                            params,
+                        )
+                        connection.execute(
+                            text("""
+                            DELETE FROM drive_document_facts
+                            WHERE document_id=:document AND user_id=:user
+                              AND extraction_version=:version
+                        """),
+                            params,
+                        )
+                        connection.execute(
+                            text("""
+                            DELETE FROM drive_document_extractions
+                            WHERE document_id=:document AND user_id=:user
+                              AND extraction_version=:version
+                        """),
+                            params,
+                        )
+                        return pages.progress(connection, job, source_version)
+                    after = evidence[-1].page_number
+            return progress
 
         return await self._transaction(operation)
 
@@ -435,7 +496,9 @@ class DriveIngestionStore(DriveDocumentStore):
                     "id": document_id,
                     "user": user_id,
                     "generation": generation,
-                    "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                    "disclosure": "live-drive-collection-v1"
+                    if current and current.get("source_profile") == "live"
+                    else PROCESSING_DISCLOSURE_VERSION,
                 },
             )
             if not row:

@@ -111,4 +111,39 @@ describe("EnterpriseSsoSection", () => {
     await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith("settlement-1"));
     expect(mocks.toastError).not.toHaveBeenCalled();
   });
+
+  it("restores the invitation destination to Next search params before signing in", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WORKOS_SSO_ENABLED", "true");
+    const resume = "/world-model/invite#claim=recipient-preview-token";
+    window.sessionStorage.setItem(
+      PENDING_KEY,
+      JSON.stringify({ state: "expected.state", resume, startedAt: Date.now() }),
+    );
+    const nextHistoryState = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["login"] };
+    window.history.replaceState(nextHistoryState, "", "/login?code=good&state=expected.state");
+    let nextSearchParams = new URLSearchParams(window.location.search);
+    let destinationAtSignIn: string | null = null;
+    const nativeReplaceState = window.history.replaceState.bind(window.history);
+    // Next's App Router bypasses useSearchParams synchronization for writes
+    // carrying __NA/_N. Application writes instead inherit its internal state.
+    const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
+      if (data?.__NA || data?._N) return nativeReplaceState(data, unused, url);
+      if (url) nextSearchParams = new URL(url, window.location.href).searchParams;
+      return nativeReplaceState({ ...data, ...nextHistoryState }, unused, url);
+    });
+    mocks.signIn.mockImplementationOnce(async () => {
+      destinationAtSignIn = nextSearchParams.get("redirect");
+      return { user: { getIdToken: async () => "id-token" }, idToken: "id-token" };
+    });
+    try {
+      render(<EnterpriseSsoSection redirectPath="" />);
+      await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith("settlement-1"));
+      expect(destinationAtSignIn).toBe(resume);
+      expect(nextSearchParams.has("code")).toBe(false);
+      expect(nextSearchParams.has("state")).toBe(false);
+      expect(window.history.state).toEqual(nextHistoryState);
+    } finally {
+      replaceState.mockRestore();
+    }
+  });
 });

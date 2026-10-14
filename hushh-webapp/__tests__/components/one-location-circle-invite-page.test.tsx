@@ -95,9 +95,10 @@ describe("OneLocationCircleInvitePageClient", () => {
     render(<OneLocationCircleInvitePageClient token="real_token" returnTo="/circle/join?invite=real_token" />);
     expect(mockResolveCircleInvite).toHaveBeenCalledWith("real_token");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
     await screen.findByText("Invited by hushh Social");
-    fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Screen 1 of 4: Less busywork" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true })));
     expect(mockRouterPush).toHaveBeenCalledWith("/login?redirect=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
     expect(mockClaimCircleInvite).not.toHaveBeenCalled();
   });
@@ -114,12 +115,12 @@ describe("OneLocationCircleInvitePageClient", () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
     render(<OneLocationCircleInvitePageClient />);
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
     expect(await screen.findByText("Invited by hushh Social")).toBeInTheDocument();
     expect(mockClaimCircleInvite).not.toHaveBeenCalled();
     expect(mockBootstrapKey).not.toHaveBeenCalled();
     expect(mockSyncCurrentUser).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Accept invitation" })));
     expect(mockRouterPush).toHaveBeenCalledWith("/login?redirect=%2Fone%2Flocation%2Finvite%2Finvite_token_123");
   });
   beforeEach(() => {

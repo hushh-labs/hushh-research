@@ -3,7 +3,7 @@
 import { AGENT_ICON_MAP, type AgentIconProps } from "./agent-icons";
 import { MessageSquareIcon } from "@/components/icons/ui";
 
-/** Shared capability geometry; onboarding can opt into subtle duotone shading. */
+/** Shared outline capability geometry for launchers and onboarding. */
 export function OneRosterAgentIcon({
   agentId,
   weight = "regular",

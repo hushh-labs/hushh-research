@@ -2,8 +2,9 @@
 
 ## User story
 
-Manish connects Drive, enables background sync, and explicitly allows document
-preparation. His private agent discovers the permitted collection, reads supported
+Manish connects Drive with background sync on. Packet preparation defaults on;
+an explicitly saved Off setting stays off, including after reconnect. Agent One
+discovers the permitted collection, reads supported
 documents, applies OCR to scanned pages, and prepares useful packets. Preparation
 does not publish his private documents or approve any buyer.
 
@@ -17,6 +18,31 @@ Manish sees who asked, contents, coverage, material gaps and an editable estimat
 from $0.50–$500. He chooses **Allow** or **Deny**. He never assembles or labels
 the packet. Technical assessment and importance stay under View details.
 Checkout and delivery retain the exact approved sources, version and price.
+
+### Request dates
+
+One's `one_document_period` gene assesses authenticated request text independently
+before the document-request card is built. It has no tools or document access.
+The gene cites exact quotations; the host locates each quote uniquely within its
+declared user message and validates calendar bounds and any supplied candidate
+dates. The model does not calculate character offsets. Absolute dates need no
+clock. Relative dates need a host clock
+bound to this invocation and message; a UTC fallback cannot authorize a range.
+An explicit current-message IANA timezone can apply to this read without changing
+saved preferences. The gene still checks that the timezone expresses the request.
+
+A clarification retains bounded original text only for the immediately following
+user turn in the same conversation, for the same resolved person. The next answer
+must supply current evidence; replacement requests discard superseded details.
+Once a question is determined, the host returns it directly without another model
+call. The question is bound to the authenticated owner, session, invocation and
+current text; a repeated tool call cannot overwrite its continuation context.
+Stop still takes precedence, and queued answers remain available for the next turn.
+Missing clock authority has a typed recovery: fetch the current clock or ask for
+the timezone, without accepting the assessor's unsupported relative date bounds.
+Model failure produces no card. These provenance checks do not prove semantic
+correctness: model replay separately grades date decisions, visible questions,
+follow-up handling, failures and the additional assessment latency.
 
 ## Visual Map
 
@@ -50,17 +76,37 @@ hold identities, versions, operational states and money needed for policy checks
   encrypted bootstrap/change checkpoints. A Changes start token is obtained
   before discovery. Pages and cursor commit atomically; interrupted pages replay
   safely. Changes update affected files; deleted or inaccessible sources lose
-  availability. Legacy background-on preferences do not widen processing consent.
+  availability. Migration 335 preserves saved preparation settings across
+  reconnects. The worker adopts the default-on setting in bounded batches for
+  verified connections whose background access is enabled. Existing saved
+  preparation Off and background Off settings are preserved; this default does
+  not create a historical terms-acceptance or publication event.
 - Migration 333 stores encrypted original-page evidence. Four-page batches resume
   after interruption. Text and scanned pages are accounted separately. Unsupported,
   unreadable, over-budget or partially extracted sources remain visible failures.
+  Tall pages use bounded adaptive render resolution before OCR. The render
+  policy is recorded per page; previously failed pages require targeted retry.
+  A successfully rendered page still needs usable extraction and semantic checks.
 - Migration 334 stores document facts, canonical packet heads, immutable versions,
   exact membership and separately allowed listings. Equivalent requests reuse
   current evidence. Catalog requests reuse the exact prepared packet. New source
   versions invalidate affected packets without changing old approval terms.
+  During rolling policy upgrades, bounded reconciliation replays completed
+  current-policy facts into membership if a retired worker finishes late. It
+  preserves the immutable facts, rejects stale sources, and does no work when
+  membership is already current.
 - UAT's existing documents lane runs every minute with bounded work and prompt
   wakeups. Extraction, discovery, facts and packet construction receive reserved
-  slices. No claim of an exact indexing duration is made before a collection runs.
+  slices. The documents lane permits at most 20 jobs per drain and obeys its
+  deadline; unused semantic capacity can advance further work for the same owner
+  without concurrent claims for that owner and phase. No claim of an exact
+  indexing duration is made before a collection runs.
+- A bounded internal target API can register up to 50 live provider candidates
+  and prioritize their ordinary extraction and facts jobs. It rechecks current
+  owner authority and metadata, preserves discovery cursor and lease, and reuses
+  valid extraction. Its first consumer is operator evaluation; scheduled FIFO
+  does not yet select targets by predicted semantic value. Callers cannot supply
+  document facts or bypass source/version/permission checks.
 - Status reports distinct discovered, indexed, failed and pending files; initial
   discovery/indexing timestamps, accumulated sync time and per-file indexing time
   remain distinct. Pausing displays freshness and stops further processing.
@@ -72,6 +118,27 @@ locations. Document facts remain independent of buyer requests. Canonical groupi
 uses issuer, subject/account, type and useful coverage; it does not create every
 possible file combination. Request matching evaluates structured dates together
 with prose. Filename and modification time never establish a statement period.
+Source facts distinguish reporting coverage from event, publication, scheduled
+action, transaction and as-of dates. Packet checks retain those roles through
+construction, compact final review and indexed request reuse. Drafts and other
+useful undated documents can form a packet with no coverage-period claim; an
+event date does not become a posting schedule or financial reporting interval.
+Record status is also explicit, cited evidence. A document's assertion that it
+was signed is distinct from completion evidence; typed signature placeholders
+and drafting instructions cannot establish execution. The model preserves
+draft, sample, request and pending qualifications through facts, canonical
+context, packet descriptions and pricing. The final checker receives the cited
+status and must explicitly assess it. A truthfully described draft may be Ready;
+readiness does not make its described transaction or legal act completed.
+
+Private packets are built progressively from available current facts; unrelated
+files do not have to finish indexing first. Packet content readiness and purchase
+availability are separate. A private packet can have verified content while the
+initial collection scan is unfinished; it remains unavailable for listing until
+provider enumeration has finished, change sync is fresh, and source/access checks
+pass. Unrelated pending extraction does not block a verified packet after that
+provider checkpoint. This does not establish
+whole-collection recall or absence of undiscovered documents.
 
 Readiness requires complete current evidence, explicit membership, accounted
 coverage, and the runtime verifier. Construction and checking resume in bounded
@@ -79,6 +146,23 @@ batches; all source batches and a final compact global check must succeed. Score
 are assessments, not calibrated probabilities. Unknown coverage is shown as
 Unable to verify; gaps as Incomplete. Provider fallback from an unfinished index
 retains that limitation and cannot silently declare complete collection coverage.
+
+Invalid dates, malformed output and unsupported quotations produce explicit
+validation codes. The model gets one bounded retry with the original evidence
+and field/page feedback. Host validation never invents replacement quotations
+or silently converts invalid facts into valid ones. Exhausted retries remain
+visible failures; policy upgrades can retry earlier failed facts. Model schema
+validity and independently assessed factual correctness are separate measures.
+
+For document facts, the model selects source-span references; the host resolves
+them to exact supplied text and locations. Every page remains accounted for.
+Packet construction must select or explicitly explain every supplied candidate,
+including candidates retained from earlier batches. Duplicate exclusions point
+to a selected document, and unresolved exclusions prevent Ready. The verifier
+checks these explanations against the original group and substantive facts;
+changing the title to a narrower period cannot excuse dropping a relevant month.
+The final database commit checks the exact candidate set again. Evidence that
+exceeds the bounded final-check context fails visibly instead of being truncated.
 
 ## Limits and purchase boundaries
 
@@ -116,7 +200,55 @@ holdout needs at least 2,995 independent error-free packet trials for a one-side
 evidence. Pricing is assessed against separately authored acceptable ranges,
 not claimed as a universal market price or 99.9% accurate estimate.
 
-### Observed development results (October 13, 2026)
+### Authorized original-document evaluation
+
+Preserve source metadata, connection generation, original-byte digests, extraction
+receipts, page coverage, the model/prompt/facts-policy version and every failed
+attempt. Independent reviewers label the original documents before seeing model
+outputs. Agent-authored reference judgments are identified as such and are not
+human gold labels. Compare schema completion, factual accuracy, packet membership
+and coverage separately; unresolved judgments and pipeline failures stay in the
+denominator. A development sample used to repair prompts is not a holdout.
+
+The private evidence graph links each source receipt to its original bytes,
+extracted pages, frozen model attempt, independent reference and semantic review.
+References use file digests and JSON pointers so another authorized reviewer can
+reproduce each connection. Actual persisted packet versions belong in this graph
+only when their database receipts have been observed. Approval, purchase and
+delivery remain explicitly unobserved until corresponding receipts exist.
+Do not infer them from packet creation or a simulated test.
+
+Real-document reports and titles stay outside the repository. Freeze each run
+before corrections and append separately identified replays; never overwrite a
+failed baseline with a later passing result. Whole-Drive counts and initial or
+incremental indexing time come from live collection status, not sample timings.
+
+The retained v4 development replay completed 24 Drive file records representing
+22 unique byte originals. Independent agent-authored core-field labels passed
+for 21 and failed for three; exact source
+citations passed for all 24. A 208-page original completed in 913.402 seconds over
+136 model calls. The short-document packet replay produced nine independently
+correct Ready groups out of 16 proposed groups, two nonready groups and five
+validation failures; six originals had no proposed canonical packet. These are
+different denominators, and neither result proves the 99.9% target or delivery.
+
+The first audit of actual saved v4 packets found three Ready versions with
+correct membership, but only two with correct packet claims: a social-post draft
+incorrectly used the advertised event dates as document coverage. Seven empty
+historical versions also occurred. Those failed attempts are retained. Empty
+heads are now retired and zero-document versions are hidden from the catalog;
+immutable audit and purchase records are preserved. The v5 date-role replay is
+recorded separately and must not replace or relabel the failed v4 baseline.
+
+The actual v5 financial-packet audit then found four supported Ready packet
+claims out of five: one draft was incorrectly described as executed. That
+failed version remains in the private evidence graph. The v6 contract adds
+cited record status and an explicit status check to current model responses,
+while retaining historical manifest readability. Independent original-source
+replays must assess whether the semantic error is corrected; a new field or a
+passing structural test alone does not establish that result.
+
+### Earlier development results (October 13, 2026)
 
 The actual worker model, `gemini-3.6-flash`, completed nine original-PDF
 regression requests over 13 unique synthetic PDFs. The original expanded run

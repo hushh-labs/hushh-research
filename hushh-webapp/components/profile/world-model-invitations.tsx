@@ -5,6 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
+import { useWorldModelResearch } from "./world-model-provider";
+import type {
+  ProfileResearchResult,
+  ProfileReport,
+} from "@/lib/services/profile-research-service";
 import { Input } from "@/components/ui/input";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -18,14 +26,56 @@ export function WorldModelInvitations({
   ownerId,
   vaultKey,
   vaultOwnerToken,
+  onClaimed,
 }: {
   ownerId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  onClaimed?: () => void;
 }) {
   const router = useRouter();
   const query = useSearchParams();
-  const claimToken = query.get("claim");
+  const [claimToken, setClaimToken] = useState<string | null>(
+    query.get("claim"),
+  );
+  const [name, setName] = useState(""),
+    [sourceUrl, setSourceUrl] = useState(""),
+    [introduction, setIntroduction] = useState("");
+  const [preview, setPreview] = useState<Extract<
+    ProfileResearchResult,
+    { status: "offered" }
+  > | null>(null);
+  const [receivedPreview, setReceivedPreview] = useState<{
+    report: ProfileReport;
+    introduction: string;
+  } | null>(null);
+  const [selected, setSelected] = useState<string[]>([]),
+    [permission, setPermission] = useState(false),
+    [researchConsent, setResearchConsent] = useState(false);
+  const { reload: reloadResearch } = useWorldModelResearch();
+  useEffect(() => {
+    const syncToken = () =>
+      setClaimToken(
+        new URLSearchParams(window.location.hash.slice(1)).get("claim") ||
+          query.get("claim"),
+      );
+    syncToken();
+    window.addEventListener("hashchange", syncToken);
+    return () => window.removeEventListener("hashchange", syncToken);
+  }, [query]);
+  useEffect(() => {
+    let active = true;
+    setReceivedPreview(null);
+    if (claimToken)
+      void WorldModelInvitationsService.preview(claimToken)
+        .then((row) => {
+          if (active) setReceivedPreview(row);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [claimToken]);
   const [contact, setContact] = useState("");
   const [link, setLink] = useState<string | null>(null);
   const [rows, setRows] = useState<WorldModelInvitation[]>([]);
@@ -99,15 +149,52 @@ export function WorldModelInvitations({
     <SettingsGroup title="Invite someone">
       <div className="space-y-3 px-4 py-3">
         <HelperText>
-          They verify their contact and choose when to start; findings stay
-          private until shared.
+          Prepare a short public professional preview, review it, then share a
+          contact-bound invitation. Their full model stays under their control.
         </HelperText>
         {claimToken && (
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-[13px]">
-              Verify your contact to claim your model; you choose when research
-              starts.
+              You’ve been invited to claim this starting profile. Verify the
+              invited contact, then review what belongs to you. Claiming shares
+              nothing back.
             </p>
+            {receivedPreview && (
+              <div className="space-y-2 text-xs">
+                <p>{receivedPreview.introduction}</p>
+                <p>Prepared by the inviter</p>
+                {receivedPreview.report.sections.map((section) => (
+                  <ul key={section.kind} className="space-y-2">
+                    {section.facts.map((fact, index) => (
+                      <li key={index}>
+                        {fact.statement}
+                        <div>
+                          {fact.sources.map((source) => (
+                            <a
+                              key={source.url}
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex min-h-11 items-center underline"
+                            >
+                              {source.title}
+                            </a>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ))}
+              </div>
+            )}
+            <label className="flex min-h-11 items-center gap-3 text-xs">
+              <Checkbox
+                checked={researchConsent}
+                onCheckedChange={(v) => setResearchConsent(v === true)}
+              />
+              After claiming, let Gemini research my name and verified contact
+              to prepare my full model.
+            </label>
             <Button
               data-voice-control-id="pwm_claim"
               size="compact"
@@ -115,21 +202,160 @@ export function WorldModelInvitations({
               onClick={() =>
                 void run(async () => {
                   const capture = guard();
-                  await WorldModelInvitationsService.claim(session, claimToken);
+                  await WorldModelInvitationsService.claim(
+                    session,
+                    claimToken,
+                    researchConsent,
+                  );
                   await capture.assertCurrent();
-                  setMessage("Model claimed. Nothing has been shared.");
+                  setMessage(
+                    "Claimed. Review your source details above. Nothing has been shared back.",
+                  );
+                  setClaimToken(null);
+                  reloadResearch();
+                  onClaimed?.();
                   router.replace(ROUTES.PROFILE_WORLD_MODEL);
+                  router.refresh();
                 })
               }
             >
               Claim my model
             </Button>
+            <Button
+              size="compact"
+              variant="none"
+              disabled={busy}
+              data-voice-control-id="pwm_reject"
+              onClick={() =>
+                void run(async () => {
+                  const capture = guard();
+                  await WorldModelInvitationsService.reject(
+                    session,
+                    claimToken,
+                  );
+                  await capture.assertCurrent();
+                  setClaimToken(null);
+                  setReceivedPreview(null);
+                  router.replace(ROUTES.PROFILE_WORLD_MODEL);
+                  setMessage("Invitation rejected.");
+                })
+              }
+            >
+              Reject invitation
+            </Button>
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          <span>Email or phone with country code</span>
+          Their name
           <Input
-            aria-label="Email or phone with country code"
+            aria-label="Their name"
+            disabled={busy}
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setPreview(null);
+            }}
+            maxLength={160}
+          />
+        </label>
+        <label className="block space-y-1 text-xs">
+          Public professional profile URL
+          <Input
+            aria-label="Public professional profile URL"
+            disabled={busy}
+            value={sourceUrl}
+            onChange={(e) => {
+              setSourceUrl(e.target.value);
+              setPreview(null);
+            }}
+            maxLength={2048}
+          />
+        </label>
+        <label className="block space-y-1 text-xs">
+          Introduction (optional)
+          <Textarea
+            aria-label="Introduction (optional)"
+            value={introduction}
+            onChange={(e) => setIntroduction(e.target.value)}
+            maxLength={500}
+          />
+        </label>
+        <label className="flex min-h-11 items-center gap-3 text-xs">
+          <Checkbox
+            checked={permission}
+            onCheckedChange={(v) => setPermission(v === true)}
+          />
+          I can use this public professional source for their invitation.
+        </label>
+        <Button
+          size="compact"
+          variant="muted"
+          data-voice-control-id="pwm_preview"
+          disabled={busy || !permission || !name.trim() || !sourceUrl.trim()}
+          onClick={() =>
+            void run(async () => {
+              const capture = guard();
+              const result = await WorldModelSourceService.prepare(
+                { ...session, ...capture },
+                {
+                  name,
+                  urls: [sourceUrl],
+                  purpose: "invitation",
+                  permitted_public_sources: true,
+                },
+              );
+              await capture.assertCurrent();
+              if (result.status === "offered") {
+                setPreview(result);
+                setSelected([]);
+              }
+            })
+          }
+        >
+          {busy ? "Preparing…" : "Prepare preview"}
+        </Button>
+        {preview && (
+          <div className="space-y-3 text-xs">
+            <p>Select the details to include. Sources remain attached.</p>
+            {preview.report.sections.flatMap((section) =>
+              section.facts.map((fact, index) => {
+                const id = `${section.kind}:${index}`;
+                return (
+                  <div key={id}>
+                    <label className="flex min-h-11 items-center gap-3">
+                      <Checkbox
+                        checked={selected.includes(id)}
+                        onCheckedChange={(v) =>
+                          setSelected((rows) =>
+                            v === true
+                              ? [...rows, id]
+                              : rows.filter((x) => x !== id),
+                          )
+                        }
+                      />
+                      {fact.statement}
+                    </label>
+                    {fact.sources.map((source) => (
+                      <a
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-h-11 items-center underline"
+                      >
+                        {source.title}
+                      </a>
+                    ))}
+                  </div>
+                );
+              }),
+            )}
+          </div>
+        )}
+        <label className="block space-y-1 text-xs">
+          <span>Recipient’s email or phone with country code</span>
+          <Input
+            aria-label="Recipient’s email or phone with country code"
             value={contact}
             maxLength={320}
             onChange={(event) => setContact(event.target.value)}
@@ -140,13 +366,20 @@ export function WorldModelInvitations({
           data-voice-control-id="pwm_invite"
           size="compact"
           variant="muted"
-          disabled={busy || !contact.trim()}
+          disabled={
+            busy || !contact.trim() || !preview?.draft_id || !selected.length
+          }
           onClick={() =>
             void run(async () => {
               const capture = guard();
               const result = await WorldModelInvitationsService.create(
                 session,
                 contact,
+                {
+                  preview_draft_id: preview!.draft_id!,
+                  selected_fact_ids: selected,
+                  introduction,
+                },
               );
               await capture.assertCurrent();
               setLink(result.url);
@@ -176,7 +409,7 @@ export function WorldModelInvitations({
                     setMessage(
                       delivery === "copied"
                         ? "Invitation copied."
-                        : "Ready to share.",
+                        : "Invitation opened in your share sheet.",
                     );
                 } catch (error) {
                   if (!isShareCancellationError(error)) throw error;

@@ -10,10 +10,8 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { HelperText } from "@/components/app-ui/typography";
-import {
-  ProfileResearchCard,
-  type ProfileResearchAvailability,
-} from "@/components/agent/profile-research-card";
+import { WorldModelSources } from "@/components/profile/world-model-sources";
+import { WorldModelResearchPanel } from "@/components/profile/world-model-research-panel";
 import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
 import {
   SettingsGroup,
@@ -48,8 +46,7 @@ export function PersonalWorldModelPage({
     !embedded ||
     (paneState.open
       ? paneState.location.panel === "world-model"
-      : resolveProfileRouteState(pathname, searchParams).panel ===
-        "world-model");
+      : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
   const { user, loading, sessionVerificationRequired } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
@@ -62,13 +59,6 @@ export function PersonalWorldModelPage({
     vaultOwnerToken &&
     (tokenExpiresAt === null || Date.now() < tokenExpiresAt),
   );
-  const [run, setRun] = useState(0);
-  const [startedFor, setStartedFor] = useState<{
-    owner: string;
-    key: string;
-  } | null>(null);
-  const [availability, setAvailability] =
-    useState<ProfileResearchAvailability>("hidden");
   const [saved, setSaved] = useState<{
     owner: string;
     key: string;
@@ -76,6 +66,7 @@ export function PersonalWorldModelPage({
   } | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   const [reload, setReload] = useState(0);
+  const [sourceRevision, setSourceRevision] = useState(0);
   const revision = usePkmDomainChangeRevision(user?.uid);
   const authority = useRef({
     ready,
@@ -89,8 +80,6 @@ export function PersonalWorldModelPage({
     key: vaultKey,
     token: vaultOwnerToken,
   };
-  const active =
-    ready && startedFor?.owner === user?.uid && startedFor?.key === vaultKey;
   const facts =
     ready && saved && saved.owner === user?.uid && saved.key === vaultKey
       ? saved.facts
@@ -98,7 +87,6 @@ export function PersonalWorldModelPage({
 
   useEffect(() => {
     if (!ready || !user || !vaultKey || !vaultOwnerToken) {
-      setStartedFor(null);
       setSaved(null);
       return;
     }
@@ -132,7 +120,6 @@ export function PersonalWorldModelPage({
     return () => controller.abort();
   }, [ready, user, vaultKey, vaultOwnerToken, revision, reload]);
 
-  const building = active && ["pending", "loading"].includes(availability);
   const content = (
     <SurfaceStack compact>
       {!ready ? (
@@ -143,103 +130,49 @@ export function PersonalWorldModelPage({
                 ? "Opening your profile…"
                 : sessionVerificationRequired
                   ? "Reconnect your account to continue."
-                  : "Unlock your vault to continue."}
+                  : "Unlock your vault to open your Personal World Model."}
             </HelperText>
           </div>
         </SettingsGroup>
       ) : (
         <>
-          <SettingsGroup title="Research">
-            <SettingsRow
-              title="Find public details"
-              description="Review what you want to save."
-              disabled={active && availability !== "failed"}
-              voiceControlId="pwm_build"
-              onClick={() => {
-                setAvailability("pending");
-                setStartedFor({ owner: user!.uid, key: vaultKey! });
-                setRun((value) => value + 1);
-              }}
-              trailing={
-                <span className="profile-account-inline-action text-primary">
-                  {building
-                    ? "Building…"
-                    : active
-                      ? "Resume research"
-                      : "Build my model"}
-                </span>
-              }
-            />
-            <div className="space-y-2 px-4 py-3">
-              <HelperText>
-                Starting sends your name and verified contact to the search
-                provider.
-              </HelperText>
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer">What’s included?</summary>
-                <p className="pt-2">
-                  Private accounts and breach reports need a separate
-                  connection.
-                </p>
-              </details>
-            </div>
-          </SettingsGroup>
-          {active && (
-            <ProfileResearchCard
-              key={run}
-              ownerId={user!.uid}
-              vaultKey={vaultKey}
-              vaultOwnerToken={vaultOwnerToken}
-              enabled={ready}
-              pathname={pathname}
-              backQuery={paneState.open ? { profile_pane: "1", profile_panel: "world-model" } : undefined}
-              embedded={embedded}
-              present={present}
-              worldModel
-              onAvailabilityChange={setAvailability}
-              onSaved={() => {
-                setReload((value) => value + 1);
-                setStartedFor(null);
-              }}
-              onDiscarded={() => setStartedFor(null)}
-            />
-          )}
+          <WorldModelResearchPanel />
+          <WorldModelSources
+            key={`${user!.uid}:${vaultOwnerToken}:${sourceRevision}`}
+            ownerId={user!.uid}
+            vaultKey={vaultKey!}
+            vaultOwnerToken={vaultOwnerToken!}
+            name={user!.displayName ?? ""}
+            embedded={embedded}
+            present={present}
+            backQuery={
+              paneState.open
+                ? { profile_pane: "1", profile_panel: "world-model" }
+                : undefined
+            }
+            onSaved={() => setReload((value) => value + 1)}
+          />
           <SettingsGroup title="Saved details">
             <div className="space-y-3 px-4 py-3">
               {readFailed ? (
                 <>
-                  <HelperText role="status">
-                    Couldn’t open saved details.
-                  </HelperText>
-                  <Button
-                    size="compact"
-                    variant="muted"
-                    onClick={() => setReload((value) => value + 1)}
-                  >
+                  <HelperText role="status">Your saved model couldn’t be opened.</HelperText>
+                  <Button size="compact" variant="muted" onClick={() => setReload((value) => value + 1)}>
                     Try again
                   </Button>
                 </>
               ) : facts === null ? (
                 <HelperText role="status">Opening saved details…</HelperText>
               ) : facts.length === 0 ? (
-                <HelperText>No saved public details yet.</HelperText>
+                <HelperText>No approved details yet. Add information you want to keep from your own sources.</HelperText>
               ) : (
                 <ul className="space-y-3">
                   {facts.map((fact) => (
-                    <li
-                      key={fact.id}
-                      className="space-y-1 border-b border-border pb-3 text-[13px]"
-                    >
+                    <li key={fact.id} className="space-y-1 border-b border-border pb-3 text-[13px]">
                       <p>{fact.statement}</p>
                       <div className="flex flex-wrap gap-3">
                         {fact.sources.map((source) => (
-                          <a
-                            key={source.url}
-                            className="text-xs text-muted-foreground underline underline-offset-4"
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
+                          <a key={source.url} className="text-xs text-muted-foreground underline underline-offset-4" href={source.url} target="_blank" rel="noopener noreferrer">
                             {source.title}
                           </a>
                         ))}
@@ -250,14 +183,13 @@ export function PersonalWorldModelPage({
               )}
             </div>
             <SettingsRow
-              title="Edit or remove details"
+              title="Edit or remove saved details"
               chevron
-              onClick={
-                onManageDetails ?? (() => router.push(ROUTES.PROFILE_MY_DATA))
-              }
+              onClick={onManageDetails ?? (() => router.push(ROUTES.PROFILE_MY_DATA))}
             />
           </SettingsGroup>
           <WorldModelInvitations
+            onClaimed={() => setSourceRevision((value) => value + 1)}
             key={`${user!.uid}:${vaultOwnerToken}`}
             ownerId={user!.uid}
             vaultKey={vaultKey!}
@@ -282,7 +214,10 @@ export function PersonalWorldModelPage({
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader title="Personal World Model" />
+        <PageHeader
+          title="Personal World Model"
+          description="A clearer picture of you, with evidence you can review."
+        />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <SettingsPresentationProvider density="compact">

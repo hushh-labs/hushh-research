@@ -16,9 +16,11 @@ from uuid import UUID, uuid4
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
+from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
 from hushh_mcp.services.drive_collection_store import DriveCollectionStore
 from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
+from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -86,12 +88,74 @@ class DriveDocumentFactsStore(DriveCollectionStore):
         )
         return active, collection, preference
 
-    async def enqueue(self, *, user_id, policy_version):
+    def _reconcile_membership_locked(self, connection, *, user_id, generation, revision, policy):
+        """Replay current complete facts after a late retired-policy writer.
+
+        The owner authority lock is already held. Facts stay immutable; their
+        updated_at is an operational reconciliation watermark. Shared packet
+        membership is restored from exact model keys, never reinterpreted here.
+        """
+        rows = list(
+            connection.execute(
+                text("""
+                SELECT f.* FROM drive_document_facts f
+                JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
+                WHERE f.user_id=:user AND f.connection_generation=:generation
+                  AND f.facts_profile=:policy AND f.extraction_profile=:profile AND f.status='complete'
+                  AND d.connection_generation=:generation AND d.source_profile='live'
+                  AND d.processing_enabled AND d.collection_revision=:revision AND d.status='ready'
+                  AND d.source_version=f.source_version AND d.active_version=f.extraction_version
+                  AND (EXISTS(SELECT 1 FROM drive_document_facts other
+                    WHERE other.document_id=f.document_id AND other.user_id=f.user_id
+                      AND other.connection_generation=f.connection_generation
+                      AND other.source_version=f.source_version AND other.extraction_version=f.extraction_version
+                      AND other.extraction_profile=f.extraction_profile AND other.facts_profile<>f.facts_profile
+                      AND other.status='complete' AND other.updated_at>f.updated_at)
+                    OR EXISTS(SELECT 1 FROM drive_packet_members m
+                      JOIN drive_packet_heads h ON h.packet_id=m.packet_id
+                      WHERE m.document_id=f.document_id AND h.user_id=f.user_id
+                        AND h.connection_generation=f.connection_generation AND m.facts_version<>f.facts_version))
+                ORDER BY f.updated_at,f.document_id LIMIT 32 FOR UPDATE OF f,d
+                """),
+                {
+                    "user": user_id,
+                    "generation": generation,
+                    "revision": revision,
+                    "policy": policy,
+                    "profile": EXTRACTION_PROFILE,
+                },
+            ).mappings()
+        )
+        if not rows:
+            return 0
+        from hushh_mcp.services.drive_packet_store import DrivePacketStore
+
+        packets = DrivePacketStore(db=self.db, cipher=self.cipher)
+        for row in rows:
+            packets.update_membership_locked(
+                connection, row, DocumentFacts.model_validate(self.facts(dict(row)))
+            )
+            connection.execute(
+                text("""UPDATE drive_document_facts SET updated_at=clock_timestamp()
+                    WHERE document_id=:id AND facts_version=:version"""),
+                {"id": row["document_id"], "version": row["facts_version"]},
+            )
+        return len(rows)
+
+    async def enqueue(self, *, user_id, policy_version, document_ids=None):
+        targets = document_targets(document_ids)
         if not isinstance(policy_version, str) or not 1 <= len(policy_version) <= 200:
             raise DriveReadError("invalid_argument")
 
         def operation(connection):
             active, collection, _ = self._authority(connection, user_id=user_id)
+            self._reconcile_membership_locked(
+                connection,
+                user_id=user_id,
+                generation=active["connection_generation"],
+                revision=collection["revision"],
+                policy=policy_version,
+            )
             rows = connection.execute(
                 text("""
               SELECT d.document_id,d.user_id,d.connection_generation,e.source_version,
@@ -100,6 +164,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                 ON e.document_id=d.document_id AND e.user_id=d.user_id
                 AND e.connection_generation=d.connection_generation AND e.source_version=d.source_version
               WHERE d.user_id=:user AND d.connection_generation=:generation
+                AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
                 AND d.source_profile='live' AND d.processing_enabled
                 AND d.collection_revision=:revision AND d.status='ready' AND d.active_version IS NOT NULL
                 AND e.complete AND e.extraction_profile=:profile
@@ -114,6 +179,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                     "revision": collection["revision"],
                     "profile": EXTRACTION_PROFILE,
                     "policy": policy_version,
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             ).mappings()
             count = 0
@@ -146,13 +213,17 @@ class DriveDocumentFactsStore(DriveCollectionStore):
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
 
         def operation(connection):
+            cohort = connector_feature_owner_cohort("google_drive_live", "drive_document_indexing")
+            if cohort == ():
+                return []
             return list(
                 connection.execute(
                     text("""
               SELECT s.user_id FROM drive_collection_sync s
               JOIN user_external_connector_connections c ON c.user_id=s.user_id AND c.connector_id='google_drive'
-              JOIN drive_live_preferences p ON p.user_id=s.user_id
-              WHERE s.processing_enabled AND p.background_enabled
+              LEFT JOIN drive_live_preferences p ON p.user_id=s.user_id
+              WHERE s.processing_enabled AND COALESCE(p.background_enabled, true)
+                AND (:all_owners OR s.user_id=ANY(CAST(:owners AS text[])))
                 AND c.connection_generation=s.connection_generation AND c.status='connected' AND c.validation_state='verified'
                 AND (EXISTS(SELECT 1 FROM connected_documents d LEFT JOIN drive_document_facts f
                   ON f.document_id=d.document_id AND f.user_id=d.user_id AND f.source_version=d.source_version
@@ -165,6 +236,19 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                   OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=s.user_id
                     AND h.connection_generation=s.connection_generation AND h.dirty AND h.next_at<=clock_timestamp()
                     AND (h.lease_expires_at IS NULL OR h.lease_expires_at<=clock_timestamp()))
+                  OR EXISTS(SELECT 1 FROM drive_document_facts f
+                    JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
+                    WHERE f.user_id=s.user_id AND f.connection_generation=s.connection_generation
+                      AND f.facts_profile=:policy AND f.extraction_profile=:profile AND f.status='complete'
+                      AND d.connection_generation=s.connection_generation AND d.source_profile='live'
+                      AND d.processing_enabled AND d.collection_revision=s.revision AND d.status='ready'
+                      AND d.source_version=f.source_version AND d.active_version=f.extraction_version
+                      AND EXISTS(SELECT 1 FROM drive_document_facts other
+                        WHERE other.document_id=f.document_id AND other.user_id=f.user_id
+                          AND other.connection_generation=f.connection_generation
+                          AND other.source_version=f.source_version AND other.extraction_version=f.extraction_version
+                          AND other.extraction_profile=f.extraction_profile AND other.facts_profile<>f.facts_profile
+                          AND other.status='complete' AND other.updated_at>f.updated_at))
                   OR (s.initial_completed_at IS NOT NULL AND NOT s.incomplete_search AND s.last_error_code IS NULL
                     AND EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=s.user_id AND h.awaiting_collection AND NOT h.dirty)
                     AND NOT EXISTS(SELECT 1 FROM connected_documents d WHERE d.user_id=s.user_id
@@ -178,6 +262,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             """),
                     {
                         "limit": max(1, min(20, limit)),
+                        "all_owners": cohort is None,
+                        "owners": list(cohort or ()),
                         "policy": facts_policy_version(),
                         "profile": EXTRACTION_PROFILE,
                     },
@@ -233,7 +319,9 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             raise DriveReadError("facts_superseded")
         return row, document, extraction
 
-    async def claim(self, *, user_id, policy_version):
+    async def claim(self, *, user_id, policy_version, document_ids=None):
+        targets = document_targets(document_ids)
+
         def operation(connection):
             active, collection, preference = self._authority(connection, user_id=user_id)
             row = self._row(
@@ -242,6 +330,11 @@ class DriveDocumentFactsStore(DriveCollectionStore):
               SELECT f.*,d.source_fingerprint,d.processing_revision FROM drive_document_facts f
               JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
               WHERE f.user_id=:user AND f.connection_generation=:generation AND f.facts_profile=:policy
+                AND (:all_documents OR f.document_id=ANY(CAST(:document_ids AS uuid[])))
+                AND NOT EXISTS(SELECT 1 FROM drive_document_facts busy
+                  WHERE busy.user_id=:user AND busy.connection_generation=:generation
+                    AND busy.facts_profile=:policy AND busy.status='running'
+                    AND busy.lease_expires_at>clock_timestamp())
                 AND f.status IN ('pending','running') AND f.next_at<=clock_timestamp()
                 AND (f.lease_expires_at IS NULL OR f.lease_expires_at<=clock_timestamp())
                 AND d.source_version=f.source_version AND d.status='ready' AND d.active_version IS NOT NULL
@@ -255,6 +348,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                     "generation": active["connection_generation"],
                     "policy": policy_version,
                     "revision": collection["revision"],
+                    "all_documents": targets is None,
+                    "document_ids": list(targets or ()),
                 },
             )
             if not row:
@@ -364,7 +459,20 @@ class DriveDocumentFactsStore(DriveCollectionStore):
     async def release(self, job, *, retryable=True, code="facts_unavailable"):
         safe = (
             code
-            if code in {"facts_unavailable", "evidence_budget_exceeded", "source_changed"}
+            if code
+            in {
+                "facts_unavailable",
+                "evidence_budget_exceeded",
+                "source_changed",
+                "model_schema_invalid",
+                "model_period_invalid",
+                "model_citation_invalid",
+                "model_pages_unaccounted",
+                "model_readiness_invalid",
+                "model_membership_invalid",
+                "model_timeout",
+                "facts_integrity_invalid",
+            }
             else "facts_unavailable"
         )
 

@@ -1121,12 +1121,13 @@
         "google_provider_connections",
         "google_service_grants",
         "google_oauth_attempts",
-        "google_calendar_action_proposals"
+        "google_calendar_action_proposals",
+        "calendar_attendance_reviews"
       ],
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger"
     },
     {
       "data_class": "audit_regulated",
@@ -1666,7 +1667,7 @@
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
     },
     {
-      "data_class": "workflow_state",
+      "data_class": "personal_encrypted",
       "exact_tables": [
         "pwm_claim_invitations"
       ],
@@ -1683,7 +1684,18 @@
       "id": "pwm_provider_budget",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
+      "primary_access_path": "Legacy Tavily aggregate accounting retained for history; native PWM has no active writer to this table."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_research_preferences",
+        "pwm_completion_events"
+      ],
+      "id": "pwm_research_lifecycle",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases."
     },
     {
       "data_class": "workflow_state",
@@ -2134,6 +2146,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.wallet.card.public.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "pathname": "/calendar/reschedule",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.calendar.reschedule"
       }
     },
     {
@@ -6333,33 +6368,56 @@
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pwm-invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "pathname": "/world-model/invite",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.world_model.invite"
+      }
     }
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
-    "agent_registry": "2dee6ce61ea25a330e1113534e0ebabcd5f83c788a08d9c1ed4a0a7c77971e96",
-    "cache_manifest": "3cef501ea152624ffeee45d26ebb960b6d575123af8bba6c68aff08d88e7ffdf",
-    "data_plane": "ac2a6429207505ad69b4921427e80eff567d0244f96d0bda3c7abf0634f7988f",
+    "action_gateway": "87ff1cf21a1797371d7916e1d28265a62027a3afd2c084e9d50fca52b13280f8",
+    "agent_registry": "89c1ee738effeaa899f0d1467104bf075dc53cbb0ff7c06ce66ecde1fece2c28",
+    "cache_manifest": "5d9690804dbb56234b716f40dc17d639f91363aee846ce28280cdfb63648f229",
+    "data_plane": "5f449bea7560644aee95b76e83d80877de0a51386d1b9a86e09b2619f6831d97",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
-    "route_index": "5c87e2a8f47d7d2cf07c1a6bbdb1b3722ce5c994d4fad042905c368141193c56",
-    "route_layout": "d8b25214218819c54d734b59295d49f1d083714f6ce79a9660658d1521011e9e",
-    "surface_map": "2b2233f8fb0b2d3109bae04f6028da849bb39eeace11e7807063bfd2ec8e8e41",
+    "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
+    "route_index": "4c8a414f085c7e134cd16c4dcee755413094ad437da96bb816ffd061d22ea7c4",
+    "route_layout": "33d881d4d6902adfc6f147b1c035e8a20be4743d1fa7f5868bb10402ee66f1e8",
+    "surface_map": "ef0c0bacc293afc1184d330ec4703082636e88f52d1d0c84cec1dd0fe609d9e1",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 246,
+    "actions": 256,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 152,
+    "physical_routes": 154,
     "semantic_routes": 14,
-    "table_families": 103
+    "table_families": 104
   }
 }
