@@ -260,7 +260,7 @@ for (const width of [390, 1440])
 async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
   return page.evaluate((safeSidePane) => {
     const reference = document.createElement("div");
-    reference.className = "profile-pane-sheet";
+    reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
     if (safeSidePane) reference.dataset.appSidePane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
