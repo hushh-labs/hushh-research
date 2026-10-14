@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +22,20 @@ vi.mock("@/lib/morphy-ux/gsap", () => ({
   getGsap: vi.fn(async () => null),
 }));
 
+const storyTitles = [
+  "Start with a clearer day.",
+  "Find what you already have.",
+  "Make the next move easier.",
+  "Share only what you choose.",
+];
+
+function activeStory() {
+  const heading = screen.getByRole("heading", { level: 1 });
+  const section = heading.closest("section");
+  if (!section) throw new Error("The active story must be a slide.");
+  return within(section);
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -29,75 +44,33 @@ afterEach(() => {
 });
 
 describe("IntroStep voice contract", () => {
-  it("cycles Circles and agents every 2.5 seconds and releases timers on leave", () => {
-    vi.useFakeTimers();
+  it("moves through four stories with next, keyboard, and dots without signing in", () => {
     const onLogin = vi.fn();
-    const { unmount } = render(<IntroStep onLogin={onLogin} />);
+    render(<IntroStep onLogin={onLogin} />);
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    for (const name of [
-      "Family",
-      "Friends",
-      "Finance",
-      "Business",
-      "Family",
-      "Friends",
-      "Finance",
-      "Business",
-    ]) {
-      expect(screen.getByRole("button", { name, exact: true })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
-      act(() => vi.advanceTimersByTime(2499));
-      expect(screen.getByRole("button", { name, exact: true })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
-      act(() => vi.advanceTimersByTime(1));
+
+    for (let index = 0; index < storyTitles.length; index += 1) {
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[index]);
+      expect(activeStory().getByRole("button", {
+        name: `Screen ${index + 1}: ${storyTitles[index]}`,
+      })).toHaveAttribute("aria-current", "step");
+      if (index < storyTitles.length - 1) {
+        fireEvent.click(activeStory().getByRole("button", { name: "Next screen" }));
+      }
     }
-    expect(
-      screen.getByRole("button", { name: "Family", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Finance", exact: true }),
-    );
-    expect(
-      screen.getByRole("button", { name: "Finance", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.getByRole("heading", { name: "Finance Circle" }),
-    ).toBeVisible();
-    act(() => vi.advanceTimersByTime(2500));
-    expect(
-      screen.getByRole("button", { name: "Business", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    const agents = Array.from(
-      document.querySelectorAll("[data-agent-tour] button"),
-    );
-    for (const agent of agents) {
-      expect(agent).toHaveAttribute("aria-pressed", "true");
-      act(() => vi.advanceTimersByTime(2500));
-    }
-    expect(agents[0]).toHaveAttribute("aria-pressed", "true");
-    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
-    fireEvent(document, new Event("visibilitychange"));
-    act(() => vi.advanceTimersByTime(20000));
-    expect(agents[0]).toHaveAttribute("aria-pressed", "true");
-    hidden.mockReturnValue(false);
-    fireEvent(document, new Event("visibilitychange"));
-    act(() => vi.advanceTimersByTime(2500));
-    expect(agents[1]).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.queryByRole("button", { name: /pause|replay/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("Examples")).not.toBeInTheDocument();
+    const carousel = screen.getByRole("region", { name: "Introducing One" });
+    fireEvent.keyDown(carousel, { key: "ArrowLeft" });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
+    fireEvent.keyDown(carousel, { key: "ArrowRight" });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
+    fireEvent.click(activeStory().getByRole("button", {
+      name: `Screen 1: ${storyTitles[0]}`,
+    }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
     expect(onLogin).not.toHaveBeenCalled();
-    unmount();
-    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps reduced-motion previews static but lets people explore each Circle", () => {
+  it("keeps reduced-motion stories static while allowing navigation and releases timers", () => {
     vi.useFakeTimers();
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     vi.stubGlobal(
@@ -108,62 +81,44 @@ describe("IntroStep voice contract", () => {
         matches: query === "(prefers-reduced-motion: reduce)",
       })),
     );
-    render(<IntroStep onLogin={vi.fn()} />);
+    const onLogin = vi.fn();
+    const { unmount } = render(<IntroStep onLogin={onLogin} />);
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     act(() => vi.advanceTimersByTime(20000));
-    expect(
-      screen.getByRole("button", { name: "Family", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.queryByRole("button", { name: "Pause Circle tour" }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Business", exact: true }),
-    );
-    expect(
-      screen.getByRole("heading", { name: "Business Circle" }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
+    fireEvent.click(activeStory().getByRole("button", {
+      name: `Screen 3: ${storyTitles[2]}`,
+    }));
+    act(() => vi.advanceTimersByTime(20000));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
+    expect(onLogin).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("publishes and executes the same Claim your One control used by tapping", async () => {
+  it("blocks early voice sign-in and gives the final Start with One control tap/voice parity", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
-
     await waitFor(() => {
       expect(getVoiceSurfaceMetadata()).toMatchObject({
         screenId: "one_intro",
-        actions: [
-          expect.objectContaining({ actionId: "onboarding.claim_one" }),
-        ],
+        actions: [expect.objectContaining({ actionId: "onboarding.claim_one" })],
         controls: [expect.objectContaining({ id: "onboarding_claim_one" })],
       });
-      expect(
-        resolveLocalOnboardingHandler("onboarding.claim_one"),
-      ).not.toBeNull();
+      expect(resolveLocalOnboardingHandler("onboarding.claim_one")).not.toBeNull();
     });
-
-    expect(
-      screen.queryByRole("button", { name: "Sign in", exact: true }),
-    ).not.toBeInTheDocument();
-    const earlyResult = await resolveLocalOnboardingHandler(
-      "onboarding.claim_one",
-    )?.({});
-    expect(earlyResult?.status).toBe("blocked");
+    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
     expect(onLogin).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
-    const button = screen.getByRole("button", { name: "Sign in", exact: true });
-    expect(button).toHaveAttribute(
-      "data-voice-control-id",
-      "onboarding_claim_one",
-    );
-    expect(button.querySelector(":scope > .morphy-ripple-host")).not.toBeNull();
+    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
+    expect(onLogin).not.toHaveBeenCalled();
+    fireEvent.click(activeStory().getByRole("button", { name: "Skip", exact: true }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
+    const button = activeStory().getByRole("button", { name: "Start with One", exact: true });
+    expect(button).toHaveAttribute("data-voice-control-id", "onboarding_claim_one");
     fireEvent.click(button);
     expect(onLogin).toHaveBeenCalledTimes(1);
-
-    const handler = resolveLocalOnboardingHandler("onboarding.claim_one");
-    const result = await handler?.({});
+    const result = await resolveLocalOnboardingHandler("onboarding.claim_one")?.({});
     expect(onLogin).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       status: "started",
@@ -171,111 +126,31 @@ describe("IntroStep voice contract", () => {
       routeAfter: "/login",
       screenAfter: "login",
     });
+    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
+    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
+    expect(onLogin).toHaveBeenCalledTimes(2);
   });
 
-  it("restores the welcome before the three previews, with no early sign-in", () => {
-    Element.prototype.scrollIntoView = vi.fn();
+  it("retains the welcome and returns there through Back without signing in", () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
     expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
     expect(screen.getByText("Your agents. Yours to own.")).toBeInTheDocument();
     expect(screen.getByText("Your personal team of AI agents.")).toBeInTheDocument();
-    expect(screen.getByText("You choose what to share.")).toBeInTheDocument();
-    // The handshake mark sits beside the sentence, inside the same note.
-    expect(
-      screen.getByText("You choose what to share.").parentElement?.querySelector("img"),
-    ).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign in", exact: true })).not.toBeInTheDocument();
+    expect(screen.getByText("You choose what to share.").parentElement?.querySelector("img")).not.toBeNull();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     const welcomeMark = document.querySelector("[data-hushh-mark] img");
     const markUrl = new URL(welcomeMark?.getAttribute("src") ?? "", "http://localhost");
     expect(markUrl.searchParams.get("url") ?? markUrl.pathname).toBe(HUSHH_MARK_PATH);
-    expect(screen.queryByText("🤫")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start with One", exact: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    expect(onLogin).not.toHaveBeenCalled();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
-    expect(screen.getByRole("heading", { name: "Your people, closer." })).toBeInTheDocument();
-    expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Screen 3: Get started" }),
-    ).toBeDisabled();
-    // Welcome has no dash: the three previews are the whole progress bar.
-    expect(screen.getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(3);
-    expect(screen.getByRole("button", { name: "Screen 1: Circles" })).toHaveAttribute(
-      "aria-current",
-      "step",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
+    expect(activeStory().getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(4);
+    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    expect(
-      screen.getByRole("img", { name: "hushh", exact: true }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Calendar", exact: true }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
-    expect(
-      screen.getByRole("img", { name: "hushh", exact: true }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Just ask One." }),
-    ).toBeInTheDocument();
-    const prompts = screen.getAllByTestId("preview-chat-prompt");
-    const replies = screen.getAllByTestId("preview-chat-reply");
-    expect(prompts).toHaveLength(2);
-    expect(replies).toHaveLength(2);
-    expect(prompts[0]).toHaveTextContent(
-      "Find 30 free minutes tomorrow afternoon",
-    );
-    expect(prompts[1]).toHaveTextContent(
-      "Can you share my location with my Family Circle for the next 2 hours, until I reach home?",
-    );
-    expect(replies[0]).toHaveTextContent("Open 30-minute slots tomorrow:");
-    expect(replies[0]).toHaveTextContent(
-      "12:00–12:30 PM · 12:30–1:00 PM · 1:00–1:30 PM",
-    );
-    expect(replies[1]).toHaveTextContent(
-      "Stop sharing early when you reach home.",
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
-    expect(screen.getByText("Google Calendar")).toBeVisible();
-    expect(
-      screen.getByText("Finding free time on your calendar."),
-    ).toBeVisible();
-    expect(prompts[0].closest("[data-chat-turn]")).toHaveAttribute(
-      "aria-hidden",
-      "false",
-    );
-    expect(prompts[1].closest("[data-chat-turn]")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Location", exact: true }),
-    );
-    expect(prompts[1].closest("[data-chat-turn]")).toHaveAttribute(
-      "aria-hidden",
-      "false",
-    );
-    expect(prompts[0].closest("[data-chat-turn]")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
-    expect(
-      screen.queryByText("Connect and share on your terms."),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: /pause|replay/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("An example conversation"),
-    ).not.toBeInTheDocument();
     expect(onLogin).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One" }));
-    expect(onLogin).toHaveBeenCalledOnce();
   });
 
   it("keeps the root public navigation to Research, Blog, and Developers", () => {

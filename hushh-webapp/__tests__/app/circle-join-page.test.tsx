@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
@@ -120,13 +120,18 @@ describe("/circle/join landing", () => {
     expect(mockReplace).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Explore One" })).toHaveAttribute("href", "/?invite=one");
   });
-  it("lets a guest explore four screens before signing in with the same code", async () => {
+  it("lets a guest explore the welcome and four stories before signing in with the same code", async () => {
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "3");
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    for (const step of [2, 3, 4]) {
+      expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(step));
+      const activeCard = screen.getByRole("heading", { level: 1 }).closest<HTMLElement>("[data-intro-v2-card]");
+      expect(activeCard).not.toBeNull();
+      fireEvent.click(within(activeCard!).getByRole("button", { name: "Next screen" }));
+      expect(mockPush).not.toHaveBeenCalled();
+    }
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "5");
     expect(await screen.findByRole("heading", { name: "Family Circle", level: 2 })).toBeInTheDocument();
     expect(screen.getByText("Invited by Alex")).toBeInTheDocument();
     expect(mockPreview).not.toHaveBeenCalled();
@@ -140,8 +145,7 @@ describe("/circle/join landing", () => {
     mockPublicPreview.mockRejectedValueOnce(new ApiError("expired", 404));
     render(<CircleJoinPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     expect(await screen.findByText(/This invitation is unavailable/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Join this Circle" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -154,8 +158,7 @@ describe("/circle/join landing", () => {
     render(<CircleJoinPage />);
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     expect(await screen.findByText(/Preview is temporarily unavailable/)).toBeInTheDocument();
     const action = screen.getByRole("button", { name: "Join this Circle" });
     expect(action).toBeEnabled();
@@ -169,8 +172,7 @@ describe("/circle/join landing", () => {
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     expect(await screen.findByText(/missing its code/)).toBeInTheDocument();
     expect(mockPublicPreview).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
