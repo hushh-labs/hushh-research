@@ -131,4 +131,17 @@ describe("PWM service authority and request recovery", () => {
       "career:0",
     ]);
   });
+  it("accepts only the generic valid response for a previewless invitation", async () => {
+    const token = "a".repeat(43);
+    api.mockResolvedValueOnce({ has_preview: false });
+    await expect(WorldModelInvitationsService.preview(token)).resolves.toEqual({
+      has_preview: false,
+    });
+    expect(api.mock.calls[0][0]).toBe(
+      "/api/one/world-model/invitation-preview",
+    );
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ token });
+    api.mockResolvedValueOnce({ has_preview: false, introduction: "invented" });
+    await expect(WorldModelInvitationsService.preview(token)).rejects.toThrow();
+  });
 });

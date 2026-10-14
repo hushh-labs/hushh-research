@@ -7422,12 +7422,12 @@
     "route": "/world-model/invite",
     "mode": "hidden",
     "persistentChrome": "none",
-    "exemptionReason": "Public invitation preview preserves its token through authentication and vault setup.",
+    "exemptionReason": "Public invitation keeps its claim capability in the browser through authentication and vault setup.",
     "voicePlaybook": {
       "playbookId": "route.world_model.invite",
-      "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+      "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
       "screen": "app",
-      "entryCue": "Review your starting profile, then continue when ready.",
+      "entryCue": "Check your invitation, then continue when ready.",
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
@@ -7453,7 +7453,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow."
+      "reason": "Public invitation owns its navigation; verified claiming continues through the protected recipient flow."
     }
   },
   {

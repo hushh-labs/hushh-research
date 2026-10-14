@@ -61,12 +61,16 @@ export const WorldModelInvitationsService = {
   },
   async preview(token: string) {
     return z
-      .object({
-        report: profileReportSchema,
-        introduction: z.string().max(500),
-        prepared_by: z.literal("inviter"),
-      })
-      .strict()
+      .union([
+        z
+          .object({
+            report: profileReportSchema,
+            introduction: z.string().max(500),
+            prepared_by: z.literal("inviter"),
+          })
+          .strict(),
+        z.object({ has_preview: z.literal(false) }).strict(),
+      ])
       .parse(
         await apiJson("/api/one/world-model/invitation-preview", {
           method: "POST",
