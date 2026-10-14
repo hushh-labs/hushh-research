@@ -73,7 +73,8 @@
       "scripts/ci/",
       "deploy/",
       "config/ci-governance.json",
-      "config/protected-behaviors.json"
+      "config/protected-behaviors.json",
+      "config/runtime-capacity.json"
     ]
   },
   "pr_train": {

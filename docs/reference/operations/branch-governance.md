@@ -155,6 +155,10 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 - `scripts/ci/`
 - `deploy/`
 - `config/ci-governance.json`
+- `config/protected-behaviors.json`
+- `config/runtime-capacity.json` (the release admission budget: who may deploy
+  is decided by these connection limits, so they change only with the same
+  review as the deploy pipeline)
 - `.github/CODEOWNERS`
 
 ### The three enforcement layers
