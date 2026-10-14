@@ -2339,7 +2339,17 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   --agent-history-shadow-clearance: 48px;
   right: auto !important;
   left: var(--app-side-pane-left-inset) !important;
-  overflow: hidden;
+  /* Clip decorative sheen without creating a focus-scroll container. The
+     sidebar owns scrolling; rename must not scroll the entire frame. */
+  overflow: clip;
+  transition-duration: var(--motion-sheet-enter-duration), var(--motion-sheet-enter-duration), 0s;
+}
+
+[data-agent-history-drawer][data-state="closed"] {
+  /* Preserve mounted history while retiring its filter after the exit. */
+  visibility: hidden;
+  transition-duration: var(--motion-sheet-exit-duration), var(--motion-sheet-exit-duration), 0s;
+  transition-delay: 0s, 0s, var(--motion-sheet-exit-duration);
 }
 
 [data-app-pane-material="profile"] {

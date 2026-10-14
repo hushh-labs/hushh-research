@@ -335,6 +335,7 @@ for (const width of [320, 390, 1440]) for (const dark of [false, true])
     await expect(chats).not.toBeVisible();
     expect(await page.locator("[data-agent-history-drawer]").evaluate(element =>
       getComputedStyle(element, "::after").animationPlayState)).toBe("paused");
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveCSS("visibility", "hidden");
     expect(await page.evaluate(() => (window as unknown as { __chatHistorySelections: string[] }).__chatHistorySelections)).toEqual(["history-two"]);
   });
 
