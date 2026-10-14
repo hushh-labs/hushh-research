@@ -1682,6 +1682,21 @@
       "created_at",
       "expires_at"
     ],
+    "live_memory_connector_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_id",
+      "operation",
+      "schema_version",
+      "occurred_at"
+    ],
+    "live_memory_connector_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
+      "updated_at"
+    ],
     "marketplace_investor_actions": [
       "id",
       "actor_user_id",
@@ -2983,21 +2998,6 @@
       "sealed_at",
       "last_heartbeat_at",
       "heartbeat"
-    ],
-    "live_memory_connector_streams": [
-      "owner_hash",
-      "last_sequence",
-      "first_retained_sequence",
-      "updated_at"
-    ],
-    "live_memory_connector_events": [
-      "owner_hash",
-      "sequence",
-      "event_id",
-      "source_id",
-      "operation",
-      "schema_version",
-      "occurred_at"
     ],
     "user_external_connector_connections": [
       "user_id",
