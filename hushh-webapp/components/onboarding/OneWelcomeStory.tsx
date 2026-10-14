@@ -21,9 +21,10 @@ export function OneWelcomeStory({
       <div
         className={styles.welcomeContent}
         data-motion={motionEnabled ? "animated" : "static"}
+        data-welcome-scene
         aria-hidden="true"
       >
-        <div className={styles.artworkCanvas}>
+        <div className={styles.artworkCanvas} data-welcome-artwork>
           <div className={styles.skyOrb} />
           <Image
             className={styles.oneWordmark}
@@ -32,6 +33,7 @@ export function OneWelcomeStory({
             width={221}
             height={91}
             priority
+            data-welcome-wordmark
           />
           <svg className={styles.doodle} viewBox="0 0 390 380" fill="none">
             <path d="M10 128C55 74 95 96 113 116C139 146 101 176 92 145C84 116 161 55 262 80C309 91 324 119 365 104" />
@@ -46,20 +48,21 @@ export function OneWelcomeStory({
             width={1254}
             height={1254}
             priority
+            data-welcome-mascot
           />
-          <div className={[styles.cue, styles.cueCalendar].join(" ")}>
+          <div className={[styles.cue, styles.cueCalendar].join(" ")} data-welcome-cue="calendar">
             <span className={styles.cueIcon}>
               <Image src={ASSET_ROOT + "/calendar.svg"} alt="" width={20} height={20} />
             </span>
             <span>Find a time</span>
           </div>
-          <div className={[styles.cue, styles.cueMail].join(" ")}>
+          <div className={[styles.cue, styles.cueMail].join(" ")} data-welcome-cue="mail">
             <span className={styles.cueIcon}>
               <Image src={ASSET_ROOT + "/mail.svg"} alt="" width={20} height={20} />
             </span>
             <span>Catch me up</span>
           </div>
-          <div className={[styles.cue, styles.cueConsent].join(" ")}>
+          <div className={[styles.cue, styles.cueConsent].join(" ")} data-welcome-cue="consent">
             <span className={styles.cueIcon}>
               <Image src={ASSET_ROOT + "/consent.svg"} alt="" width={20} height={20} />
             </span>
