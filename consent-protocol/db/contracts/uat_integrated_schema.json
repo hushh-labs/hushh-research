@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 339,
+  "expected_migration_version": 340,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -80,7 +80,9 @@
     "notify_feed_changed",
     "stamp_drive_owner_payout_held_at",
     "invalidate_drive_collection_sync",
-    "invalidate_drive_packet_sources"
+    "invalidate_drive_packet_sources",
+    "append_live_memory_connector_event",
+    "erase_live_memory_connector_journal_on_root_delete"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -3035,6 +3037,21 @@
       "sealed_at",
       "last_heartbeat_at",
       "heartbeat"
+    ],
+    "live_memory_connector_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
+      "updated_at"
+    ],
+    "live_memory_connector_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_id",
+      "operation",
+      "schema_version",
+      "occurred_at"
     ],
     "user_external_connector_connections": [
       "user_id",

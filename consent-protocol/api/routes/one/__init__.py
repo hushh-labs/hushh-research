@@ -53,6 +53,7 @@ from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
+from .source_journal import router as source_journal_router
 from .voice import router as voice_router
 from .wallet_card_access import router as wallet_card_access_router
 from .world_model import router as world_model_router
@@ -76,6 +77,7 @@ router.include_router(client_connectors_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(scheduled_mail_drain_router)
+router.include_router(source_journal_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)

@@ -1,6 +1,7 @@
 # hushh_mcp/services/account_service.py
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
+import hashlib
 import logging
 import os
 from collections.abc import Iterable
@@ -1429,6 +1430,40 @@ class AccountService:
 
         lock_connection_graph_users(conn, user_ids=[user_id])
         erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
+        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+        # Source deletion may have appended a final hint. Reset erases all
+        # hints but advances the surviving cursor watermark, so pre-reset
+        # clients cannot confuse new sequence values with old ones. Full
+        # erasure removes the watermark too; its tombstone blocks recreation.
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_connector_events') IS NOT NULL")
+        ).scalar():
+            conn.execute(
+                text("""DELETE FROM public.live_memory_connector_events
+                        WHERE owner_hash=:owner_hash"""),
+                {"owner_hash": owner_hash},
+            )
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_connector_streams') IS NOT NULL")
+        ).scalar():
+            if permanent:
+                conn.execute(
+                    text("""DELETE FROM public.live_memory_connector_streams
+                            WHERE owner_hash=:owner_hash"""),
+                    {"owner_hash": owner_hash},
+                )
+            else:
+                conn.execute(
+                    text("""INSERT INTO public.live_memory_connector_streams
+                            (owner_hash, last_sequence, first_retained_sequence)
+                            VALUES (:owner_hash, 1, 2)
+                            ON CONFLICT (owner_hash) DO UPDATE SET
+                              last_sequence=live_memory_connector_streams.last_sequence+1,
+                              first_retained_sequence=live_memory_connector_streams.last_sequence+2,
+                              updated_at=clock_timestamp()"""),
+                    {"owner_hash": owner_hash},
+                )
+        results["live_memory_connector_journal"] = True
         results["external_connectors"] = True
         results["drive_private_data"] = True
 
