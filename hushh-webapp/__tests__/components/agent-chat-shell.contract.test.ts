@@ -36,7 +36,12 @@ describe("private-agent chat shell contract", () => {
     const dialog = read("components/ui/dialog.tsx");
 
     expect(drawer).toContain('contentDragDismiss={false}');
-    expect(drawer).toContain('className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md"');
+    const connectorDialogClasses = drawer.match(/className="([^"]*agent-connections-dialog[^"]*)"/)?.[1].split(/\s+/);
+    expect(connectorDialogClasses).toEqual(expect.arrayContaining([
+      "agent-connections-dialog", "h-[min(42rem,calc(100dvh-2rem))]",
+      "gap-0", "overflow-hidden", "p-0", "sm:max-w-md",
+      "translate-x-0", "translate-y-0",
+    ]));
     expect(panel).toContain("min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain");
     expect(dialog).toContain("[backdrop-filter:var(--app-scrim-filter)]");
     expect(dialog).toContain("[-webkit-backdrop-filter:var(--app-scrim-filter)]");
