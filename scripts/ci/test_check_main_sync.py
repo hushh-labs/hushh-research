@@ -7,8 +7,8 @@ PR Validation runs scripts/git/check-main-sync.sh with MAIN_SYNC_MODE=bounded
 for PRs into main (2026-10-15). A head behind main passes, with a warning,
 unless its merge-base is older than MAIN_SYNC_MAX_AGE_HOURS or main changed a
 file the branch also changes after the base the PR checks tested. `block`, which
-the merge queue, integration/pr-train and the local release gate keep, still
-fails any lag; it is the negative control.
+integration/pr-train and the local release gate keep, still fails any lag;
+it is the negative control. Merge groups prove their immutable event range.
 
 Each case builds a throwaway bare origin plus a clone, sets commit ages through
 GIT_COMMITTER_DATE, and runs the real script the way CI does: `sh`, env only.

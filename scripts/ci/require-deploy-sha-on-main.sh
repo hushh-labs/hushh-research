@@ -66,9 +66,10 @@ sha, branch, check_name, payload_path = sys.argv[1:]
 payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
 
 # REQUIRED_CHECK_NAME accepts a comma-separated any-of list because the
-# authoritative full-CI check differs by commit kind: PR heads carry
-# "CI Status Gate", merge-queue train heads carry "Queue Validation", and
-# main merge commits carry "Main Post-Merge Smoke Gate". A single-name
+# authoritative full-CI check differs by commit kind: PR and merge-group
+# heads carry "CI Status Gate", and main merge commits carry "Main Post-Merge
+# Smoke Gate". A legacy "Queue Validation" name remains accepted for older
+# green train commits. A single-name
 # value keeps the historical exact-match behavior.
 accepted_names = [name.strip() for name in check_name.split(",") if name.strip()]
 

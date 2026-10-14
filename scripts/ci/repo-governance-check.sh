@@ -15,7 +15,8 @@ python3 scripts/ci/verify-protected-behavior-tests.py --self-test
 python3 scripts/ci/live-memory-source-gate.py
 python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
-python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
+# setup-python-uv installs PyYAML into this environment, not host python3.
+consent-protocol/.venv/bin/python scripts/ci/test_merge_group_ci_workflow.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
@@ -31,7 +32,8 @@ python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
 # Base Freshness Gate is bounded on PRs into main; this proves it still blocks
 # a stale merge-base or a file main changed after the tested base, and that
-# block mode (merge queue, integration/pr-train) still fails any lag.
+# block mode (integration/pr-train and local release) still fails any lag;
+# merge groups independently prove the immutable event base and head.
 python3 scripts/ci/test_check_main_sync.py
 # The web lanes run as matrices (targeted node/browser legs, Vitest shards);
 # this proves the split still runs every pack, shard and verifier exactly once.

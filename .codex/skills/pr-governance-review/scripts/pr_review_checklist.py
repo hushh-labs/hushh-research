@@ -3706,7 +3706,7 @@ def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
 
 def _operator_batch_after_merge_kickoff(batch: dict[str, Any]) -> list[str]:
     return [
-        "  - After each merge, monitor Queue Validation and Main Post-Merge Smoke before treating dependent PRs as unblocked.",
+        "  - After each queued merge, monitor PR Validation on the merge-group SHA and Main Post-Merge Smoke before treating dependent PRs as unblocked.",
         "  - While queue/smoke runs, start review preparation for the next independent `Recommended Operator Batches` item that does not share this train's files or runtime contract.",
         "  - After smoke passes, refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md`, then rerun the checklist for the next train before any GitHub write.",
         "  - Before the final handoff, return the parent worktree to the recorded developer branch or report the exact blocker.",

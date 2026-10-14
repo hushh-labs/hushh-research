@@ -62,7 +62,7 @@ Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 8. Ask one Pre-Wave Operator Question before any comment, close, patch, queue, merge, or deploy checkpoint unless the operator has already given explicit standing approval for this scoped async-train run.
 9. After a wave completes, treat PRs with current standardized maintainer records as handled until their head SHA, CI state, mergeability, or contributor response changes.
 10. Run independent trains in parallel through a five-worker subagent train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
-11. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
+11. Treat PR Validation on PR and merge-group SHAs and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
 12. Ingest every returned lane into queue, patch, comment/close, hold, dormant hold, or next-refill writes; do not call the set complete until every scoped PR is linked as acted, terminal, blocked, dormant-current, or remaining.
 
 If this order conflicts with another PR-governance reference, this section wins.

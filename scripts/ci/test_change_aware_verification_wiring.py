@@ -16,8 +16,7 @@ def require(path: str, *fragments: str) -> None:
 
 
 def test_ci_smoke_and_uat_share_the_selector() -> None:
-    # Queue Validation is a pass-through that reuses PR Validation's verdict for
-    # an identical tree, so the selector decision it carries is PR Validation's.
+    # PR Validation runs the selector on both PR and merge-group candidate SHAs.
     selector = "scripts/ci/resolve-uat-verification-plan.py"
     for workflow in (
         ".github/workflows/ci.yml",

@@ -50,7 +50,7 @@ Review the current PR head, not stale history, and decide whether the change is 
 22. Use fuller sections only when they help future readers understand a patch, blocker, trust boundary, or related surface.
 23. Once the action flow is finalized, do not ask for a second confirmation before posting the contributor-facing note. The note should be posted automatically after the monitored merge result reaches the required terminal state when the selected flow includes merge.
 24. Do not stop monitoring after `gh pr merge`, `gh pr merge --auto`, queue entry, or green PR checks. Stay attached until the authoritative workflow chain is terminal for that PR:
-   - `Queue Validation` terminal when merge queue is involved
+   - merge-group `PR Validation` terminal when merge queue is involved
    - `Main Post-Merge Smoke` terminal if the PR lands on `main`
 25. Return the parent worktree to the recorded developer branch after any temporary PR checkout, detached HEAD, review worktree, or queue-monitoring branch movement.
 26. Before the final response, update the active working report when one exists. For `tmp/pr-governance-live-report.md`, this means updating the progress ledger, per-PR register entries, head SHAs, lanes, batch counts, recommended next order, and terminal queue/smoke evidence.

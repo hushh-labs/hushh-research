@@ -3,6 +3,9 @@ name: "PR Validation"
 on:
   pull_request:
     branches: ["**"]
+  merge_group:
+    types: [checks_requested]
+    branches: [main, integration/pr-train]
   workflow_dispatch:
     inputs:
       # `auto` runs the lanes the dispatched branch's changes against the
@@ -47,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 0
       - name: Install gitleaks OSS CLI (license-free)
         run: |
@@ -58,6 +62,11 @@ jobs:
       - name: Resolve scan commit range
         id: scan-range
         shell: bash
+        env:
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          QUEUE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          CHECKOUT_SHA: ${{ github.sha }}
         run: |
           resolve_from_default_branch() {
             DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
@@ -79,16 +88,17 @@ jobs:
               LOG_OPTS="$(resolve_from_default_branch)"
             fi
           elif [ "${{ github.event_name }}" = "merge_group" ]; then
-            BASE_SHA="${{ github.event.merge_group.base_sha }}"
-            HEAD_SHA="${{ github.event.merge_group.head_sha }}"
-            if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] \
-              && git rev-parse "$BASE_SHA" >/dev/null 2>&1 \
-              && git rev-parse "$HEAD_SHA" >/dev/null 2>&1 \
-              && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"; then
-              LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
-            else
-              LOG_OPTS="$(resolve_from_default_branch)"
-            fi
+            BASE_SHA="$QUEUE_BASE_SHA"
+            HEAD_SHA="$QUEUE_HEAD_SHA"
+            # The queue must scan its synthetic candidate, including entries
+            # stacked on a previously queued base. Never fall back to a PR or
+            # default-branch range if the event cannot prove that candidate.
+            python3 scripts/ci/validate-merge-group-context.py \
+              --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+              --checkout-sha "$CHECKOUT_SHA" \
+              --base-ref "$QUEUE_BASE_REF" \
+              --github-output "$RUNNER_TEMP/merge-group-context"
+            LOG_OPTS="${BASE_SHA}..${HEAD_SHA}"
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -116,21 +126,23 @@ jobs:
   dco-check:
     name: "DCO"
     # Dispatched runs too: their CI Status Gate lands on the branch head, so
-    # the gate requires DCO on both events. Without a PR range,
+    # the gate requires DCO on pull requests, merge groups, and dispatches.
+    # Without a PR range,
     # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
     # the branch's own commits.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 0
 
       - name: Validate DCO signoff
         env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: bash scripts/ci/check-dco-signoff.sh
 
   pr-base-policy:
@@ -160,6 +172,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -194,26 +208,51 @@ jobs:
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
+      base_sha: ${{ steps.queue-context.outputs.base_sha || github.event.pull_request.base.sha }}
+      head_sha: ${{ steps.queue-context.outputs.head_sha || github.event.pull_request.head.sha }}
+      base_ref: ${{ steps.queue-context.outputs.base_ref || github.base_ref || 'main' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
+          fetch-depth: 0
+
+      - name: Validate merge-group candidate and base
+        id: queue-context
+        if: github.event_name == 'merge_group'
+        env:
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          QUEUE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          CHECKOUT_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/ci/validate-merge-group-context.py \
+            --base-sha "$QUEUE_BASE_SHA" \
+            --head-sha "$QUEUE_HEAD_SHA" \
+            --checkout-sha "$CHECKOUT_SHA" \
+            --base-ref "$QUEUE_BASE_REF" \
+            --github-output "$GITHUB_OUTPUT"
 
       # A dispatch with scope `auto` runs these same filters. paths-filter v4
       # has no pull request to ask the API about then, so it diffs `ref`
       # against its merge-base with `base` (git three-dot), deepening the
       # shallow clone until it finds one. `ref` is the dispatched commit, not
       # the branch name, so a branch that moves mid-run cannot select lanes for
-      # a commit this run does not test. Both are passed only on dispatch,
-      # because v4 ignores them on a pull_request event and warns on every run.
+      # a commit this run does not test. Merge groups pass the validated event
+      # base/head SHAs. Pull requests use GitHub's changed-file API.
       # The default branch has no branch diff, so `auto` there runs `all`.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
-          github.event_name == 'pull_request' || github.event_name == 'push' ||
+          github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
           (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
           github.ref_name != github.event.repository.default_branch)
         with:
-          base: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || '' }}
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+          # v4 diffs these exact event SHAs for merge_group. Pull-request
+          # events continue to use GitHub's changed-file API. Dispatch auto
+          # diffs its immutable SHA against the default branch.
+          base: ${{ steps.queue-context.outputs.base_sha || (github.event_name == 'workflow_dispatch' && github.event.repository.default_branch) || '' }}
+          ref: ${{ steps.queue-context.outputs.head_sha || (github.event_name == 'workflow_dispatch' && github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -232,7 +271,6 @@ jobs:
             frontend:
               - 'hushh-webapp/**'
               - '.github/workflows/ci.yml'
-              - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/orchestrate.sh'
               - 'scripts/ci/web-*.sh'
@@ -242,7 +280,6 @@ jobs:
               - 'deploy/backend.cloudbuild.yaml'
               - '.github/workflows/ci.yml'
               - '.github/workflows/deploy-uat.yml'
-              - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               # The protocol lane's guard pins it to the editor lane's steps.
               - '.github/workflows/editor-performance-nightly.yml'
@@ -373,7 +410,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
+          # A stacked queue's base SHA can be more than two parents behind.
+          fetch-depth: ${{ github.event_name == 'merge_group' && '0' || '2' }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -405,6 +444,9 @@ jobs:
       ios: ${{ needs.paths.outputs.ios }}
       android: ${{ needs.paths.outputs.android }}
       editor: ${{ needs.paths.outputs.editor }}
+      base_sha: ${{ needs.paths.outputs.base_sha }}
+      head_sha: ${{ needs.paths.outputs.head_sha }}
+      base_ref: ${{ needs.paths.outputs.base_ref }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -428,12 +470,33 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+          for result in "$SECRET_SCAN" "$REPO_GOVERNANCE" "$PATHS"; do
+            if [ "$result" != "success" ]; then
               fail=1
             fi
           done
-
+          if [ "$DCO" != "success" ]; then
+            echo "Every CI event requires a successful DCO check."
+            fail=1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_POLICY" != "success" ]; then
+            echo "Pull requests require successful base-policy verification."
+            fail=1
+          fi
+          if [ "${{ github.event_name }}" = "merge_group" ] && [ "$PR_BASE_POLICY" != "skipped" ]; then
+            echo "Merge groups have no single PR author; PR base policy must run on their constituent PRs."
+            fail=1
+          fi
+          if [ "${{ github.event_name }}" = "merge_group" ] && [ "$MAIN_FRESHNESS" != "success" ]; then
+            echo "Merge groups require a successful exact-base freshness check."
+            fail=1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && { [ "${{ github.base_ref }}" = "main" ] || [ "${{ github.base_ref }}" = "integration/pr-train" ]; } \
+            && [ "$MAIN_FRESHNESS" != "success" ]; then
+            echo "Protected-base pull requests require successful freshness verification."
+            fail=1
+          fi
 
           if [ "$fail" -ne 0 ]; then
             echo "Preflight failed; skipping expensive web/protocol/integration lanes."
@@ -456,6 +519,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 2
 
       - uses: actions/setup-node@v6
@@ -538,6 +602,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -629,9 +694,9 @@ jobs:
           # config reads it, so it is inert in the node leg.
           PLAYWRIGHT_WORKERS: "3"
           PLAYWRIGHT_SHARD: ${{ matrix.shard }}
-          WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
+          WEB_TARGETED_BASE_SHA: ${{ needs['preflight-gate'].outputs.base_sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ needs['preflight-gate'].outputs.head_sha }}
+          WEB_TARGETED_BASE_REF: ${{ needs['preflight-gate'].outputs.base_ref }}
 
       - name: Upload security audit artifact
         if: always()
@@ -661,6 +726,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -704,6 +771,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           # verify:one-voice runs the capability graph check, which diffs
           # against the PR base ref and fails closed when a shallow clone
           # does not carry it.
@@ -727,7 +795,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
           WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}/3
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ needs['preflight-gate'].outputs.base_sha || 'origin/main' }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
   ios-native-check:
@@ -762,6 +830,8 @@ jobs:
       NEXT_PUBLIC_FIREBASE_VAPID_KEY: test-vapid-key
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
 
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -1005,6 +1075,8 @@ jobs:
       CAPACITOR_PLATFORM: android
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
 
       - uses: actions/setup-java@v4
         with:
@@ -1081,6 +1153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           # The capability graph check diffs against the PR base ref, which a
           # shallow clone does not carry.
           fetch-depth: 0
@@ -1105,7 +1178,7 @@ jobs:
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
-          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          CAPABILITY_GRAPH_BASE_REF: ${{ needs['preflight-gate'].outputs.base_sha || 'origin/main' }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
@@ -1122,6 +1195,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -1151,6 +1226,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -1169,12 +1245,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            target_sha="${{ github.event.pull_request.head.sha }}"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
             target_sha="${{ github.sha }}"
+          else
+            base_sha="${{ needs['preflight-gate'].outputs.base_sha }}"
+            target_sha="${{ needs['preflight-gate'].outputs.head_sha }}"
           fi
           python3 scripts/ci/resolve-uat-verification-plan.py \
             --target-sha "$target_sha" \
@@ -1210,6 +1286,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
           fetch-depth: 0
 
       - name: Check if upstream consent-protocol has unpulled commits
@@ -1218,14 +1295,14 @@ jobs:
 
   main-freshness-gate:
     name: "Base Freshness Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    if: github.event_name == 'merge_group' || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
 
       # Every lane checks out github.sha, GitHub's refs/pull/N/merge commit: this
       # head merged onto the base as of the push. Its first parent is the base
@@ -1234,7 +1311,7 @@ jobs:
       # output stays empty and the check falls back to the merge-base.
       - name: Resolve the base the PR checks tested
         id: tested-base
-        if: github.base_ref == 'main'
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
         env:
           TESTED_MERGE_SHA: ${{ github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -1251,10 +1328,24 @@ jobs:
           fi
           echo "sha=$tested_base" >> "$GITHUB_OUTPUT"
 
+      - name: Verify immutable merge-group base and head
+        if: github.event_name == 'merge_group'
+        env:
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          QUEUE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          CHECKOUT_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/ci/validate-merge-group-context.py \
+            --base-sha "$QUEUE_BASE_SHA" --head-sha "$QUEUE_HEAD_SHA" \
+            --checkout-sha "$CHECKOUT_SHA" --base-ref "$QUEUE_BASE_REF" \
+            --github-output "$RUNNER_TEMP/merge-group-freshness"
+
       - name: Verify branch freshness against PR base
+        if: github.event_name == 'pull_request'
         env:
           MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: ${{ github.base_ref }}
+          PR_BASE_REF: ${{ github.base_ref }}
           # bounded for PRs into main, block for integration/pr-train (2026-10-15).
           #
           # block failed every PR that was even one commit behind main. main
@@ -1274,15 +1365,19 @@ jobs:
           #     also changes (up to 20 paths are printed).
           # A missing remote, failed fetch or unresolvable commit still fails.
           #
-          # block stays wherever landing order must be exact: the merge queue
-          # (.github/workflows/queue-validation.yml), PRs into
-          # integration/pr-train, and the release gate
+          # block stays for PRs into integration/pr-train and the release gate
           # (scripts/ci/local-release-gate.sh). Bypass cohorts waive review,
           # never validation.
           MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
           MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
-        run: sh scripts/git/check-main-sync.sh
+        run: |
+          base="$PR_BASE_REF"
+          case "$base" in
+            main|integration/pr-train) ;;
+            *) echo "Unsupported CI base ref: $base" >&2; exit 1 ;;
+          esac
+          MAIN_SYNC_BRANCH="$base" sh scripts/git/check-main-sync.sh
 
   # Advisory, not required: in block mode Base Freshness Gate proves a PR
   # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
@@ -1461,8 +1556,17 @@ jobs:
               echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
               fail=1
             fi
+          elif [ "$EVENT_NAME" = "merge_group" ]; then
+            if [ "$PR_BASE_POLICY" != "skipped" ]; then
+              echo "Merge groups have no single PR author; PR Base Policy must be skipped here."
+              fail=1
+            fi
+            if [ "$MAIN_FRESHNESS" != "success" ]; then
+              echo "A merge group requires a successful exact-base freshness check."
+              fail=1
+            fi
           elif [ "$EVENT_NAME" != "workflow_dispatch" ]; then
-            echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
+            echo "This gate knows pull_request, merge_group, and workflow_dispatch; ${EVENT_NAME} fails closed."
             fail=1
           fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do

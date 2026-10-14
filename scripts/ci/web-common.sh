@@ -74,6 +74,21 @@ web_ci_changed_files() {
     return
   fi
 
+  base="${WEB_TARGETED_BASE_SHA:-}"
+  head="${WEB_TARGETED_HEAD_SHA:-HEAD}"
+  if [ -n "$base" ]; then
+    # CI pins the PR or merge-group range. A package install may dirty the
+    # checkout, but that must never replace the candidate's changed-file set.
+    # Missing commits fail the targeted lane instead of falling back to main.
+    if ! git cat-file -e "${base}^{commit}" 2>/dev/null \
+      || ! git cat-file -e "${head}^{commit}" 2>/dev/null; then
+      echo "Pinned web verification range is unavailable: ${base}..${head}" >&2
+      return 1
+    fi
+    git diff --name-only "$base" "$head"
+    return
+  fi
+
   local local_changes
   local_changes="$(
     {
@@ -83,14 +98,6 @@ web_ci_changed_files() {
   )"
   if [ -n "$local_changes" ]; then
     printf '%s\n' "$local_changes"
-    return
-  fi
-
-  base="${WEB_TARGETED_BASE_SHA:-}"
-  head="${WEB_TARGETED_HEAD_SHA:-HEAD}"
-
-  if [ -n "$base" ] && git rev-parse --verify "$base" >/dev/null 2>&1; then
-    git diff --name-only "$base" "$head"
     return
   fi
 

@@ -14,7 +14,7 @@ flowchart TB
   subgraph integration["Integration lane"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
-    queueci["Queue Validation<br/>pass-through: reuses PR Validation<br/>for an identical tree"]
+    queueci["PR Validation on merge-group SHA<br/>path-filtered full CI"]
     queue["GitHub merge queue"]
     main["main"]
   end
@@ -43,7 +43,7 @@ The canonical state-changing operator procedure is the
 This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 
-**Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
+**Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)
 **Pre-PR mirror:** [`./bin/hushh codex pre-pr`](./cli.md)  
 **Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
@@ -62,7 +62,7 @@ After any merge to `main`, bypass merge, deploy trigger, or manual workflow disp
 
 Minimum expectation:
 
-1. watch the immediate `PR Validation`, `Queue Validation`, or dispatched workflow
+1. watch the immediate `PR Validation` (including its merge-group run) or dispatched workflow
 2. if `main` goes green, watch `Main Post-Merge Smoke`
 3. if a UAT deployment was explicitly requested, dispatch `Deploy to UAT` for that same green `main` SHA and watch it to terminal state
 4. report the exact failing workflow, job, and step if anything fails
@@ -85,7 +85,7 @@ Merge-queue rule:
 
 If Codex triggers `gh pr merge`, `gh pr merge --auto`, or any action that places a PR into merge queue, that is not completion. Codex must confirm the queue entry, then continue monitoring the authoritative workflow chain until:
 
-1. `Queue Validation` reaches terminal state for the merge candidate
+1. `PR Validation` reaches terminal state on the merge-group SHA
 2. if the PR lands, `Main Post-Merge Smoke` reaches terminal state for the landed `main` SHA
 3. only stop earlier when the user explicitly asked for queue placement rather than landed completion
 4. if Codex triggered the merge path, it owns this monitoring step through terminal completion and should not pause after the queue accepts the PR
@@ -235,12 +235,12 @@ readiness or model calls caused by an explicitly exercised product journey.
 | Trigger | Branches | Behavior |
 |--------|-----------|----------|
 | Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
-| Merge queue | `main`, `integration/pr-train` | `Queue Validation` pass-through: reports `CI Status Gate` on the merge group only when its tree equals the PR head's tree and PR Validation passed on that head; plus `Base Freshness Gate` |
+| Merge queue | `main`, `integration/pr-train` | `PR Validation` checks the synthetic merge-group SHA, including stacked entries, and reports `CI Status Gate` on that SHA |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
 | Manual | Any | `PR Validation` `workflow_dispatch` with scope `auto` (default) \| `all` \| `frontend` \| `backend`; see [Dispatched runs](#dispatched-runs) |
 | Schedule | `main` | `Editor Performance Nightly` runs the macOS editor lane's steps at 23:17 UTC and opens or comments on one issue when they fail |
 
-**Path filters:** `PR Validation` runs jobs only when relevant paths change. A dispatched run with scope `auto` applies the same filters to the dispatched commit's changes against the default branch; `all`, `frontend` and `backend` choose the lanes by hand. `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
+**Path filters:** `PR Validation` runs jobs when relevant paths change. A dispatch with scope `auto` applies them to the dispatched commit against the default branch; explicit scopes select lanes by hand. On a merge group, it compares the validated event base and head SHAs. `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
 - **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
@@ -316,8 +316,10 @@ Post-Merge Smoke` was 324/0 green. The lanes already test the PR merged onto
 enough to drift, and bounded mode blocks exactly those.
 
 `block` mode, which fails any lag, stays in place for pull requests into
-`integration/pr-train`, on every merge group (`Queue Validation`), and in
-`scripts/ci/local-release-gate.sh`. Local pre-push stays `warn`. GitHub's own
+`integration/pr-train` and in `scripts/ci/local-release-gate.sh`. Merge groups
+prove their immutable event base/head and test that candidate; checking a
+moving `origin/main` during the queue run would race GitHub's regrouping.
+Local pre-push stays `warn`. GitHub's own
 strict up-to-date rule on `main` (`require_strict_status_checks` in
 [config/ci-governance.json](../../../config/ci-governance.json)) is unchanged.
 
@@ -331,48 +333,27 @@ strict up-to-date rule on `main` (`require_strict_status_checks` in
 
 The default was `all` until 2026-10-15, which put iOS on one of the org's five macOS slots on every dispatch; one 30-minute dispatch loop made 59 of the 77 runs dispatched from 2026-10-07 to 2026-10-15.
 
-A dispatched run reports `CI Status Gate` on the branch head, which is often a pull request's head too, and branch protection reads the newest `CI Status Gate` there. A dispatch runs neither `PR Base Policy` nor `Base Freshness Gate` and tests the head instead of the merge with the base, so its gate fails when the dispatched commit heads an open pull request into `main` or `integration/pr-train`, and when that lookup fails. The gate lists the open pull requests into both bases and matches their head commit; on 2026-10-15 that was 16 API pages. It cannot ask `commits/{sha}/pulls` instead: for a commit already on `main` that returns only the merged pull request that introduced it, which is how open #4268 was missed. Re-run the pull request's own `PR Validation` run (event `pull_request`) to restore its gate. One window stays open: a pull request opened on the commit after the dispatch's gate ran shows that green gate until its own `CI Status Gate` job starts. `Queue Validation` reads only `pull_request` runs, so a merge through the queue still needs the pull request's own pass. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
+A dispatched run reports `CI Status Gate` on the branch head, which is often a pull request's head too, and branch protection reads the newest `CI Status Gate` there. A dispatch runs neither `PR Base Policy` nor `Base Freshness Gate` and tests the head instead of the merge with the base, so its gate fails when the dispatched commit heads an open pull request into `main` or `integration/pr-train`, and when that lookup fails. The gate lists the open pull requests into both bases and matches their head commit; on 2026-10-15 that was 16 API pages. It cannot ask `commits/{sha}/pulls` instead: for a commit already on `main` that returns only the merged pull request that introduced it, which is how open #4268 was missed. Re-run the pull request's own `PR Validation` run (event `pull_request`) to restore its gate. One window stays open: a pull request opened on the commit after the dispatch's gate ran shows that green gate until its own `CI Status Gate` job starts. The merge queue tests its own synthetic candidate SHA and does not reuse a dispatch verdict. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 
-The `main merge queue` ruleset is active, but its bypass list holds the
-governed maintainer cohort, and those maintainers land PRs directly. No PR has
-entered the queue since 2026-09-01, the date of the last full `Queue
-Validation` run, and that run's `web-full` step was red in each of its last six
-runs. So the queue does **not** absorb stale-base risk; `Base Freshness Gate`
-on the PR is what bounds it (see
-[Base freshness on pull requests](#base-freshness-on-pull-requests)).
+The `main` and `integration/pr-train` queue rulesets remain active, and both
+protected branches require `CI Status Gate`. `PR Validation` emits that check
+on the merge-group SHA. The previous identical-tree pass-through rejected
+valid candidates when the base advanced or entries were stacked; it was
+retired together with the new trigger. A queue entry receives the same
+path-filtered frontend, backend, native, governance, freshness, and aggregate
+checks as a pull request. The queue's changed-file range is its validated
+base SHA through head SHA, and selected lanes must succeed. A missing or
+invalid range blocks preflight.
 
-**Since 2026-09-26 the full Vitest suite gates every frontend PR** through the
-`Web Full Suite (Vitest)` lane in PR Validation, and `Queue Validation` is a
-thin pass-through rather than a second copy of CI.
-
-Why it was not deleted: `main` requires the `CI Status Gate` check
-([config/ci-governance.json](../../../config/ci-governance.json)) and the
-merge-queue ruleset is active, so a PR placed in the queue needs a `CI Status
-Gate` on its merge group or the entry times out and is dropped. Deleting the
-workflow would turn the queue into a trap rather than retire it.
-
-What the pass-through checks, in
-[scripts/ci/verify-queue-entry-reuses-pr-validation.py](../../../scripts/ci/verify-queue-entry-reuses-pr-validation.py):
-
-1. the merge group's head ref names one PR (`gh-readonly-queue/<base>/pr-<N>-<sha>`);
-2. the merge group's git **tree** is identical to the PR head's tree, which holds
-   exactly when the PR already contained its base and no other entry is queued
-   underneath it. Identical trees are identical content, so PR Validation's
-   verdict is a verdict on the merge group, not an approximation of it;
-3. the latest `PR Validation` run on that PR head has a successful `CI Status
-   Gate` job.
-
-Anything else fails closed with the fix: update the branch, wait for PR
-Validation, re-queue. `Base Freshness Gate` still runs on the merge group.
-Merge groups that stack several entries are therefore rejected rather than
-approximated; with `max_entries_to_merge: 1` that only costs a re-queue.
-
-To retire the workflow outright, the founder would remove the merge-queue
-rulesets (`main merge queue`, `integration pr train merge queue`) and set
-`merge_queue_required: false` in `config/ci-governance.json` in the same change;
-the workflow can then be deleted.
+The PR-only author policy is checked on each constituent PR. Queue CI also
+checks DCO on contributor commits, including contributor-created merges, in
+its candidate range; only synthetic queue merge commits are excluded. The
+queue's `Base Freshness Gate` verifies
+the immutable event base, head, checkout SHA and ancestry. Maintainer queue
+bypass remains a separate
+governed path and does not turn this queue run into a post-merge release check.
 
 ---
 
@@ -382,14 +363,14 @@ the workflow can then be deleted.
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
-| Main Freshness Gate (job name `Base Freshness Gate`) | Keep a branch's base fresh enough that what CI tested is what lands | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train` and every `merge_group`: `block`, failing any lag. Feeds `CI Status Gate` |
-| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run, and a pull request also needs PR Base Policy and, into `main` or `integration/pr-train`, Base Freshness Gate. Lanes the filters did not select may be skipped. A dispatch also fails for scope `frontend` or `backend`, or when it heads an open pull request into those bases ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
+| Base Freshness Gate | Keep a PR's base current and prove each queued candidate's exact comparison range | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train`: `block`, failing any lag. Merge groups: validate immutable event base/head, checkout SHA and ancestry. Feeds `CI Status Gate` |
+| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run. Pull requests also need PR Base Policy and, into `main` or `integration/pr-train`, Base Freshness Gate. Merge groups need an exact-range Base Freshness Gate; their constituent PRs run PR Base Policy. Lanes the filters did not select may be skipped. A dispatch also fails for scope `frontend` or `backend`, or when it heads an open pull request into those bases ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
 
 Operational note:
 
 - `Upstream Sync` and `Main Freshness Gate` are different surfaces.
 - `Upstream Sync` must summarize the actual `consent-protocol/` subtree state from `scripts/ci/subtree-sync-check.sh`.
-- `Main Freshness Gate` only describes branch currency relative to `main`.
+- On pull requests, `Base Freshness Gate` describes branch currency; on merge groups, it proves the candidate's event range.
 - Local pre-push keeps upstream sync opt-in for shipping speed. Use `./bin/hushh protocol check-sync` or `CONSENT_PRE_PUSH_SYNC_CHECK=1 git push`; CI remains the shared advisory evidence lane.
 
 ## Live GitHub Enforcement
@@ -715,7 +696,7 @@ Blocking backend manifest:
 
 ### Capability-graph evolution gate
 
-`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. `protocol-check` and `web-full-suite-check` both export `CAPABILITY_GRAPH_BASE_REF=origin/<PR base>` over a full-history checkout; Queue Validation runs no lane and so resolves no base. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
+`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the PR or merge-group base, not against `HEAD`: the predecessor is the committed graph at the merge-base with a chosen ref, where the ref is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. `protocol-check` and `web-full-suite-check` export the immutable event base SHA as `CAPABILITY_GRAPH_BASE_REF` over a full-history checkout on PR and merge-group runs; manual runs fall back to `origin/main`. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 

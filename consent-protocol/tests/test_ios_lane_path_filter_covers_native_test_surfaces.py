@@ -15,12 +15,10 @@ transitive imports are traced and checked for exactly that.
 
 It also pins the checkout depth and base-ref env of every lane that reaches
 the capability graph check (`generate_capability_graph.py --check`), which
-must diff against the pull request base and fails closed under CI when that
-base is not in the clone: `protocol-check` and `web-full-suite-check` (whose
-`verify:one-voice` runs the check) on PR Validation. Queue Validation is a
-pass-through that reuses the PR Validation result and runs no lane, so it has
-no base ref to resolve; that is pinned here too, so a lane re-added there
-cannot silently skip the graph check.
+must diff against the pull request or merge-group base and fails closed under
+CI when that base is not in the clone: `protocol-check` and
+`web-full-suite-check` (whose `verify:one-voice` runs the check) on PR
+Validation.
 
 The macOS editor latency lane (`web-editor-performance-check`) gets the same
 guard from its own `editor:` filter, which replaced scheduling it on every
@@ -44,7 +42,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MONO_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 UPSTREAM_WORKFLOW_PATH = ROOT / "consent-protocol" / ".github" / "workflows" / "ci.yml"
-QUEUE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "queue-validation.yml"
 PR_LANES_REACHING_THE_GRAPH_CHECK = {
     "protocol-check": ("orchestrate.sh protocol", "protocol-check.sh"),
     "web-full-suite-check": ("orchestrate.sh web-full-suite",),
@@ -345,8 +342,8 @@ def test_pr_lane_fetches_full_history_and_exports_the_base_ref(job: str) -> None
     )
     lane_step = _step_running(steps, *PR_LANES_REACHING_THE_GRAPH_CHECK[job])
     base_ref = str(lane_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
-    assert base_ref.startswith("origin/") and "github.base_ref" in base_ref, (
-        f"{job} must export CAPABILITY_GRAPH_BASE_REF as origin/<PR base ref>"
+    assert base_ref == "${{ needs['preflight-gate'].outputs.base_sha || 'origin/main' }}", (
+        f"{job} must export CAPABILITY_GRAPH_BASE_REF from the immutable PR or queue base SHA"
     )
 
 
@@ -359,23 +356,6 @@ def test_upstream_backend_check_mirrors_the_checkout_depth_and_base_ref() -> Non
     backend_step = _step_running(steps, "backend-check.sh")
     base_ref = str(backend_step.get("env", {}).get("CAPABILITY_GRAPH_BASE_REF") or "")
     assert base_ref.startswith("origin/") and "github.base_ref" in base_ref
-
-
-def test_queue_validation_is_a_pass_through_that_runs_no_lane() -> None:
-    # Queue Validation reuses PR Validation's verdict for an identical tree.
-    # A CI lane re-added there would need its own merge-group base handling
-    # (GITHUB_BASE_REF is unset on merge_group), which this file used to pin.
-    workflow = _load_workflow(QUEUE_WORKFLOW_PATH)
-    jobs = workflow["jobs"]
-    assert set(jobs) == {"pr-validation-reuse", "main-freshness-gate", "ci-status"}, sorted(jobs)
-    assert jobs["ci-status"]["name"] == "CI Status Gate"
-    reuse = _step_running(
-        _steps(workflow, "pr-validation-reuse"), "verify-queue-entry-reuses-pr-validation.py"
-    )
-    assert reuse.get("env", {}).get("MERGE_GROUP_HEAD_SHA") == (
-        "${{ github.event.merge_group.head_sha }}"
-    )
-    assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
 def _editor_specs() -> list[Path]:
@@ -506,5 +486,6 @@ def test_editor_nightly_runs_the_pr_lane_steps_on_main() -> None:
         return result
 
     assert comparable(runs[0]["steps"], pinned_ref="main") == comparable(
-        lane["steps"], pinned_ref=None
+        lane["steps"],
+        pinned_ref="${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}",
     )

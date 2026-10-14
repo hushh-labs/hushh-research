@@ -56,8 +56,8 @@ Required pre-merge proof:
    --match-head-commit <head-sha>`.
 2. Confirm actual queue entry from live merge-queue state. Auto-merge enabled or
    a successful CLI response is not by itself proof that the PR entered queue.
-3. Monitor `Queue Validation` to terminal state and, if landed, continue through
-   `Main Post-Merge Smoke` for the landed `main` SHA.
+3. Monitor `PR Validation` on the merge-group SHA to terminal state and, if
+   landed, continue through `Main Post-Merge Smoke` for the landed `main` SHA.
 4. If independent approval or approval-of-latest-push blocks queue entry, report
    that blocker and obtain the required review. Do not claim the PR is queued.
 
@@ -88,7 +88,7 @@ gh pr merge <pr> --admin --merge --match-head-commit <head-sha>
 ```
 
 Report this truthfully as an Admin queue bypass. Never describe it as merge-queue
-execution or claim `Queue Validation` ran when it did not. Monitor the resulting
+execution or claim merge-group `PR Validation` ran when it did not. Monitor the resulting
 `Main Post-Merge Smoke` for the exact landed `main` SHA.
 
 ### 4. Establish deploy authority
