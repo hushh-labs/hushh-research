@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { IDBFactory } from "fake-indexeddb";
+import { IDBFactory, IDBObjectStore as FakeObjectStore } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { SecureDurableResourceService as Durable } from "@/lib/services/secure-durable-resource-service";
 import { openSecureResourceDb, DURABLE_RESOURCE_STORE } from "@/lib/services/secure-resource-cache-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { runReceiptFunction, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
+import { loadReceiptSnapshot, receiptStoreVersion, runReceiptFunction, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
 import { captureReceiptSnapshot, receiptSnapshotRows, validateReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import { analyzeReceipts } from "@/lib/mail/receipt-analysis";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
@@ -23,6 +23,70 @@ const receipt = (id: number, extra: Partial<ReceiptListItem> = {}): ReceiptListI
 beforeEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner"); Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true }); Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true }); });
 
 describe("canonical receipt storage boundary", () => {
+  it("saves the live extraction's verbatim printed dates and restores the same canonical rows", async () => {
+    const items = [receipt(1, { merchant_name: "Plaid", merchant_domain: "plaid.com", transaction_date: "October 9, 2026",
+      attention_state: "coming_up", attention_reason: "renewal_due", attention_date: "October 18" })];
+    const original = buildRecentReceiptRows(items, "account");
+    const snapshot = await captureReceiptSnapshot(items, "account", coverage);
+    const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
+    await writeReceiptSnapshot(session, snapshot, await receiptStoreVersion("owner", "account"));
+    const loaded = await loadReceiptSnapshot(session, "account");
+    expect(loaded?.revision).toBe(1);
+    const restored = receiptSnapshotRows(loaded!.value);
+    expect(restored.map(r => [r.id, r.merchantName, r.amount, r.status, r.receiptDate, r.attentionDate, r.secondaryText]))
+      .toEqual(original.map(r => [r.id, r.merchantName, r.amount, r.status, r.receiptDate, r.attentionDate, r.secondaryText]));
+    for (const date of ["https://example.com", "user@example.com", "October 18\nRAW_BODY"])
+      expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], attention_date: date }] })).toThrow();
+  });
+  it("keeps the previous verified snapshot on encryption, quota or transaction failure", async () => {
+    const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
+    const previous = await captureReceiptSnapshot([receipt(1)], "account", coverage);
+    await writeReceiptSnapshot(session, previous, { generation: 0, revision: 0 });
+    const replacement = await captureReceiptSnapshot([receipt(2, { amount: 99, amount_decimal: "99.00" })], "account", coverage);
+    const originalPut = FakeObjectStore.prototype.put;
+    const attempts = [
+      () => vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(new DOMException("synthetic", "OperationError")),
+      () => vi.spyOn(FakeObjectStore.prototype, "put").mockImplementationOnce(() => { throw new DOMException("synthetic", "QuotaExceededError"); }),
+      () => vi.spyOn(FakeObjectStore.prototype, "put").mockImplementationOnce(function (this: IDBObjectStore, ...args) {
+        const request = originalPut.apply(this, args); this.transaction.abort(); return request;
+      }),
+    ];
+    const codes = ["encryption_failed", "quota_exceeded", "transaction_failed"];
+    for (let i = 0; i < attempts.length; i++) {
+      const fault = attempts[i]();
+      await expect(writeReceiptSnapshot(session, replacement, { generation: 0, revision: 1 })).rejects.toMatchObject({ code: codes[i] });
+      fault.mockRestore();
+      const loaded = await loadReceiptSnapshot(session, "account");
+      expect(loaded).toMatchObject({ revision: 1, value: previous });
+      expect(await Durable.list("owner", "mail_receipts.v1:")).toHaveLength(1);
+    }
+  });
+  it("failed encrypted read-back never replaces the previous valid snapshot", async () => {
+    const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
+    const previous = await captureReceiptSnapshot([receipt(1)], "account", coverage);
+    await writeReceiptSnapshot(session, previous, { generation: 0, revision: 0 });
+    const replacement = await captureReceiptSnapshot([receipt(2, { amount: 99, amount_decimal: "99.00" })], "account", coverage);
+    const fault = vi.spyOn(crypto.subtle, "decrypt").mockRejectedValueOnce(new DOMException("synthetic", "OperationError"));
+    const failure = await writeReceiptSnapshot(session, replacement, { generation: 0, revision: 1 }).catch(error => error);
+    fault.mockRestore();
+    const recovered = await loadReceiptSnapshot(session, "account");
+    expect(recovered).toMatchObject({ revision: 1, value: previous });
+    expect(failure).toMatchObject({ code: "readback_failed", stage: "readback" });
+  });
+  it("fences Reset while the candidate is being decrypted, without recreating old receipts", async () => {
+    const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
+    const snapshot = await captureReceiptSnapshot([receipt(1)], "account", coverage);
+    await writeReceiptSnapshot(session, snapshot, { generation: 0, revision: 0 });
+    const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(async (...args) => {
+      const value = await originalDecrypt(...args);
+      await Durable.purgeUser("owner");
+      return value;
+    });
+    await expect(writeReceiptSnapshot(session, snapshot, { generation: 0, revision: 1 })).rejects.toMatchObject({ code: "stale_version" });
+    expect(await loadReceiptSnapshot(session, "account")).toBeNull();
+    expect(await Durable.list("owner", "mail_receipts.v1:")).toEqual([]);
+  });
   it("retains the shortest sealed locator and rejects truncated locator payloads", async () => {
     const locator = "grs1_" + "a".repeat(39);
     const snapshot = await captureReceiptSnapshot([receipt(1, { durable_source_ref: locator })], "account", coverage);
@@ -38,6 +102,7 @@ describe("canonical receipt storage boundary", () => {
       ["Plaid", "plaid.com", "plaid"], ["Supabase", "supabase.com", "supabase"],
       ["Kyari", "kyari.co", "kyari"], ["Anthropic", "anthropic.com", "anthropic"],
       ["Google Play", "google.com", "google-play"], ["IndiGo", "goindigo.in", "indigo"],
+      ["Internshala Trainings", "internshala.com", "internshala-trainings"], ["Udemy", "email.udemy.com", "udemy"],
     ] as const;
     const items = brands.map(([merchant_name, merchant_domain], index) => receipt(index + 1, { merchant_name, merchant_domain }));
     const snapshot = await captureReceiptSnapshot(items, "account", coverage);
@@ -113,8 +178,8 @@ describe("canonical receipt storage boundary", () => {
     vi.spyOn(Durable, "version").mockImplementation(async (...args) => { const version = await original(...args); if (++calls === 2) publishValidatedAuthSessionOwner("other"); return version; });
     await expect(runReceiptFunction(session, "receipt_spending", request, "account")).rejects.toThrow(/authority changed/);
     vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner");
-    const originalRead = Durable.read.bind(Durable);
-    vi.spyOn(Durable, "read").mockImplementation(async (...args) => { const value = await originalRead(...args); publishValidatedAuthSessionOwner("other"); return value; });
+    const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, "decrypt").mockImplementation(async (...args) => { const value = await originalDecrypt(...args); publishValidatedAuthSessionOwner("other"); return value; });
     await expect(writeReceiptSnapshot(session, snapshot, { generation: 0, revision: 1 })).rejects.toThrow(/authority changed/);
   });
   it("uses canonical dedupe and decimal totals with distinct currencies and honest refunds", async () => {

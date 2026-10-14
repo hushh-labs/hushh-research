@@ -1,6 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
+import { webcrypto } from "node:crypto";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => {
   const receiptScan = vi.fn();
@@ -610,9 +613,18 @@ async function startReceiptSync() {
   fireEvent.click(await screen.findByRole("button", { name: "Start sync" }));
 }
 
+const originalIndexedDB = Object.getOwnPropertyDescriptor(window, "indexedDB");
+const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+
 describe("ProfileReceiptsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Sync completion now requires real encrypted write/read-back, including
+    // the broad UI suite's successful-sync cases.
+    configure({ asyncUtilTimeout: 10000 });
+    publishValidatedAuthSessionOwner("user-123");
+    Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true });
+    Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
     clearCachedGmailReceipts("user-123");
     mocks.gmailOAuthPopup.popup.closed = false;
     mocks.gmailOAuthPopup.popup.close.mockReset();
@@ -637,7 +649,7 @@ describe("ProfileReceiptsPage", () => {
       loading: false,
     });
     mocks.useVault.mockReturnValue({
-      vaultKey: "vault-key-123",
+      vaultKey: "12".repeat(32),
       vaultOwnerToken: "vault-owner-token-123",
       isVaultUnlocked: true,
     });
@@ -678,6 +690,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 0,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     vi.mocked(GmailReceiptsService.listNudges).mockResolvedValue({
       nudges: [],
@@ -702,6 +715,17 @@ describe("ProfileReceiptsPage", () => {
     });
   });
 
+  afterEach(() => {
+    cleanup();
+    publishValidatedAuthSessionOwner(null);
+    if (originalIndexedDB) Object.defineProperty(window, "indexedDB", originalIndexedDB);
+    else Reflect.deleteProperty(window, "indexedDB");
+    if (originalCrypto) Object.defineProperty(globalThis, "crypto", originalCrypto);
+    else Reflect.deleteProperty(globalThis, "crypto");
+    vi.restoreAllMocks();
+    configure({ asyncUtilTimeout: 1000 });
+  });
+
   it("starts supported sync without replacing the receipts landing view", async () => {
     window.localStorage.setItem(
       "hushh.gmail.receipts.onboarding.v1:user-123",
@@ -723,7 +747,7 @@ describe("ProfileReceiptsPage", () => {
       expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.toast.success).toHaveBeenCalledWith("Receipts updated");
+    await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith("Receipts updated"));
     expect(screen.getByText("Receipts updated.")).toBeVisible();
     expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
     expect(screen.getByTestId("recent-receipts")).toBeVisible();
@@ -790,6 +814,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 6,
         total: 1,
         has_more: false,
+        coverage: makeLiveCoverage(1),
       });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -837,7 +862,7 @@ describe("ProfileReceiptsPage", () => {
     expect(await screen.findByRole("button", { name: "Scanning" })).toBeDisabled();
     expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
-    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1));
 
     resolveScan?.({
       items: [makeReceipt(2, "Amazon")],
@@ -845,6 +870,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 6,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
     // A completed pass replaces the list exactly with what it read.
@@ -876,6 +902,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 6,
         total: 1,
         has_more: false,
+        coverage: makeLiveCoverage(2),
       });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -906,6 +933,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 6,
       total: 2,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     vi.mocked(GmailReceiptsService.getReceiptDetail).mockResolvedValue({
       item: unscanned,
@@ -989,6 +1017,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 3,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -1023,6 +1052,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
     await startReceiptSync();
@@ -1097,6 +1127,7 @@ describe("ProfileReceiptsPage", () => {
           per_page: 20,
           total: 2,
           has_more: false,
+          coverage: makeLiveCoverage(2),
         };
       },
     );
@@ -1141,6 +1172,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 6,
         total: 1,
         has_more: false,
+        coverage: makeLiveCoverage(2),
       });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -1175,6 +1207,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 6,
         total: 1,
         has_more: false,
+        coverage: makeLiveCoverage(2),
       });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -1271,6 +1304,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 20,
         total: 2,
         has_more: false,
+        coverage: makeLiveCoverage(2),
       });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -1297,6 +1331,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
 
     const firstRender = render(
@@ -1331,6 +1366,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     };
     primeCachedGmailReceipts({
       userId: "user-123",
@@ -1434,6 +1470,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
 
     await screen.findByText(
@@ -1464,6 +1501,7 @@ describe("ProfileReceiptsPage", () => {
         per_page: 20,
         total: 1,
         has_more: false,
+        coverage: makeLiveCoverage(1),
       });
 
     const rendered = render(
@@ -1489,6 +1527,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Start sync" })).toBeEnabled(),
@@ -1628,6 +1667,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -1708,6 +1748,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -2464,6 +2505,7 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 1,
       has_more: false,
+      coverage: makeLiveCoverage(1),
     });
     gmailView.disconnectGmail.mockResolvedValue({
       configured: true,
