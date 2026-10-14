@@ -68,17 +68,8 @@ describe("IntroStep voice contract", () => {
 
     const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
     expect(publicNav.querySelectorAll("a")).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
-      "href",
-      "/research",
-    );
-    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute(
-      "href",
-      "/blog",
-    );
-    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
-      "href",
-      "/developers",
-    );
+    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute("href", "/research");
+    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blog");
+    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute("href", "/developers");
   });
 });
