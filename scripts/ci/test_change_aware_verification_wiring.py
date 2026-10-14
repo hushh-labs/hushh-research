@@ -44,6 +44,28 @@ def test_smoke_receives_selector_decision_without_reclassification() -> None:
     )
 
 
+def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
+    workflow = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    assert workflow.index("- name: Resolve deployment scope") < workflow.index(
+        "- name: Enforce UAT database connection budget before deployment"
+    )
+    require(
+        ".github/workflows/deploy-uat.yml",
+        "DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}",
+        "--candidate-service consent-protocol-drive-worker",
+        "--no-candidates",
+        'cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"',
+        'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
+        'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
+    )
+    require(
+        ".github/workflows/deploy-uat-one-chat.yml",
+        "--inherit-candidate-service consent-protocol",
+        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"',
+        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"',
+    )
+
+
 def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     require(
         ".github/workflows/deploy-uat.yml",
@@ -205,6 +227,7 @@ def main() -> int:
         test_ci_smoke_and_uat_share_the_selector,
         test_ci_passes_selector_decision_to_integration,
         test_smoke_receives_selector_decision_without_reclassification,
+        test_uat_capacity_admission_follows_resolved_scope_on_old_targets,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
         test_uat_frontend_release_blocks_on_real_analytics_smoke,
         test_uat_analytics_smoke_requires_successful_collect_responses,
