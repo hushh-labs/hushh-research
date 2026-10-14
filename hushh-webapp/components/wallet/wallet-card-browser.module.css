@@ -98,7 +98,7 @@
 .browser:has([data-wallet-visitor-preview="true"]) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 
 @layer base {
-  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 500 !important; line-height: 1.2 !important; }
+  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 400 !important; line-height: 1.2 !important; }
 }
 
 /* Leave room for View details and both card edges above the dock in short windows. */

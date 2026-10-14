@@ -23,6 +23,9 @@ screen: some routes redirect, and chat panels, sheets, tabs, and OAuth popups
 can render without their own `page.tsx`. These were included in the component
 and asset inspection.
 
+A final selector-cascade sweep checked the rendered winner for local overrides,
+including shared `!important` type roles, before closing the audit.
+
 ## Findings and resolution
 
 | Surface | Audited state before this change | Resolution |
@@ -46,6 +49,7 @@ and asset inspection.
 | Portfolio image sharing | Canvas snapshot used Manrope. | Draw with loaded Jakarta faces and system mono for uppercase metadata. |
 | Mail OAuth placeholder | The brief popup used `system-ui`. | Load the local regular Jakarta face in its same-origin blank document. |
 | Verification fixtures | Layout fixtures pinned Inter; one markdown width constant came from Inter's x-height. Browser assertions still expected 700-weight chat headings, and the Wallet fixture served only v1 artwork while the app requested v2. | Load the shipped Jakarta faces, update font/geometry and heading assertions, and serve both v1 and v2 artwork in the browser fixture. |
+| Final live-selector sweep | Welcome illustration cues stayed at 700; Profile appearance/access rows, Wallet visitor and swipe rows, connector titles, and an agent-profile empty state stayed at 500. The live payment-card face mixed 700/500/650, bottom navigation labels stayed at 500, Circle sender names were 700, and the chat identity and an email-draft metadata label missed their roles. | Use 400 for body/card rows and wallet nickname, mono 400 for uppercase metadata, 600 for payment-card values and chat/sender names, and CSS 550 for bottom navigation. Shared button and H1 selectors already supply their intended 650/600 weights; the sweep checked winning styles before changing local declarations. |
 
 ### Adopted role mapping
 

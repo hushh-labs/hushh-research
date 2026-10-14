@@ -6793,7 +6793,7 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
   font-size: var(--ios-account-tab-label-size, var(--type-tab-label-size));
-  font-weight: 500;
+  font-weight: 550;
   line-height: var(--ios-account-tab-label-line, var(--type-tab-label-line));
   letter-spacing: var(--type-tab-label-tracking);
   text-wrap: nowrap;
@@ -6801,7 +6801,7 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
-  font-weight: 500;
+  font-weight: 550;
   opacity: 1;
 }
 
