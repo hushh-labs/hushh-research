@@ -98,7 +98,7 @@ describe("agent chat header layout", () => {
     // Keep the mark visible at phone widths and allow the text slot to absorb
     // pressure before it can overlap the trailing controls.
     expect(openingTag(header, "data-agent-chat-brand-tile")).toContain(
-      "h-8 w-8 shrink-0 place-items-center",
+      "h-11 w-11 shrink-0 place-items-center",
     );
     expect(openingTag(header, "data-agent-chat-brand-tile")).not.toContain(
       "max-sm:hidden",
