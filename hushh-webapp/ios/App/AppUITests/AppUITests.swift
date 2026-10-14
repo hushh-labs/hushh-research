@@ -557,13 +557,23 @@ final class AppUITests: XCTestCase {
             // Qualification changes launch configuration. Never discard an
             // owner's memory-only draft merely to prepare another renderer.
             // Inspect both authored editors in process; emit no contents.
-            let cloud = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
-            let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
+            let nativeSelector = app.segmentedControls["chat-agent-surface"].firstMatch
+            let nativeEditor = app.textViews["native-dock-editor"].firstMatch
+            let native = nativeSelector.exists
+            let cloud = native ? nativeSelector.buttons["One, your cloud agent"].firstMatch : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
+            let puppy = native ? nativeSelector.buttons["Puppy One"].firstMatch : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
             let oneEditor = rehearsalChatComposer(app)
+            func portReady(_ choice: XCUIElement, label: String) -> Bool {
+                if !native { return true }
+                let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    choice.exists && choice.isSelected && nativeEditor.exists && nativeEditor.isHittable && nativeEditor.label == label
+                }, object: app)
+                return XCTWaiter.wait(for: [applied], timeout: 10) == .completed
+            }
             let editorReady = waitForAdmittedControl(oneEditor)
             let puppyReady = waitForAdmittedControl(puppy)
             print("NATIVE_PREPARATION_CONTROLS editor=\(editorReady) puppy=\(puppyReady)")
-            guard editorReady && puppyReady else {
+            guard editorReady && puppyReady && portReady(cloud, label: "Message One") else {
                 XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return
             }
             func empty(_ field: XCUIElement) -> Bool {
@@ -573,24 +583,35 @@ final class AppUITests: XCTestCase {
                 return value.isEmpty
             }
             let oneEmpty = empty(oneEditor)
-            let attachmentPresent = ["Remove text attachment", "Remove selected Drive file"].contains {
-                web.buttons[$0].firstMatch.exists
+            func attachmentPresent() -> Bool {
+                ["Remove text attachment", "Remove selected Drive file", "Remove attachment"].contains {
+                    app.buttons[$0].firstMatch.exists
+                }
             }
-            let actionPending = ["Stop One", "Cancel recording", "Cancel voice command"].contains {
-                let control = app.buttons[$0].firstMatch
-                return control.exists && control.isHittable
+            func actionPending() -> Bool {
+                let cancel = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch.buttons["Cancel"].firstMatch
+                return (native && cancel.exists && cancel.isHittable) || ["Stop One", "Cancel recording", "Cancel voice command"].contains {
+                    let control = app.buttons[$0].firstMatch
+                    return control.exists && control.isHittable
+                }
             }
-            guard oneEmpty && !attachmentPresent && !actionPending else {
+            guard oneEmpty && !attachmentPresent() && !actionPending() else {
                 XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
             }
             puppy.tap()
-            defer { if !oneEditor.isHittable && cloud.exists && cloud.isHittable { cloud.tap() } }
-            guard empty(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch) else {
+            defer {
+                if cloud.exists && cloud.isHittable && (native ? !cloud.isSelected : !oneEditor.isHittable) {
+                    cloud.tap()
+                    XCTAssertTrue(portReady(cloud, label: "Message One"), "NATIVE_PREPARATION_ONE_RETURN_NOT_APPLIED")
+                }
+            }
+            let puppyEditor = native ? nativeEditor : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch
+            guard portReady(puppy, label: "Message Puppy"), empty(puppyEditor), !attachmentPresent(), !actionPending() else {
                 XCTFail("NATIVE_PREPARATION_PUPPY_DRAFT_NOT_EMPTY_OR_UNAVAILABLE"); return
             }
             guard waitForAdmittedControl(cloud) else { XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return }
             cloud.tap()
-            guard waitForAdmittedControl(oneEditor), empty(oneEditor) else {
+            guard portReady(cloud, label: "Message One"), waitForAdmittedControl(oneEditor), empty(oneEditor) else {
                 XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
             }
             print("NATIVE_PREPARATION_GATE empty_drafts=true attachments=false submitted=false")
@@ -3857,7 +3878,12 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
-        let oneProfile = web.buttons["Open One profile"].firstMatch
+        // WebKit exposes this authored SVG button as an Other AX element on
+        // devices. Match its explicit label within the same WebView, not a
+        // UIKit-only button role or a coordinate fallback.
+        let oneProfiles = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open One profile"))
+        let oneProfile = oneProfiles.firstMatch
+        XCTAssertEqual(oneProfiles.count, 1, "ONE_PROFILE_OPENER_DUPLICATE")
         guard waitForAdmittedControl(oneProfile) else {
             let selector = app.segmentedControls["chat-agent-surface"].firstMatch
             let one = selector.buttons["One, your cloud agent"].firstMatch
