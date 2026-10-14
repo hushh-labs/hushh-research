@@ -278,7 +278,7 @@ files, every generator `--check`, and `bash scripts/ci/repo-governance-check.sh`
 # PART FIVE — Ship
 
 ```bash
-git fetch --prune origin && git rebase origin/main        # Base Freshness Gate hard-fails if behind
+git fetch --prune origin && git rebase origin/main        # Base Freshness Gate blocks a stale or overlapping base
 git push -u origin <branch> && gh pr create --base main ...
 # watch CI on the EXACT head via Monitor
 gh pr merge <N> --admin --merge --match-head-commit <FULL_40_SHA>   # silence is not success

@@ -14,9 +14,10 @@ A merge group is accepted only when:
 
 1. its head ref names exactly one PR (`gh-readonly-queue/<base>/pr-<N>-<sha>`);
 2. the merge group's git TREE is byte-identical to the PR head's tree, which
-   holds exactly when the PR already contained the queue base (the PR-level
-   Base Freshness Gate enforces that) and no other queued entry is stacked
-   underneath it; and
+   holds exactly when the PR already contained the queue base and no other
+   queued entry is stacked underneath it (PR Validation's Base Freshness Gate
+   no longer forces that on PRs into main; a PR behind its base fails here
+   instead); and
 3. the latest `PR Validation` run for that PR head has a successful
    `CI Status Gate` job.
 
