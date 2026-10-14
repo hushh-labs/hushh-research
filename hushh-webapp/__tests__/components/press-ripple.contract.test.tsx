@@ -1,6 +1,7 @@
 /**
  * Press contract: a press is FLAT (colour or opacity plus the ripple), except
- * the Chat composer Send button's specified 0.92 press scale. Springs and
+ * the Chat composer Send button's specified 0.92 press scale and the
+ * mentor's exact V7.2 onboarding CTA's 0.985 press scale. Springs and
  * bounce remain disallowed, and the ripple is on by default everywhere a
  * person taps, agent chat included.
  *
@@ -84,7 +85,14 @@ const SEND_SCALE_EXCEPTIONS = new Map([
 
 function isSpecifiedSendScale(file: string, selector: string, body: string): boolean {
   const transforms = [...body.matchAll(/\btransform\s*:\s*([^;]+)\s*;?/g)].map((match) => match[1]?.trim());
-  return SEND_SCALE_EXCEPTIONS.get(file) === selector && transforms.length === 1 && transforms[0] === "scale(.92)";
+  return SEND_SCALE_EXCEPTIONS.get(file.replaceAll("\\", "/")) === selector && transforms.length === 1 && transforms[0] === "scale(.92)";
+}
+
+/** The supplied V7.2 artifact explicitly owns this one bounded press treatment. */
+function isMentorOnboardingScale(file: string, selector: string, body: string): boolean {
+  if (file.replaceAll("\\", "/") !== "components/onboarding/mentor-onboarding/onboarding.css" || selector !== ".ao-primary:active") return false;
+  const transforms = [...body.matchAll(/\btransform\s*:\s*([^;]+)\s*;?/g)].map((match) => match[1]?.trim());
+  return transforms.length === 1 && transforms[0] === "scale(.985)";
 }
 
 function listSourceFiles(dir: string): string[] {
@@ -183,6 +191,10 @@ describe("scanners (negative controls)", () => {
     expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.92); ")).toBe(true);
     expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.97); ")).toBe(false);
     expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".other:active", "transform: scale(.92); ")).toBe(false);
+    expect(isSpecifiedSendScale("components\\direct-messages\\direct-messages-page.module.css", ".sendButton:active", "transform: scale(.92); ")).toBe(true);
+    expect(isMentorOnboardingScale("components/onboarding/mentor-onboarding/onboarding.css", ".ao-primary:active", "transform: scale(.985);")).toBe(true);
+    expect(isMentorOnboardingScale("components/onboarding/mentor-onboarding/onboarding.css", ".ao-primary:active", "transform: scale(.9);")).toBe(false);
+    expect(isMentorOnboardingScale("components/other.css", ".ao-primary:active", "transform: scale(.985);")).toBe(false);
   });
 });
 
@@ -197,12 +209,12 @@ describe("no bounce", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps active transforms out except the two Chat Send buttons at 0.92", () => {
+  it("keeps active transforms limited to the specified Chat and mentor onboarding controls", () => {
     const offenders = ["app", "components", "lib"]
       .flatMap(listSourceFiles)
       .filter((file) => file.endsWith(".css"))
       .flatMap((file) =>
-        findActiveTransforms(read(file), (selector, body) => isSpecifiedSendScale(file, selector, body))
+        findActiveTransforms(read(file), (selector, body) => isSpecifiedSendScale(file, selector, body) || isMentorOnboardingScale(file, selector, body))
           .map((sel) => `${file}: ${sel}`),
       );
     expect(offenders).toEqual([]);

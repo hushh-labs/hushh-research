@@ -37,7 +37,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       {
         id: "onboarding_claim_one",
         actionId: "onboarding.claim_one",
-        label: "Start with One",
+        label: "Get started",
         purpose: "Continue to sign in.",
         voiceAliases: [
           "claim your one",
@@ -51,7 +51,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       {
         id: "onboarding_claim_one",
         actionId: "onboarding.claim_one",
-        label: "Start with One",
+        label: "Get started",
         type: "button",
         purpose: "Continue to sign in.",
         voiceAliases: [
