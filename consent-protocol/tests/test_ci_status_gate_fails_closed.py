@@ -11,8 +11,10 @@ taken from .github/workflows/ci.yml, against synthetic `needs` results:
   integration/pr-train, Base Freshness Gate;
 - a dispatched run fails for a partial scope, for a commit that heads an open
   pull request into those bases (its gate would replace that pull request's),
-  and when that lookup errors. `gh` is a stub that applies the gate's own
-  `--jq` filter with jq to a canned API page, so the filter itself is tested.
+  and when that lookup errors. `gh` is a stub that answers each endpoint the
+  way GitHub does, including commits/{sha}/pulls, which omits open pull
+  requests once the commit is on the default branch, and applies the gate's
+  own `--jq` filter with jq, so the lookup and its filter are both tested.
 
 Every failing case is one mutation of a green run, and the negative control
 requires the green runs (with legitimately skipped lanes) to pass, so each
@@ -37,6 +39,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 HEAD_SHA = "c0ffee" * 6 + "c0ff"
 OTHER_SHA = "fade" * 10
+REPOSITORY = "hushh-labs/hushh-research"
+# The bases whose branch protection requires CI Status Gate (config/ci-governance.json).
+PROTECTED_BASES = ("main", "integration/pr-train")
 
 # The lanes each path-filter output selects, as the gate must require them.
 LANES = {
@@ -69,20 +74,38 @@ EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 NEEDS_RESULT_RE = re.compile(r"needs(?:\['([\w-]+)'\]|\.([\w-]+))\.result")
 PATHS_OUTPUT_RE = re.compile(r"needs\.paths\.outputs\.(\w+)")
 STUB_GH = """#!/usr/bin/env bash
-# `gh api --paginate <path> --jq <expr>` over one canned page, filtered by jq.
+# `gh api --paginate <endpoint> --jq <expr>`: answers each endpoint with the
+# pages GitHub would return for the scenario, filtered by the caller's jq.
 set -euo pipefail
 printf '%s\\n' "$*" >> "$GH_STUB_LOG"
-if [ "${GH_STUB_FAIL:-0}" = "1" ]; then
+[ "${1:-}" = "api" ] || { echo "gh stub: only 'gh api' is modelled" >&2; exit 1; }
+shift
+endpoint=""
+expr=""
+paginate=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --jq) expr="$2"; shift 2 ;;
+    --paginate) paginate=1; shift ;;
+    -*) echo "gh stub: flag $1 is not modelled" >&2; exit 1 ;;
+    *) endpoint="$1"; shift ;;
+  esac
+done
+if [ "$endpoint" = "${GH_STUB_FAIL:-}" ]; then
   echo "HTTP 502: stubbed lookup failure" >&2
   exit 1
 fi
-expr=""
-previous=""
-for arg in "$@"; do
-  if [ "$previous" = "--jq" ]; then expr="$arg"; fi
-  previous="$arg"
-done
-jq -r "$expr" "$GH_STUB_PAGE"
+# 1430 pull requests were open into integration/pr-train on 2026-10-15 and a
+# page holds 100, so a lookup that reads only the first page proves nothing.
+if [ "$paginate" != "1" ]; then
+  echo "gh stub: $endpoint read without --paginate" >&2
+  exit 1
+fi
+if ! jq -e --arg endpoint "$endpoint" 'has($endpoint)' "$GH_STUB_PAGES" >/dev/null; then
+  echo "gh stub: no page modelled for $endpoint" >&2
+  exit 1
+fi
+jq --arg endpoint "$endpoint" '.[$endpoint]' "$GH_STUB_PAGES" | jq -r "$expr"
 """
 
 
@@ -93,20 +116,49 @@ class Run:
     scope: str = ""
     outputs: dict[str, str] = field(default_factory=dict)
     results: dict[str, str] = field(default_factory=dict)
+    # Pull requests that contain HEAD_SHA, open or closed, into any base.
     pulls: tuple[dict, ...] = ()
-    lookup_fails: bool = False
+    # HEAD_SHA is already on the default branch.
+    head_on_main: bool = False
+    # The one endpoint whose lookup errors, if any.
+    lookup_fails: str = ""
 
     def with_result(self, job: str, result: str) -> Run:
         return replace(self, results={**self.results, job: result})
 
 
-def _pull(number: int, head_sha: str, base: str, state: str = "open") -> dict:
+def _pull(
+    number: int, head_sha: str, base: str, state: str = "open", *, merged: bool = False
+) -> dict:
     return {
         "number": number,
         "state": state,
+        "merged_at": "2026-07-02T14:34:16Z" if merged else None,
         "head": {"sha": head_sha, "ref": f"b{number}"},
         "base": {"ref": base},
     }
+
+
+def _listing(base: str) -> str:
+    return f"repos/{REPOSITORY}/pulls?state=open&base={base}&per_page=100"
+
+
+def _api_pages(run: Run) -> dict[str, list[dict]]:
+    """Each endpoint the gate may ask, answered the way GitHub answers it."""
+    pages = {
+        _listing(base): [
+            pull for pull in run.pulls if pull["state"] == "open" and pull["base"]["ref"] == base
+        ]
+        for base in PROTECTED_BASES
+    }
+    # Once the commit is on the default branch this lists only the merged pull
+    # request that introduced it: for a6bb87e88e it returned merged #4270 and
+    # not open #4268, which that commit heads. Modelled so that a gate going
+    # back to it fails the case built on that shape, not the harness.
+    pages[f"repos/{REPOSITORY}/commits/{HEAD_SHA}/pulls?per_page=100"] = [
+        pull for pull in run.pulls if pull["merged_at"] or not run.head_on_main
+    ]
+    return pages
 
 
 def _selected(**outputs: bool) -> Run:
@@ -125,13 +177,26 @@ def _selected(**outputs: bool) -> Run:
     )
 
 
+def _dispatch(run: Run) -> Run:
+    """The same lanes, dispatched with scope `auto`: no pull request job runs."""
+    return replace(
+        run,
+        event="workflow_dispatch",
+        base_ref="",
+        scope="auto",
+        results={**run.results, "pr-base-policy": "skipped", "main-freshness-gate": "skipped"},
+    )
+
+
 EVERYTHING = _selected(**{name: True for name in LANES})
-DISPATCH = replace(
-    EVERYTHING,
-    event="workflow_dispatch",
-    base_ref="",
-    scope="auto",
-    results={**EVERYTHING.results, "pr-base-policy": "skipped", "main-freshness-gate": "skipped"},
+DISPATCH = _dispatch(EVERYTHING)
+# A dispatch on a commit already on main: `auto` diffs main...sha, finds no
+# change and selects no lane, and the merged pull request that introduced the
+# commit is the only one GitHub associates with it.
+ON_MAIN = replace(
+    _dispatch(_selected()),
+    head_on_main=True,
+    pulls=(_pull(4270, HEAD_SHA, "main", "closed", merged=True),),
 )
 
 
@@ -170,8 +235,8 @@ def _run_step(step: dict, run: Run, tmp_path: Path) -> subprocess.CompletedProce
     gh = stub_dir / "gh"
     gh.write_text(STUB_GH, encoding="utf-8")
     gh.chmod(0o755)
-    page = tmp_path / "pulls.json"
-    page.write_text(json.dumps(list(run.pulls)), encoding="utf-8")
+    pages = tmp_path / "pages.json"
+    pages.write_text(json.dumps(_api_pages(run)), encoding="utf-8")
     script = tmp_path / "step.sh"
     script.write_text(_resolve(step["run"], run), encoding="utf-8")
     env = {key: _resolve(str(value), run) for key, value in (step.get("env") or {}).items()}
@@ -179,8 +244,8 @@ def _run_step(step: dict, run: Run, tmp_path: Path) -> subprocess.CompletedProce
         {
             "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
             "GH_STUB_LOG": str(tmp_path / "gh.log"),
-            "GH_STUB_PAGE": str(page),
-            "GH_STUB_FAIL": "1" if run.lookup_fails else "0",
+            "GH_STUB_PAGES": str(pages),
+            "GH_STUB_FAIL": run.lookup_fails,
         }
     )
     # GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail {0}`.
@@ -253,7 +318,16 @@ def _failing_runs() -> list[tuple[str, Run]]:
                 pulls=(_pull(42, OTHER_SHA, "main"), _pull(43, HEAD_SHA, "integration/pr-train")),
             ),
         ),
-        ("dispatch-pr-lookup-fails", replace(DISPATCH, lookup_fails=True)),
+        # Open #4268 into integration/pr-train, whose head was already on main.
+        (
+            "dispatch-on-main-heads-open-pr-into-train",
+            replace(ON_MAIN, pulls=(*ON_MAIN.pulls, _pull(4268, HEAD_SHA, "integration/pr-train"))),
+        ),
+        ("dispatch-main-lookup-fails", replace(DISPATCH, lookup_fails=_listing("main"))),
+        (
+            "dispatch-train-lookup-fails",
+            replace(DISPATCH, lookup_fails=_listing("integration/pr-train")),
+        ),
     ]
     return runs
 
@@ -273,8 +347,9 @@ def _passing_runs() -> list[tuple[str, Run]]:
         ),
         ("dispatch-auto", DISPATCH),
         ("dispatch-all", replace(DISPATCH, scope="all")),
-        # The lookup lists pull requests that CONTAIN the commit; only one it
-        # heads may block, and only into the bases a dispatch cannot stand in for.
+        ("dispatch-on-main-commit", ON_MAIN),
+        # Only an open pull request the commit heads may block, and only into a
+        # base that requires this gate.
         (
             "dispatch-commit-inside-open-pr",
             replace(DISPATCH, pulls=(_pull(7555, OTHER_SHA, "main"),)),
@@ -317,5 +392,6 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
         f"{name}: CI Status Gate failed a green run, so the failures above prove nothing:\n{output}"
     )
     if run.event == "workflow_dispatch":
-        lookup = (tmp_path / "gh.log").read_text(encoding="utf-8")
-        assert f"repos/hushh-labs/hushh-research/commits/{HEAD_SHA}/pulls" in lookup
+        lookups = (tmp_path / "gh.log").read_text(encoding="utf-8")
+        for base in PROTECTED_BASES:
+            assert _listing(base) in lookups, f"{name}: no lookup of open pull requests into {base}"

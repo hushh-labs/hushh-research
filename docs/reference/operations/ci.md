@@ -230,6 +230,7 @@ readiness or model calls caused by an explicitly exercised product journey.
 | Merge queue | `main`, `integration/pr-train` | `Queue Validation` pass-through: reports `CI Status Gate` on the merge group only when its tree equals the PR head's tree and PR Validation passed on that head; plus `Base Freshness Gate` |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
 | Manual | Any | `PR Validation` `workflow_dispatch` with scope `auto` (default) \| `all` \| `frontend` \| `backend`; see [Dispatched runs](#dispatched-runs) |
+| Schedule | `main` | `Editor Performance Nightly` runs the macOS editor lane's steps at 23:17 UTC and opens or comments on one issue when they fail |
 
 **Path filters:** `PR Validation` runs jobs only when relevant paths change. A dispatched run with scope `auto` applies the same filters to the dispatched commit's changes against the default branch; `all`, `frontend` and `backend` choose the lanes by hand. `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
@@ -322,7 +323,7 @@ strict up-to-date rule on `main` (`require_strict_status_checks` in
 
 The default was `all` until 2026-10-15, which put iOS on one of the org's five macOS slots on every dispatch; one 30-minute dispatch loop made 59 of the 77 runs dispatched from 2026-10-07 to 2026-10-15.
 
-A dispatched run reports `CI Status Gate` on the branch head, which is often a pull request's head too, and branch protection reads the newest `CI Status Gate` there. A dispatch runs neither `PR Base Policy` nor `Base Freshness Gate` and tests the head instead of the merge with the base, so its gate fails whenever the dispatched commit heads an open pull request into `main` or `integration/pr-train`, and when that lookup fails. Re-run the pull request's own `PR Validation` run (event `pull_request`) to restore its gate. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
+A dispatched run reports `CI Status Gate` on the branch head, which is often a pull request's head too, and branch protection reads the newest `CI Status Gate` there. A dispatch runs neither `PR Base Policy` nor `Base Freshness Gate` and tests the head instead of the merge with the base, so its gate fails when the dispatched commit heads an open pull request into `main` or `integration/pr-train`, and when that lookup fails. The gate lists the open pull requests into both bases and matches their head commit; on 2026-10-15 that was 16 API pages. It cannot ask `commits/{sha}/pulls` instead: for a commit already on `main` that returns only the merged pull request that introduced it, which is how open #4268 was missed. Re-run the pull request's own `PR Validation` run (event `pull_request`) to restore its gate. One window stays open: a pull request opened on the commit after the dispatch's gate ran shows that green gate until its own `CI Status Gate` job starts. `Queue Validation` reads only `pull_request` runs, so a merge through the queue still needs the pull request's own pass. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 

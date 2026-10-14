@@ -244,6 +244,8 @@ jobs:
               - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
+              # The protocol lane's guard pins it to the editor lane's steps.
+              - '.github/workflows/editor-performance-nightly.yml'
               - 'scripts/ci/**'
               - '!scripts/ci/web-*.sh'
             ios:
@@ -1455,10 +1457,16 @@ jobs:
       # one branch protection reads, so a green dispatch used to overwrite a red
       # pull_request verdict. A dispatch skips PR Base Policy and Base Freshness
       # Gate and tests the head tree, not the merge with the base, so it must
-      # never pass there. The lookup lists every pull request that CONTAINS the
-      # commit, so only those it heads count; a failed lookup fails closed. A
-      # branch with no such pull request keeps a usable gate, which is how
-      # deploy-dev.yml (require-deploy-sha-on-main.sh) accepts a branch SHA.
+      # never pass there. The lookup lists the open pull requests into each base
+      # that requires this check and matches their head SHA. commits/{sha}/pulls
+      # cannot stand in: for a commit already on main it returns only the merged
+      # pull request that introduced it, so it missed open #4268 into
+      # integration/pr-train, whose head a6bb87e88e is on main and for which
+      # `auto` selects no lane. On 2026-10-15 that was 16 pages (1430 open into
+      # integration/pr-train, 100 into main), about 20 seconds, on dispatches
+      # only. A failed lookup fails closed. A branch with no such pull request
+      # keeps a usable gate, which is how deploy-dev.yml
+      # (require-deploy-sha-on-main.sh) accepts a branch SHA.
       - name: Refuse a dispatch that cannot stand in for pull request checks
         if: github.event_name == 'workflow_dispatch'
         shell: bash
@@ -1481,12 +1489,17 @@ jobs:
               fail=1
               ;;
           esac
-          if ! heads="$(gh api --paginate "repos/${REPOSITORY}/commits/${HEAD_SHA}/pulls?per_page=100" \
-            --jq '.[] | select(.state == "open" and .head.sha == $ENV.HEAD_SHA and (.base.ref == "main" or .base.ref == "integration/pr-train")) | "#\(.number) into \(.base.ref)"')"; then
-            echo "::error::Could not list the pull requests that contain ${HEAD_SHA}, so this run cannot prove it heads none of them."
-            fail=1
-          elif [ -n "$heads" ]; then
-            heads="$(printf '%s' "$heads" | tr '\n' ' ')"
+          heads=""
+          for base in main integration/pr-train; do
+            if ! listed="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=${base}&per_page=100" \
+              --jq '.[] | select(.head.sha == $ENV.HEAD_SHA) | "#\(.number) into \(.base.ref)"')"; then
+              echo "::error::Could not list the open pull requests into ${base}, so this run cannot prove ${HEAD_SHA} heads none of them."
+              fail=1
+            elif [ -n "$listed" ]; then
+              heads="${heads:+${heads} }$(printf '%s' "$listed" | tr '\n' ' ')"
+            fi
+          done
+          if [ -n "$heads" ]; then
             echo "::error::${HEAD_SHA} heads open pull request ${heads}. A dispatched run skips PR Base Policy and Base Freshness Gate and tests the head instead of the merge with the base, so it cannot stand in for that pull request's checks. Re-run the pull request's own PR Validation run (event pull_request) to restore its gate."
             fail=1
           fi
