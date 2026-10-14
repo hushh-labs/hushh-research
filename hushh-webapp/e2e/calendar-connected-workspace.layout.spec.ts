@@ -126,6 +126,12 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty") {
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
 async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard") {
+  // Settle the previous fixture before registering the next fixture's error
+  // collector: navigating away intentionally cancels its pending reads.
+  await page.goto("about:blank");
+  await page.unrouteAll({ behavior: "wait" });
+  page.removeAllListeners("pageerror");
+  page.removeAllListeners("console");
   await page.setViewportSize({ width, height: width > 1000 ? 1100 : 950 });
   await page.clock.setFixedTime(new Date(qaNow));
   const errors: string[] = [];

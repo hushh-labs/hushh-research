@@ -199,13 +199,22 @@ class CalendarScheduleService:
         # Google matches all-day dates using the source calendar's zone. Fetch
         # around both civil days, then apply the selected day's exact contract.
         action_id = "primary" if calendar.get("primary") is True else calendar["id"]
+        query_start, query_end = start - timedelta(days=2), end + timedelta(days=2)
+        if calendar.get("time_zone"):
+            try:
+                source_start, source_end = day_window(date, calendar["time_zone"])
+                query_start, query_end = min(start, source_start), max(end, source_end)
+            except GoogleConnectionError:
+                # Some valid source zones skip/repeat midnight. Keep the broad
+                # safe query; exact selected-day filtering still happens below.
+                pass
         events, page, seen_pages = {}, None, set()
         for _ in range(_PAGE_MAX):
             response = await self.calendar.list_events(
                 user_id=user_id,
                 calendar_id=action_id,
-                start_at=(start - timedelta(days=2)).isoformat(),
-                end_at=(end + timedelta(days=2)).isoformat(),
+                start_at=query_start.isoformat(),
+                end_at=query_end.isoformat(),
                 max_results=250,
                 page_token=page,
                 expected_binding=binding,
@@ -339,24 +348,39 @@ class CalendarScheduleService:
                 502,
                 "calendar_invalid_response",
             )
-        combined = {}
-        for offset in range(0, len(calendar_ids), 20):
-            response = await self.calendar.freebusy(
-                user_id=user_id,
-                start_at=GoogleCalendarService._utc_iso(start),
-                end_at=GoogleCalendarService._utc_iso(end),
-                calendar_ids=calendar_ids[offset : offset + 20],
-                expected_binding=binding,
-            )
-            await self.calendar._check_read_binding(user_id, binding)
-            calendars = response.get("calendars")
-            if not isinstance(calendars, dict) or any(
-                identifier not in calendars for identifier in calendar_ids[offset : offset + 20]
-            ):
-                raise _error(
-                    "Availability could not be fully checked.", 502, "calendar_invalid_response"
+        semaphore = asyncio.Semaphore(3)
+
+        async def check_batch(identifiers):
+            async with semaphore:
+                response = await self.calendar.freebusy(
+                    user_id=user_id,
+                    start_at=GoogleCalendarService._utc_iso(start),
+                    end_at=GoogleCalendarService._utc_iso(end),
+                    calendar_ids=identifiers,
+                    expected_binding=binding,
                 )
-            combined.update(calendars)
+                await self.calendar._check_read_binding(user_id, binding)
+                calendars = response.get("calendars")
+                if not isinstance(calendars, dict) or any(
+                    identifier not in calendars for identifier in identifiers
+                ):
+                    raise _error(
+                        "Availability could not be fully checked.", 502, "calendar_invalid_response"
+                    )
+                return calendars
+
+        tasks = [
+            asyncio.create_task(check_batch(calendar_ids[offset : offset + 20]))
+            for offset in range(0, len(calendar_ids), 20)
+        ]
+        try:
+            batches = await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        combined = {key: value for batch in batches for key, value in batch.items()}
         return self.calendar._merged_busy_intervals(
             calendars=combined, range_start=start, range_end=end
         )

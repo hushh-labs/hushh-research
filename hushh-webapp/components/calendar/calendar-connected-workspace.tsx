@@ -34,7 +34,7 @@ const SCHEDULE_TABS = [{ value: "today", label: "Today" }, { value: "free", labe
 
 
 function formatFailure(error: unknown): Error {
-  return error instanceof Error ? error : new Error("Calendar could not be checked. Try again.");
+  return error instanceof Error ? error : new Error("Calendar could not be checked.");
 }
 
 type Props = {
@@ -113,26 +113,37 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
   const selection = useRef<{ event: CalendarEventSummary; token: string | null; email: string | null | undefined } | null>(null);
   const eventRequest = useRef(0), availabilityRequest = useRef(0);
+  const lastReadStarted = useRef({ events: 0, availability: 0 });
+  const loadedEventKey = useRef<string | null>(null);
+  const eventFlight = useRef<{ key: string; controller: AbortController } | null>(null);
+  const availabilityFlight = useRef<{ key: string; controller: AbortController } | null>(null);
   const lifetime = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
-    return () => { controller.abort(); };
+    return () => { controller.abort(); eventFlight.current?.controller.abort(); availabilityFlight.current?.controller.abort(); };
   }, []);
   const windowParams = { vaultOwnerToken: token || "", date: alternativeDate, timeZone: zone, startTime, endTime, durationMinutes: duration };
 
   const loadEvents = useCallback(async () => {
+    if (eventFlight.current?.key === eventKey && !eventFlight.current.controller.signal.aborted) return;
+    eventFlight.current?.controller.abort();
+    if (loadedEventKey.current !== eventKey) setEvents(null);
+    const controller = new AbortController();
+    eventFlight.current = { key: eventKey, controller };
+    lastReadStarted.current.events = Date.now();
     const requestEpoch = snapshotVaultSessionEpoch();
     const request = ++eventRequest.current;
-    const isCurrent = () => isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === eventRequest.current;
+    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === eventRequest.current;
     setEventStateKey(eventKey);
-    setEventsLoading(true); setEventsError(null); setEvents(null);
+    setEventsLoading(true); setEventsError(null);
+
     try {
       const firebaseIdToken = await getIdTokenRef.current();
       if (!isCurrent()) return;
       if (!firebaseIdToken) throw new Error("Sign in again to load Calendar.");
-      const response = await GoogleCalendarService.today({ firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone });
+      const response = await GoogleCalendarService.today({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone });
       if (isCurrent()) {
-        setEvents(response.events); setUnreadableCalendars(response.unreadable_calendars);
+        loadedEventKey.current = eventKey; setEvents(response.events); setUnreadableCalendars(response.unreadable_calendars);
         const prior = selection.current;
         // Renewal replaces the token and advances the privacy epoch. Resume
         // the same owner's editable draft only after a fresh authorized read;
@@ -144,29 +155,58 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
           setStep(current => current === "review" ? "choice" : current);
         }
       }
-    } catch (error) { if (isCurrent()) setEventsError(formatFailure(error)); }
-    finally { if (isCurrent()) setEventsLoading(false); }
+    } catch (error) {
+      if (isCurrent()) {
+        if (error instanceof GoogleCalendarError && [401, 403, 409].includes(error.status)) {
+          loadedEventKey.current = null; setEvents(null); setUnreadableCalendars([]);
+        }
+        setEventsError(formatFailure(error));
+      }
+    }
+    finally { if (isCurrent()) setEventsLoading(false); if (eventFlight.current?.controller === controller) eventFlight.current = null; }
   }, [token, date, zone, eventKey, status.google_email]);
-  useEffect(() => { void loadEvents(); }, [loadEvents, status.access_level, status.calendar_list_access, connectionRevision]);
-  usePeriodicTask("calendar-workspace-events", 60_000, loadEvents, { enabled: tab === "schedule" && view === "today" && !selected });
+  useEffect(() => { if (tab === "schedule" && view === "today") void loadEvents(); return () => { eventFlight.current?.controller.abort(); }; }, [loadEvents, tab, view]);
+  usePeriodicTask("calendar-workspace-events", 30_000, () => Date.now() - lastReadStarted.current.events >= 3000 ? loadEvents() : undefined, { enabled: tab === "schedule" && view === "today" && !selected });
 
   const checkAvailability = useCallback(async () => {
+    if (availabilityFlight.current?.key === availabilityKey && !availabilityFlight.current.controller.signal.aborted) return;
+    availabilityFlight.current?.controller.abort();
+    const controller = new AbortController();
+    availabilityFlight.current = { key: availabilityKey, controller };
+    lastReadStarted.current.availability = Date.now();
     const requestEpoch = snapshotVaultSessionEpoch();
     const request = ++availabilityRequest.current;
-    const isCurrent = () => isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === availabilityRequest.current;
+    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === availabilityRequest.current;
     setAvailabilityStateKey(availabilityKey);
     setAvailabilityLoading(true); setAvailability(null); setAvailabilityError(null);
     try {
       const firebaseIdToken = await getIdTokenRef.current();
       if (!isCurrent()) return;
       if (!firebaseIdToken) throw new Error("Sign in again to check availability.");
-      const response = await GoogleCalendarService.availability({ firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime, endTime, durationMinutes: duration });
+      const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime, endTime, durationMinutes: duration });
       if (isCurrent()) setAvailability(response);
     } catch (error) { if (isCurrent()) setAvailabilityError(formatFailure(error)); }
-    finally { if (isCurrent()) setAvailabilityLoading(false); }
+    finally { if (isCurrent()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
   }, [date, zone, startTime, endTime, duration, availabilityKey]);
-  useEffect(() => { availabilityRequest.current++; if (view === "free" && tab === "schedule") void checkAvailability(); }, [view, tab, checkAvailability]);
-  usePeriodicTask("calendar-workspace-availability", 60_000, checkAvailability, { enabled: tab === "schedule" && view === "free" && !selected });
+  useEffect(() => { if (view === "free" && tab === "schedule") void checkAvailability(); return () => { availabilityFlight.current?.controller.abort(); }; }, [view, tab, checkAvailability]);
+  usePeriodicTask("calendar-workspace-availability", 30_000, () => Date.now() - lastReadStarted.current.availability >= 3000 ? checkAvailability() : undefined, { enabled: tab === "schedule" && view === "free" && !selected });
+  useEffect(() => {
+    let lastResume = 0;
+    const resume = () => {
+      if (document.visibilityState !== "visible" || tab !== "schedule" || selected || Date.now() - lastResume < 3000) return;
+      if (Date.now() - lastReadStarted.current[view === "today" ? "events" : "availability"] < 3000) return;
+      lastResume = Date.now();
+      void (view === "today" ? loadEvents() : checkAvailability());
+    };
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [tab, view, selected, loadEvents, checkAvailability]);
   useEffect(() => {
     if (token) return;
     if (ownerTokenStatus === "locked") { selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details"); }
@@ -235,7 +275,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
       <p className="text-sm text-muted-foreground">{error.message}</p>
       {error instanceof GoogleCalendarError && error.recovery !== "retry" ? (
         <Button variant="outline" disabled={busy} onClick={() => onConnect("read", error instanceof GoogleCalendarError && error.reasonCode === "calendar_list_permission_required")}>{error.recovery === "reconnect" ? "Reconnect Calendar" : "Allow Calendar access"}</Button>
-      ) : <Button variant="outline" onClick={() => void (availabilityFailure ? checkAvailability() : loadEvents())}>Try again</Button>}
+      ) : <p className="text-sm text-muted-foreground" role="status">Checking again automatically when connected.</p>}
     </div>
   );
   const windowControls = (prefix: string) => (
@@ -294,9 +334,11 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
           <div className="flex shrink-0 items-center gap-1"><Button ref={refreshButton} size="sm" variant="outline" disabled={submitting || busy} className="h-8 rounded-full !bg-[color:var(--app-card-surface-compact)] px-3 font-normal !text-[color:var(--app-label)] shadow-none sm:h-[34px]" onClick={() => setDate(today)}>Today</Button><Button size="icon" variant="ghost" className="size-8 !text-[color:var(--app-label)]" aria-label="Previous day" disabled={submitting || busy} onClick={() => setDate(value => shiftCalendarDate(value, -1))}><ChevronLeft className="size-4" /></Button><Button size="icon" variant="ghost" className="size-8 !text-[color:var(--app-label)]" aria-label="Next day" disabled={submitting || busy} onClick={() => setDate(value => shiftCalendarDate(value, 1))}><ChevronRight className="size-4" /></Button></div>
         </div>
         {view === "today" ? <section aria-label="Today's events" className="space-y-3">
-          {eventsLoading ? <SurfaceCard className="p-5 shadow-none"><p role="status" aria-live="polite">Loading events…</p></SurfaceCard> : eventsError ? <SurfaceCard className="p-5 shadow-none">{recovery(eventsError)}</SurfaceCard> : <>
+          {eventsLoading && !events ? <SurfaceCard className="p-5 shadow-none"><p role="status" aria-live="polite">Loading events…</p></SurfaceCard> : eventsError && !events ? <SurfaceCard className="p-5 shadow-none">{recovery(eventsError)}</SurfaceCard> : <>
+            {eventsLoading && events ? <p role="status" className="text-xs text-muted-foreground">Updating events…</p> : null}
+            {eventsError && events ? <SurfaceCard className="p-4 shadow-none"><p className="text-sm">Showing the last loaded events; updates could not be checked.</p>{recovery(eventsError)}</SurfaceCard> : null}
             {unreadableCalendars.length ? <p role="status" className="text-xs text-muted-foreground">Event details are not shared for {unreadableCalendars.map(calendar => calendar.name || calendar.id).join(", ")}. Their busy times are included in availability checks.</p> : null}
-            {events?.length === 0 ? <SurfaceCard className="p-6 shadow-none"><p>{date === today ? "No events today." : "No events on this day."}</p><p className="mt-1 text-sm text-muted-foreground">{unreadableCalendars.length ? "No events in calendars that share event details." : "Your included calendars are clear."}</p></SurfaceCard> : <>
+            {events?.length === 0 && !eventsError && !eventsLoading ? <SurfaceCard className="p-6 shadow-none"><p>{date === today ? "No events today." : "No events on this day."}</p><p className="mt-1 text-sm text-muted-foreground">{unreadableCalendars.length ? "No events in calendars that share event details." : "Your included calendars are clear."}</p></SurfaceCard> : <>
               {allDay.length ? <div className="space-y-2"><h3 className="text-xs font-semibold text-muted-foreground">All-day events</h3>{timeline(allDay)}</div> : null}
               {timed.length ? timeline(timed) : null}
             </>}
@@ -309,7 +351,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
             <button type="button" onClick={event => openSettings(event.currentTarget)} className="text-left text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">{startTime} – {endTime} · {zone}</button>
           </SurfaceCard>
           {availabilityError ? <SurfaceCard className="p-4 shadow-none">{recovery(availabilityError, true)}</SurfaceCard> : availability && !availabilityLoading ? <div aria-live="polite" className="space-y-3">
-            {availability.windows.length ? <ul className="space-y-2">{availability.windows.map(window => <li key={window.start_at}><SurfaceCard className="shadow-none"><div className="flex min-h-[68px] items-center gap-3 px-4 py-2.5 sm:min-h-[65px]"><div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-[21px] sm:text-sm">{timeRangeLabel(window.start_at, window.end_at, zone)}</p><p className="mt-1 text-xs text-muted-foreground">{durationLabel(window.duration_minutes)}</p></div><Button aria-label={`Ask One about ${timeRangeLabel(window.start_at, window.end_at, zone)}`} variant="ghost" size="icon" className="size-10 shrink-0 rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]" onClick={() => onChat(`Help me find time for a ${duration}-minute meeting on ${date} during ${timeRangeLabel(window.start_at, window.end_at, zone)} (${zone}). Available window (UTC): ${window.start_at} to ${window.end_at}. Review the details with me before taking action.`)}><Plus className="size-5" /></Button></div></SurfaceCard></li>)}</ul> : <SurfaceCard className="p-4 shadow-none"><p className="text-sm">No free slots in this window.</p></SurfaceCard>}
+            {availability.windows.length ? <ul className="space-y-2">{availability.windows.map(window => <li key={window.start_at}><SurfaceCard className="shadow-none"><div className="flex min-h-[68px] items-center gap-3 px-4 py-2.5 sm:min-h-[65px]"><div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-[21px] sm:text-sm">{timeRangeLabel(window.start_at, window.end_at, zone)}</p><p className="mt-1 text-xs text-muted-foreground">{durationLabel(window.duration_minutes)}</p></div><Button aria-label={`Ask One about ${timeRangeLabel(window.start_at, window.end_at, zone)}`} variant="ghost" size="icon" className="size-10 shrink-0 rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]" onClick={() => onChat(`Book a ${duration}-minute meeting on ${date} during ${timeRangeLabel(window.start_at, window.end_at, zone)} (${zone}). Available window (UTC): ${window.start_at} to ${window.end_at}. Requested booking (UTC): ${window.start_at} to ${new Date(Date.parse(window.start_at) + duration * 60000).toISOString()}. Ask me for any missing title or guests, recheck availability, and show the booking proposal for my confirmation before creating the Calendar event.`)}><Plus className="size-5" /></Button></div></SurfaceCard></li>)}</ul> : <SurfaceCard className="p-4 shadow-none"><p className="text-sm">No free slots in this window.</p></SurfaceCard>}
             {availability.full_count > 3 ? <p className="text-xs text-muted-foreground">Showing 3 of {availability.full_count} available windows.</p> : null}
             <p className="text-xs text-muted-foreground">Availability can change. These times aren't reserved.</p>
           </div> : null}

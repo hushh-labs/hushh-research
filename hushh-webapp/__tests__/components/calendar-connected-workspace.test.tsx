@@ -44,6 +44,7 @@ import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-conne
 import { GoogleCalendarError } from "@/lib/services/google-calendar-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
 const status = {
   configured: true, connected: true, status: "connected" as const,
@@ -109,6 +110,7 @@ describe("CalendarConnectedWorkspace", () => {
 
   afterEach(() => {
     cleanup();
+    resetIdleSchedulerForTests();
     vi.useRealTimers();
   });
 
@@ -153,6 +155,20 @@ describe("CalendarConnectedWorkspace", () => {
 
     await screen.findByText(/Calendar service unavailable/i);
     expect(screen.queryByText(/No events/i)).toBeNull();
+    vi.setSystemTime(new Date("2026-10-14T06:00:04Z"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await screen.findByText("No events today.");
+    let rejectRefresh!: (error: Error) => void;
+    mocks.today.mockImplementationOnce(() => new Promise((_resolve, fail) => { rejectRefresh = fail; }));
+    vi.setSystemTime(new Date("2026-10-14T06:00:08Z"));
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    expect(screen.getByText("Updating events…")).toBeInTheDocument();
+    expect(screen.queryByText("No events today.")).toBeNull();
+    expect(screen.queryByText("Your included calendars are clear.")).toBeNull();
+    await act(async () => rejectRefresh(new GoogleCalendarError("Calendar refresh failed", "calendar_invalid_response", 503)));
+    expect(screen.getByText("Calendar refresh failed")).toBeInTheDocument();
+    expect(screen.queryByText("No events today.")).toBeNull();
+    expect(screen.queryByText("Your included calendars are clear.")).toBeNull();
   });
 
   it("provides read reconnect recovery only after the provider requests it", async () => {
@@ -279,7 +295,11 @@ describe("CalendarConnectedWorkspace", () => {
     render(workspace());
     fireEvent.click(control("Free time"));
     await waitFor(() => expect(mocks.availability).toHaveBeenCalledOnce());
+    const superseded = mocks.availability.mock.calls[0][0];
+    expect(superseded.signal.aborted).toBe(false);
     fireEvent.change(screen.getByLabelText("Selected date"), { target: { value: "2026-10-16" } });
+    expect(superseded.signal.aborted).toBe(true);
+    expect(superseded.isEffectCurrent()).toBe(false);
     await act(async () => complete({ ...freeResponse(), full_count: 99, windows: [{ start_at: "2026-10-15T10:00:00Z", end_at: "2026-10-15T10:30:00Z", duration_minutes: 30 }], calendars: [{ id: "old-calendar", name: "Old calendar" }] }));
 
     expect(screen.queryByText(/Old calendar/i)).toBeNull();
@@ -579,12 +599,15 @@ describe("CalendarConnectedWorkspace", () => {
 
     expect(mocks.onChat).toHaveBeenCalledOnce();
     const prompt = mocks.onChat.mock.calls[0][0];
-    expect(prompt).toContain("15-minute meeting");
+    expect(prompt).toMatch(/^Book a 15-minute meeting/);
     expect(prompt).toContain("2026-11-01");
     expect(prompt).toContain(mocks.availability.mock.calls[0][0].timeZone);
     expect(prompt).toContain(add.getAttribute("aria-label")!.replace("Ask One about ", ""));
     expect(prompt).toContain("2026-11-01T05:30:00Z");
-    expect(prompt).toContain("2026-11-01T06:30:00Z");
+    expect(prompt).toContain("Available window (UTC): 2026-11-01T05:30:00Z to 2026-11-01T06:30:00Z");
+    expect(prompt).toMatch(/Requested booking \(UTC\): 2026-11-01T05:30:00Z to 2026-11-01T05:45:00(?:\.000)?Z/);
+    expect(prompt).toContain("recheck availability");
+    expect(prompt).toContain("my confirmation before creating the Calendar event");
     expect(prompt).not.toContain("60-minute meeting");
     expect(mocks.reviewAttendance).not.toHaveBeenCalled();
     expect(mocks.confirmAttendance).not.toHaveBeenCalled();
@@ -610,7 +633,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
 
-  it("shows rejected Firebase credentials as a read error and retries without an empty-day claim", async () => {
+  it("shows rejected Firebase credentials honestly and recovers on focus without a manual retry button", async () => {
     mocks.vaultOwnerToken = null;
     mocks.ownerTokenStatus = "locked";
     mocks.getIdToken.mockRejectedValueOnce(new Error("Firebase session expired"));
@@ -622,7 +645,9 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.today).not.toHaveBeenCalled();
     expect(screen.queryByText(/No events/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /unlock/i })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Try again", exact: true }));
+    expect(screen.queryByRole("button", { name: "Try again", exact: true })).toBeNull();
+    vi.setSystemTime(new Date("2026-10-14T06:00:04Z"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
 
     await screen.findByRole("button", { name: /^Current partner meeting/i });
     expect(mocks.today).toHaveBeenCalledOnce();
@@ -663,6 +688,106 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.today).toHaveBeenCalledOnce();
     expect(mocks.today).toHaveBeenCalledWith(expect.objectContaining({ firebaseIdToken: "firebase-owner-token" }));
     expect(mocks.today.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
+  });
+
+  it("fetches only the selected Schedule view and selected date", async () => {
+    render(workspace());
+    await waitFor(() => expect(mocks.today).toHaveBeenCalledOnce());
+    fireEvent.click(control("Free time"));
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalledOnce());
+    fireEvent.change(screen.getByLabelText("Selected date"), { target: { value: "2026-10-15" } });
+    await waitFor(() => expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-15" })));
+    expect(mocks.today).toHaveBeenCalledOnce();
+    fireEvent.click(control("Today"));
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-15" })));
+    const calls = { today: mocks.today.mock.calls.length, free: mocks.availability.mock.calls.length };
+    fireEvent.click(screen.getByRole("tab", { name: "Invitations", exact: true }));
+    await act(async () => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online")); });
+    expect(mocks.today).toHaveBeenCalledTimes(calls.today);
+    expect(mocks.availability).toHaveBeenCalledTimes(calls.free);
+  });
+
+  it("deduplicates focus and online refreshes and keeps the last same-day events while a read is in flight", async () => {
+    let resolveRefresh!: (value: unknown) => void;
+    mocks.today.mockResolvedValueOnce(dailyResponse(dailyEvents));
+    mocks.today.mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }));
+    render(workspace());
+    await screen.findByRole("button", { name: /^Current partner meeting/i });
+    await act(async () => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online")); });
+    expect(mocks.today).toHaveBeenCalledOnce();
+    vi.setSystemTime(new Date("2026-10-14T06:00:04Z"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online")); });
+    expect(mocks.today).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: /^Current partner meeting/i })).toBeInTheDocument();
+    expect(screen.getByText("Updating events…")).toBeInTheDocument();
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(mocks.today).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(new Date("2026-10-14T06:00:08Z"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("online")); });
+    expect(mocks.today).toHaveBeenCalledTimes(2);
+    await act(async () => resolveRefresh(dailyResponse([{ ...dailyEvents[1], title: "Fresh partner meeting" }])));
+    expect(screen.getByRole("button", { name: /^Fresh partner meeting/i })).toBeInTheDocument();
+    expect(screen.queryByText("Updating events…")).toBeNull();
+    expect(mocks.availability).not.toHaveBeenCalled();
+    mocks.today.mockRejectedValueOnce(new GoogleCalendarError("Calendar access was revoked", "calendar_reauthorization_required", 401));
+    vi.setSystemTime(new Date("2026-10-14T06:00:12Z"));
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    expect(screen.queryByRole("button", { name: /^Fresh partner meeting/i })).toBeNull();
+    expect(screen.getByText("Calendar access was revoked")).toBeInTheDocument();
+    expect(screen.queryByText("No events today.")).toBeNull();
+  });
+
+  it("removes stale Free time booking actions while checking or after unavailable calendar data", async () => {
+    let rejectRefresh!: (error: Error) => void;
+    const checked = { ...freeResponse(), full_count: 1, windows: [
+      { start_at: "2026-10-14T06:15:00Z", end_at: "2026-10-14T07:00:00Z", duration_minutes: 45 },
+    ] };
+    mocks.availability.mockResolvedValueOnce(checked);
+    mocks.availability.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject; }));
+    render(workspace());
+    fireEvent.click(control("Free time"));
+    await screen.findByRole("button", { name: /^Ask One about/ });
+    vi.setSystemTime(new Date("2026-10-14T06:00:04Z"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(mocks.availability).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: /^Ask One about/ })).toBeNull();
+    await act(async () => rejectRefresh(new GoogleCalendarError("Calendar was unavailable", "calendar_invalid_response", 503)));
+    expect(screen.getByText("Availability could not be checked.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Ask One about/ })).toBeNull();
+    expect(screen.queryByText("No free slots in this window.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again", exact: true })).toBeNull();
+    expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("polls the active view every thirty seconds while visible and refreshes once when returning", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const view = render(workspace());
+    try {
+      await act(async () => { await Promise.resolve(); });
+      expect(mocks.today).toHaveBeenCalledOnce();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_032); });
+      expect(mocks.today).toHaveBeenCalledTimes(2);
+      expect(mocks.availability).not.toHaveBeenCalled();
+      visibility.mockReturnValue("hidden");
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(30_032); });
+      expect(mocks.today).toHaveBeenCalledTimes(2);
+      visibility.mockReturnValue("visible");
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(32); });
+      expect(mocks.today).toHaveBeenCalledTimes(3);
+      await act(async () => { fireEvent.click(control("Free time")); });
+      expect(mocks.availability).toHaveBeenCalledOnce();
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_032); });
+      expect(mocks.availability).toHaveBeenCalledTimes(2);
+      expect(mocks.today).toHaveBeenCalledTimes(3);
+    } finally {
+      view.unmount();
+      visibility.mockRestore();
+      resetIdleSchedulerForTests();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it.each(["Today", "Free time"])("forwards deliberate Calendar chat and disconnect actions once in %s", async activeView => {

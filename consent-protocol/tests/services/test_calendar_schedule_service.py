@@ -545,3 +545,18 @@ def test_missing_or_malformed_referenced_event_colors_are_not_replaced_with_inve
     with pytest.raises(GoogleConnectionError):
         asyncio.run(CalendarScheduleService(calendar=calendar, db=_Db(), mail=object()).today(
             user_id="owner", date="2030-01-02", time_zone="UTC"))
+
+
+def test_source_calendar_midnight_dst_transition_keeps_selected_day_loadable():
+    class Calendar(_BoundCalendar):
+        async def list_calendars(self, **kwargs):
+            return {"calendars": [{"id": "source", "name": "Source", "access_role": "reader", "time_zone": "America/Santiago"}]}
+
+        async def list_events(self, **kwargs):
+            assert kwargs["start_at"] == "2026-09-04T00:00:00+00:00"
+            assert kwargs["end_at"] == "2026-09-09T00:00:00+00:00"
+            return {"events": [{"id": "all-day", "title": "All day", "start": {"date": "2026-09-06"}, "end": {"date": "2026-09-07"}}]}
+
+    result = asyncio.run(CalendarScheduleService(calendar=Calendar(), db=_Db()).today(
+        user_id="owner", date="2026-09-06", time_zone="UTC"))
+    assert [event["id"] for event in result["events"]] == ["all-day"]

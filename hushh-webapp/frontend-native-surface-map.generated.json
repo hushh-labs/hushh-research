@@ -639,6 +639,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/calendar/reschedule",
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Standalone recipient capability reader has no signed-in shell or booking authority.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.calendar.reschedule",
+          "purpose": "Review offered alternatives and reply to the sender without login or booking.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the offered availability could not be checked.",
+            "cancelled": "Keep the meeting unchanged.",
+            "failed": "Ask the sender for another link without claiming any free time.",
+            "timeout": "Offer to check the same reviewed alternatives again.",
+            "callback_error": "No sign-in callback is required; ask the sender for a valid link.",
+            "route_mismatch": "Use only this capability reader; never open the logged-in Calendar homepage."
+          },
+          "completion_boundary": "The organizer updates the invitation after an email reply; this page never changes a meeting.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/calendar/reschedule",
+        "classification": "excluded-web-only",
+        "reason": "External recipients use this anonymous browser capability link; it requires no app install and grants no booking or native workspace authority."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/circle/join",
       "page_file": "app/circle/join/page.tsx",
       "physical_page_exists": true,
@@ -2380,12 +2433,11 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_file": "components/calendar/calendar-connected-workspace.tsx",
         "shell_verification_includes": [
           "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
           "PageHeader",
+          "TopShellTabs",
           "SurfaceCard"
         ],
         "interaction_layer_policy": {
@@ -2408,7 +2460,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+          "completion_boundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -10273,5 +10325,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d40fe654d8987a496ce5f0a41b7058e8b59908a1d4fcb5f2bf6eca688b45943d"
+  "content_sha256": "c0705a410a7524ae3ed235c3201c6e8f7af1317858b2a449642cf70ff0d4baea"
 }

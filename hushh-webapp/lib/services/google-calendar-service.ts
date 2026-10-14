@@ -324,9 +324,9 @@ export class GoogleCalendarService {
       throw await calendarError(response, "Unable to load Calendar events.");
     return response.json() as Promise<CalendarEventsResponse>;
   }
-  private static async scheduleRequest<T>(path: string, token: string | null, body: object, auth?: { firebaseIdToken: string; isEffectCurrent?: () => boolean }): Promise<T> {
+  private static async scheduleRequest<T>(path: string, token: string | null, body: object, auth?: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<T> {
     const response = await ApiService.apiFetch(`/api/one/calendar/${path}`, {
-      method: "POST", cache: "no-store", isEffectCurrent: auth?.isEffectCurrent,
+      method: "POST", cache: "no-store", signal: auth?.signal, isEffectCurrent: auth?.isEffectCurrent,
       headers: { ...((auth?.firebaseIdToken || token) ? { Authorization: `Bearer ${auth?.firebaseIdToken || token}`, ...(auth && token ? { "X-Hushh-Consent": `Bearer ${token}` } : {}) } : {}), "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -334,8 +334,26 @@ export class GoogleCalendarService {
     return response.json() as Promise<T>;
   }
 
-  static async today(params: { firebaseIdToken: string; isEffectCurrent?: () => boolean; date: string; timeZone: string }): Promise<CalendarDailyResponse> {
-    const result = await this.scheduleRequest<CalendarDailyResponse>("schedule/today", null, { date: params.date, time_zone: params.timeZone }, params);
+  /** Retry only side-effect-free reads; Calendar mutations must never be replayed. */
+  private static async scheduleRead<T>(path: string, body: object, auth: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      auth.signal?.throwIfAborted();
+      if (auth.isEffectCurrent?.() === false) throw new DOMException("Superseded", "AbortError");
+      try { return await this.scheduleRequest<T>(path, null, body, auth); }
+      catch (error) {
+        const transient = error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError") || (error instanceof GoogleCalendarError && [408, 502, 503, 504].includes(error.status));
+        if (!transient || attempt >= 2 || auth.signal?.aborted || auth.isEffectCurrent?.() === false) throw error;
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+          const timer = setTimeout(() => { auth.signal?.removeEventListener("abort", abort); resolve(); }, attempt === 0 ? 750 : 2000);
+          auth.signal?.addEventListener("abort", abort, { once: true });
+        });
+      }
+    }
+  }
+
+  static async today(params: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; date: string; timeZone: string }): Promise<CalendarDailyResponse> {
+    const result = await this.scheduleRead<CalendarDailyResponse>("schedule/today", { date: params.date, time_zone: params.timeZone }, params);
     if (!result || result.date !== params.date || result.time_zone !== params.timeZone || !Array.isArray(result.events) || !Array.isArray(result.calendars) || !result.calendars.length || !Array.isArray(result.unreadable_calendars)) throw new GoogleCalendarError("Calendar events could not be checked.", "calendar_invalid_response", 502);
     return result;
   }
@@ -344,17 +362,17 @@ export class GoogleCalendarService {
     return { date: params.date, time_zone: params.timeZone, start_time: params.startTime, end_time: params.endTime, duration_minutes: params.durationMinutes };
   }
 
-  static async availability(params: Omit<CalendarWindowParams, "vaultOwnerToken"> & { firebaseIdToken: string; isEffectCurrent?: () => boolean }): Promise<CalendarAvailability> {
-    const result = await this.scheduleRequest<CalendarAvailability>("schedule/availability", null, this.windowBody(params), params);
+  static async availability(params: Omit<CalendarWindowParams, "vaultOwnerToken"> & { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarAvailability> {
+    const result = await this.scheduleRead<CalendarAvailability>("schedule/availability", this.windowBody(params), params);
     if (!result || result.date !== params.date || result.time_zone !== params.timeZone || !Array.isArray(result.windows) || result.windows.length > 3 || !Number.isInteger(result.full_count) || result.full_count < result.windows.length || result.requested_duration_minutes !== params.durationMinutes || !Array.isArray(result.calendars) || !result.calendars.length || result.windows.some(window => !Number.isFinite(Date.parse(window.start_at)) || !Number.isFinite(Date.parse(window.end_at)) || Date.parse(window.end_at) <= Date.parse(window.start_at) || window.duration_minutes < params.durationMinutes || Math.floor((Date.parse(window.end_at) - Date.parse(window.start_at)) / 60000) !== window.duration_minutes)) throw new GoogleCalendarError("Availability could not be checked.", "calendar_invalid_response", 502);
     return result;
   }
 
-  static reviewAttendance(params: CalendarWindowParams & { firebaseIdToken: string; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; message: string }): Promise<CalendarAttendanceReview> {
+  static reviewAttendance(params: CalendarWindowParams & { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; message: string }): Promise<CalendarAttendanceReview> {
     return this.scheduleRequest("attendance/review", params.vaultOwnerToken, { ...this.windowBody(params), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, message: params.message }, params);
   }
 
-  static confirmAttendance(params: { firebaseIdToken: string; isEffectCurrent?: () => boolean; vaultOwnerToken: string; reviewId: string; reviewToken: string }): Promise<CalendarAttendanceResult> {
+  static confirmAttendance(params: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; vaultOwnerToken: string; reviewId: string; reviewToken: string }): Promise<CalendarAttendanceResult> {
     return this.scheduleRequest("attendance/confirm", params.vaultOwnerToken, { review_id: params.reviewId, review_token: params.reviewToken }, params);
   }
 

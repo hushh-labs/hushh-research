@@ -1462,7 +1462,22 @@ HCT revocation does not revoke these two provider reads: Firebase invalidation
 or Calendar disconnect does. Attendance still requires matching Firebase and
 VAULT_OWNER authority. Date/view changes and session epochs reject stale results.
 Selected-day shortcuts open Google Calendar, and free-window actions hand off
-date, range, time zone and requested duration to the existing Calendar chat.
+date, range, time zone and the exact requested-duration booking to Calendar chat.
+Chat gathers missing details and requires the existing proposal confirmation;
+selecting a window never creates an event by itself. New proposals bind the
+review to the current Google grant. With subscribed-calendar access, create
+proposals show busy-period warnings across the included calendars and reject
+changed availability at confirmation. Google must return an event identifier
+before creation is reported as successful; mutations are never automatically
+retried.
+
+The visible Schedule view refreshes every thirty seconds and on return to the
+page or network recovery, coalescing requests within three seconds. Superseded
+reads are cancelled. Transient read failures receive at most two short retries;
+authentication and permission failures require their existing recovery action.
+Today retains the last successful same-owner/day records during refresh with an
+explicit stale notice if checking fails. Free-time booking actions are removed
+until a fresh availability check succeeds. Permission loss clears retained events.
 Initial disconnected onboarding is
 unchanged. Native subscribed-calendar discovery is requested only through an
 explicit `include_calendar_list` upgrade; base native consent stays unchanged,

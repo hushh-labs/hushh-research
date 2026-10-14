@@ -260,3 +260,25 @@ def test_free_windows_cannot_cross_a_grant_change_during_busy_read(monkeypatch: 
     with pytest.raises(GoogleConnectionError) as caught:
         _free_windows(calendar)
     assert caught.value.reason_code == "calendar_connection_changed"
+
+
+def test_large_availability_checks_have_bounded_parallelism():
+    class ParallelCalendar(_WindowsCalendar):
+        active = 0
+        peak = 0
+
+        async def freebusy(self, **kwargs):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                await asyncio.sleep(0)
+                return await super().freebusy(**kwargs)
+            finally:
+                self.active -= 1
+
+    calendar = ParallelCalendar({f"calendar-{i}": {"busy": []} for i in range(100)})
+    result = _free_windows(calendar, day="2030-10-14")
+    assert result["full_count"] == 1
+    assert len(calendar.calls) == 5
+    assert calendar.peak == 3
+    assert {identifier for call in calendar.calls for identifier in call["calendar_ids"]} == set(calendar.data)
