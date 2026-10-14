@@ -93,6 +93,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
   async connectCalendar(_options: {
     serverClientId: string;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   }): Promise<{ serverAuthCode: string }> {
     throw new Error(
       "Native Calendar consent is only available in the mobile app.",

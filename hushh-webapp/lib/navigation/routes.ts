@@ -103,6 +103,7 @@ export function resolvePersonRefFromProfilePathname(
 }
 
 export const ROUTES = {
+  CALENDAR_RESCHEDULE: "/calendar/reschedule",
   HOME: "/",
   PERSON_PROFILE: "/people/[personRef]",
   /** Canonical public knowledge workspace; root is dual-mode Chat/onboarding. */
@@ -561,6 +562,7 @@ export function isCompletedLocationWorkspaceRoute(
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -877,6 +879,7 @@ export function normalizeInvitationReturnTo(
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -916,6 +919,7 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)

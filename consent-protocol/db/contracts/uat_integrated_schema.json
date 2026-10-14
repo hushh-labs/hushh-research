@@ -3147,6 +3147,14 @@
       "card_id",
       "expires_at",
       "duration_minutes"
+    ],
+    "calendar_attendance_reviews": [
+      "review_id",
+      "user_id",
+      "state",
+      "result_json",
+      "expires_at",
+      "created_at"
     ]
   }
 }

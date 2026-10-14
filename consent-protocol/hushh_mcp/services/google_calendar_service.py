@@ -11,11 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -56,6 +59,94 @@ _WRITABLE_ATTENDEE_FIELDS = frozenset(
 
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _provider_color(value: object) -> str | None:
+    return (
+        value.lower()
+        if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value)
+        else None
+    )
+
+
+class _MeetingAnchors(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "a":
+            self.links.extend(value for name, value in attrs if name.lower() == "href" and value)
+
+
+def _meeting_link(value: object) -> tuple[str, str] | None:
+    """Admit actual HTTPS join paths, never provider homepages or booking links."""
+    if not isinstance(value, str) or len(value) > 8192:
+        return None
+    candidate = unescape(value).strip()
+    if any(ord(character) < 32 for character in candidate):
+        return None
+    try:
+        url = urlsplit(candidate)
+        if (
+            url.scheme != "https"
+            or url.username is not None
+            or url.password is not None
+            or url.port not in (None, 443)
+        ):
+            return None
+        host, path = (url.hostname or "").lower(), url.path
+        if host == "meet.google.com" and (
+            re.fullmatch(r"/[a-z]{3}-[a-z]{4}-[a-z]{3}/?", path)
+            or re.fullmatch(r"/lookup/[A-Za-z0-9_-]+/?", path)
+        ):
+            return candidate, "Google Meet"
+        if any(
+            host == suffix or host.endswith("." + suffix) for suffix in ("zoom.us", "zoomgov.com")
+        ) and (
+            re.fullmatch(r"/(?:j|w|wc/j)/[0-9]{9,12}/?", path)
+            or re.fullmatch(r"/wc/[0-9]{9,12}/join/?", path)
+            or re.fullmatch(r"/my/[A-Za-z0-9][A-Za-z0-9._-]{0,99}/?", path)
+        ):
+            return candidate, "Zoom Meeting"
+        if host in {"teams.microsoft.com", "teams.live.com", "teams.cloud.microsoft"} and (
+            re.fullmatch(r"/l/meetup-join/[^\s<>]+", path)
+            or re.fullmatch(r"/meet/[0-9]{10,40}/?", path)
+        ):
+            return candidate, "Microsoft Teams"
+    except ValueError:
+        return None
+    return None
+
+
+def _event_meeting(event: dict[str, Any]) -> tuple[str, str] | None:
+    conference = _mapping(event.get("conferenceData"))
+    entries = conference.get("entryPoints")
+    candidates = (
+        [
+            item.get("uri")
+            for item in entries
+            if isinstance(item, dict) and item.get("entryPointType") == "video"
+        ]
+        if isinstance(entries, list)
+        else []
+    )
+    candidates.append(event.get("hangoutLink"))
+    for field in ("description", "location"):
+        text = event.get(field)
+        if not isinstance(text, str):
+            continue
+        text = unescape(text)
+        anchors = _MeetingAnchors()
+        try:
+            anchors.feed(text)
+        except ValueError:
+            pass
+        candidates.extend(anchors.links)
+        candidates.extend(
+            match.rstrip(".,;)]}") for match in re.findall(r"https://[^\s<>\"']+", text)
+        )
+    return next((link for value in candidates if (link := _meeting_link(value))), None)
 
 
 class GoogleCalendarService:
@@ -109,6 +200,7 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         required_scope: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         # Include token refresh and grant checks in one wall-clock read budget.
         # Mutations keep their existing timeout and are never retried here.
@@ -125,6 +217,7 @@ class GoogleCalendarService:
                     payload=payload,
                     headers=headers,
                     required_scope=required_scope,
+                    expected_binding=expected_binding,
                 )
         except (TimeoutError, httpx.TimeoutException) as exc:
             raise GoogleConnectionError(
@@ -150,12 +243,19 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None,
         headers: dict[str, str] | None,
         required_scope: str | None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         before = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
-            if access == "read"
+            if access == "read" or expected_binding is not None
             else None
         )
+        if expected_binding is not None and before != expected_binding:
+            raise GoogleConnectionError(
+                "Google Calendar connection changed",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
         if access == "read" and before is None:
             status_reader = getattr(self.connections, "status", None)
             status = (
@@ -196,10 +296,12 @@ class GoogleCalendarService:
             ) from exc
         current = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
-            if access == "read"
+            if access == "read" or expected_binding is not None
             else None
         )
-        if access == "read" and (current is None or current != before):
+        if (access == "read" or expected_binding is not None) and (
+            current is None or current != before
+        ):
             raise GoogleConnectionError(
                 "Google Calendar connection changed",
                 status_code=409,
@@ -244,7 +346,7 @@ class GoogleCalendarService:
                         if isinstance(exc, httpx.TimeoutException)
                         else "calendar_unavailable",
                     ) from exc
-                if access == "read":
+                if access == "read" or expected_binding is not None:
                     await self._check_read_binding(user_id, current)
                 error_reason = self._response_error_reason(response)
                 transient = (
@@ -416,21 +518,7 @@ class GoogleCalendarService:
     @staticmethod
     def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
         conference_data = _mapping(event.get("conferenceData"))
-        entry_points = conference_data.get("entryPoints")
-        video_entry = (
-            next(
-                (
-                    item
-                    for item in entry_points
-                    if isinstance(item, dict)
-                    and item.get("entryPointType") == "video"
-                    and isinstance(item.get("uri"), str)
-                ),
-                None,
-            )
-            if isinstance(entry_points, list)
-            else None
-        )
+        meeting = _event_meeting(event)
         conference_request = _mapping(conference_data.get("createRequest"))
         conference_status = _mapping(conference_request.get("status"))
         return {
@@ -442,19 +530,39 @@ class GoogleCalendarService:
             "start": event.get("start"),
             "end": event.get("end"),
             "status": event.get("status"),
+            "organizer": event.get("organizer"),
+            "can_decline": not _mapping(event.get("organizer")).get("self")
+            and not event.get("attendeesOmitted")
+            and any(
+                isinstance(item, dict) and item.get("self") and not item.get("organizer")
+                for item in event.get("attendees", [])
+            ),
             "attendees": [
-                {"email": item.get("email"), "response_status": item.get("responseStatus")}
+                {
+                    "email": item.get("email"),
+                    "response_status": item.get("responseStatus"),
+                    "self": item.get("self") is True,
+                }
                 for item in event.get("attendees", [])
                 if isinstance(item, dict)
             ],
             "html_link": event.get("htmlLink"),
-            "conference_url": (video_entry.get("uri") if video_entry else event.get("hangoutLink")),
+            "conference_url": meeting[0] if meeting else None,
+            "conference_name": meeting[1] if meeting else None,
             "conference_status": conference_status.get("statusCode") or None,
+            "conference_provider": _mapping(conference_data.get("conferenceSolution")).get("name"),
+            "conference_type": _mapping(
+                _mapping(conference_data.get("conferenceSolution")).get("key")
+            ).get("type"),
+            "color_id": event.get("colorId"),
+            "recurring_event_id": event.get("recurringEventId"),
+            "original_start_time": event.get("originalStartTime"),
             "updated": event.get("updated"),
         }
 
     async def list_calendars(
-        self, *, user_id: str, max_results: int = 50, page_token: str | None = None
+        self, *, user_id: str, max_results: int = 50, page_token: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """One bounded page of the owner's subscribed calendars."""
         if page_token is not None and (not page_token or len(page_token) > 2048):
@@ -469,17 +577,45 @@ class GoogleCalendarService:
             access="read",
             params=params,
             required_scope=CALENDAR_LIST_READ_SCOPE,
+            expected_binding=expected_binding,
         )
         items = response.get("items", [])
-        if not isinstance(items, list):
-            raise GoogleConnectionError("Calendar list is unavailable", status_code=502)
+        if not isinstance(items, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+            for item in items
+        ):
+            raise GoogleConnectionError(
+                "Calendar list is unavailable",
+                status_code=502,
+                reason_code="calendar_invalid_response",
+            )
         calendars = [
             {
                 "id": item.get("id"),
-                "name": item.get("summary") or "Untitled calendar",
+                "name": item.get("summaryOverride") or item.get("summary") or "Untitled calendar",
                 "primary": item.get("primary") is True,
                 "access_role": item.get("accessRole"),
                 "time_zone": item.get("timeZone"),
+                **{
+                    name: value
+                    for name, source, value in (
+                        ("location", "location", item.get("location") or None),
+                        ("color_id", "colorId", item.get("colorId")),
+                        (
+                            "background_color",
+                            "backgroundColor",
+                            _provider_color(item.get("backgroundColor")),
+                        ),
+                        (
+                            "foreground_color",
+                            "foregroundColor",
+                            _provider_color(item.get("foregroundColor")),
+                        ),
+                        ("selected", "selected", item.get("selected") is True),
+                        ("hidden", "hidden", item.get("hidden") is True),
+                    )
+                    if source in item
+                },
             }
             for item in items
             if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
@@ -492,6 +628,35 @@ class GoogleCalendarService:
             **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
         }
 
+    async def event_colors(
+        self, *, user_id: str, expected_binding: tuple[str, ...] | None = None
+    ) -> dict[str, str]:
+        """Resolve provider event-color overrides without inventing a palette."""
+        response = await self._request(
+            user_id=user_id,
+            method="GET",
+            path="/colors",
+            access="read",
+            required_scope=CALENDAR_LIST_READ_SCOPE,
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
+        )
+        palette = response.get("event")
+        if not isinstance(palette, dict) or not 1 <= len(palette) <= 256:
+            raise self._invalid_response()
+        colors: dict[str, str] = {}
+        for identifier, definition in palette.items():
+            if not isinstance(identifier, str) or not identifier or len(identifier) > 32:
+                raise self._invalid_response()
+            if not isinstance(definition, dict):
+                raise self._invalid_response()
+            color = _provider_color(definition.get("background"))
+            if color is None or (
+                "foreground" in definition and _provider_color(definition["foreground"]) is None
+            ):
+                raise self._invalid_response()
+            colors[identifier] = color
+        return colors
+
     async def list_events(
         self,
         *,
@@ -502,6 +667,7 @@ class GoogleCalendarService:
         query: str | None = None,
         calendar_id: str = "primary",
         page_token: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """One bounded page of primary-calendar events, honest about truncation.
 
@@ -534,10 +700,17 @@ class GoogleCalendarService:
             path=f"/calendars/{quote(calendar_id, safe='')}/events",
             access="read",
             params=params,
+            expected_binding=expected_binding,
         )
-        items = response.get("items", [])
-        if not isinstance(items, list):
-            raise GoogleConnectionError("Calendar events are unavailable", status_code=502)
+        items = response.get("items")
+        if "items" not in response and response.get("kind") == "calendar#events":
+            items = []
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise GoogleConnectionError(
+                "Calendar events are unavailable",
+                status_code=502,
+                reason_code="calendar_invalid_response",
+            )
         events = [
             {**self._event_summary(item), "calendar_id": calendar_id}
             for item in items
@@ -582,7 +755,13 @@ class GoogleCalendarService:
         }
 
     async def freebusy(
-        self, *, user_id: str, start_at: str, end_at: str, calendar_ids: list[str] | None = None
+        self,
+        *,
+        user_id: str,
+        start_at: str,
+        end_at: str,
+        calendar_ids: list[str] | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         start, end = self._read_window(start_at, end_at)
         ids = [value.strip() for value in (calendar_ids or ["primary"]) if value and value.strip()]
@@ -594,6 +773,7 @@ class GoogleCalendarService:
             path="/freeBusy",
             access="read",
             payload={"timeMin": start, "timeMax": end, "items": [{"id": value} for value in ids]},
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
         calendars = response.get("calendars")
         groups = response.get("groups", {})

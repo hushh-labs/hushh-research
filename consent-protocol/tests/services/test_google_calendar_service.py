@@ -1420,3 +1420,21 @@ def test_calendar_stream_cap_applies_without_content_length(
         )
     assert exc_info.value.reason_code == "calendar_invalid_response"
     assert body.closed
+
+
+@pytest.mark.parametrize("method", ["list_events", "list_calendars"])
+def test_schedule_pages_reject_replaced_original_binding_before_google(
+    monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    connections = _Connections()
+    original = connections.binding
+    connections.binding = (*original[:-1], "replacement-grant")
+    calls = _calendar_provider_sequence(monkeypatch, [_provider_response(200, {})])
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+    params = {"user_id": "owner", "expected_binding": original}
+    if method == "list_events":
+        params.update(start_at="2026-10-14T00:00:00Z", end_at="2026-10-15T00:00:00Z")
+    with pytest.raises(GoogleConnectionError) as error:
+        asyncio.run(getattr(service, method)(**params))
+    assert error.value.reason_code == "calendar_connection_changed"
+    assert calls == []
