@@ -8,7 +8,7 @@ vi.mock("@/lib/services/wallet-card-artwork-service", () => ({
   loadWalletCardArtwork: vi.fn(async (kind: string) => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8")),
 }));
 
-const profile = { ownerId: "owner-a", displayName: "Ankit Kumar Singh", cardPayload: { username: "ankit.kumar.singh" }, memberSince: "2021-04-14T00:00:00Z", walletId: "wallet-1234abcd", shareUrl: "https://one.hushh.ai/c/profile-test-token", referralUrl: "https://one.hushh.ai/r/referral-test-slug" };
+const profile = { ownerId: "owner-a", displayName: "Old display name", cardPayload: { full_name: "Ankit Kumar Singh", username: "ankit.kumar.singh" }, memberSince: "2021-04-14T00:00:00Z", walletId: "wallet-1234abcd", shareUrl: "https://one.hushh.ai/c/profile-test-token", referralUrl: "https://one.hushh.ai/r/referral-test-slug" };
 
 function qrPayload(document: Document): string {
   const qr = document.querySelector("[data-wallet-qr]")!;
@@ -28,7 +28,7 @@ describe("Wallet card image composition", () => {
     expect(document.querySelector("parsererror")).toBeNull();
     expect(document.querySelector("image")?.getAttribute("href")).toMatch(/^data:image\/png;base64,/);
     expect(document.querySelector("style")?.textContent).toContain("data:font/ttf;base64,");
-    expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("ankit.kumar.singh");
+    expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("Ankit Kumar Singh");
     expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("2021");
     expect(qrPayload(document)).toBe(kind === "profile" ? profile.shareUrl : profile.referralUrl);
   });
@@ -36,12 +36,13 @@ describe("Wallet card image composition", () => {
   it("keeps NWS sample 900 and no QR in the face or export", async () => {
     const svg = await buildWalletCardSvg({ kind: "nws", profile });
     const document = new DOMParser().parseFromString(svg, "image/svg+xml");
+    expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("Ankit Kumar Singh");
     expect(document.querySelector("text.score")?.textContent).toBe("900");
     expect(document.querySelector("[data-wallet-qr]")).toBeNull();
   });
 
   it("escapes owner values and never reuses a previous owner or rotated QR identity", async () => {
-    const other = { ...profile, ownerId: "owner-b", cardPayload: { username: '<script>bad</script>' }, shareUrl: "https://one.hushh.ai/c/new-profile-token" };
+    const other = { ...profile, ownerId: "owner-b", cardPayload: { full_name: '<script>bad</script>' }, shareUrl: "https://one.hushh.ai/c/new-profile-token" };
     const svg = await buildWalletCardSvg({ kind: "profile", profile: other });
     const document = new DOMParser().parseFromString(svg, "image/svg+xml");
     expect(document.querySelector("script")).toBeNull();

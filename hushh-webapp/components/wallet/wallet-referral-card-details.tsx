@@ -108,7 +108,7 @@ export function WalletReferralCardDetails({
       <WalletCardConfirmDialog
         open={confirmRevoke}
         title="Revoke referral QR access?"
-        body="The current referral QR and shared link stop accepting new opens. A new QR is created with zero opens. Your earned referrals and existing referral progress stay unchanged. Add your pass to Apple Wallet again to update its QR."
+        body="Replace the referral QR and reset opens; earned referrals stay."
         confirmLabel="Revoke access"
         destructive
         busy={busy !== null}
