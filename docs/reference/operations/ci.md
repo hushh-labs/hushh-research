@@ -478,6 +478,9 @@ for partial or unresolved work. Cleanup outcome is separate from release health 
 capacity admission; diagnostic reporting does not add another unconditional cloud scan.
 
 Both UAT admission observers stop within five minutes and poll at most once a minute.
+Direct inventory checks under deployment locks also bound the entire process group
+to 295 seconds, with two seconds for forced teardown. Their timeouts remain verification
+failures; an unavailable inventory is not an observed capacity shortage.
 `DEFERRED_CAPACITY` retains the original SHA/scope for an operator retry, without
 starting maintenance or automatically resuming a deployment. See
 [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
