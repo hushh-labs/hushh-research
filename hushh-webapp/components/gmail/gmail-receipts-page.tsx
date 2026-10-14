@@ -596,6 +596,7 @@ export default function GmailReceiptsPage({
         }
         if (isReceiptScanContinuationExpiredError(error)) {
           receiptScanCursorsRef.current.clear();
+          setHasMore(false);
           const cached = getCachedGmailReceipts(loadOwnerId, loadAccountKey);
           if (cached) primeCachedGmailReceipts({
             userId: loadOwnerId,

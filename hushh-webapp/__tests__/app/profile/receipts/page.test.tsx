@@ -1270,6 +1270,7 @@ describe("ProfileReceiptsPage", () => {
     expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2);
     expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load older receipts" })).toBeNull();
     if (retryAction === "hero") await startReceiptSync();
     else fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(3));
