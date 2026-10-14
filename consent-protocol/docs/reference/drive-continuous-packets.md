@@ -19,6 +19,23 @@ from $0.50–$500. He chooses **Allow** or **Deny**. He never assembles or label
 the packet. Technical assessment and importance stay under View details.
 Checkout and delivery retain the exact approved sources, version and price.
 
+### Request dates
+
+One's `one_document_period` gene assesses authenticated request text independently
+before the document-request card is built. It has no tools or document access.
+The host validates exact evidence quotations, calendar bounds and any supplied
+candidate dates. Absolute dates need no clock. Relative dates need a host clock
+bound to this invocation and message; a UTC fallback cannot authorize a range.
+An explicit current-message IANA timezone can apply to this read without changing
+saved preferences. The gene still checks that the timezone expresses the request.
+
+A clarification retains bounded original text only for the immediately following
+user turn in the same conversation, for the same resolved person. The next answer
+must supply current evidence; replacement requests discard superseded details.
+Model failure produces no card. These provenance checks do not prove semantic
+correctness: model replay separately grades date decisions, visible questions,
+follow-up handling, failures and the additional assessment latency.
+
 ## Visual Map
 
 ```mermaid

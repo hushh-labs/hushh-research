@@ -151,6 +151,8 @@ _STATE_GOAL_RUN = "hussh:goal_run"
 _STATE_USER_ID = "hussh:user_id"
 _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 _STATE_TIMEZONE = "hussh:timezone"
+_STATE_DOCUMENT_CLOCK_RECEIPT = "temp:hussh:document_clock_receipt"
+_STATE_DOCUMENT_PERIOD_CLARIFICATION = "hussh:document_period_clarification"
 _STATE_CONVERSATION_ID = "hussh:conversation_id"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
@@ -3211,6 +3213,42 @@ def _document_request_user_texts(tool_context: ToolContext) -> tuple[str, ...]:
     return tuple(piece for piece in pieces if piece)
 
 
+def _pending_document_period(tool_context: ToolContext, user_id: str, person_ref: str):
+    """Admit only this conversation's immediately preceding host clarification."""
+    from hushh_mcp.one_adk.document_period_assessment import PendingPeriodContext
+
+    pending = tool_context.state.get(_STATE_DOCUMENT_PERIOD_CLARIFICATION)
+    if not isinstance(pending, dict):
+        return None
+    session = getattr(tool_context, "session", None)
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    session_id = getattr(session, "id", None)
+    if not session_id or not invocation_id:
+        return None
+    prior_user_invocation = next(
+        (
+            getattr(event, "invocation_id", None)
+            for event in reversed(getattr(session, "events", None) or [])
+            if getattr(event, "author", None) == "user"
+            and getattr(getattr(event, "content", None), "role", None) == "user"
+            and getattr(event, "invocation_id", None) != invocation_id
+        ),
+        None,
+    )
+    if (
+        not prior_user_invocation
+        or pending.get("invocation_id") != prior_user_invocation
+        or pending.get("user_id") != user_id
+        or pending.get("person_ref") != person_ref
+        or pending.get("session_id") != getattr(session, "id", None)
+    ):
+        return None
+    try:
+        return PendingPeriodContext.model_validate(pending.get("context"))
+    except ValueError:
+        return None
+
+
 async def propose_document_request(
     person: str,
     purpose: str,
@@ -3220,22 +3258,22 @@ async def propose_document_request(
     selection_handle: str = "",
     date_evidence: str = "",
 ) -> dict[str, Any]:
-    """Prepare a review card ONLY for an unambiguous user-specified calendar range.
+    """Assess the requested document period and prepare an editable review card.
 
-    Absolute dates need a year and unambiguous numeric day/month order; ask one
-    short clarification before calling if either is missing. For an explicitly
-    relative period, use this turn's get_current_time with time_zone_source=owner.
-    Clarify a fallback timezone, unavailable clock or ambiguous window. Never use
-    today to invent a missing absolute year, or infer order from language or
-    institution. File, model, stale and unrelated tool dates cannot fill gaps.
-    A broad stated year plus narrower selected dates is clear, not contradictory.
-    Normalize clear English/Hinglish or fully anchored calendar ranges to ISO
-    period_start/period_end. date_evidence must be an exact 1 to 1024 character
-    excerpt from one authenticated current/queued user message: the absolute
-    range and numeric order, or the explicit relative phrase anchored by that
-    clock result. Literal current-user ISO dates need no excerpt.
-    The browser shows editable dates; nothing is sent until the user's Send tap.
+    Call for every document request, including ambiguous or absent dates. Leave
+    period_start/end empty so One's bounded period assessor reads the current
+    authenticated messages independently. Optional candidate dates must exactly
+    match its result in YYYY-MM-DD format. For an explicitly relative period,
+    call get_current_time first; absolute dates never need a clock or timezone.
+    Return one focused clarification when needed; no request is sent here.
+    date_evidence is retained for older callers and supplies no date authority.
     """
+    from hushh_mcp.one_adk.document_period_assessment import (
+        HostClockReceipt,
+        PendingPeriodContext,
+        assess_document_period,
+        user_texts_sha256,
+    )
     from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
 
     user_texts = _document_request_user_texts(tool_context)
@@ -3264,28 +3302,81 @@ async def propose_document_request(
                 "status": "connection_required",
                 "message": "Connect with this person before requesting documents.",
             }
-        if not (period_start and period_end):
+        invocation_id = str(getattr(tool_context, "invocation_id", "") or "")
+        receipt_data = tool_context.state.get(_STATE_DOCUMENT_CLOCK_RECEIPT)
+        try:
+            receipt = HostClockReceipt.model_validate(receipt_data) if receipt_data else None
+        except ValueError:
+            receipt = None
+        if receipt is not None and (
+            receipt.invocation_id != invocation_id
+            or receipt.user_texts_sha256 != user_texts_sha256(user_texts)
+        ):
+            receipt = None
+        pending_context = _pending_document_period(tool_context, user_id, person_ref)
+        result = await assess_document_period(
+            current_user_texts=user_texts,
+            user_id=user_id,
+            consent_token=resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
+            or "",
+            invocation_id=invocation_id,
+            clock_receipt=receipt,
+            pending_context=pending_context,
+            candidate_start=period_start or None,
+            candidate_end=period_end or None,
+        )
+        assessment = result.assessment
+        if result.status == "clarify" and assessment is not None:
+            if assessment.missing_dimension == "relative_anchor" and receipt is None:
+                return {
+                    "status": "clock_required",
+                    "nextStep": "Call get_current_time, then retry this document request once.",
+                }
+            prior_texts = pending_context.original_user_texts if pending_context else []
+            context_texts = [*prior_texts, *user_texts]
+            if len(context_texts) > 17:
+                tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
+                return {
+                    "status": "needs_clarification",
+                    "message": "What complete start and end dates should I use?",
+                }
+            session_id = getattr(getattr(tool_context, "session", None), "id", None)
+            tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = {
+                "user_id": user_id,
+                "person_ref": person_ref,
+                "session_id": session_id,
+                "invocation_id": invocation_id,
+                "context": PendingPeriodContext(
+                    original_user_texts=context_texts,
+                    asked_missing_dimension=assessment.missing_dimension,
+                ).model_dump(),
+            }
+            questions = {
+                "year": "Which year should I use?",
+                "day_month_order": "Do these dates use day/month or month/day?",
+                "requested_period": "What date range should the documents cover?",
+                "owner_timezone": "Which timezone should I use?",
+                "relative_anchor": "What dates should this period cover?",
+                "relative_window": "Do you mean complete calendar periods or a range ending today?",
+            }
             return {
                 "status": "needs_clarification",
-                "message": "Which start date and end date should I use?",
+                "message": questions[assessment.missing_dimension],
+                "nextStep": "Ask only this question. Keep the requested person and documents.",
             }
-        literal_dates = all(
-            any(re.search(rf"(?<!\d){re.escape(value)}(?!\d)", text) for text in user_texts)
-            for value in (period_start, period_end)
-        )
-        # One owns date meaning; the host enforces current-user provenance and
-        # the existing ISO calendar/order contract, never reparses natural dates.
-        grounded_evidence = (
-            isinstance(date_evidence, str)
-            and 0 < len(date_evidence) <= 1024
-            and bool(date_evidence.strip())
-            and any(date_evidence in text for text in user_texts)
-        )
-        if not (grounded_evidence if date_evidence else literal_dates):
+        if result.status == "candidate_mismatch":
             return {
-                "status": "needs_clarification",
-                "message": "Which start date and end date should I use?",
+                "status": "date_candidate_mismatch",
+                "message": "The proposed dates do not match the requested period.",
+                "nextStep": "Do not show a card. Retry once with both date arguments empty.",
             }
+        if result.status != "supported" or assessment is None:
+            return {
+                "status": "failed",
+                "reason": result.status,
+                "message": "I couldn't verify the requested dates. Please try again.",
+            }
+        period_start, period_end = assessment.period_start, assessment.period_end
         terms = ShareRequestPurpose.model_validate(
             {
                 "purpose": str(purpose or "").strip(),
@@ -3293,6 +3384,7 @@ async def propose_document_request(
                 "periodEnd": period_end or None,
             }
         )
+        tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
         return {
             "status": "proposal_ready",
             "person": {"personRef": person_ref, "displayName": display_name},
@@ -5467,16 +5559,31 @@ def _resolve_timezone(tool_context: ToolContext) -> str:
     return value
 
 
-async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
+async def get_current_time(tool_context: ToolContext, time_zone: str = "") -> dict[str, Any]:
     """Get the current date and time in the owner's declared timezone.
 
     Use this whenever the person asks what day, date, or time it is -- the
     model has no other grounding for "now" and must not guess from training data.
-    time_zone_source identifies an owner timezone or the UTC fallback. Relative
-    document periods need an owner timezone; ask which zone to use on fallback.
+    time_zone_source identifies owner, explicit request, or UTC fallback. For a
+    timezone clarification reply, pass the exact user-written IANA time_zone,
+    such as Asia/Kolkata. It affects this read only, never saved preferences.
+    Relative document periods need owner/request timezone, never UTC fallback.
     """
     zone_name = _resolve_timezone(tool_context)
     declared_zone = str(tool_context.state.get(_STATE_TIMEZONE) or "").strip()
+    texts = _document_request_user_texts(tool_context)
+    requested_zone = str(time_zone or "").strip()
+    if requested_zone:
+        try:
+            ZoneInfo(requested_zone)
+            if not any(requested_zone in text for text in texts):
+                raise ValueError("timezone was not supplied by the current user")
+        except (ValueError, ZoneInfoNotFoundError):
+            return {
+                "status": "needs_clarification",
+                "message": "Which timezone should I use? Please use a name like Asia/Kolkata.",
+            }
+        zone_name = requested_zone
     now = datetime.now(ZoneInfo(zone_name))
     # %-I / %-d (no leading zero) are glibc/BSD-only strftime extensions that
     # raise ValueError on Windows -- computed by hand instead so this tool
@@ -5484,17 +5591,39 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
     hour_12 = now.hour % 12 or 12
     clock_time = f"{hour_12}:{now.strftime('%M %p')}"
     zone_label = now.strftime("%Z") or zone_name
-    return {
+    result = {
         "status": "ok",
         "date": now.strftime("%Y-%m-%d"),
         "time": clock_time,
         "weekday": now.strftime("%A"),
         "time_zone": zone_name,
         "time_zone_source": (
-            "owner" if declared_zone and declared_zone == zone_name else "utc_fallback"
+            "request"
+            if requested_zone
+            else "owner"
+            if declared_zone and declared_zone == zone_name
+            else "utc_fallback"
         ),
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
+    # Host-only invocation state; model tool arguments cannot supply this receipt.
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    if isinstance(invocation_id, str) and invocation_id and texts:
+        from hushh_mcp.one_adk.document_period_assessment import (
+            HostClockReceipt,
+            user_texts_sha256,
+        )
+
+        tool_context.state[_STATE_DOCUMENT_CLOCK_RECEIPT] = HostClockReceipt(
+            invocation_id=invocation_id,
+            user_texts_sha256=user_texts_sha256(texts),
+            status="ok",
+            date=result["date"],
+            time_zone=zone_name,
+            time_zone_source=result["time_zone_source"],
+            user_time_zone_quote=requested_zone or None,
+        ).model_dump()
+    return result
 
 
 async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]:
