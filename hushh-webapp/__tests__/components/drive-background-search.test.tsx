@@ -124,7 +124,7 @@ describe("durable Drive search UI", () => {
     expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Back to Chats" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Drive sharing" })).toBeNull());
-    expect(screen.getByRole("button", { name: "Review files. 125 files to review. View details" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review files. 125 files to review. View details" })).toHaveFocus());
     expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
     expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
   });

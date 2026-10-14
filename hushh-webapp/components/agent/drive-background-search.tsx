@@ -134,7 +134,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
   const [selectedShareId, setSelectedShareId] = useState<string | null>(null);
   const [showAllShares, setShowAllShares] = useState(false);
   const selectedSidebar = useRef<HTMLElement | null>(null);
-  const dismissingDetail = useRef(false);
+  const selectedSharingRow = useRef<HTMLButtonElement | null>(null);
   const load = useCallback(async () => {
     const ticket = ++serial.current;
     const { token, guard: checkOwner } = owner();
@@ -207,6 +207,10 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     const ordered = [...detached].sort((a, b) => Number(b.status === "review_ready") - Number(a.status === "review_ready"));
     const visible = showAllShares ? ordered : ordered.slice(0, 3);
     const restoreSidebarFocus = () => {
+      if (selectedSharingRow.current?.isConnected) {
+        selectedSharingRow.current.focus({ preventScroll: true });
+        return;
+      }
       const sidebarElement = selectedSidebar.current;
       if (!sidebarElement?.isConnected) return;
       const target = sidebarElement.querySelector<HTMLButtonElement>("[data-drive-sharing-row]") ??
@@ -233,7 +237,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
         return <div role="listitem" key={share.shareId}><button type="button" data-drive-sharing-row
           className="flex min-h-14 w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-left text-foreground hover:bg-[color:var(--one-chat-row-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
           aria-label={`${title}. ${summary}. View details`}
-          onClick={event => { selectedSidebar.current = event.currentTarget.closest("[data-agent-history-sidebar]"); setSelectedShareId(share.shareId); }}>
+          onClick={event => { selectedSharingRow.current = event.currentTarget; selectedSidebar.current = event.currentTarget.closest("[data-agent-history-sidebar]"); setSelectedShareId(share.shareId); }}>
           <ConnectorBrandMark brand="drive" />
           <span className="min-w-0 flex-1"><span data-agent-history-row-title className="block truncate text-[13px] font-medium leading-5">{title}</span>
             <span data-agent-history-row-description className="block truncate text-[12px] leading-4 text-[color:var(--one-chat-meta)]">{summary}</span></span>
@@ -245,7 +249,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
       <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
         <SheetContent side="right" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="z-(--z-dialog) gap-0 overflow-hidden p-0"
-          onCloseAutoFocus={event => { if (dismissingDetail.current) { event.preventDefault(); dismissingDetail.current = false; restoreSidebarFocus(); } }}>
+          onCloseAutoFocus={event => { event.preventDefault(); restoreSidebarFocus(); }}>
           <SheetHeader className="profile-pane-header profile-pane-header--inner shrink-0 border-b">
             <div><button type="button" aria-label="Back to Chats" onClick={() => setSelectedShareId(null)} className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" /></button><SheetTitle>Drive sharing</SheetTitle></div>
             <SheetDescription className="sr-only">Google Drive sharing progress and available actions.</SheetDescription>
@@ -253,10 +257,9 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
           <SheetClose asChild><button type="button" aria-label="Close Drive sharing" className="profile-pane-close absolute right-4 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-4" /></button></SheetClose>
           <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-7">
           {selected ? <>
-            <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} />
+            <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} profileDetail />
             <Button type="button" variant="muted" size="compact" className="self-start"
-              onClick={() => { dismissingDetail.current = true; setSelectedShareId(null); dismiss(selected, false);
-                requestAnimationFrame(restoreSidebarFocus); }}
+              onClick={() => { setSelectedShareId(null); dismiss(selected, false); }}
               title="Hide this update without changing file access">Hide this update</Button>
           </> : null}
         </div>
@@ -440,8 +443,8 @@ const BULK_EXCLUSION_COPY: Record<string, string> = {
 
 /** Reviewing a saved result set never grants permission; only the Share tap does. */
 function DriveBulkShareReview({ searchJobId, getToken, initial = null, clientRequestId = searchJobId,
-  autoPrepare = false, onDismiss }: OwnerProps & { searchJobId: string; initial?: DriveBulkShareView | null;
-  clientRequestId?: string; autoPrepare?: boolean; onDismiss?: () => void }) {
+  autoPrepare = false, onDismiss, profileDetail = false }: OwnerProps & { searchJobId: string; initial?: DriveBulkShareView | null;
+  clientRequestId?: string; autoPrepare?: boolean; onDismiss?: () => void; profileDetail?: boolean }) {
   const owner = useOwnerGuard(getToken);
   const [view, setView] = useState<DriveBulkShareView | null>(initial);
   const [page, setPage] = useState<DriveBulkShareFilePage | null>(null);
@@ -575,7 +578,7 @@ function DriveBulkShareReview({ searchJobId, getToken, initial = null, clientReq
   const summary = view.status === "review_ready"
     ? `Review ${view.fileCount.toLocaleString()} files with ${view.recipientCount} ${view.recipientCount === 1 ? "person" : "people"}`
     : `${available.toLocaleString()} of ${counts.total.toLocaleString()} ${view.recipientCount === 1 ? "files available" : "file shares complete"}`;
-  return <Card preset="compact" effect="fill" role="region" className="min-w-0 p-4 sm:p-5" aria-label="Drive sharing"><div className="space-y-3">
+  const content = <div className="space-y-3">
     <div className="flex items-start gap-3">
       <ConnectorBrandMark brand="drive" />
       <div className="min-w-0 flex-1 space-y-1 pt-0.5">
@@ -643,7 +646,10 @@ function DriveBulkShareReview({ searchJobId, getToken, initial = null, clientReq
           title="Stop remaining files. Files already shared stay available.">{action === "stopping" ? "Stopping…" : "Stop remaining"}</Button> : null}
       </div> : view.status === "stopped" ? <HelperText>Files already shared stay available.</HelperText> : null}
     </>}
-  </div></Card>;
+  </div>;
+  return profileDetail
+    ? <section data-app-pane-material="profile" role="region" className="min-w-0 p-4 sm:p-5" aria-label="Drive sharing">{content}</section>
+    : <Card preset="compact" effect="fill" role="region" className="min-w-0 p-4 sm:p-5" aria-label="Drive sharing">{content}</Card>;
 }
 
 const DRIVE_SHARE_ISSUE_COPY: Record<import("@/lib/services/drive-sharing-service").DriveBulkReasonCode, string> = {

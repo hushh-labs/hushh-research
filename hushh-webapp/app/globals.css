@@ -9465,10 +9465,6 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 
 /* Chat detail bodies inherit the same grouped material and type as Profile. */
 [data-chat-detail-body] [role="region"] {
-  border: 1px solid var(--profile-pane-card-border);
-  border-radius: 17px;
-  background: var(--profile-pane-card-surface);
-  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight);
   color: var(--ios-account-label);
   font-family: var(--font-app-body);
 }

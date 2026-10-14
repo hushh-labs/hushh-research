@@ -291,8 +291,8 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
   }, safeSidePane);
 }
 
-for (const width of [320, 1440])
-  test(`Drive sharing uses Profile detail material and returns safely at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [320, 1440]) for (const dark of [false, true])
+  test(`Drive sharing uses Profile detail material and returns safely at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 820 });
     const shareId = "22222222-2222-4222-8222-222222222222";
     const now = new Date().toISOString();
@@ -318,6 +318,7 @@ for (const width of [320, 1440])
       } : pathname.endsWith(shareId) ? share : { shares: [share] } });
     });
     await page.goto("http://localhost/connections-fixture?drive-sharing=1");
+    await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
     await page.addScriptTag({ content: script });
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     const row = page.getByRole("button", { name: "Review files. 14 files to review. View details" });
@@ -334,6 +335,10 @@ for (const width of [320, 1440])
     expect(Math.abs(box.width - reference.width)).toBeLessThan(2);
     expect(Math.abs(box.height - reference.height)).toBeLessThan(2);
     expect(await detail.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
+    expect(await detail.getByRole("region", { name: "Drive sharing", exact: true }).evaluate(element => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+    })).toEqual(reference.card);
     const title = (await detail.getByRole("heading", { name: "Drive sharing" }).boundingBox())!;
     expect(Math.abs(title.x + title.width / 2 - box.x - box.width / 2)).toBeLessThan(2);
     expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -349,7 +354,15 @@ for (const width of [320, 1440])
     await detail.getByRole("button", { name: "Back to Chats" }).click();
     await expect(detail).not.toBeVisible();
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
-    await expect(row).toBeVisible();
+    await expect(row).toBeFocused();
+    for (const close of ["button", "escape"]) {
+      await row.click();
+      await expect(detail).toBeVisible();
+      if (close === "button") await detail.getByRole("button", { name: "Close Drive sharing", exact: true }).click();
+      else await page.keyboard.press("Escape");
+      await expect(detail).not.toBeVisible();
+      await expect(row).toBeFocused();
+    }
     expect(writes).toEqual([]);
   });
 
