@@ -45,7 +45,7 @@ export function ScopeCommerceAccountPanel() {
             </AccordionContent></AccordionItem>
             <AccordionItem value="payouts"><AccordionTrigger>Withdraw information-access earnings</AccordionTrigger><AccordionContent>
               <CommercePayoutControls account={account} busy={busy} country={state.country} changeCountry={state.changeCountry} expiredLink={state.onboardingRefresh}
-                onboarding={() => void state.onboarding()} withdrawal={() => void state.withdrawal()} />
+                onboarding={() => void state.onboarding()} management={() => void state.managePayoutAccount()} withdrawal={() => void state.withdrawal()} />
               {account.recent_withdrawals?.length ? <div className="space-y-3 pt-4">
                 <p className="text-sm font-medium">Recent withdrawals</p>
                 {account.recent_withdrawals.map(withdrawal => <div key={withdrawal.id} className="space-y-1 text-sm">

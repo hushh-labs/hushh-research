@@ -8,15 +8,17 @@ enum NativeProfileArtwork {
         let accent: UIImage?
         let colorHex: String?
     }
-    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out"]
+    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let hasAccent: Bool
         switch id {
+        case "hosting": colorHex = "#00E5FF"; hasAccent = false
+        case "software-updates": colorHex = nil; hasAccent = false
         case "account": colorHex = "#2563EB"; hasAccent = false
         case "payouts": colorHex = nil; hasAccent = true
         case "request-pricing": colorHex = nil; hasAccent = true
-        case "my-data": colorHex = nil; hasAccent = true
+        case "my-data": colorHex = "#6366F1"; hasAccent = false
         case "world-model": colorHex = nil; hasAccent = true
         case "preferences": colorHex = "#8B5CF6"; hasAccent = false
         case "security": colorHex = "#10B981"; hasAccent = false

@@ -10,6 +10,15 @@ const documentId = "22222222-2222-4222-8222-222222222222";
 function reply(value: unknown) { return Response.json(value); }
 
 describe("scope commerce review boundary", () => {
+  it("requests only the current owner's payout settings and refuses foreign provider URLs", async () => {
+    fetcher.mockResolvedValueOnce(reply({ url: "https://connect.stripe.com/express/synthetic" }));
+    expect(await ScopeCommerceService.managePayoutAccount("firebase")).toBe("https://connect.stripe.com/express/synthetic");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/scope-commerce/payouts/manage");
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer firebase");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({});
+    fetcher.mockResolvedValueOnce(reply({ url: "https://attacker.test/express/synthetic" }));
+    await expect(ScopeCommerceService.managePayoutAccount("firebase")).rejects.toThrow();
+  });
   it.each(["documents", "answers"] as const)("admits exact %s payout returns without crossing settlement sources", async source => {
     const original = window;
     vi.stubGlobal("window", { location: { origin: "https://one.hushh.ai" }, localStorage: original.localStorage,

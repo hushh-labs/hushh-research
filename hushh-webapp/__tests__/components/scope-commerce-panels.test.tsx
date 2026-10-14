@@ -5,7 +5,7 @@ import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/l
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "owner-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
-  readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
+  readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), management: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
   scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(),
   pathname: "/one/profile/payouts", search: "", vaultKey: "memory-key", openWindow: vi.fn(),
   answerGates: vi.fn(), answerAccount: vi.fn(), answerLink: vi.fn(), answerOnboarding: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks
 vi.mock("@/lib/consent/scope-commerce-export", () => ({ prepareAndStagePaidScopeExport: mocks.exporter }));
 vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-service")>(),
-  ScopeCommerceService: { readiness: mocks.readiness, sandboxVerified: mocks.sandboxVerified, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding,
+  ScopeCommerceService: { readiness: mocks.readiness, sandboxVerified: mocks.sandboxVerified, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding, managePayoutAccount: mocks.management,
     scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase },
 }));
 vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
@@ -434,17 +434,19 @@ describe("answer payout hosted continuity", () => {
     expect(mocks.hosted).not.toHaveBeenCalled();
     view.unmount();
   });
-  it("discards a management link returned after the authenticated owner changes", async () => {
+  it.each(["answers", "scope"])("discards a %s management link returned after the authenticated owner changes", async source => {
     mocks.answerAccount.mockResolvedValue({ stripeMode: "test", account: { ready: true, canManageBank: true } });
+    mocks.account.mockResolvedValue({ ...balanceAccount(), enabled: false, readiness: unavailable(), seller: { onboarded: true, eligible: true, country: "US" } });
     const popup = { close: vi.fn(), location: { replace: vi.fn() } };
     mocks.openWindow.mockReturnValue(popup);
-    const link = deferred<string>(); mocks.answerLink.mockReturnValue(link.promise);
-    const view = render(<AnswerPayoutAccount />);
-    await screen.findByText("Test payout setup. No real money moves.");
-    fireEvent.click(screen.getByRole("button", { name: "Manage answer payouts" }));
-    await waitFor(() => expect(mocks.answerLink).toHaveBeenCalledWith("owner-token", "dashboard"));
+    const link = deferred<string>(); (source === "answers" ? mocks.answerLink : mocks.management).mockReturnValue(link.promise);
+    const surface = () => source === "answers" ? <AnswerPayoutAccount /> : <ScopeCommerceAccountPanel />;
+    const view = render(surface());
+    if (source === "scope") fireEvent.click(await screen.findByRole("button", { name: "Withdraw information-access earnings" }));
+    fireEvent.click(await screen.findByRole("button", { name: source === "answers" ? "Manage answer payouts" : "Manage payout account" }));
+    await waitFor(() => source === "answers" ? expect(mocks.answerLink).toHaveBeenCalledWith("owner-token", "dashboard") : expect(mocks.management).toHaveBeenCalledWith("owner-token"));
     mocks.user = { uid: "another", getIdToken: vi.fn(async () => "another-token") };
-    view.rerender(<AnswerPayoutAccount />);
+    view.rerender(surface());
     link.resolve("https://connect.stripe.com/express/synthetic");
     await waitFor(() => expect(popup.close).toHaveBeenCalled());
     expect(popup.location.replace).not.toHaveBeenCalled();

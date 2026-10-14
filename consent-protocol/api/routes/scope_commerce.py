@@ -336,6 +336,15 @@ async def onboarding(body: OnboardingBody, response: Response, user_id: Payer):
         raise _error(error) from None
 
 
+@router.post("/payouts/manage")
+async def manage_payout_account(body: StrictBody, response: Response, user_id: Payer):
+    response.headers.update(NO_STORE)
+    try:
+        return await _provider().management_link(user_id=user_id)
+    except Exception as exc:
+        raise _error(exc) from None
+
+
 def _preview(value: dict, *, refund_amount: int | None = None) -> dict:
     data = _snake(value)
     amount = (

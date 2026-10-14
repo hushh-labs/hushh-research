@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2585,
+  "finding_count": 2588,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1465,6 +1465,24 @@
       "path": "consent-protocol/hushh_mcp/services/ria_verification.py",
       "symbol": "RIAIntelligenceStage1LookupAdapter",
       "value": 348
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py|ConnectOnboarding|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py",
+      "symbol": "ConnectOnboarding",
+      "value": 280
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py|StripeScopeCommerceAdapter|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py",
+      "symbol": "StripeScopeCommerceAdapter",
+      "value": 251
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -19178,6 +19196,15 @@
       "path": "consent-protocol/tests/test_ria_verification_intelligence.py",
       "symbol": null,
       "value": 582
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_scope_commerce_provider.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_scope_commerce_provider.py",
+      "symbol": null,
+      "value": 559
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -43704,6 +43731,35 @@
         "after": 527,
         "source_sha256": "694bac91e1dd7fbfe5969f1cda90a4f77328bafd5d2d7531a5062720a40578d1",
         "review": "Read-only backend authority review: explicit absent-schema inventory and synthetic post-admission mechanics fixtures only. Real managed-create denial, SQL placement races, Files erasure and account-key fences remain independent. AccountService erasure logic moved behind the existing Files owner; source hotspot shrank. Exact test-module ceiling only."
+      }
+    ]
+  },
+  "ai_shared_files_concurrent_payments_review_20261013": {
+    "evidence_revisions": [
+      "278049ef3f",
+      "8eae328a26"
+    ],
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/provider_accounts.py|ConnectOnboarding|class exceeds the advisory operon budget",
+        "before": 232,
+        "after": 280,
+        "source_sha256": "b35b6fb4c638f8155a06e2adc342d87941e8661ed9eb271fd2f23213c17d62eb",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/scope_commerce/stripe_adapter.py|StripeScopeCommerceAdapter|class exceeds the advisory operon budget",
+        "before": 248,
+        "after": 251,
+        "source_sha256": "b2c4a89610bb85d2499765e7384474b5473e77c0b889243f02fbb7239f0ab6c6",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_scope_commerce_provider.py||module exceeds the advisory operon budget",
+        "before": 488,
+        "after": 559,
+        "source_sha256": "453a6d1967990cb76f7f56c9af5c86bbf30a54cff3075acce3932c9c30842fb3",
+        "review": "Incoming root8eae owner-bound payout management independently reviewed: strict caller body, current owner/source/mode binding, provider account and HTTPS Express URL checked before/after issuance, no-store, no login-link journaling. One cohesive method, one small adapter port and parametrized security controls. Exact integrated source ceiling; live Stripe acceptance unverified."
       }
     ]
   }

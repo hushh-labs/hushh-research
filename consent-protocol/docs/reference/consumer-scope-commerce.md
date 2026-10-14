@@ -26,6 +26,70 @@ complete Sandbox/live financial acceptance, native browser returns, or legal/tax
 approval. Signed capital and the first requester funding settlement on shared Dev
 are separately verified below; they do not prove a consumer purchase or payout.
 
+### Current Dev evidence — 2026-10-14 UTC
+
+Candidate `7dffd92928fd53f1ce167a9e8491cc48304e36f9` passed canonical core
+in 581 seconds and all 25 jobs of [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38497133647).
+The [shared-Dev release](https://github.com/hushh-labs/hushh-research/actions/runs/38499266500)
+completed successfully. Independent serving readback verified both services at
+100% of that source. Release artifacts report successful parity, provenance,
+semantic and database-contract gates; both migration guards report no violations.
+These checks qualify the release, not complete financial acceptance.
+
+The primary's owner-bound Azure continuation and first browser-encrypted vault
+setup are complete. Cold authentication/unlock and warm Payments navigation pass.
+Both reviewers have exactly $10.50 funded through their approved $0.50 and $10
+Sandbox payments. At `2026-10-14T03:07:02Z`, canonical provider/ledger readback
+verified the account/test pin, matching receipts, balanced liabilities, settled
+backing and conserved fees. Tagged operating capital totals $15 ($5 original,
+$10 supplemental), below the cumulative $25 cap. Do not repeat those payments
+or Topups. No paid scope purchase or withdrawal has yet been accepted.
+
+The primary's $10 Checkout completed through the normal auxiliary-window return:
+the hosted window closed and the original document retained its unlocked vault.
+The earlier $0.50 Checkout required separate cold recovery of the same unpaid
+intent; it is not normal warm-return evidence. The current primary Connect
+onboarding attempt remains incomplete; a refused provider preparation request
+prevents claiming clean onboarding acceptance. The counterpart's information-access
+payout account is eligible. One's authenticated Stripe reads and the real-clock
+purchase/refund/maturity/payout cases remain outstanding.
+
+Dev's document-bank read returned `PAYOUT_UNAVAILABLE` because neither its
+Connect credential nor a legacy payment credential was mounted. Its exact
+`APP_FRONTEND_ORIGIN` already matches `https://dev.one.hussh.ai`; changing an OAuth
+callback alone cannot fix this configuration failure. The enabled bank row
+retries the failed document check instead of opening an unverifiable provider link.
+The correction uses optional Dev-local `STRIPE_CONNECT_SECRET_KEY` and
+`STRIPE_CONNECT_TEST_WEBHOOK_SECRET` bindings with test mode, without UAT fallback
+or enabling document purchases. Existing financial mappings remain intact.
+At `2026-10-14T03:18:53Z`, fixed-target operator setup verified the dedicated
+Sandbox's account/test mode and provisioned both independent Dev secret slots,
+the exact backend connected-event endpoint and runtime secret access. No existing
+Dev document mappings were found, no financial action was submitted, and UAT was
+untouched. Mounting these slots still requires the verified candidate's normal
+Dev release. Provider setup is not yet a successful bank click/return receipt.
+
+The primary's Memory navigation initially retained the open Payments sheet.
+Normal **Close Profile** followed by same-document navigation reveals exactly
+**Saved** and **Add**, no Sharing tab, and the Saved sharing controls with vault
+continuity. This is browser evidence for the primary; counterpart dismissal and
+normally encrypted synthetic scope preparation remain acceptance work.
+
+The accompanying source change adds **Manage payout account** inside the
+information-access withdrawal disclosure. Its empty-body authenticated
+`POST /api/scope-commerce/payouts/manage` resolves only the caller's current scope
+account, checks platform/mode/source binding, validates an Express login link and
+rechecks the binding before handoff. Login links are not journaled and do not move
+money. The existing management-window fence keeps the original vault session in
+memory. Focused backend and UI negative controls pass; these new changes still
+require complete-candidate verification, CI and deployment before runtime acceptance.
+
+Cloud Monitoring readback after release found all 17 aggregate metrics present,
+fresh worker/provider observations and zero backing shortfall, unbalanced journals,
+receipt failures or unresolved/uncertain work. Observe these again after purchases
+and withdrawals. Physical iOS remains the separate device-agent handoff; live
+activity remains disabled behind the existing provider, country, cost and tax gates.
+
 ### Latest main composition — 2026-10-13 UTC
 
 The next test-only main update `a8ebcb86b2c8` corrects stale four-story

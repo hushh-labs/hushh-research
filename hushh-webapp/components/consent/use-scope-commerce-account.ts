@@ -7,6 +7,7 @@ import { COMMERCE_RETURN_EVENT, commerceReturnAction } from "@/lib/services/scop
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useCommerceAction } from "@/components/consent/use-commerce-action";
 import { useCommerceHostedFlow } from "@/components/consent/use-commerce-hosted-flow";
+import { useCommerceManagement } from "@/components/consent/use-commerce-management";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { parseCommerceReturn } from "@/lib/services/scope-commerce-return";
 
@@ -57,6 +58,7 @@ export function useScopeCommerceAccount() {
   const { user, data: account, refresh } = resource;
   const actions = useCommerceAction(resource, "account");
   const { busy, message, setMessage, run } = actions;
+  const managePayoutAccount = useCommerceManagement(resource, actions, ScopeCommerceService.managePayoutAccount);
   const [amount, setAmount] = useState("10.00");
   const [country, setCountry] = useState("US");
   const [review, setReview] = useState<TransferReview | null>(null);
@@ -95,5 +97,5 @@ export function useScopeCommerceAccount() {
   });
   return { user, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
     changeCountry: setCountry, review, closeReview: () => { if (!busy) setReview(null); }, onboardingRefresh,
-    checkout, onboarding, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer };
+    checkout, onboarding, managePayoutAccount, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer };
 }

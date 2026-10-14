@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -35,6 +36,76 @@ from tests.helpers.scope_commerce_provider import (
     _receipt_fixture,
 )
 from tests.helpers.scope_commerce_provider_db import provider_postgres as provider_postgres
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [None, "mode", "remote_owner", "removed", "rotated", "country", "url"]
+)
+async def test_payout_management_binds_current_scope_account_during_admission_pause(
+    monkeypatch, failure
+):
+    adapter = _FinancialAdapter()
+    service = _funding_service(_OperationStore(), adapter)
+    service.config = replace(service.config, enabled=False)
+
+    async def environment(**identity):
+        assert identity == {"platform_account_id": "acct_platform", "livemode": False}
+
+    monkeypatch.setattr(service.store, "bind_environment", environment, raising=False)
+    binding = {"account_id": "acct_scope_owner", "livemode": False, "country": "US"}
+    if failure == "mode":
+        binding["livemode"] = True
+    minted = []
+    reads = 0
+
+    async def bound(owner):
+        nonlocal reads
+        assert owner == "owner"
+        reads += 1
+        if reads == 2:
+            if failure == "removed":
+                return None
+            if failure == "rotated":
+                return {**binding, "account_id": "acct_another"}
+            if failure == "country":
+                return {**binding, "country": "CA"}
+        return binding
+
+    async def retrieve(kind, account_id):
+        assert (kind, account_id) == ("seller_account", "acct_scope_owner")
+        return {
+            "id": "acct_another" if failure == "remote_owner" else account_id,
+            "type": "express",
+            "country": "US",
+            "details_submitted": True,
+            "payouts_enabled": False,
+        }
+
+    async def login(account_id):
+        minted.append(account_id)
+        return {
+            "object": "login_link",
+            "url": "https://attacker.test/express/secret"
+            if failure == "url"
+            else "https://connect.stripe.com/express/synthetic",
+        }
+
+    monkeypatch.setattr(service, "_seller_binding", bound)
+    monkeypatch.setattr(adapter, "retrieve", retrieve)
+    monkeypatch.setattr(adapter, "management_link", login, raising=False)
+    if failure:
+        with pytest.raises(
+            CommerceProviderError, match="provider_account_mismatch|provider_response_mismatch"
+        ):
+            await service.management_link(user_id="owner")
+        assert minted == ([] if failure in {"mode", "remote_owner"} else ["acct_scope_owner"])
+    else:
+        assert await service.management_link(user_id="owner") == {
+            "url": "https://connect.stripe.com/express/synthetic"
+        }
+        assert minted == ["acct_scope_owner"]
+    assert service.store.operations == {}
 
 
 @pytest.mark.asyncio

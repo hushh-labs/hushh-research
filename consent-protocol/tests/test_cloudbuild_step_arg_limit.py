@@ -425,3 +425,36 @@ def test_configured_counterpart_secret_references_survive_deploy_extraction(depl
         }
     )
     assert expected <= set(result.stdout.splitlines())
+
+
+@pytest.mark.parametrize("deploy_env", ["dev", "uat", "production"])
+@pytest.mark.parametrize("configured", [False, True])
+def test_dev_bank_defaults_preserve_other_lanes_and_explicit_bindings(deploy_env, configured):
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("# Dev's optional bank setup")
+    parser = script[start : script.index('case "${_PKM_ANSWER_REQUESTS_ENABLED', start)]
+    names = (
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET",
+        "_STRIPE_CONNECT_MODE",
+    )
+    values = ("CUSTOM_KEY", "CUSTOM_WEBHOOK", "live") if configured else ("", "", "")
+    result = subprocess.run(  # noqa: S603 - actual deploy parser, no provider/cloud access
+        [
+            "bash",
+            "-eu",
+            "-c",
+            parser
+            + '\nprintf "%s\\n" "${_STRIPE_CONNECT_SECRET_KEY_SECRET}" "${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET}" "${_STRIPE_CONNECT_MODE}"',
+        ],
+        env={**os.environ, "_DEPLOY_ENV": deploy_env, **dict(zip(names, values, strict=True))},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected = (
+        ("STRIPE_CONNECT_SECRET_KEY", "STRIPE_CONNECT_TEST_WEBHOOK_SECRET", "test")
+        if deploy_env == "dev" and not configured
+        else values
+    )
+    assert result.stdout.splitlines() == list(expected)

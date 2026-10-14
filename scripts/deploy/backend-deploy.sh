@@ -144,6 +144,14 @@ fi
 for _required in _STRIPE_CONNECT_SECRET_KEY_SECRET _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET _STRIPE_CONNECT_MODE _DRIVE_REQUEST_HASHCOINS_ENABLED _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED _PKM_ANSWER_PAYMENTS_ENABLED _PKM_ANSWER_COMPOSER_ENABLED _PKM_ANSWER_LIVE_PROVIDER_REVIEWED _PKM_ANSWER_STRIPE_MODE _ANSWER_WORK_DRAIN_ENABLED _ANSWER_WORK_DRAIN_AUDIENCE; do
   declare -p "${_required}" >/dev/null 2>&1 || { echo "Missing payment settings key." >&2; exit 1; }
 done
+# Dev's optional bank setup has its own test credential and signed endpoint.
+# Fixed local secret names never fall back to UAT or the scope-commerce key.
+# Missing secrets keep bank setup unavailable; this does not enable spending.
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  _STRIPE_CONNECT_SECRET_KEY_SECRET="${_STRIPE_CONNECT_SECRET_KEY_SECRET:-STRIPE_CONNECT_SECRET_KEY}"
+  _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET:-STRIPE_CONNECT_TEST_WEBHOOK_SECRET}"
+  _STRIPE_CONNECT_MODE="${_STRIPE_CONNECT_MODE:-test}"
+fi
 case "${_PKM_ANSWER_REQUESTS_ENABLED:-}" in
   ""|true|false) ;;
   *) echo "_PKM_ANSWER_REQUESTS_ENABLED must be true, false, or empty." >&2; exit 1 ;;
