@@ -1968,7 +1968,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-display);
   font-size: 22px !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   letter-spacing: 0 !important;
   line-height: 27px !important;
 }
@@ -2590,7 +2590,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 .profile-pane-scroll-root .profile-home-name {
   font-size: clamp(19px, 4vw, 24px) !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   letter-spacing: -0.045em !important;
   line-height: 1.1 !important;
 }
@@ -8236,7 +8236,7 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-page-title-size) !important;
-  font-weight: 700 !important;
+  font-weight: var(--type-page-title-weight) !important;
   letter-spacing: var(--type-page-title-tracking) !important;
   line-height: var(--type-page-title-line) !important;
   opacity: 1 !important;

@@ -229,7 +229,7 @@ async function open(
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
-    if (/^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(assetPath)) {
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[12]\.svg$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
       return;
     }
