@@ -143,10 +143,12 @@ Individual interaction and performance assertions keep their own deadlines.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
 Flake budget: in CI each Playwright test gets one retry (`retries` in
-`hushh-webapp/playwright.config.ts`), so a test that fails twice fails the
-browser leg. That leg's `Install Playwright browsers` step is bounded at 8
-minutes and retries a failed install once, so a stalled apt mirror or browser
-download fails the leg early instead of holding a runner to the job limit.
+`hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
+browser shard; the macOS `Web Editor Performance` lane uses the same config
+and budget. Each browser shard's `Install Playwright browsers` step, which
+also runs the web dependency install, is bounded at 8 minutes and retries a
+failed browser install once, so a stalled apt mirror or browser download
+fails the shard early instead of holding a runner to the job limit.
 
 Fail-fast contract:
 

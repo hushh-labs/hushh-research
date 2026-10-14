@@ -58,8 +58,10 @@ export default defineConfig({
   // runs in three: in 313 green browser legs sampled from 2026-10-08..14, 12
   // passed a test only on its third attempt, 11 of them WebKit
   // wallet-workspace layout tests. It also gave every real failure a third
-  // run, in a fresh worker that rebuilds its beforeAll fixture, inside a 17-29
-  // minute leg: 100 of 102 failing legs ran a test three times before going red.
+  // run, in a fresh worker that rebuilds its beforeAll fixture, inside a browser
+  // leg that took 17-29 minutes before it was split into two shards: 100 of 102
+  // failing legs ran a test three times before going red. The same budget
+  // applies to the macOS editor-performance lane, which uses this config.
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
   shard: ciShard(),
