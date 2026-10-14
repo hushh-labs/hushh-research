@@ -465,7 +465,11 @@ release and live traffic before deleting eligible revisions. The deployment
 workflow finishes without awaiting retirement. Maintenance creates no environment
 deployment record and holds the shared mutation lock only during a short pass,
 never during the request drain. Both environments skip cloud authentication for settled
-or not-yet-due drain receipts; requested deployments explicitly wake inspection.
+or not-yet-due drain receipts. The same source-only check runs again after acquiring
+the deployment lock, so a preceding queued pass can make a duplicate exit before
+authentication, SDK setup, artifact upload or capacity reporting. Requested
+deployments explicitly wake inspection; requested/completed events and the
+15-minute schedule can still create visible workflow entries.
 UAT capacity admission is bounded to five minutes and longer shortages require a
 governed operator retry; no runner sleeps through request drainage. Both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
 

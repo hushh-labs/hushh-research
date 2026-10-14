@@ -2278,6 +2278,55 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         output.read_text(), f"cleanup_ready={str(expected).lower()}\n"
                     )
 
+    def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
+        import re
+
+        source = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / ".github/workflows/capacity-maintenance.yml"
+        ).read_text()
+        gate = "steps.locked-source.outputs.cleanup_ready == 'true'"
+
+        def assert_guarded(job):
+            self.assertIn("cancel-in-progress: false", job)
+            steps = re.split(r"(?m)^      - name: ", job)[1:]
+            check_index = next(
+                i for i, step in enumerate(steps) if "        id: locked-source\n" in step
+            )
+            check = steps[check_index]
+            self.assertIn("--verify-source-only", check)
+            self.assertIn("--release-run-id", check)
+            self.assertIn("--force-inspection", check)
+            self.assertNotIn("--apply", check)
+            for i, step in enumerate(steps):
+                protected = any(marker in step for marker in (
+                    "google-github-actions/auth@",
+                    "google-github-actions/setup-gcloud@",
+                    "actions/upload-artifact@",
+                    "runtime-capacity-budget.py",
+                    "--apply",
+                ))
+                if protected:
+                    self.assertGreater(i, check_index)
+                    match = re.search(r"(?m)^        if: (.+)$", step)
+                    condition = match.group(1) if match else ""
+                    self.assertTrue(
+                        condition == gate
+                        or condition.startswith(gate + " && ")
+                        or condition.startswith("success() && " + gate + " && "),
+                        step.splitlines()[0],
+                    )
+                    self.assertNotIn("||", condition)
+
+        jobs = re.split(r"(?m)^  (?:uat-maintenance|cleanup):\n", source)[1:]
+        self.assertEqual(len(jobs), 2)
+        for job in jobs:
+            assert_guarded(job)
+            # Original wiring authenticated even after a predecessor settled.
+            broken = job.replace("        if: " + gate + "\n", "", 1)
+            with self.assertRaises(AssertionError):
+                assert_guarded(broken)
+
     def test_newest_artifact_is_available_without_eager_history_scan(self):
         first = {"id": 1}
         with mock.patch.object(

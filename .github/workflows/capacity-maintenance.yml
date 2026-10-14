@@ -130,7 +130,7 @@ jobs:
       - name: Checkout current release tooling
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: main
 
       - name: Require main and governed actor
@@ -203,7 +203,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Recheck due UAT maintenance inside the deployment lock
+        id: locked-source
+        env:
+          RELEASE_RUN_ID: ${{ needs.select-release.outputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          # A preceding queued pass can settle work after select-release ran.
+          # Restore the newest trusted receipt before minting cloud credentials.
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --release-run-id "$RELEASE_RUN_ID" --verify-source-only \
+            --state-dir "$RUNNER_TEMP/uat-retention-source" \
+            ${{ github.event_name == 'workflow_run' && github.event.action == 'requested' && '--force-inspection' || '' }}
+
       - name: Authenticate to UAT
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -213,9 +227,11 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Prepare or finish eligible UAT revision cleanup
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         id: retention
         env:
           RELEASE_RUN_ID: ${{ needs.select-release.outputs.release_run_id }}
@@ -230,7 +246,7 @@ jobs:
             ${{ github.event_name == 'workflow_run' && github.event.action == 'requested' && '--force-inspection' || '' }}
 
       - name: Save UAT drain evidence for a later maintenance pass
-        if: success() && needs.select-release.outputs.apply == 'true' && steps.retention.outputs.verified_source_run_id != ''
+        if: success() && steps.locked-source.outputs.cleanup_ready == 'true' && needs.select-release.outputs.apply == 'true' && steps.retention.outputs.verified_source_run_id != ''
         uses: actions/upload-artifact@v4
         with:
           name: uat-retention-state
@@ -239,7 +255,7 @@ jobs:
           if-no-files-found: error
 
       - name: Report remaining UAT connection capacity
-        if: needs.select-release.outputs.apply == 'true'
+        if: steps.locked-source.outputs.cleanup_ready == 'true' && needs.select-release.outputs.apply == 'true'
         continue-on-error: true
         run: |
           status=0
@@ -277,7 +293,21 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Recheck due production maintenance inside the deployment lock
+        id: locked-source
+        env:
+          RELEASE_RUN_ID: ${{ needs.select-release.outputs.environment == 'production' && needs.select-release.outputs.release_run_id || '' }}
+        run: |
+          set -euo pipefail
+          # A preceding queued pass can settle work after select-release ran.
+          # Restore the newest trusted receipt before minting cloud credentials.
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --release-run-id "$RELEASE_RUN_ID" --verify-source-only \
+            --state-dir "$RUNNER_TEMP/production-retention-source" \
+            ${{ github.event_name == 'workflow_run' && github.event.action == 'requested' && '--force-inspection' || '' }}
+
       - name: Authenticate to production
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -287,9 +317,11 @@ jobs:
           export_environment_variables: true
 
       - name: Set up Cloud SDK
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Prepare or finish eligible production revision cleanup
+        if: steps.locked-source.outputs.cleanup_ready == 'true'
         env:
           RELEASE_RUN_ID: ${{ needs.select-release.outputs.environment == 'production' && needs.select-release.outputs.release_run_id || '' }}
           APPLY: ${{ needs.select-release.outputs.apply }}
@@ -303,7 +335,7 @@ jobs:
             ${{ github.event_name == 'workflow_run' && github.event.action == 'requested' && '--force-inspection' || '' }}
 
       - name: Save production drain evidence for a later maintenance pass
-        if: success() && needs.select-release.outputs.apply == 'true'
+        if: success() && steps.locked-source.outputs.cleanup_ready == 'true' && needs.select-release.outputs.apply == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: production-retention-state
@@ -312,7 +344,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Report remaining production connection capacity
-        if: needs.select-release.outputs.apply == 'true'
+        if: steps.locked-source.outputs.cleanup_ready == 'true' && needs.select-release.outputs.apply == 'true'
         continue-on-error: true
         run: |
           status=0
