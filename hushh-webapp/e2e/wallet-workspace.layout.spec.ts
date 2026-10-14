@@ -713,6 +713,10 @@ test("all twenty payment finishes fit long names and a revealed 19-digit number 
 
 for (const width of [320, 390, 1440]) {
   test(`Wallet Sharing keeps history and revocation reachable at ${width}px`, async ({ page }) => {
+    // Received/sent detail navigation and three confirmation cycles share this
+    // budget. WebKit on CI exhausted 30s at different late steps; keep each
+    // actionability check, assertion deadline and strict geometry check intact.
+    test.setTimeout(60_000);
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
