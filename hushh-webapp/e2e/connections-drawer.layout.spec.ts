@@ -1521,6 +1521,27 @@ async function presencePixels(artwork: Locator) {
   });
 }
 
+async function expectPresencePlayback(artwork: Locator) {
+  try {
+    await expect(artwork.locator("canvas")).toHaveCSS("visibility", "visible");
+  } catch (error) {
+    console.log("One playback failure", await artwork.evaluate(element => ({
+      state: element.getAttribute("data-one-presence-state"),
+      hidden: document.hidden,
+      reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      canvases: [...element.querySelectorAll("canvas")].map(canvas => ({
+        status: canvas.dataset.onePresencePlayback,
+        width: canvas.width, height: canvas.height,
+        visibility: getComputedStyle(canvas).visibility,
+        opacity: getComputedStyle(canvas.parentElement!).opacity,
+      })),
+      posters: [...element.querySelectorAll("img")].map(image => ({ complete: image.complete, width: image.naturalWidth })),
+      resources: performance.getEntriesByType("resource").filter(entry => entry.name.includes("/one-presence/")).map(entry => ({ path: new URL(entry.name).pathname, duration: entry.duration })),
+    })));
+    throw error;
+  }
+}
+
 test.describe("One profile artwork and animated presence", () => {
   test.use({ deviceScaleFactor: 3 });
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
@@ -1534,17 +1555,19 @@ test.describe("One profile artwork and animated presence", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("http://localhost/connections-fixture?one-profile=1");
     await page.addScriptTag({ content: script });
+    await page.bringToFront();
+    await expect.poll(() => page.evaluate(() => document.hidden)).toBe(false);
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     const profile = panel.locator("[data-one-presence-state]");
-    await expect(profile.locator("canvas")).toHaveCSS("visibility", "visible");
+    await expectPresencePlayback(profile);
     await expect.poll(async () => (await presencePixels(profile.locator("canvas"))).opaque).toBeGreaterThan(0);
     await page.evaluate(() => {
       const nodes = [...document.querySelectorAll<HTMLElement>("[data-one-presence-state]")];
       const sample = document.createElement("canvas");
       sample.width = sample.height = 32;
       const context = sample.getContext("2d")!;
-      const proof = { blank: 0, detached: 0, minPeakAlpha: 255, minLayers: [] as unknown[], frames: 0, intervals: [] as number[], previous: performance.now(), stop: false };
+      const proof = { blank: 0, detached: 0, minPeakAlpha: 255, interrupted: false, minLayers: [] as unknown[], frames: 0, intervals: [] as number[], previous: performance.now(), stop: false };
       const sampleFrame = (now: number) => {
         if (proof.stop) return;
         proof.frames++;
@@ -1574,6 +1597,12 @@ test.describe("One profile artwork and animated presence", () => {
             });
           }
         }
+        const thinking = nodes.at(-1)?.querySelector<HTMLElement>('[data-one-presence-artwork="thinking"]');
+        const opacity = thinking ? Number(getComputedStyle(thinking).opacity) : 0;
+        if (!proof.interrupted && opacity > 0 && opacity < 1) {
+          proof.interrupted = true;
+          (window as any).__setOnePresenceWork({ drafting: false, answering: true, thinking: true });
+        }
         requestAnimationFrame(sampleFrame);
       };
       Object.assign(window, { __presenceContinuity: proof });
@@ -1584,13 +1613,11 @@ test.describe("One profile artwork and animated presence", () => {
     await page.waitForTimeout(180);
     await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "connected");
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: true }));
-    await expect.poll(() => profile.locator('[data-one-presence-artwork="thinking"]').evaluate(layer => Number(getComputedStyle(layer).opacity)), { intervals: [5] }).toBeGreaterThan(0);
-    expect(await profile.locator('[data-one-presence-artwork="thinking"]').evaluate(layer => Number(getComputedStyle(layer).opacity))).toBeLessThan(1);
-    await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: true, thinking: true }));
+    await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.interrupted)).toBe(true);
     release();
     await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
     await expect(profile.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", "answering");
-    await expect(profile.locator("canvas")).toHaveCSS("visibility", "visible");
+    await expectPresencePlayback(profile);
     const proof = await page.evaluate(() => {
       const proof = (window as any).__presenceContinuity;
       proof.stop = true;
@@ -1609,6 +1636,8 @@ test.describe("One profile artwork and animated presence", () => {
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
     await page.addScriptTag({ content: script });
+    await page.bringToFront();
+    await expect.poll(() => page.evaluate(() => document.hidden)).toBe(false);
     await awaitProductFont(page);
     const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
     await trigger.hover();
@@ -1642,7 +1671,7 @@ test.describe("One profile artwork and animated presence", () => {
         await expect(artwork.locator("[data-one-presence-artwork]")).toHaveCount(1);
         await expect(artwork.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", phase.state);
         const canvas = artwork.locator("canvas");
-        await expect(canvas).toHaveCSS("visibility", "visible");
+        await expectPresencePlayback(artwork);
         await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
         await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
@@ -1658,6 +1687,8 @@ test.describe("One profile artwork and animated presence", () => {
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
     await page.addScriptTag({ content: script });
+    await page.bringToFront();
+    await expect.poll(() => page.evaluate(() => document.hidden)).toBe(false);
     await awaitProductFont(page);
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
@@ -1715,6 +1746,8 @@ test.describe("One profile artwork and animated presence", () => {
       }));
       await page.goto("http://localhost/connections-fixture?one-profile=1");
       await page.addScriptTag({ content: script });
+      await page.bringToFront();
+      await expect.poll(() => page.evaluate(() => document.hidden)).toBe(false);
       await awaitProductFont(page);
       await page.getByRole("button", { name: "Open One profile", exact: true }).click();
       const panel = page.getByRole("dialog", { name: "One", exact: true });

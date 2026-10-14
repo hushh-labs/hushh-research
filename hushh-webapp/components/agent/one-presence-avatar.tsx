@@ -113,6 +113,9 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     let presented = false;
     let notifiedRequest: PresenceRequest | null = null;
     let fallback = false;
+    const paintProbe = document.createElement("canvas");
+    paintProbe.width = paintProbe.height = 8;
+    const probeContext = paintProbe.getContext("2d", { willReadFrequently: true });
 
     const notifyReady = () => {
       const next = onReadyRef.current;
@@ -136,6 +139,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       if (disposed) return;
       const play = canPlay();
       if (!play) {
+        canvas.dataset.onePresencePlayback = "paused";
         if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
         firstFrame = null;
         instance?.pause(stateMachine);
@@ -148,18 +152,24 @@ function OnePresencePlayback({ request, presentation, onReady }: {
         instance.play(stateMachine);
         instance.startRendering();
         if (presented) {
+          canvas.dataset.onePresencePlayback = "playing";
           canvas.style.visibility = "visible";
           poster.style.visibility = "hidden";
         } else if (firstFrame === null) {
-          // Embedded images can decode after onLoad. Observe an actual painted
-          // row before handing off; this bounded probe never updates React per frame.
+          // Embedded images can decode after onLoad. Observe painted coverage
+          // across the artboard, independent of pose/engine raster placement.
+          // The 8px probe is bounded and never updates React per frame.
+          canvas.dataset.onePresencePlayback = "waiting-for-paint";
           const started = performance.now();
           const awaitPaint = () => {
             firstFrame = null;
             if (disposed || !canPlay()) return;
-            const pixels = canvas.getContext("2d")?.getImageData(0, Math.floor(canvas.height / 2), canvas.width, 1).data;
+            probeContext?.clearRect(0, 0, 8, 8);
+            probeContext?.drawImage(canvas, 0, 0, 8, 8);
+            const pixels = probeContext?.getImageData(0, 0, 8, 8).data;
             if (pixels?.some((alpha, index) => index % 4 === 3 && alpha > 0)) {
               presented = true;
+              canvas.dataset.onePresencePlayback = "playing";
               sync();
               notifyReady();
             } else if (performance.now() - started < 5000) {
@@ -169,6 +179,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
               instance = null;
               ready = false;
               fallback = true;
+              canvas.dataset.onePresencePlayback = "paint-timeout";
               showPoster();
               notifyReady();
             }
@@ -177,6 +188,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
         }
       } else if (play && !loading) {
         loading = true;
+        canvas.dataset.onePresencePlayback = "loading";
         // Browser-only import; the WASM and artwork stay on the app's origin.
         void import("@rive-app/canvas").then((runtime) => {
           if (disposed) return;
@@ -205,11 +217,12 @@ function OnePresencePlayback({ request, presentation, onReady }: {
               instance = null;
               showPoster();
               fallback = true;
+              canvas.dataset.onePresencePlayback = "asset-error";
               notifyReady();
             },
           });
         }).catch(() => {
-          if (!disposed) { showPoster(); fallback = true; notifyReady(); }
+          if (!disposed) { canvas.dataset.onePresencePlayback = "runtime-error"; showPoster(); fallback = true; notifyReady(); }
         });
       }
     };

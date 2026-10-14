@@ -30,6 +30,7 @@ beforeEach(() => {
   vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
   vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1254);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    clearRect: vi.fn(), drawImage: vi.fn(),
     getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }),
   } as unknown as CanvasRenderingContext2D);
   runtime.instances.length = 0;
@@ -138,7 +139,8 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
     let painted = false;
     vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({
-      getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, painted ? 255 : 0]) }),
+      clearRect: vi.fn(), drawImage: vi.fn(),
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, painted ? 255 : 0]) }),
     } as unknown as CanvasRenderingContext2D);
     const view = render(<OnePresenceAvatar state="answering" />);
     act(() => enterViewport([{ isIntersecting: true }]));
