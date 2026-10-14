@@ -1096,6 +1096,37 @@ for (const width of [320, 1440]) {
       if (kind === "NWS") await page.getByRole("button", { name: "Next card", exact: true }).click();
       const counter = page.getByTestId(kind === "Referral" ? "wallet-referral-opens" : "wallet-profile-scans");
       await expect(counter).toHaveText(kind === "Referral" ? "7" : "3");
+      const qr = page.getByRole("img", { name: kind === "Referral" ? "Your referral QR code" : "Your Wallet Profile QR code", exact: true });
+      const originalQr = await qr.evaluate(el => el.innerHTML);
+      const qrActions = page.getByTestId("wallet-qr-actions");
+      const geometry = await qrActions.evaluate(el => {
+        const qr = el.querySelector('svg[role="img"]')!.getBoundingClientRect();
+        const actions = [...el.querySelectorAll("button")].map(button => {
+          const box = button.getBoundingClientRect();
+          return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, height: box.height, font: getComputedStyle(button).fontSize };
+        });
+        return { qrRight: qr.right, right: el.getBoundingClientRect().right, actions };
+      });
+      expect(geometry.actions).toHaveLength(4);
+      geometry.actions.forEach((action, i) => {
+        expect(action.x).toBeGreaterThan(geometry.qrRight);
+        expect(action.right).toBeLessThanOrEqual(geometry.right);
+        expect(action.right - action.x).toBeGreaterThanOrEqual(124);
+        expect(action.height).toBeGreaterThanOrEqual(44);
+        expect(action.font).toBe("13px");
+        if (i) expect(action.y).toBeGreaterThanOrEqual(geometry.actions[i - 1].bottom);
+      });
+      await expect(page.getByRole("button", { name: /^Rotate QR access/ })).toHaveCount(0);
+      await qrActions.scrollIntoViewIfNeeded();
+      await qrActions.screenshot({ path: testInfo.outputPath(`qr-actions-${kind.toLowerCase()}-${width}.png`) });
+      if (kind === "Profile") {
+        await page.getByRole("button", { name: /^Edit shared information/ }).click();
+        const form = page.getByTestId("wallet-card-setup-form");
+        await expect(form.getByRole("heading", { name: "Shared information" })).toHaveCount(0);
+        await expect(form.locator('[data-wallet-grid-item="photo-row"]')).toHaveCount(0);
+        await expect(form.getByLabel("Name", { exact: true })).toBeVisible();
+        await form.getByRole("button", { name: "Cancel", exact: true }).click();
+      }
       const revoke = page.getByRole("button", { name: "Revoke access", exact: true });
       await revoke.click();
       let dialog = page.getByRole("alertdialog");
@@ -1109,7 +1140,7 @@ for (const width of [320, 1440]) {
       await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect(counter).toHaveText("0");
-      await expect(page.getByText(kind === "Referral" ? "https://example.test/r/fixture-referral-new" : "https://example.test/c/fixture-wallet-share-token-000002", { exact: true })).toBeVisible();
+      await expect.poll(() => qr.evaluate(el => el.innerHTML)).not.toBe(originalQr);
       if (kind === "Referral") {
         await expect(page.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/fixture-referral-new");
         await expect(page.getByText("Qualified referrals", { exact: true })).toBeVisible();
@@ -1138,6 +1169,8 @@ test("a failed default QR revoke retains the existing link and scans", async ({ 
   await mount(page);
   await page.getByRole("button", { name: "Agent One Profile", exact: true }).click();
   await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
+  const qr = page.getByRole("img", { name: "Your Wallet Profile QR code", exact: true });
+  const originalQr = await qr.evaluate(el => el.innerHTML);
   await page.getByRole("button", { name: "Revoke access", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
   await dialog.getByRole("button", { name: "Revoke access", exact: true }).click();
@@ -1145,5 +1178,5 @@ test("a failed default QR revoke retains the existing link and scans", async ({ 
   await expect(dialog.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByTestId("wallet-profile-scans")).toHaveText("3");
-  await expect(page.getByText("https://example.test/c/fixture-wallet-share-token-000001", { exact: true })).toBeVisible();
+  expect(await qr.evaluate(el => el.innerHTML)).toBe(originalQr);
 });
