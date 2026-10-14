@@ -3327,7 +3327,10 @@ async def propose_document_request(
         )
         assessment = result.assessment
         if result.status == "clarify" and assessment is not None:
-            if assessment.missing_dimension == "relative_anchor" and receipt is None:
+            missing_dimension = assessment.missing_dimension
+            if missing_dimension is None:
+                return {"status": "failed", "reason": "invalid_response"}
+            if missing_dimension == "relative_anchor" and receipt is None:
                 return {
                     "status": "clock_required",
                     "nextStep": "Call get_current_time, then retry this document request once.",
@@ -3348,7 +3351,7 @@ async def propose_document_request(
                 "invocation_id": invocation_id,
                 "context": PendingPeriodContext(
                     original_user_texts=context_texts,
-                    asked_missing_dimension=assessment.missing_dimension,
+                    asked_missing_dimension=missing_dimension,
                 ).model_dump(),
             }
             questions = {
@@ -3361,7 +3364,7 @@ async def propose_document_request(
             }
             return {
                 "status": "needs_clarification",
-                "message": questions[assessment.missing_dimension],
+                "message": questions[missing_dimension],
                 "nextStep": "Ask only this question. Keep the requested person and documents.",
             }
         if result.status == "candidate_mismatch":
@@ -3376,12 +3379,12 @@ async def propose_document_request(
                 "reason": result.status,
                 "message": "I couldn't verify the requested dates. Please try again.",
             }
-        period_start, period_end = assessment.period_start, assessment.period_end
+        assessed_start, assessed_end = assessment.period_start, assessment.period_end
         terms = ShareRequestPurpose.model_validate(
             {
                 "purpose": str(purpose or "").strip(),
-                "periodStart": period_start or None,
-                "periodEnd": period_end or None,
+                "periodStart": assessed_start,
+                "periodEnd": assessed_end,
             }
         )
         tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
@@ -5591,19 +5594,20 @@ async def get_current_time(tool_context: ToolContext, time_zone: str = "") -> di
     hour_12 = now.hour % 12 or 12
     clock_time = f"{hour_12}:{now.strftime('%M %p')}"
     zone_label = now.strftime("%Z") or zone_name
+    zone_source: Literal["owner", "request", "utc_fallback"] = (
+        "request"
+        if requested_zone
+        else "owner"
+        if declared_zone and declared_zone == zone_name
+        else "utc_fallback"
+    )
     result = {
         "status": "ok",
         "date": now.strftime("%Y-%m-%d"),
         "time": clock_time,
         "weekday": now.strftime("%A"),
         "time_zone": zone_name,
-        "time_zone_source": (
-            "request"
-            if requested_zone
-            else "owner"
-            if declared_zone and declared_zone == zone_name
-            else "utc_fallback"
-        ),
+        "time_zone_source": zone_source,
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
     # Host-only invocation state; model tool arguments cannot supply this receipt.
@@ -5620,7 +5624,7 @@ async def get_current_time(tool_context: ToolContext, time_zone: str = "") -> di
             status="ok",
             date=result["date"],
             time_zone=zone_name,
-            time_zone_source=result["time_zone_source"],
+            time_zone_source=zone_source,
             user_time_zone_quote=requested_zone or None,
         ).model_dump()
     return result
