@@ -100,6 +100,17 @@ when new paid admission is disabled. Focused PostgreSQL, lifecycle, handshake,
 SDK and deployment checks pass 186 cases; exact-candidate core, CI and deployment
 are still required for this composition.
 
+The first exact-composition core at `48e303b902ba` stops on 38 architecture
+findings. Independent production and test/CI review qualifies precisely 36
+inherited or bounded-union size measurements with immutable source hashes.
+Historical findings and multiplicity remain intact, and 36 future-growth negative
+controls still reject increases. The two remaining findings receive source fixes:
+WorkOS configuration loading moves inside its executable `main`, and consent
+termination uses cohesive helpers behind the existing service facade, reducing
+that class to 249 lines. Its affected 140 tests pass. Budgets, scanner, exclusions
+and mandatory core/CI gates are unchanged. These qualifications record retained
+size debt; they do not establish deployment or financial acceptance.
+
 Main's separate WorkOS offboarding still resolves directory events by email and
 organization without a verified stable directory-to-SSO-person binding. The IAM
 owner must qualify delayed-event/email-reuse behavior before enabling that lane.

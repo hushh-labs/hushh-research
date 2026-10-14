@@ -2371,7 +2371,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "AccountDeletionLifecycleService",
-      "value": 932
+      "value": 942
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3289,7 +3289,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_answer_request_service.py",
       "symbol": "PkmAnswerRequestService",
-      "value": 1103
+      "value": 1139
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3793,7 +3793,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 2063
+      "value": 2194
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3802,7 +3802,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "RetentionSafetyTest",
-      "value": 297
+      "value": 301
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16402,7 +16402,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1383
+      "value": 1391
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16411,7 +16411,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 1168
+      "value": 1178
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17293,7 +17293,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_answer_request_service.py",
       "symbol": null,
-      "value": 1179
+      "value": 1215
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17896,7 +17896,7 @@
       "limit": 500,
       "path": "consent-protocol/server.py",
       "symbol": null,
-      "value": 1554
+      "value": 1563
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18760,7 +18760,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
       "symbol": null,
-      "value": 931
+      "value": 1036
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20236,7 +20236,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1267
+      "value": 1268
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20803,7 +20803,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/connections-service.test.ts",
       "symbol": null,
-      "value": 501
+      "value": 511
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21469,7 +21469,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2226
+      "value": 2232
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21838,7 +21838,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
       "symbol": null,
-      "value": 1132
+      "value": 1138
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22450,7 +22450,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1101
+      "value": 1128
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23170,7 +23170,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 5977
+      "value": 6021
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23206,7 +23206,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/connections-service.ts",
       "symbol": null,
-      "value": 719
+      "value": 728
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23701,7 +23701,7 @@
       "limit": 500,
       "path": "scripts/ci/runtime-capacity-budget.py",
       "symbol": null,
-      "value": 683
+      "value": 848
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23719,7 +23719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 2409
+      "value": 2544
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23801,7 +23801,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/answer_requests.py",
       "symbol": null,
-      "value": 708
+      "value": 709
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23846,7 +23846,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 456
+      "value": 553
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -23891,7 +23891,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 1329
+      "value": 1358
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24557,7 +24557,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_answer_routes.py",
       "symbol": null,
-      "value": 710
+      "value": 786
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24854,7 +24854,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/answer-request-card.test.tsx",
       "symbol": null,
-      "value": 514
+      "value": 558
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25412,7 +25412,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "maintenance_pass",
-      "value": 175
+      "value": 184
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25421,7 +25421,7 @@
       "limit": 80,
       "path": "scripts/ci/wait-uat-capacity.py",
       "symbol": "_wait_for_capacity",
-      "value": 91
+      "value": 112
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25430,7 +25430,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 521
+      "value": 618
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25517,6 +25517,96 @@
       "path": "consent-protocol/api/routes/db_proxy.py",
       "symbol": "vault_pre_vault_state",
       "value": 84
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|scripts/ci/test_wait_uat_capacity.py|CapacityAdmissionTests|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "scripts/ci/test_wait_uat_capacity.py",
+      "symbol": "CapacityAdmissionTests",
+      "value": 277
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_frontend_only_admits_zero_incremental_sql_without_job_inventory|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_runtime_capacity_budget.py",
+      "symbol": "test_frontend_only_admits_zero_incremental_sql_without_job_inventory",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_missing_age_can_be_omitted_before_a_payable_sex_and_location_answer|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+      "symbol": "test_missing_age_can_be_omitted_before_a_payable_sex_and_location_answer",
+      "value": 92
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/runtime-capacity-budget.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/runtime-capacity-budget.py",
+      "symbol": "main",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_trusted_inherited_uat_drain_receipt_schedules_another_wait|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_trusted_inherited_uat_drain_receipt_schedules_another_wait",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/routes/one/answer_requests.py|compose_answer|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/routes/one/answer_requests.py",
+      "symbol": "compose_answer",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_workos_enterprise_sso_flow.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
+      "symbol": null,
+      "value": 688
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
+      "symbol": null,
+      "value": 625
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+      "symbol": null,
+      "value": 583
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/consent/answer-request-card.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/consent/answer-request-card.tsx",
+      "symbol": null,
+      "value": 517
     }
   ],
   "inspected_files": 6625,
@@ -42729,6 +42819,380 @@
       "independent_reviewer": "ci_registry_review",
       "proof": "The complete runtime ASTs and all test bodies equal incoming main after mandatory formatting. One imported pytest fixture is explicitly aliased back to its existing public fixture name so the lint gate does not mistake dependency injection for unused-import redefinition. No budgets, assertions or gates changed."
     }
+  },
+  "scope_commerce_main20d_integration_review_20261014": {
+    "composed_revision": "48e303b902bae31836b300c8bfcf0df0d2683600",
+    "incoming_main_revision": "20d6afafc8f4d00ae336b2e5eb9ebc3308b8baf9",
+    "prior_baseline_sha256": "2922bb891542db70210a2d20b01d1effd164877a7b80452f57b7098783c36ae4",
+    "qualified_updates": [
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2063,
+        "path": "scripts/ci/test_cloudrun_retention.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c973e0c687600745333952530ebfdb62eff97bbc69d9ac3057c67a070e90f818",
+        "value": 2194
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|PkmAnswerRequestService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1103,
+        "path": "consent-protocol/hushh_mcp/services/pkm_answer_request_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "639b3cfb180d05d5aaa212ff183aacaccad6cce67754b70727f6236f91729b09",
+        "value": 1139
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|AccountDeletionLifecycleService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 932,
+        "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "3908923d52e4f972f678c13e51da618492f6759ad807c76e949b6f1d1d79510a",
+        "value": 942
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 456,
+        "path": "scripts/ci/test_runtime_capacity_budget.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "35dd13716794999b6fbecab0dc8c87122c13f721bd14cc24a7252c903bb00404",
+        "value": 553
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|RetentionSafetyTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 297,
+        "path": "scripts/ci/test_cloudrun_retention.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c973e0c687600745333952530ebfdb62eff97bbc69d9ac3057c67a070e90f818",
+        "value": 301
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "class_size|scripts/ci/test_wait_uat_capacity.py|CapacityAdmissionTests|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "scripts/ci/test_wait_uat_capacity.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "5d31bcce011dcaf8005798290659f6cbc7b23d5a45ef40b237940d0f6a8f1c78",
+        "value": 277
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|maintenance_pass|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 175,
+        "path": "scripts/ci/uat-retention-maintenance.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "6817c93527c553250fb428b7d9607e55abae1d93493423dd4bb6b15d1b3c4e19",
+        "value": 184
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/wait-uat-capacity.py|_wait_for_capacity|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 91,
+        "path": "scripts/ci/wait-uat-capacity.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "dc87b9c737bc0c7e882d468e462be22996dfb6df916d067afa31eda92ab54f62",
+        "value": 112
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/test_runtime_capacity_budget.py|test_frontend_only_admits_zero_incremental_sql_without_job_inventory|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "scripts/ci/test_runtime_capacity_budget.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "35dd13716794999b6fbecab0dc8c87122c13f721bd14cc24a7252c903bb00404",
+        "value": 96
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_missing_age_can_be_omitted_before_a_payable_sex_and_location_answer|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "8afbc9e5fa27b844d089669be313dce8db1c658abdc335ebc413b9c4f06b8216",
+        "value": 92
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/runtime-capacity-budget.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "scripts/ci/runtime-capacity-budget.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "24606cb01c2be5b5bde159f5700d214e03a052df730932e1edb229baf32fe141",
+        "value": 91
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_trusted_inherited_uat_drain_receipt_schedules_another_wait|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "scripts/ci/test_cloudrun_retention.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c973e0c687600745333952530ebfdb62eff97bbc69d9ac3057c67a070e90f818",
+        "value": 89
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "function_size|consent-protocol/api/routes/one/answer_requests.py|compose_answer|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "consent-protocol/api/routes/one/answer_requests.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "a52e25554902de0746f98f0b97d4a4163e243bf6213790d41ebdf3453b74457f",
+        "value": 81
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 5977,
+        "path": "hushh-webapp/lib/services/api-service.ts",
+        "reviewer": "architecture_review",
+        "source_sha256": "22566b4d84ebfb28e1bd7a21a1e11b50df3c771d219b9ad858eb95f447e9eb80",
+        "value": 6021
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2409,
+        "path": "scripts/ci/test_cloudrun_retention.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "c973e0c687600745333952530ebfdb62eff97bbc69d9ac3057c67a070e90f818",
+        "value": 2544
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2226,
+        "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "172a2f98cac69967ae223f70f25074ca6630d5f5859d709bbed4c9f5c910b546",
+        "value": 2232
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1554,
+        "path": "consent-protocol/server.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "da4dc4feadc0255aae9360a4407307be48f6ad3e6c5efee9f247dcff0e0cd1d0",
+        "value": 1563
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1383,
+        "path": "consent-protocol/hushh_mcp/runtime_settings.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "15a86dc88c76471b8f8d17d0d9bc32fe854b6cc0668cc2b28a5e139de87d881d",
+        "value": 1391
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1329,
+        "path": "scripts/ci/uat-retention-maintenance.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "6817c93527c553250fb428b7d9607e55abae1d93493423dd4bb6b15d1b3c4e19",
+        "value": 1358
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1267,
+        "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "a881f2dd7d5c3c5473045fa0aaa0e60670938c79278a142c93b4a63bd57648e1",
+        "value": 1268
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1179,
+        "path": "consent-protocol/hushh_mcp/services/pkm_answer_request_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "639b3cfb180d05d5aaa212ff183aacaccad6cce67754b70727f6236f91729b09",
+        "value": 1215
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1168,
+        "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "3908923d52e4f972f678c13e51da618492f6759ad807c76e949b6f1d1d79510a",
+        "value": 1178
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/components/onboarding/AuthStep.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1132,
+        "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "7d6dc986dd0b69a395c2eb6112b95395c6b703d63d005e0b0cab88e57df2c28d",
+        "value": 1138
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1101,
+        "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "9702a38dae92cf5dfd048511e62e79667a39c10b47477751cebf3042e0f5c98e",
+        "value": 1128
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 931,
+        "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "8afbc9e5fa27b844d089669be313dce8db1c658abdc335ebc413b9c4f06b8216",
+        "value": 1036
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/runtime-capacity-budget.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 683,
+        "path": "scripts/ci/runtime-capacity-budget.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "24606cb01c2be5b5bde159f5700d214e03a052df730932e1edb229baf32fe141",
+        "value": 848
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/tests/test_pkm_answer_routes.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 710,
+        "path": "consent-protocol/tests/test_pkm_answer_routes.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "f5e6a16f0446854d2bf033aa22a0921ea13c501cdae748bb346ed8918b1c3a32",
+        "value": 786
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/lib/services/connections-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 719,
+        "path": "hushh-webapp/lib/services/connections-service.ts",
+        "reviewer": "architecture_review",
+        "source_sha256": "6dec1f29929d45b26cdb9d083a4f8247ab6ae6e933a743517caffec6ecfc2628",
+        "value": 728
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 708,
+        "path": "consent-protocol/api/routes/one/answer_requests.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "a52e25554902de0746f98f0b97d4a4163e243bf6213790d41ebdf3453b74457f",
+        "value": 709
+      },
+      {
+        "classification": "independently_reviewed_preserved_union",
+        "key": "module_size|consent-protocol/tests/test_workos_enterprise_sso_flow.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "cc500988a12047958402ebb83b08eaa2940c4ff46b71a188f61bca877aa6750d",
+        "value": 688
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "3700f14649fceaac7a94f47d2572596ab066b55952f0c0f631d4d717e9e5e0cd",
+        "value": 625
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 521,
+        "path": "scripts/ci/test_runtime_capacity_budget.py",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "35dd13716794999b6fbecab0dc8c87122c13f721bd14cc24a7252c903bb00404",
+        "value": 618
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+        "reviewer": "architecture_review",
+        "source_sha256": "4724f9baa97ae7e4332f02c7323d9406e276e293f47bf16f280417bd123ac4f1",
+        "value": 583
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/components/answer-request-card.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 514,
+        "path": "hushh-webapp/__tests__/components/answer-request-card.test.tsx",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "27e118f4d7249d6facbd4dab2900ece1cdb91f47efe515f8db00f0d0f7534853",
+        "value": 558
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/components/consent/answer-request-card.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "hushh-webapp/components/consent/answer-request-card.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "7b6056445257096a00b97ef996b11043f3415b0bc98d034a12b7e5fc96162e42",
+        "value": 517
+      },
+      {
+        "classification": "exact_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/services/connections-service.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 501,
+        "path": "hushh-webapp/__tests__/services/connections-service.test.ts",
+        "reviewer": "ci_setup_regression_review",
+        "source_sha256": "ff046e8018bea8fff1b4db0eba76271b46e5c9866b2be3581815b79d0a437fb1",
+        "value": 511
+      }
+    ],
+    "retained_parent_revision": "bb0f35135b4c8b011866b9659b153d7d39afb52a",
+    "review": "Independent production and test/CI evidence qualifies exactly36 inherited or bounded-union size measurements. Preserve every unrelated occurrence/history, budgets500/250/80 and scanner/exclusions. These are retained debt, not architectural compliance. WorkOS import initialization and new consent class growth are repaired in source and receive no qualification. Owner admission, financial-source isolation, canonical deployment, recipient fencing, omission disclosures, wallet Back and live revision drainage remain enforced.",
+    "reviewed_report_sha256": "2816381828b53aa864cd2807eb8a878942ebd8df39893c082eeeed5bc6b9c1f6",
+    "unqualified_repairs": [
+      "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
+      "consent-protocol/scripts/workos_sso_local.py"
+    ]
   },
   "scope_commerce_main_document_payout_union_20261012": {
     "added_slots": [
