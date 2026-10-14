@@ -8,7 +8,6 @@ export type StoredEntry = FileEntry & {
   initialParent: string;
   history: Array<Partial<FileEntry>>;
 };
-const encode = (value: string) => new TextEncoder().encode(value);
 export const identifier = (id: string): string => {
   if (!/^[a-f0-9]{32}$/.test(id)) throw new Error("FILES_INVALID_ID");
   return id;

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture, setScopeProjection, setSoulMemory, loadMarkdownMemory, refreshIdentityForSession } from "./fixtures";
+import { buildConsentExportForScope, getStaleFirst, answerable, compose, deliver, encrypt, work, params, resetAnswerFixture, setScopeProjection } from "./fixtures";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";

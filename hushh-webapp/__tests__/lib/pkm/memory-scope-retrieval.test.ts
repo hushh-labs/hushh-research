@@ -146,6 +146,8 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     const available = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
     expect(available.complete).toBe(true);
     expect(resultValue(available, SEX, "identity_profile.sex")).toBe("Soul value");
+  });
+
   it.each(["denied", "revision_changed"])("does not replace a failed materialized export with Soul: %s", async failure => {
     identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "canonical fact" } } };
     soul = { revision: 10, markdown: "- Sex: matching private fact\n", deletedFactLabels: [] };
