@@ -120,17 +120,19 @@ describe("/circle/join landing", () => {
     expect(mockReplace).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Explore One" })).toHaveAttribute("href", "/?invite=one");
   });
-  it("lets a guest explore all four stories before signing in with the same code", async () => {
+  it("lets a guest explore the welcome and four stories before signing in with the same code", async () => {
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    for (const title of [
+    for (const [index, title] of [
       /Big plans\.\s*Less busywork\./,
       /Find answers\.\s*Not more tabs\./,
       /Your people\.\s*Right here\./,
-    ]) {
+    ].entries()) {
+      expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(index + 2));
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+      expect(mockPush).not.toHaveBeenCalled();
     }
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "5");
     expect(screen.getByRole("heading", { name: /Your information\.\s*Your call\./ })).toBeInTheDocument();
