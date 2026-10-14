@@ -147,7 +147,7 @@
   .historyDetail :global([data-slot$="-header"]) :global(.ui-text-navigation-title) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
-    font-weight: 500 !important;
+    font-weight: 550 !important;
     line-height: 1.22 !important;
     letter-spacing: 0 !important;
   }
