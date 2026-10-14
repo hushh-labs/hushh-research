@@ -135,6 +135,31 @@ async def test_shared_upload_refuses_unbound_session_destination_without_request
         await store.send(bad_uri, "opaque", b"K" * 28)
 
 
+async def test_shared_upload_session_bearer_is_excluded_from_http_instrumentation(monkeypatch):
+    import json
+
+    from opentelemetry.instrumentation.utils import is_http_instrumentation_enabled
+
+    from hushh_mcp.services.shared_files.uploads import SharedCipherStore
+    from tests.pod_azure_fakes import FakeResponse
+
+    class Transport:
+        def put(self, url, **kwargs):
+            assert not is_http_instrumentation_enabled(), "Provider session URI reached tracing"
+            assert kwargs["allow_redirects"] is False and kwargs["stream"] is True
+            return FakeResponse(
+                200,
+                content=json.dumps(
+                    {"name": "owner/library/opaque", "generation": "123", "size": "28"}
+                ).encode(),
+            )
+
+    store = SharedCipherStore("synthetic-files", "owner/library", session=Transport())
+    monkeypatch.setattr(store, "_headers", lambda: {})
+    uri = "https://storage.googleapis.com/upload/storage/v1/b/synthetic-files/o?uploadType=resumable&upload_id=synthetic-session"
+    assert await store.send(uri, "opaque", b"K" * 28) == "123"
+
+
 async def test_bounded_snapshot_keeps_version_and_refuses_oversize(store):
     from hushh_mcp.services.pod_bounded_object import ObjectReadTooLarge
 

@@ -7,6 +7,8 @@ import json
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
+from opentelemetry.instrumentation.utils import suppress_instrumentation
+
 from hushh_mcp.services.pod_files.contracts import FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesGcsStore
 
@@ -59,16 +61,17 @@ class SharedCipherStore(FilesGcsStore):
         try:
             send = getattr(self._session, method)
             extra_headers = kwargs.pop("extra_headers", {})
-            return self._authorized(
-                lambda headers: send(
-                    url,
-                    headers={**headers, **extra_headers},
-                    timeout=60,
-                    allow_redirects=False,
-                    stream=True,
-                    **kwargs,
+            with suppress_instrumentation():
+                return self._authorized(
+                    lambda headers: send(
+                        url,
+                        headers={**headers, **extra_headers},
+                        timeout=60,
+                        allow_redirects=False,
+                        stream=True,
+                        **kwargs,
+                    )
                 )
-            )
         except Exception:
             raise FilesRefused("FILES_UPLOAD_PROVIDER_UNAVAILABLE", 503) from None
 
