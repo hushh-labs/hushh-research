@@ -363,6 +363,7 @@ def load_release(repository: str, run_id: int, directory: Path, environment: str
             "_maintenance_source_run",
             "_maintenance_lane_provenance",
             "_maintenance_prior_backend_provenance",
+            "_maintenance_backend_rollback_revision",
         )
     ):
         raise retention.UnsafeState("source artifact contains internal maintenance authority")
@@ -684,6 +685,69 @@ def verify_uat_partial_failure(
         }
 
 
+def prove_frontend_inherited_backend(
+    repository: str, run: dict, release: dict, directory: Path
+) -> None:
+    """Bind an unchanged backend and its rollback anchor to its prior owner."""
+    owner_run_id, owner = prior_healthy_uat_backend_release(
+        repository, run, directory
+    )
+    final = release.get("final")
+    current = release.get("current")
+    predeploy = release.get("predeploy")
+    verification = release.get("verification")
+    owner_final = owner.get("final")
+    owner_predeploy = owner.get("predeploy")
+    if not all(
+        isinstance(part, dict)
+        for part in (final, current, predeploy, verification, owner_final, owner_predeploy)
+    ):
+        raise retention.UnsafeState("frontend-only UAT backend lineage is incomplete")
+    inherited = owner_final.get("backend_revision")
+    rollback = owner_predeploy.get("backend_revision")
+    if (
+        release.get("status") != "healthy"
+        or release.get("scope") != "frontend"
+        or not re.fullmatch(r"[a-f0-9]{40}", str(release.get("sha")))
+        or owner.get("status") not in {"healthy", "rolled_back"}
+        or owner.get("scope") not in {"all", "backend"}
+        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(inherited))
+        or not re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(rollback))
+        or rollback == inherited
+        or any(
+            state.get("backend_revision") != inherited
+            for state in (predeploy, current, final)
+        )
+        or current.get("backend_candidate_revision") not in (None, "")
+        or final.get("backend_sha") != owner_final.get("backend_sha")
+        or final.get("backend_sha") != owner.get("sha")
+        or final.get("frontend_sha") != release.get("sha")
+        or verification.get("frontend_provenance") != "success"
+        or verification.get("parity_success") != "true"
+        or verification.get("semantic_success") != "true"
+        or verification.get("blocking_classifications") != ""
+    ):
+        raise retention.UnsafeState(
+            "frontend-only UAT release lacks a verified inherited backend owner"
+        )
+    provenance = (owner.get("_maintenance_lane_provenance") or {}).get("backend")
+    if provenance is None:
+        provenance = {"run_id": owner_run_id, "sha": owner["sha"]}
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("run_id") != owner_run_id
+        or provenance.get("sha") != owner["sha"]
+    ):
+        raise retention.UnsafeState("inherited backend provenance is invalid")
+    # Internal context comes from independently governed release history.
+    # The frontend artifact cannot nominate its own backend rollback target.
+    release["_maintenance_lane_provenance"] = {
+        "backend": provenance,
+        "frontend": {"run_id": run["id"], "sha": release["sha"]},
+    }
+    release["_maintenance_backend_rollback_revision"] = rollback
+
+
 def find_release(
     repository: str,
     requested: str,
@@ -788,6 +852,8 @@ def find_release(
                 raise retention.UnsafeState(
                     f"source release has invalid {lane} rollback"
                 )
+        if environment == "uat" and release.get("scope") == "frontend":
+            prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
             verify_post_release_failure(repository, run, release)
             # Local verified context only; never accepted from an artifact.
@@ -927,17 +993,21 @@ def download_pending_uat_state(repository: str, artifact: dict, directory: Path)
 
 
 def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
-    """Carry only a clock that covers the same live identity and deletions."""
+    """Carry only a clock that covers the same service identity and deletions."""
     latest = json.loads(current.read_text())
     prior = json.loads(older.read_text())
     if not isinstance(latest, dict) or not isinstance(prior, dict):
         raise retention.UnsafeState("invalid UAT drain state history")
     identity = (
-        "schema_version", "service", "project", "region", "release_run_id",
+        "schema_version", "service", "project", "region",
         "fingerprint", "protected",
     )
     if any(latest.get(key) != prior.get(key) for key in identity):
         return False
+    for state in (latest, prior):
+        run_id = state.get("release_run_id")
+        if not isinstance(run_id, str) or not run_id.isdigit() or int(run_id) < 1:
+            return False
     newer_revisions = latest.get("revisions")
     older_revisions = prior.get("revisions")
     newer_clock = latest.get("observed_at")
@@ -1310,6 +1380,13 @@ def release_protection_flags(
 ) -> list[str]:
     current = release["final"][f"{lane}_revision"]
     rollback = release.get("predeploy", {}).get(f"{lane}_revision", "")
+    if environment == "uat" and lane == "backend" and release.get("scope") == "frontend":
+        verified_rollback = release.get("_maintenance_backend_rollback_revision")
+        if not isinstance(verified_rollback, str) or not re.fullmatch(
+            r"consent-protocol-[a-z0-9-]+", verified_rollback
+        ):
+            raise retention.UnsafeState("frontend-only UAT backend rollback is unverified")
+        rollback = verified_rollback
     known_good = ""
     if environment == "uat":
         tag = subprocess.run(
@@ -1476,6 +1553,8 @@ def maintenance_pass() -> int:
                 "--release-run-id",
                 str(run_id),
             ]
+            if args.environment == "uat":
+                flags.append("--carry-uat-clock")
         else:
             flags += ["--dry-run"]
         subprocess.run(
