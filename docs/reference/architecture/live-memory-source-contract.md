@@ -186,6 +186,42 @@ the resulting data flow and source contract before extending either allowlist.
       "evidence": ["hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts", "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx"]
     },
     {
+      "kind": "payout_activity",
+      "source_file": "hushh-webapp/lib/pkm/living-source-sync.ts",
+      "source_anchor": "kind: \"payout_activity\"",
+      "authority": "Owner-vault PayoutActivityService.list reads the payout activity endpoint for live and test partitions; document earnings have their own separate source",
+      "signal": {
+        "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+        "anchor": "forcePayoutActivity: activityVersion > scannedActivityVersion",
+        "rule": "Owner payout hints affecting wallet, earnings or bank payouts force a source reread. The open-and-unlocked 60-second bridge wake checks a five-minute per-kind verification age for recovery."
+      },
+      "snapshot": {
+        "path": "hushh-webapp/lib/services/payout-activity-service.ts",
+        "anchor": "body.sourceItemCount !== body.items.length",
+        "rule": "No-store owner-token sourceRead pages require backend pre-filter sourceItemCount to match returned items, explicit all-kind live/test mode, bounded cursor pagination and two matching complete scans; partial, shifted or malformed pages cannot authorize deletion."
+      },
+      "owner_isolation": "Each page uses the current owner-vault token; the encrypted projection is fenced by authenticated owner userId, vault session epoch and owner credentials. The response does not carry an owner ID.",
+      "fields": ["deterministic hashed mode-scoped source ID", "activity kind", "mode", "occurredAt", "updatedAt", "amountCents", "coinsDelta", "redemption status and reversal status", "deposit status and expected arrival", "wallet activity type"],
+      "exclusions": ["raw provider deposit or payout ID", "bank account and routing references", "provider payment references", "description and document body", "earning rows duplicated by document_earning"],
+      "revision": "Stable mode-prefixed SHA-256 pseudonym of the source item ID; local revision increments on allowlisted value changes. A deterministic hash does not guarantee secrecy for guessable IDs. Per-kind verifiedAt records the last complete scan separately.",
+      "tombstone": "Only two matching complete live-and-test scans may tombstone a missing activity item. Failed, racing, reset, duplicate or over-limit scans preserve prior records.",
+      "freshness_errors": "Open-and-unlocked only; owner hints force a scan and the 60-second wake checks five-minute complete-scan freshness. A failed due read marks payout_activity unavailable and inventory incomplete.",
+      "exposure": "Owner-only one_living_sources._private; payout activity is not a payment entitlement, grant, scope or complete transaction ledger.",
+      "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no raw provider IDs, bank details or plaintext activity in telemetry.",
+      "capacity": {
+        "mode": "bounded",
+        "max_records": 5000,
+        "limit_symbol": "MAX_PAYOUT_ACTIVITY_RECORDS",
+        "max_retained_records": 10000,
+        "retained_limit_symbol": "MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS",
+        "retained_anchor": "[\"payout_activity\", MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS]",
+        "overflow": "More than 5,000 scanned rows across live and test or 10,000 retained IDs including tombstones marks the source incomplete and preserves prior encrypted records without trimming.",
+        "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+        "anchor": "scannedRows > MAX_PAYOUT_ACTIVITY_RECORDS"
+      },
+      "evidence": ["hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts", "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx"]
+    },
+    {
       "kind": "consent",
       "source_file": "hushh-webapp/lib/pkm/living-source-sync.ts",
       "source_anchor": "kind: \"consent\"",
