@@ -1,5 +1,6 @@
 """Execute the deploy classifier against semantic failure receipts."""
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -10,6 +11,45 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_initial_contacts_hydration_matches_runtime_profile_shape(tmp_path, monkeypatch):
+    """Cloud hydration must preserve the strict, shared frontend key contract."""
+    spec = importlib.util.spec_from_file_location(
+        "runtime_profile_shape", ROOT / "scripts/ops/verify-runtime-profile-env-shape.py"
+    )
+    assert spec is not None and spec.loader is not None
+    shape = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shape)
+    monkeypatch.setattr(shape, "REPO_ROOT", tmp_path)
+
+    for template, runtime in zip(
+        shape.FRONTEND_TEMPLATE_FILES, shape.FRONTEND_RUNTIME_FILES, strict=True
+    ):
+        contents = (ROOT / template).read_text()
+        (tmp_path / template).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / template).write_text(contents)
+        # The deployed bootstrap adds this default even to an older profile.
+        (tmp_path / runtime).write_text(
+            contents + "\nNEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=false\n"
+        )
+
+    assert shape.compare_group("frontend templates", shape.FRONTEND_TEMPLATE_FILES) == []
+
+    def compare():
+        return shape.compare_runtime_to_templates(
+            "frontend runtime", shape.FRONTEND_TEMPLATE_FILES, shape.FRONTEND_RUNTIME_FILES
+        )
+
+    assert compare() == []
+
+    # Supporting this flag must not admit arbitrary runtime keys.
+    runtime = tmp_path / shape.FRONTEND_RUNTIME_FILES[0]
+    runtime.write_text(runtime.read_text() + "NEXT_PUBLIC_UNREVIEWED_FEATURE_ENABLED=true\n")
+    assert compare() == [
+        f"{shape.FRONTEND_RUNTIME_FILES[0]}: unexpected extra keys "
+        "NEXT_PUBLIC_UNREVIEWED_FEATURE_ENABLED"
+    ]
 
 
 @pytest.mark.parametrize(
