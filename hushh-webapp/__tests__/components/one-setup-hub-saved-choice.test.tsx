@@ -7,6 +7,18 @@ const state = vi.hoisted(() => ({
   listener: null as null | ((event: { type: string; key: string }) => void),
   unsubscribe: vi.fn(),
 }));
+vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
+  const snapshot = { ownerId: null, status: "idle", source: "none" };
+  return {
+    InitialContactsOnboardingService: {
+      subscribe: () => () => undefined,
+      getSnapshot: () => snapshot,
+      getServerSnapshot: () => snapshot,
+      wasDismissed: () => false,
+      startSource: vi.fn(),
+    },
+  };
+});
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));

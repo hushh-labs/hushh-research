@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-10-10",
-  "total_routes": 131,
-  "native_required_routes": 109,
+  "total_routes": 133,
+  "native_required_routes": 111,
   "excluded_routes": 22,
   "routes": [
     {
@@ -43,7 +43,10 @@
       "expectedRoute": "/circle/join",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",
@@ -1523,6 +1526,30 @@
       "route": "/welcome",
       "classification": "excluded-web-only",
       "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
+    },
+    {
+      "route": "/one/profile/world-model",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fworld-model",
+      "expectedMarker": "native-route-profile-world-model",
+      "expectedRoute": "/one/profile/world-model",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/welcome",
+      "classification": "native-required-functional",
+      "initialRoute": "/one/welcome",
+      "expectedMarker": "native-route-one-welcome",
+      "expectedRoute": "/one/welcome",
+      "autoReviewerLogin": true,
+      "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
     }
   ]
 }

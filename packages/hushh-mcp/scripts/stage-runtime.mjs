@@ -12,6 +12,7 @@ const copyList = [
   ".env.example",
   "mcp_server.py",
   "requirements.txt",
+  "config/managed-ai-runtime.json",
   "mcp_modules",
   "hushh_mcp",
   "db",

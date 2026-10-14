@@ -47,6 +47,12 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
   useEffect(() => {
     if (!active) { setMode("all"); setAgentCardId(null); }
   }, [active]);
+  useEffect(() => {
+    if (agentCardId && !isAgentWalletCard(agentCardId) && !cards.some(card => card.cardId === agentCardId)) {
+      setMode("all");
+      setAgentCardId(null);
+    }
+  }, [agentCardId, cards]);
   const content = useRef<HTMLDivElement>(null);
   const automaticScrollUntil = useRef(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
@@ -143,10 +149,9 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
           { label: "Member since", value: demoProfile?.memberSince && !Number.isNaN(Date.parse(demoProfile.memberSince)) ? String(new Date(demoProfile.memberSince).getFullYear()) : "—" },
           { label: "Wallet ID", value: demoProfile?.walletId?.slice(-8).toUpperCase() || "—" },
         ],
-      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} showDetailsLink />
+      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} />
       <div className={styles.quickActions}>
-        <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
-
+        <Button variant="ghost" size="compact" className={styles.addAction} onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" className="size-4" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
       </div>
     </> : <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" showRipple={false} onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" showRipple={false} disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
@@ -154,7 +159,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
         {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} cardholderName={cardholderNames[selected.cardId]} revealed={active && selected.cardId === selectedCardId && selectedCardNumber ? { pan: selectedCardNumber, cardholderName: cardholderNames[selected.cardId] || "" } : null} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} onRevoke={active ? onRevokeReferral : undefined} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
-        {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
+        {selected.cardId === "agent-one-nws" ? <p className="text-xs text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
         <WalletCardWorkspace embedded active={active} passVariant={selected.cardId === "agent-one-nws" ? "nws" : "profile"} />
       </div> : <div className="space-y-5">
         {details}

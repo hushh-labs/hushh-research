@@ -15,14 +15,55 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-uat
+  group: uat-release-requests-backend
   cancel-in-progress: false
   queue: max
 
 jobs:
+  wait-capacity:
+    name: Wait for UAT One chat capacity outside the mutation lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Checkout current admission tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Wait for inherited backend capacity
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/wait-uat-capacity.py --mode one-chat --target-sha "$TARGET_SHA"
+
   deploy:
     name: Deploy only consent-protocol
+    needs: wait-capacity
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
     environment: uat
     timeout-minutes: 65
     steps:
@@ -41,6 +82,14 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Preserve current capacity tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/capacity-tools"
+          cp scripts/ci/runtime-capacity-budget.py "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"
+          cp config/runtime-capacity.json "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"
+
       - name: Validate exact main SHA and actor
         shell: bash
         env:
@@ -55,6 +104,8 @@ jobs:
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
           bash scripts/ci/require-deploy-sha-on-main.sh "$TARGET_SHA"
           git checkout --detach "$TARGET_SHA"
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py" scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json" config/runtime-capacity.json
 
       - name: Validate UAT identity configuration
         shell: bash
@@ -83,7 +134,7 @@ jobs:
 
       - name: Enforce UAT database connection budget
         shell: bash
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --inherit-candidate-service consent-protocol
 
       - name: Deploy and verify only the backend service
         id: deploy-backend

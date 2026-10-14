@@ -32,16 +32,7 @@ DEVELOPER_API_KEY_AUTH_MODE = "developer_api_key"
 VERTEX_LOCATIONS_ENV = "HUSHH_VERTEX_LOCATIONS"
 VERTEX_LOCATION_COOLDOWN_SECONDS_ENV = "HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS"
 _HOSTED_ENVIRONMENTS = {"dev", "uat", "staging", "production", "prod"}
-_PROJECT_ENV_NAMES = (
-    # Managed Vertex can use a separately billed project while the process
-    # remains rooted in its native Cloud Run/Cloud SQL project.
-    "GENAI_GOOGLE_CLOUD_PROJECT",
-    "GOOGLE_CLOUD_PROJECT",
-    "GCP_PROJECT",
-    "GOOGLE_PROJECT",
-    "GCLOUD_PROJECT",
-    "VERTEX_PROJECT_ID",
-)
+
 GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
@@ -105,12 +96,17 @@ class ManagedGeminiRuntimeBinding:
         cls, *, vertex_project: str | None = None
     ) -> "ManagedGeminiRuntimeBinding":
         mode = _managed_genai_auth_mode()
+        from hushh_mcp.runtime_settings import managed_ai_settings
+
+        configured = managed_ai_settings()
         scoped_project = _MANAGED_VERTEX_PROJECT.get()
         effective_project = vertex_project if vertex_project is not None else scoped_project
         if effective_project is not None:
             project = str(effective_project).strip()
             if not _PROJECT_RE.fullmatch(project):
                 raise ValueError("Managed Vertex project override is invalid")
+            if _deployment_environment() in _HOSTED_ENVIRONMENTS and project != configured.project:
+                raise ValueError("Managed surface project must match the central configuration")
             if mode != VERTEX_ADC_AUTH_MODE:
                 raise RuntimeError("Managed Vertex project override requires Vertex ADC")
         else:
@@ -375,66 +371,25 @@ def _deployment_environment() -> str:
 
 
 def _managed_genai_auth_mode() -> str:
-    mode = (_clean_env(GENAI_AUTH_MODE_ENV) or VERTEX_ADC_AUTH_MODE).lower()
-    if mode not in {VERTEX_ADC_AUTH_MODE, DEVELOPER_API_KEY_AUTH_MODE}:
-        raise RuntimeError(
-            f"{GENAI_AUTH_MODE_ENV} must be {VERTEX_ADC_AUTH_MODE!r} or "
-            f"{DEVELOPER_API_KEY_AUTH_MODE!r}"
-        )
-    if mode == DEVELOPER_API_KEY_AUTH_MODE and _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Gemini runtimes must use Vertex ADC")
-    if mode == VERTEX_ADC_AUTH_MODE and _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        vertex_enabled = _clean_env("GOOGLE_GENAI_USE_VERTEXAI").lower()
-        if vertex_enabled not in {"1", "true", "yes", "on"}:
-            raise RuntimeError("Hosted Gemini runtimes require GOOGLE_GENAI_USE_VERTEXAI=true")
-    return mode
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().auth_mode
 
 
 def _vertex_project() -> str:
-    for name in _PROJECT_ENV_NAMES:
-        project = _clean_env(name)
-        if project:
-            return project
+    from hushh_mcp.runtime_settings import managed_ai_settings
 
-    if _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError(
-            "Hosted Vertex ADC requires GENAI_GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT"
-        )
-
-    try:
-        import google.auth
-
-        _, detected_project = google.auth.default()
-    except Exception as exc:
-        raise RuntimeError(
-            "Vertex ADC is unavailable; configure workload ADC and GENAI_GOOGLE_CLOUD_PROJECT"
-        ) from exc
-    project = str(detected_project or "").strip()
-    if not project:
-        raise RuntimeError("Vertex ADC requires GENAI_GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT")
-    return project
+    return managed_ai_settings().project
 
 
 def _vertex_location() -> str:
-    location = (
-        _clean_env("GOOGLE_CLOUD_LOCATION")
-        or _clean_env("GCP_LOCATION")
-        or _clean_env("VERTEX_LOCATION")
-    )
-    if location:
-        return location
-    if _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Vertex ADC requires GOOGLE_CLOUD_LOCATION")
-    return "global"
+    return _vertex_locations()[0]
 
 
 def _vertex_locations() -> tuple[str, ...]:
-    primary = _vertex_location()
-    configured = tuple(
-        value.strip() for value in _clean_env(VERTEX_LOCATIONS_ENV).split(",") if value.strip()
-    )
-    ordered = (primary, *configured)
-    return tuple(dict.fromkeys(ordered))
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().text_locations
 
 
 def _vertex_location_cooldown_seconds() -> float:

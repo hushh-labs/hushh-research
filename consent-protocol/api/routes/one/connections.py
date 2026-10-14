@@ -84,6 +84,8 @@ class ContactSyncLookup(BaseModel):
 
 class ContactSyncBody(BaseModel):
     lookups: list[ContactSyncLookup] = Field(default_factory=list, max_length=1000)
+    # Initial signup recovery must never undo a person's explicit disconnect.
+    context: Literal["explicit", "signup"] = "explicit"
 
     @validator("lookups")
     def unique_lookup_proofs(cls, lookups: list[ContactSyncLookup]) -> list[ContactSyncLookup]:
@@ -246,6 +248,7 @@ async def sync_contacts(
                 phone_lookups=lookups,
                 matches=matches,
                 sync_started_at=sync_started_at,
+                allow_reconnect=body.context != "signup",
                 **requester_verification,
             )
         )

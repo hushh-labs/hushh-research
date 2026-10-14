@@ -81,6 +81,7 @@ Profile bootstrap rule:
 | `CORS_ALLOWED_ORIGINS` | `consent-protocol/server.py` | Y | N | N | env | N | env | N | required |
 | `BACKEND_URL` | frontend server-side API handlers | N | N | Y | N | Y | N | N | required |
 | `NEXT_PUBLIC_BACKEND_URL` | `hushh-webapp/lib/config.ts` | N | Y | N | N | N | N | N | required |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `hushh-webapp/components/gmail/gmail-recent-receipts.tsx` | N | optional | optional UAT | N | optional UAT build | N | N | optional approved publishable Logo.dev template; absent stays unset |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | `hushh-webapp/lib/firebase/config.ts` | N | Y | Y | N | Y | N | N | required |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | `hushh-webapp/lib/firebase/config.ts` | N | Y | Y | N | Y | N | N | required |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `hushh-webapp/lib/firebase/config.ts` | N | Y | Y | N | Y | N | N | required |

@@ -19,20 +19,21 @@
 
 import { useMemo } from "react";
 import {
-  Briefcase,
   Check,
+  ChevronRight,
   ExternalLink,
   Globe,
   Mail,
-  MapPin,
   Phone,
   type LucideIcon,
 } from "@/components/icons";
 
 import { ProfileAccountMailIcon, ProfileAccountPhoneIcon } from "@/components/profile/profile-your-account-icons";
+import { ProfilePaneBriefcaseIcon, ProfilePaneGlobeIcon } from "@/components/profile/profile-pane-icons";
+import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";
+import { ProfileSecondaryLocationIcon } from "@/components/profile/profile-secondary-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WalletCardQr } from "./wallet-card-qr";
 import styles from "./public-card-view.module.css";
@@ -457,17 +458,18 @@ function initialsFor(fullName: string | null): string {
 }
 
 function ActionLink({ action }: { action: CardAction }) {
-  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon;
+  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon === Globe ? ProfilePaneGlobeIcon : action.icon === ExternalLink ? ProfileInnerLinkIcon : action.icon;
   return (
     <a
       href={action.href}
-      className="flex min-h-11 items-center gap-2 py-1 text-[15px] text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className={styles.contactLink}
       {...(action.external
         ? { target: "_blank", rel: "noopener noreferrer" }
         : {})}
     >
-      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
-      <span className="min-w-0 [overflow-wrap:anywhere]">{action.label}</span>
+      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)] [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{action.label}</span>
+      <ChevronRight className="size-4 shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
       {action.external ? (
         <span className="sr-only">(opens in a new tab)</span>
       ) : null}
@@ -508,21 +510,21 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
             <AvatarImage src={card.avatarUrl} alt="" className="object-cover" />
           ) : null}
           <AvatarFallback className="text-xl font-medium">
-            {initials || <Briefcase className="size-7" aria-hidden="true" />}
+            {initials || <ProfilePaneBriefcaseIcon className="size-7" aria-hidden="true" />}
           </AvatarFallback>
         </Avatar>
 
         <div className={styles.heading}>
         {card.fullName ? (
-          <h1 className="break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
+          <h1 className={styles.name}>
             {card.fullName}{" "}
             <span
               role="img"
               aria-label="Hushh profile badge"
               title="Hushh profile · not identity verification"
-              className="inline-flex size-5 align-middle items-center justify-center rounded-full bg-[color:var(--app-accent)] text-white"
+              className="inline-flex size-3.5 align-middle items-center justify-center rounded-full bg-[color:var(--app-accent)] text-white"
             >
-              <Check className="size-3.5" strokeWidth={3} aria-hidden="true" />
+              <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />
             </span>
           </h1>
         ) : (
@@ -530,70 +532,53 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
         )}
 
         {card.headline ? (
-          <p className="break-words text-base leading-6 text-muted-foreground">
+          <p className={styles.headline}>
             {card.headline}
           </p>
         ) : null}
 
+        </div>
+      </header>
+
         {hasMeta ? (
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm leading-6 text-muted-foreground">
+          <p className={styles.meta}>
             {card.organisation ? (
               <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                <ProfilePaneBriefcaseIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 {card.organisation}
               </span>
             ) : null}
             {card.locationLabel ? (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                <ProfileSecondaryLocationIcon className="size-3.5 shrink-0 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
                 {card.locationLabel}
               </span>
             ) : null}
           </p>
         ) : null}
-        </div>
-      </header>
-
-      <div className={styles.contactArea}>
-      {actions.length > 0 ? <section aria-labelledby="wallet-card-actions-heading" className={styles.contacts}>
-        <h2 id="wallet-card-actions-heading" className="sr-only">
-          Ways to get in touch
-        </h2>
-
-        {actions.map((action) => (
-          <ActionLink key={action.id} action={action} />
-        ))}
-      </section> : null}
-      {qrUrl ? <figure className={styles.qr}>
-        <WalletCardQr value={qrUrl} label="Profile QR code" />
-        <figcaption className="text-xs leading-5 text-muted-foreground">Scan to connect</figcaption>
-      </figure> : null}
-      </div>
 
       {hasDetails ? (
-        <section aria-labelledby="wallet-card-details-heading" className="space-y-3">
-          <h2 id="wallet-card-details-heading" className="sr-only">
-            About
-          </h2>
-          {card.summary ? (
-            <p className="break-words text-sm leading-6 text-foreground/90">
-              {card.summary}
-            </p>
-          ) : null}
-          {card.summary && card.skills.length > 0 ? <Separator /> : null}
+        <section aria-labelledby="wallet-card-details-heading" className={styles.section}>
+          <h2 id="wallet-card-details-heading" className={styles.sectionLabel}>About</h2>
+          {card.summary ? <p className={styles.summary}>{card.summary}</p> : null}
           {card.skills.length > 0 ? (
-            <ul className="flex flex-wrap gap-2">
-              {card.skills.map((skill) => (
-                <li key={skill}>
-                  <Badge variant="secondary" className="px-2.5 py-1 text-xs">
-                    {skill}
-                  </Badge>
-                </li>
-              ))}
+            <ul className={styles.skills}>
+              {card.skills.map(skill => <li key={skill}><Badge variant="secondary" className={styles.skill}>{skill}</Badge></li>)}
             </ul>
           ) : null}
         </section>
       ) : null}
+      {actions.length > 0 ? (
+        <section aria-labelledby="wallet-card-actions-heading" className={styles.section}>
+          <h2 id="wallet-card-actions-heading" className={styles.sectionLabel}>Connect</h2>
+          <div className={styles.contacts}>{actions.map(action => <ActionLink key={action.id} action={action} />)}</div>
+        </section>
+      ) : null}
+      {qrUrl ? <figure className={styles.qr}>
+        <div className={styles.qrImage}><WalletCardQr value={qrUrl} label="Profile QR code" /></div>
+        <figcaption><span>Scan to connect</span><p>Open this shared profile</p></figcaption>
+      </figure> : null}
+
 
 
     </article>
@@ -618,9 +603,9 @@ export function PublicWalletCardSkeleton() {
         </div>
       </div>
       <div className="space-y-2">
-        <Skeleton className="h-12 w-full rounded-full" />
-        <Skeleton className="h-12 w-full rounded-full" />
-        <Skeleton className="h-12 w-full rounded-full" />
+        <Skeleton className="h-11 w-full rounded-lg" />
+        <Skeleton className="h-11 w-full rounded-lg" />
+        <Skeleton className="h-11 w-full rounded-lg" />
       </div>
       <Skeleton className="h-16 w-full rounded-xl" />
     </div>

@@ -73,3 +73,5 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice gap, and failure states.
 - [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
 - [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.
+
+- [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md).

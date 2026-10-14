@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Share2 } from "@/components/icons";
+import { ProfilePaneShareIcon } from "@/components/profile/profile-pane-icons";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
@@ -47,7 +47,7 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
       if (!isShareCancellationError(error)) morphyToast.error("Could not share the card. Try again.");
     } finally { setSharing(false); }
   };
-  return <Button type="button" size="sm" className="min-h-11" variant="none" effect="fade" loading={sharing || (!disabled && !ready && !failed)} disabled={disabled || sharing || (!ready && !failed)} onClick={() => void share()}>
-    <Share2 className="mr-2 h-4 w-4" aria-hidden />{failed ? "Retry card image" : "Share card"}
+  return <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" loading={sharing || (!disabled && !ready && !failed)} disabled={disabled || sharing || (!ready && !failed)} onClick={() => void share()}>
+    <ProfilePaneShareIcon className="mr-2 h-4 w-4" aria-hidden />{failed ? "Retry card image" : "Share card"}
   </Button>;
 }

@@ -451,6 +451,51 @@ async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_
     assert row["reusable_packet_id"] is None and row["reusable_packet_version"] is None
 
 
+async def test_account_reset_erases_packet_evidence_while_retaining_generation_fence(reusable):
+    from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+    from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=51,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    with reusable.facts.db.engine.begin() as connection:
+        before = connection.execute(
+            text("""SELECT connection_generation
+            FROM user_external_connector_connections
+            WHERE user_id='owner' AND connector_id='google_drive'""")
+        ).scalar_one()
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() > 0
+        )
+        lock_connection_graph_users(connection, user_ids=["owner"])
+        erase_drive_account_in_transaction(connection, user_id="owner", permanent=False)
+        for table in (
+            "drive_packet_heads",
+            "drive_packet_members",
+            "drive_packet_versions",
+            "drive_packet_version_sources",
+            "drive_packet_listings",
+        ):
+            assert connection.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar_one() == 0
+        row = (
+            connection.execute(
+                text("""SELECT status,connection_generation
+            FROM user_external_connector_connections
+            WHERE user_id='owner' AND connector_id='google_drive'""")
+            )
+            .mappings()
+            .one()
+        )
+        assert row["status"] == "revoked" and row["connection_generation"] == before + 1
+
+
 async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):
     await originals(reusable)
     await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)

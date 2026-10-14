@@ -10,7 +10,7 @@ from hushh_mcp.types import HushhConsentToken
 
 
 async def validate_first_party_owner_token(
-    user_id: str, consent_token: str
+    user_id: str, consent_token: str, *, conn=None
 ) -> HushhConsentToken | None:
     """Validate exact self-owner authority, without the generic DB outage grace.
 
@@ -38,7 +38,11 @@ async def validate_first_party_owner_token(
         from hushh_mcp.services.consent_db import ConsentDBService
 
         active = await ConsentDBService().is_token_active(
-            user_id, ConsentScope.VAULT_OWNER.value, "self", token_id=consent_token
+            user_id,
+            ConsentScope.VAULT_OWNER.value,
+            "self",
+            token_id=consent_token,
+            **({"conn": conn} if conn is not None else {}),
         )
         return payload if active is True else None
     except Exception:

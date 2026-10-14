@@ -299,7 +299,10 @@
     "331_feed_dismissal.sql",
     "332_drive_collection_sync.sql",
     "333_drive_document_pages.sql",
-    "334_drive_reusable_packets.sql"
+    "334_drive_reusable_packets.sql",
+    "335_pwm_provider_budget.sql",
+    "336_pwm_claim_invitations.sql",
+    "337_initial_contacts_onboarding.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -464,7 +467,10 @@
       "323_wallet_sharing_owner_index.sql",
       "324_wallet_sharing_recipient_index.sql",
       "325_wallet_sharing_audit_index.sql",
-      "330_wallet_share_longer_durations.sql"
+      "330_wallet_share_longer_durations.sql",
+      "335_pwm_provider_budget.sql",
+      "336_pwm_claim_invitations.sql",
+      "337_initial_contacts_onboarding.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -632,6 +638,9 @@
     "331_feed_dismissal.sql": "rollback/331_feed_dismissal.rollback.sql",
     "332_drive_collection_sync.sql": "rollback/332_drive_collection_sync.rollback.sql",
     "333_drive_document_pages.sql": "rollback/333_drive_document_pages.rollback.sql",
-    "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql"
+    "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql",
+    "335_pwm_provider_budget.sql": "rollback/335_pwm_provider_budget.rollback.sql",
+    "336_pwm_claim_invitations.sql": "rollback/336_pwm_claim_invitations.rollback.sql",
+    "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql"
   }
 }

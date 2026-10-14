@@ -287,6 +287,11 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
+    id: "one-initial-welcome",
+    resolve: (pathname) => pathname === ROUTES.ONE_WELCOME
+      ? { backHref: ROUTES.HOME, hideBack: true, items: [] } : undefined,
+  },
+  {
     id: "one-wallet",
     resolve: (pathname) => {
       if (pathname !== ROUTES.ONE_WALLET) return undefined;
@@ -1235,6 +1240,16 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           { label: "Legacy receipts" },
         ],
       };
+    },
+  },
+  {
+    id: "profile-world-model",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.PROFILE_WORLD_MODEL) return undefined;
+      const parent = buildProfileRoute({ searchParams: profileOriginSearchParams(searchParams) });
+      return { backHref: parent, width: "profile", align: "center", items: [
+        { label: "Profile", href: parent }, { label: "Personal World Model" },
+      ] };
     },
   },
   {

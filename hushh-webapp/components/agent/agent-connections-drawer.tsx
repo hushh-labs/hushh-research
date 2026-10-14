@@ -214,7 +214,7 @@ export function AgentConnectionsDrawer({
         </Sheet>
       ) : (
         <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
-          <DialogContent data-app-side-pane {...connectorContentProps} className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
+          <DialogContent data-app-side-pane {...connectorContentProps} className="translate-x-0 translate-y-0 agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
             <DialogTitle className="sr-only">Connectors</DialogTitle>
             <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
           </DialogContent>

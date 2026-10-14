@@ -85,6 +85,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [additionalOpen, setAdditionalOpen] = useState(false);
   useEffect(() => {
     if (!active) setRevealSecrets(false);
   }, [active]);
@@ -93,6 +94,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   }, [errors]);
 
   const [supportedNetworks, setSupportedNetworks] = useState<CardBrand[]>([]);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [networkReply, setNetworkReply] = useState<{ key: string; vaultOwnerToken: string; result: WalletNetworkResult | null } | null>(null);
   const [networkLoading, setNetworkLoading] = useState(false);
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
@@ -119,11 +122,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     const current = contextRef.current;
     const controller = new AbortController();
     setSupportedNetworks([]);
+    setCatalogFailed(false);
     if (current && active) void WalletService.supportedCardNetworks(current, controller.signal).then(values => {
       if (!controller.signal.aborted) setSupportedNetworks(values);
-    }).catch(() => {});
+    }).catch(() => { if (!controller.signal.aborted) setCatalogFailed(true); });
     return () => controller.abort();
-  }, [context?.userId, context?.vaultOwnerToken, active, epoch]);
+  }, [context?.userId, context?.vaultOwnerToken, active, epoch, catalogRevision]);
   useEffect(() => {
     const current = contextRef.current;
     const controller = new AbortController();
@@ -164,6 +168,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!result.valid) {
+      if (result.errors.some(code => ["pin_invalid", "brand_invalid", "brand_region_mismatch", "issuing_region_invalid", "pan_length_invalid_for_brand"].includes(code))) setAdditionalOpen(true);
       setErrors(result.errors);
       return;
     }
@@ -180,6 +185,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       setExpiry("");
       setNetwork("");
       setIssuingRegion("");
+      setAdditionalOpen(false);
       setRevealSecrets(false);
     } catch {
       // Raw service errors can contain request details; keep the draft for retry.
@@ -190,7 +196,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
+  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} featured={scanInToolbar} onBusyChange={setScanning} onRead={(fields) => {
         setPan(fields.pan);
         setExpiry(fields.expiry ?? "");
         setCardholderName(fields.cardholderName ?? "");
@@ -230,8 +236,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             data-testid="secure-card-pan-input"
             {...fieldErrors("pan_length_invalid", "pan_checksum_invalid", "pan_length_invalid_for_brand")}
           />
+          {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
         </div>
-        <div className={styles.row}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-holder`}><ProfilePaneAccountIcon className={styles.fieldIcon} />Name on card</Label>
             <Input
@@ -244,20 +250,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
               {...fieldErrors("cardholder_name_required", "cardholder_name_invalid")}
             />
           </div>
-          <div className={styles.field}>
-            <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
-            <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
-              <SelectTrigger id={`${id}-network`} className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className={styles.selectMenu}>
-                <SelectItem value="auto">{brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
-                {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {networkHint ? <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "text-muted-foreground")} role="status">{networkHint}</p> : null}
-          </div>
-        </div>
+
         <div className={styles.row}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
@@ -274,7 +267,20 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             />
           </div>
           <div className={styles.field}>
+            <div className={styles.secretLabel}>
             <Label htmlFor={`${id}-cvv`}><ProfilePaneSecurityIcon className={styles.fieldIcon} />CVV</Label>
+              <button
+                type="button"
+                className={styles.reveal}
+                onClick={() => setRevealSecrets((current) => !current)}
+                aria-pressed={revealSecrets}
+                aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
+                data-testid="secure-card-toggle-secrets"
+              >
+                {revealSecrets ? <ProfilePanePreviewOffIcon /> : <ProfilePanePreviewIcon />}
+                {revealSecrets ? "Hide" : "Show"}
+              </button>
+            </div>
             <Input
               id={`${id}-cvv`}
               type={revealSecrets ? "text" : "password"}
@@ -288,22 +294,28 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             />
           </div>
         </div>
+        <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
+          <summary>Additional details</summary>
+          <div className={styles.fields}>
+          <div className={styles.field}>
+            <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
+            <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
+              <SelectTrigger id={`${id}-network`} className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={styles.selectMenu}>
+                <SelectItem value="auto">{brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
+                {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {catalogFailed ? <div role="status" className={styles.scanHint}>
+              <p>Network options could not load. Auto-detect is still available.</p>
+              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+            </div> : null}
+          </div>
         <div className={styles.row}>
           <div className={styles.field}>
-            <div className={styles.secretLabel}>
-              <Label htmlFor={`${id}-pin`}><ProfilePaneKeyIcon className={styles.fieldIcon} />PIN (optional)</Label>
-              <button
-                type="button"
-                className={styles.reveal}
-                onClick={() => setRevealSecrets((current) => !current)}
-                aria-pressed={revealSecrets}
-                aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
-                data-testid="secure-card-toggle-secrets"
-              >
-                {revealSecrets ? <ProfilePanePreviewOffIcon /> : <ProfilePanePreviewIcon />}
-                {revealSecrets ? "Hide" : "Show"}
-              </button>
-            </div>
+            <Label htmlFor={`${id}-pin`}><ProfilePaneKeyIcon className={styles.fieldIcon} />PIN (optional)</Label>
             <Input
               id={`${id}-pin`}
               placeholder="Leave blank to skip"
@@ -329,6 +341,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             </Select>
           </div>
         </div>
+          </div>
+        </details>
       </fieldset>
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
