@@ -132,6 +132,21 @@ describe("Settings commits through the reserved writer", () => {
     expect(takeOwnerStyleProposal("owner-1")).toBeNull();
   });
 
+  it("keeps a proposed name available for retry when its PKM save fails", async () => {
+    mocks.getStaleFirst.mockResolvedValue({ data: {} });
+    mocks.saveMergedDomain.mockResolvedValue({ success: false });
+    stageOwnerStyleProposal("owner-1", { preferred_name: "Kay" });
+    const view = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    await waitFor(() => expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("style-settings-save")).toBeEnabled());
+    view.unmount();
+    render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Kay"));
+    expect(screen.getByText("Suggested in chat. Check it, then save.")).toBeInTheDocument();
+  });
+
   it("does not expose or save the previous owner's draft while another owner loads", async () => {
     mocks.getStaleFirst.mockResolvedValueOnce({ data: { communication_preferences: { preferred_name: "Kay" } } });
     const view = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
