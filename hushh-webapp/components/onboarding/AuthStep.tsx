@@ -644,7 +644,7 @@ export function AuthStep({
               summary: "A newer sign-in attempt replaced this one.",
             };
           }
-          updateProviderAttemptPhase(attempt.id, "settling");
+          if (!controller.signal.aborted) updateProviderAttemptPhase(attempt.id, "settling");
           const authenticatedUser = authResult.user;
           if (!authenticatedUser) {
             trackEvent("auth_failed", {
@@ -661,11 +661,20 @@ export function AuthStep({
               summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
             };
           }
+          if (provider === "google" && isWeb() &&
+              AuthService.getCurrentUser()?.uid !== authenticatedUser.uid) {
+            return {
+              status: "blocked" as const,
+              summary: "The signed-in account changed before sign-in finished.",
+            };
+          }
           const settlementId = beginPostAuthSettlement(authenticatedUser);
           try {
             const idToken =
               authResult.idToken || (await authenticatedUser.getIdToken());
-            if (providerAttemptRef.current?.id !== attempt.id) {
+            if (providerAttemptRef.current?.id !== attempt.id ||
+                (provider === "google" && isWeb() &&
+                 AuthService.getCurrentUser()?.uid !== authenticatedUser.uid)) {
               return {
                 status: "blocked" as const,
                 summary: "A newer sign-in attempt replaced this one.",
@@ -696,6 +705,14 @@ export function AuthStep({
                 dedupeWindowMs: 5_000,
               });
             }
+            // Finish committed authentication above even after leaving this
+            // screen, but keep the person's chosen destination in that case.
+            if (controller.signal.aborted) {
+              return {
+                status: "succeeded" as const,
+                summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              };
+            }
             const routeAfter = await resolveAndNavigate(
               authenticatedUser.uid,
               idToken,
@@ -712,7 +729,7 @@ export function AuthStep({
           }
         })
         .catch((error: unknown) => {
-          if (providerAttemptRef.current?.id !== attempt.id) {
+          if (controller.signal.aborted || providerAttemptRef.current?.id !== attempt.id) {
             return {
               status: "blocked" as const,
               summary: "A newer sign-in attempt replaced this one.",

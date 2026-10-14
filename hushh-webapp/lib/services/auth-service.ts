@@ -1139,11 +1139,13 @@ export class AuthService {
         };
         requireActiveAttempt();
         options?.onCredentialExchange?.();
+        requireActiveAttempt();
         const credential = GoogleAuthProvider.credential(null, grant.accessToken);
         const result = await signInWithCredential(auth, credential);
-        requireActiveAttempt();
+        // This exchange commits Firebase persistence and cannot be cancelled.
+        // Preserve its result so legal/onboarding settlement can finish even
+        // when the originating screen has gone away in the meantime.
         const idToken = await result.user.getIdToken();
-        requireActiveAttempt();
         return {
           user: result.user,
           idToken,

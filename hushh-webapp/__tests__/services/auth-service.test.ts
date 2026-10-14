@@ -1558,6 +1558,29 @@ describe("AuthService web provider popup continuity", () => {
     expect(mockSignInWithPopup).not.toHaveBeenCalled();
   });
 
+  it.each(["credential", "id-token"] as const)("preserves committed signup settlement after cancellation during %s", async (stage) => {
+    const controller = new AbortController();
+    let finish!: () => void;
+    const deferred = new Promise<void>((resolve) => { finish = resolve; });
+    const user = { uid: "committed-owner", getIdToken: vi.fn(async () => {
+      if (stage === "id-token") await deferred;
+      return "firebase-token";
+    }) };
+    signupToken.mockResolvedValue({ accessToken: "ephemeral-token", contactsGranted: true });
+    mockSignInWithCredential.mockImplementationOnce(async () => {
+      if (stage === "credential") await deferred;
+      return { user, additionalUserInfo: { isNewUser: true } };
+    });
+    const pending = AuthService.signInWithGoogle({ purpose: "initial_contacts", signal: controller.signal });
+    await vi.waitFor(() => expect(stage === "credential" ? mockSignInWithCredential : user.getIdToken).toHaveBeenCalled());
+    controller.abort();
+    finish();
+    await expect(pending).resolves.toMatchObject({
+      user, idToken: "firebase-token", isNewUser: true,
+      contactsGrant: { accessToken: "ephemeral-token", authority: "firebase-signup" },
+    });
+  });
+
   it("uses Firebase popup authentication for Apple on web", async () => {
     const user = {
       uid: "apple-web-user",

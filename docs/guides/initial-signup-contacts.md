@@ -55,6 +55,9 @@ returned Google credential and determines account newness; only a confirmed
 Contacts grant reaches the memory-only reader. Declining Contacts while granting
 identity completes authentication. Replacing an attempt aborts its pending grant
 before credential exchange, and the provider controls stay busy during exchange.
+Once Firebase exchange begins, cancellation cannot undo its committed session.
+Legal recording and initial Contacts enrollment finish for that current Firebase
+owner even after the login screen closes, without redirecting the departed screen.
 Returning web sign-in uses the same Firebase credential handoff with identity
 scopes only; native providers and callers without an explicit sign-in purpose
 retain their existing SDK flows.
