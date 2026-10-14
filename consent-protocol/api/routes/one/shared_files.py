@@ -79,7 +79,10 @@ async def _store(
 
 async def _active(owner: str, library_id: str) -> dict[str, Any]:
     try:
-        return await registry.active(owner, library_id)
+        row = await registry.active(owner, library_id)
+        if not isinstance(row, dict):
+            raise _refuse("FILES_STORAGE_UNAVAILABLE", 503)
+        return row
     except FilesRefused as exc:
         raise _refuse(exc.code, exc.status) from None
 
@@ -88,7 +91,6 @@ async def _fresh_owner(request: Request, owner: str) -> None:
     from api.middleware import require_vault_owner_token  # noqa: PLC0415
 
     current = await require_vault_owner_token(
-        request=None,
         authorization=request.headers.get("authorization"),
         hushh_consent=request.headers.get("x-hushh-consent"),
     )
@@ -279,7 +281,6 @@ async def analyze(request: Request, token: dict = Depends(hub_content_owner)) ->
         if await request.is_disconnected():
             raise FilesRefused("FILES_FOREGROUND_DISCONNECTED", 409)
         current = await require_vault_owner_token(
-            request=None,
             authorization=request.headers.get("authorization"),
             hushh_consent=request.headers.get("x-hushh-consent"),
         )

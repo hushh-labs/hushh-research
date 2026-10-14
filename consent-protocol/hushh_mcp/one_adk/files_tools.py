@@ -4,16 +4,30 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from hushh_mcp.services.pod_files.library import FilesRefused
 from hushh_mcp.services.pod_files.runtime import operation, require_files_access
 
-_foreground: ContextVar[Any | None] = ContextVar("files_foreground_port", default=None)
+
+class ForegroundFilesPort(Protocol):
+    """Only the selected request projection, never a complete Shared library."""
+
+    async def list_files(self, parent: str, cursor: str) -> dict[str, Any]: ...
+    async def create_folder(self, name: str, parent: str, request_id: str) -> dict[str, Any]: ...
+    async def read_file(self, file_id: str) -> dict[str, Any]: ...
+    async def organize_file(
+        self, file_id: str, revision: int, operation_name: str, name: str, parent: str
+    ) -> dict[str, Any]: ...
+
+
+_foreground: ContextVar[ForegroundFilesPort | None] = ContextVar(
+    "files_foreground_port", default=None
+)
 
 
 @contextmanager
-def foreground_tools(port: Any):
+def foreground_tools(port: ForegroundFilesPort):
     """Request-scoped, owner-checked projection; never a standing Shared library."""
     token = _foreground.set(port)
     try:
