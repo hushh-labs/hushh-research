@@ -21,17 +21,19 @@ describe("Mail overview", () => {
     ).toHaveLength(1);
   });
 
-  it("removes the fetching indicator when receipts finish and keeps the receipt panel read-only", () => {
+  it("keeps the chat action without rendering the removed receipt sync card", () => {
     const onOpenChat = vi.fn();
     const props = { receiptUpdated: "Last updated just now.", onOpenChat };
     const { rerender } = render(<MailOverview {...props} fetching receiptDetail="Fetching your latest purchases…" />);
-    expect(screen.getByRole("status", { name: "Fetching receipts" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(screen.queryByText("Agent One")).not.toBeInTheDocument();
+    expect(screen.queryByText("Receipt sync")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fetching your latest purchases…")).not.toBeInTheDocument();
     rerender(<MailOverview {...props} fetching={false} receiptDetail="Your latest receipts are ready." />);
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
-    expect(screen.getByText("Your latest receipts are ready.")).toBeInTheDocument();
+    expect(screen.queryByText("Your latest receipts are ready.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open receipts" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("mail-receipt-sync").querySelector("button, a, [data-slot=settings-row-chevron]")).toBeNull();
+    expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Chat with One" }));
     expect(onOpenChat).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Chat with One" }).querySelector("svg")).toBeNull();
