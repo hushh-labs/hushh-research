@@ -1,9 +1,75 @@
 {
   "version": 1,
   "environments": {
-    "local": {"project": "hushh-pda-uat", "auth_mode": "vertex_adc", "text_model": "gemini-3.6-flash", "text_locations": ["global", "us", "eu"], "live_model": "gemini-live-2.5-flash-native-audio", "live_location": "us-central1", "embedding_model": "gemini-embedding-001"},
-    "dev": {"project": "hushh-pda-uat", "auth_mode": "vertex_adc", "text_model": "gemini-3.6-flash", "text_locations": ["global", "us", "eu"], "live_model": "gemini-live-2.5-flash-native-audio", "live_location": "us-central1", "embedding_model": "gemini-embedding-001"},
-    "uat": {"project": "hussh-511311", "auth_mode": "vertex_adc", "text_model": "gemini-3.6-flash", "text_locations": ["global", "us", "eu"], "live_model": "gemini-live-2.5-flash-native-audio", "live_location": "us-central1", "embedding_model": "gemini-embedding-001"},
-    "production": {"project": "hushh-vertex-personal54", "auth_mode": "vertex_adc", "text_model": "gemini-3.6-flash", "text_locations": ["global", "us", "eu"], "live_model": "gemini-live-2.5-flash-native-audio", "live_location": "us-central1", "embedding_model": "gemini-embedding-001"}
+    "local": {
+      "project": "hushh-pda-uat",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.6-flash",
+      "text_locations": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "dev": {
+      "project": "hushh-pda-uat",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.6-flash",
+      "text_locations": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "uat": {
+      "project": "hussh-511311",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.6-flash",
+      "text_locations": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    },
+    "production": {
+      "project": "hushh-vertex-personal54",
+      "auth_mode": "vertex_adc",
+      "text_model": "gemini-3.6-flash",
+      "text_locations": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "live_model": "gemini-live-2.5-flash-native-audio",
+      "live_location": "us-central1",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  "pwm_research": {
+    "provider": "vertex_google_search",
+    "owner_source_provider": "vertex_url_context",
+    "search_invocations": 32,
+    "model_calls": 128,
+    "slice_seconds": 240,
+    "job_seconds": 270,
+    "lease_seconds": 300,
+    "preview_source_limit": 3,
+    "preview_fact_limit": 8,
+    "notification_scheduler": {
+      "project": "hushh-pda-uat",
+      "audience": "https://api.uat.hushh.ai",
+      "service_account": "pwm-notifications@hushh-pda-uat.iam.gserviceaccount.com",
+      "job": "pwm-notifications-uat",
+      "location": "us-central1"
+    }
   }
 }

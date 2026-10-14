@@ -12,6 +12,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const CONNECTION_ID = "conn-req-1";
 
+// Row actions and checkout callbacks are tested independently of wall-clock
+// polling. Keep mount/event refresh real; cadence has its own Feed hook tests.
+vi.mock("@/lib/perf/idle-scheduler", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/perf/idle-scheduler")>()),
+  registerPeriodicTask: () => () => undefined,
+}));
+
 const platform = vi.hoisted(() => ({ android: false }));
 vi.mock("@/lib/capacitor/platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/capacitor/platform")>()),

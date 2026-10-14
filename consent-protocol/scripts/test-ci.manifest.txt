@@ -749,6 +749,7 @@ tests/test_stripe_connect_balances.py
 tests/test_stripe_connect_balances_postgres.py
 tests/test_connect_bank_payout_snapshot_postgres.py
 tests/test_bank_payout_event_replay_postgres.py
+tests/test_referral_settings_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
@@ -791,5 +792,12 @@ tests/test_one_wallet_card_routes.py
 tests/services/test_one_referral_service_summary.py
 tests/test_one_referral_dashboard_routes.py
 
+tests/test_pwm_notification_drain_routes.py
+tests/test_world_model_lifecycle.py
 # WorkOS enterprise SSO: signatures, state, exchange refusals and deprovisioning.
 tests/test_workos_enterprise_sso_flow.py
+
+tests/services/test_calendar_schedule_service.py
+tests/services/test_calendar_schedule_boundaries.py
+tests/services/test_calendar_attendance_service.py
+tests/test_calendar_schedule_routes.py

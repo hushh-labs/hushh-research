@@ -98,8 +98,10 @@ export function EnterpriseSsoSection({
 
     const decision = decideEnterpriseSsoCallback(params, takePendingEnterpriseSso());
     // The code and state are single-use: never leave them in the address bar.
+    // Let Next copy its internal history state. Passing __NA from the current
+    // entry bypasses useSearchParams updates and loses AuthStep's destination.
     window.history.replaceState(
-      window.history.state,
+      null,
       "",
       loginHref(decision.kind === "none" ? "" : decision.resume),
     );

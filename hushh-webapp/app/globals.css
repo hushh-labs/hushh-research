@@ -437,6 +437,8 @@ textarea {
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   /* Location keeps its Apple blue identity alongside the multicolor roster. */
   --agent-location-blue: #007aff;
+  /* Keys retain their blue identity under the optional gold accent. */
+  --app-key-accent: var(--accent-preview-blue);
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
   /* Soft accent well behind an accent glyph. Eight call sites across Location

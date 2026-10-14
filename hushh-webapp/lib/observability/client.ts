@@ -1,3 +1,4 @@
+import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import { Capacitor } from "@capacitor/core";
 
 import {
@@ -90,6 +91,7 @@ export function trackEvent<T extends ObservabilityEventName>(
   payload: EventPayloadFor<T>,
   options: TrackOptions = {}
 ): boolean {
+  if (typeof window !== "undefined" && isAnalyticsExemptRoute(window.location.pathname)) return false;
   if (!isObservabilityEnabled()) return false;
   if (!shouldSample(resolveObservabilitySampleRate())) return false;
 
