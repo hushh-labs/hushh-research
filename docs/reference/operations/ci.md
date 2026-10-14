@@ -511,7 +511,12 @@ the key is new. `PR Validation` restores them with `actions/cache/restore`:
 | Cache | Saved by | Restored by | Key |
 |---|---|---|---|
 | Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
-| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`iOS Swift Package Cache`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`iOS Swift Package Cache`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+
+Each day's Next.js entry stops being read once the next day's is saved, but it
+stays until it has gone 7 days unread, so up to a week of them (about 3 GB) can
+sit in the budget. They are the least recently used entries, so they are
+evicted first.
 
 The Swift package job skips the native web export. `cap sync ios` only needs an
 `index.html` in the web directory, and it generates the same `Package.swift`
@@ -520,6 +525,15 @@ resolves uncached until the next daily run saves the new graph; dispatch the
 workflow to re-seed sooner. The job's `setup-node` also saves the macOS npm
 cache on `main`, so the macOS pull-request lanes restore that entry instead of
 saving their own copies while their lockfile matches `main`.
+
+A pull request that restores the Swift package clones fetches nothing, so it
+no longer proves that every pin in `Package.resolved`, and every binary
+artifact those packages download, can still be fetched. Every Sunday, and on a
+dispatch with `cold` ticked, the job therefore resolves from an empty directory
+even when the entry exists. When a run fails, the workflow opens or comments on
+one issue, `iOS Swift Package Cache failed on main`. Pull requests that restore the
+entry stay green, but a pin that can no longer be fetched would fail every iOS
+pull request at the next graph change or eviction.
 
 `scripts/ci/test_ci_cache_scopes.py`, in the governance check, fails when a
 `PR Validation` job saves either cache, or when a restore stops looking up the

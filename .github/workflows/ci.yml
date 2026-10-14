@@ -735,7 +735,11 @@ jobs:
       # partial match would hand SwiftPM another graph's checkouts and binary
       # artifacts. A PR that changes the graph resolves cold, as every PR did
       # before, until the next daily save. The resolve below stays the
-      # authority either way.
+      # authority either way. A restore also skips the fetch that proved, on
+      # every iOS PR, that each pin and binary artifact can still be
+      # downloaded, so the saver repeats it from an empty directory every
+      # Sunday and files an issue when it fails, rather than every iOS PR
+      # failing at once at the next graph change or eviction.
       #
       # Budget: one entry per package graph, estimated at 2.5-3GB of the 10GB.
       # It is at most the ~4.5GB the old entry measured for this same graph
@@ -748,6 +752,7 @@ jobs:
       # recently used first. An evicted entry costs one cold resolve until the
       # next daily save.
       - name: Restore Swift packages resolved on main
+        id: spm-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/spm
@@ -755,8 +760,14 @@ jobs:
 
       - name: Resolve Swift package dependencies
         shell: bash
+        env:
+          SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          # actions/cache reports a restore that fails partway (a full disk, a
+          # corrupt archive) as a miss but leaves what it extracted. A miss
+          # resolves from an empty directory, as every PR did before the cache.
+          if [ "${SPM_CACHE_HIT}" != true ]; then rm -rf "${RUNNER_TEMP}/spm"; fi
           xcodebuild -resolvePackageDependencies \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
