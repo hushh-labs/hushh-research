@@ -26,7 +26,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "hushh-pda-uat"
 REGION = "us-central1"
-MAX_WAIT_SECONDS = 90 * 60
+MAX_WAIT_SECONDS = 300
 POLL_SECONDS = 60
 QUERY_DEADLINE: ContextVar[float | None] = ContextVar("query_deadline", default=None)
 
@@ -378,9 +378,9 @@ def _wait_for_capacity(
             )
         if not warned_about_maintenance:
             print(
-                "The deploy request wakes Capacity Maintenance, which independently verifies "
-                "a healthy release and records drainage for a timed follow-up. This observer cannot "
-                "authorize deletion.",
+                "Capacity Maintenance runs hourly or by governed manual request. "
+                "This observer never dispatches maintenance or authorizes deletion; "
+                "retry the original SHA and scope after verified cleanup.",
                 flush=True,
             )
             warned_about_maintenance = True
