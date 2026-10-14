@@ -28,13 +28,15 @@ Superseded loads and transitions cannot change the current request.
 
 Rive loads only for visible, active surfaces without reduced motion. Animation
 pauses offscreen, when the document is hidden or the native app is inactive.
-These small image-backed loops use Rive's `AlwaysDraw` mode: asynchronous image
-decoding must repaint even when the artboard reports no dirt. The runtime owns
-the render loop; visibility and lifecycle pauses still stop it entirely.
+These small image-backed loops use Rive's `AlwaysDraw` mode to repaint every
+active frame. The runtime owns the render loop; visibility and lifecycle
+pauses still stop it entirely. The earlier hosted playback failure's exact
+cause remains unconfirmed.
 Backing buffers are capped at the embedded images' 128px resolution while CSS
 geometry remains 44/72px in the header and 192px in the panel. This avoids
-20.25 times the pixel work of a 576px Retina profile buffer without adding
-detail. Actual buffer dimensions are rechecked on resize and resume, including
+20.25 times the backing-pixel count of a 576px Retina profile buffer without
+adding detail; this is not a measured CPU improvement. Actual buffer dimensions
+are rechecked on resize and resume, including
 Rive's internal hidden-to-visible resize. HD fallback density is unchanged.
 HD portraits remain the loading/error and reduced-motion fallback; answering
 currently shares the thinking HD portrait for that static fallback only.
