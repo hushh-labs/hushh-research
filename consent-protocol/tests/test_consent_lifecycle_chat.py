@@ -1654,13 +1654,22 @@ async def test_relative_document_request_asks_for_exact_dates_before_proposal(pu
 
 
 @pytest.mark.asyncio
-async def test_document_request_accepts_only_same_invocation_queued_user_dates():
+@pytest.mark.parametrize(
+    ("date_words", "date_evidence"),
+    [
+        ("Use 2026-09-29 through 2026-10-01", ""),
+        ("Use September 29 through October 1, 2026", "September 29 through October 1, 2026"),
+    ],
+)
+async def test_document_request_accepts_only_same_invocation_queued_user_dates(
+    date_words, date_evidence
+):
     context = _ctx(_state())
     context.user_content = types.Content(
         role="user", parts=[types.Part(text="Ask Rahul for last 3 days standup notes")]
     )
     context.invocation_id = "current-invocation"
-    dates = types.Content(role="user", parts=[types.Part(text="Use 2026-09-29 through 2026-10-01")])
+    dates = types.Content(role="user", parts=[types.Part(text=date_words)])
 
     def queued_event(*, invocation_id="current-invocation", kind=QUEUED_INPUT_KIND, author="user"):
         return Event(
@@ -1678,6 +1687,7 @@ async def test_document_request_accepts_only_same_invocation_queued_user_dates()
             context,
             period_start="2026-09-29",
             period_end="2026-10-01",
+            date_evidence=date_evidence,
         )
 
     relationship = patch(
@@ -1701,6 +1711,151 @@ async def test_document_request_accepts_only_same_invocation_queued_user_dates()
     assert ready["status"] == "proposal_ready"
     assert ready["purpose"]["periodStart"] == "2026-09-29"
     assert ready["purpose"]["periodEnd"] == "2026-10-01"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("words", "excerpt", "start", "end"),
+    [
+        (
+            "Ask Rahul for Schwab statements from 2026, September 1 to October 9",
+            "2026, September 1 to October 9",
+            "2026-09-01",
+            "2026-10-09",
+        ),
+        (
+            "Rahul ke statements chahiye, 1 September 2026 se 9 October 2026 tak",
+            "1 September 2026 se 9 October 2026 tak",
+            "2026-09-01",
+            "2026-10-09",
+        ),
+        ("Statements for full year 2026", "full year 2026", "2026-01-01", "2026-12-31"),
+        (
+            "Statements for first nine months of 2026",
+            "first nine months of 2026",
+            "2026-01-01",
+            "2026-09-30",
+        ),
+        (
+            "Use 01092026 to 09102026 in DDMMYYYY order",
+            "01092026 to 09102026 in DDMMYYYY order",
+            "2026-09-01",
+            "2026-10-09",
+        ),
+    ],
+)
+async def test_document_request_preserves_model_normalized_dates_with_current_user_evidence(
+    words, excerpt, start, end
+):
+    """This tests grounding/transport; independent model eval labels date interpretation."""
+    context = _ctx(_state())
+    context.user_content = types.Content(role="user", parts=[types.Part(text=words)])
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        patch(
+            "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+            new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+        ),
+    ):
+        ready = await action_tools.propose_document_request(
+            "Rahul",
+            "statements",
+            context,
+            period_start=start,
+            period_end=end,
+            date_evidence=excerpt,
+        )
+    assert ready["status"] == "proposal_ready"
+    assert ready["purpose"] == {"purpose": "statements", "periodStart": start, "periodEnd": end}
+    assert "Nothing is sent until the person taps" in ready["nextStep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source",
+    ["invented", "empty", "whitespace", "model", "tool", "thought", "too_long", "cross_message"],
+)
+async def test_document_request_rejects_ungrounded_natural_date_evidence(source):
+    excerpt = "September 1 to October 9, 2026"
+    context = _ctx(_state())
+    context.user_content = types.Content(role="user", parts=[types.Part(text=excerpt)])
+    if source == "invented":
+        excerpt = "January 1 to February 2, 2026"
+    elif source == "empty":
+        excerpt = ""
+    elif source == "whitespace":
+        excerpt = " "
+    elif source in {"model", "tool"}:
+        context.user_content = SimpleNamespace(role=source, parts=[SimpleNamespace(text=excerpt)])
+    elif source == "thought":
+        context.user_content = types.Content(
+            role="user", parts=[types.Part(text=excerpt, thought=True)]
+        )
+    elif source == "too_long":
+        excerpt = "x" * 1025
+        context.user_content = types.Content(role="user", parts=[types.Part(text=excerpt)])
+    elif source == "cross_message":
+        context.invocation_id = "current-invocation"
+        context.user_content = types.Content(role="user", parts=[types.Part(text="September 1")])
+        context.session.events = [
+            Event(
+                invocation_id=context.invocation_id,
+                author="user",
+                branch="",
+                content=types.Content(role="user", parts=[types.Part(text="to October 9, 2026")]),
+                custom_metadata={"kind": QUEUED_INPUT_KIND},
+            )
+        ]
+        excerpt = "September 1\nto October 9, 2026"
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        patch(
+            "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+            new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+        ),
+    ):
+        result = await action_tools.propose_document_request(
+            "Rahul",
+            "statements",
+            context,
+            period_start="2026-09-01",
+            period_end="2026-10-09",
+            date_evidence=excerpt,
+        )
+    assert result["status"] == "needs_clarification"
+    assert "YYYY-MM-DD" not in result["message"]
+    assert "clientRequestId" not in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [("2026-02-30", "2026-03-01"), ("2026-10-09", "2026-09-01"), ("01/09/2026", "09/10/2026")],
+)
+async def test_document_request_evidence_cannot_bypass_calendar_and_order_validation(start, end):
+    context = _ctx(_state())
+    excerpt = "September 1 to October 9, 2026"
+    context.user_content = types.Content(role="user", parts=[types.Part(text=excerpt)])
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        patch(
+            "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+            new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+        ),
+    ):
+        result = await action_tools.propose_document_request(
+            "Rahul",
+            "statements",
+            context,
+            period_start=start,
+            period_end=end,
+            date_evidence=excerpt,
+        )
+    assert result["status"] == "needs_clarification"
+    assert "clientRequestId" not in result
 
 
 @pytest.mark.asyncio

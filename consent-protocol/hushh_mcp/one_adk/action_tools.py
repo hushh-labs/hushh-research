@@ -3177,8 +3177,8 @@ async def propose_information_request(
         }
 
 
-def _document_request_user_text(tool_context: ToolContext) -> str:
-    """Read this turn's authored text, including authenticated queued messages."""
+def _document_request_user_texts(tool_context: ToolContext) -> tuple[str, ...]:
+    """Keep current authenticated user messages separate for exact evidence checks."""
     from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 
     def plain_text(content: Any) -> str:
@@ -3208,7 +3208,7 @@ def _document_request_user_text(tool_context: ToolContext) -> str:
                 pieces.append(queued_text)
             if len(pieces) >= 17:
                 break
-    return "\n".join(pieces)
+    return tuple(piece for piece in pieces if piece)
 
 
 async def propose_document_request(
@@ -3218,11 +3218,21 @@ async def propose_document_request(
     period_start: str = "",
     period_end: str = "",
     selection_handle: str = "",
+    date_evidence: str = "",
 ) -> dict[str, Any]:
-    """Stage one recipient-bound document request; only the browser can send it."""
+    """Stage a document request with user-grounded dates; only the browser can send it.
+
+    Normalize an unambiguous user-specified calendar range into period_start and
+    period_end (ISO dates). For natural wording, date_evidence must be an exact
+    excerpt of 1–1024 characters from one current-turn or authenticated queued
+    user message, including the year and range that support that interpretation.
+    Do not supply dates from a model/tool response, stale turn, or an unresolved
+    date interpretation. Direct ISO dates in the current user text remain valid
+    without date_evidence. The card shows editable dates before its Send tap.
+    """
     from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
 
-    user_text = _document_request_user_text(tool_context)
+    user_texts = _document_request_user_texts(tool_context)
 
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -3251,21 +3261,24 @@ async def propose_document_request(
         if not (period_start and period_end):
             return {
                 "status": "needs_clarification",
-                "message": (
-                    "Which exact start date and end date should I request? "
-                    "Please give both calendar dates in YYYY-MM-DD format."
-                ),
+                "message": "Which start date and end date should I use?",
             }
-        if not all(
-            re.search(rf"(?<!\d){re.escape(value)}(?!\d)", user_text)
+        literal_dates = all(
+            any(re.search(rf"(?<!\d){re.escape(value)}(?!\d)", text) for text in user_texts)
             for value in (period_start, period_end)
-        ):
+        )
+        # One owns date meaning; the host enforces current-user provenance and
+        # the existing ISO calendar/order contract, never reparses natural dates.
+        grounded_evidence = (
+            isinstance(date_evidence, str)
+            and 0 < len(date_evidence) <= 1024
+            and bool(date_evidence.strip())
+            and any(date_evidence in text for text in user_texts)
+        )
+        if not (grounded_evidence if date_evidence else literal_dates):
             return {
                 "status": "needs_clarification",
-                "message": (
-                    "Please give the exact start date and end date in YYYY-MM-DD format. "
-                    "I cannot choose them for you."
-                ),
+                "message": "Which start date and end date should I use?",
             }
         terms = ShareRequestPurpose.model_validate(
             {
