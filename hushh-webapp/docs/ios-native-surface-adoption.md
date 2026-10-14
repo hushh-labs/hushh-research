@@ -68,6 +68,41 @@ VoiceOver/Dynamic Type or three-run physical Release performance acceptance.
 iPad installation remains session-preserving pending separate restart authority;
 its Referrals, History AX and keyboard gates remain open.
 
+### Wireless follow-up and reviewer contract corrections — 2026-10-14
+
+The iPhone service probe confirms `localNetwork`, paired, Developer Mode enabled
+and device-unlocked. Credential-free attach-only XCTest entered successfully;
+the first admission exposed the existing native editor, History and One/Puppy.
+The iPad was unavailable and was not installed or restarted. The installed iPhone
+product remains the `e6456b8315` executable above; subsequent installs updated
+only its test runner, with destination-artifact mode preserving the product.
+
+Mail's real software keyboard, bidirectional pager and Chat draft return pass.
+Connect's Circles/Connections selections and same-host/draft return pass.
+The three-test batch failed Memory's first Saved → Add swipe (two passed,
+one failed). A later bounded probe positively observed the fixed viewport
+coordinate over an interactive control; another earlier probe did not attribute
+it. Do not retroactively classify every failure as that one cause. No private
+labels, values, screenshot or result bundle were retained.
+
+The Memory rehearsal now targets the authored gap after Search Memory or Memory
+note and refuses a guarded start. The Profile preferences rehearsal now admits
+the actual native roster entry and shared React body controls, rejecting native
+Appearance/Accent duplicates instead of requiring those disabled families.
+Cancellation still must dismiss the real selection presentation; theme/accent
+restoration, 44-point targets, ten edge reopens and single-host checks remain.
+The signed runner compiles; static native parity and 86 owning Memory/pager tests
+pass. These harness corrections are not physical acceptance: the subsequent
+preferences batch had an element/snapshot interruption, and the final corrected
+Memory run stopped at `MEMORY_ENTRY_UNAVAILABLE` before the swipe. Later generic
+XCTest admission exposed no Chat controls and proves automation entry only.
+Classify this remaining navigation/admission failure before another gesture run.
+
+No product renderer, pager arbitration, vault, routing authority or release
+admission was changed. No sign-out, product restart, chat mutation, push or
+deployment occurred. Material/transition, accessibility, iPad and physical
+Release performance gates remain independently open.
+
 The following sections retain dated experimental and preparation history.
 
 ### Merged candidate and preparation authority — 2026-10-13

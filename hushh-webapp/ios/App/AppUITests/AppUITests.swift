@@ -3066,80 +3066,97 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
-        let picker = app.segmentedControls["profile-appearance"].firstMatch
-        let accent = app.buttons["profile-accent"].firstMatch
-        let accentSheet = app.descendants(matching: .any).matching(identifier: "native-accent-presentation").firstMatch
+        // The product Profile pane deliberately retains shared body controls.
+        // Its native Back/Close are qualified independently. Do not enable an
+        // unqualified renderer just to satisfy a historical native-only test.
+        let accent = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@", "App accent color")).firstMatch
+        func themeOption(_ name: String) -> XCUIElement {
+            web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+        }
+        func accentValue() -> String? {
+            ["Blue", "Molten Gold"].first { (accent.value as? String) == $0 || accent.staticTexts[$0].exists }
+        }
         func controlsReady() -> Bool {
-            picker.exists && accent.exists && accent.isHittable &&
-                ["Light", "Dark", "System"].allSatisfy { picker.buttons[$0].exists && picker.buttons[$0].isHittable }
+            accent.exists && accent.isHittable &&
+                ["Light", "Dark", "System"].allSatisfy { themeOption($0).exists && themeOption($0).isHittable }
         }
         func openPreferences() {
-            if !picker.exists || !accent.exists {
+            if !themeOption("System").exists || !accent.exists {
                 let close = app.buttons["Close Profile"].firstMatch
                 if !close.exists { app.buttons["Open Profile"].firstMatch.tap() }
                 XCTAssertTrue(close.waitForExistence(timeout: 10))
-                let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Appearance & preferences")).firstMatch
+                let nativeRow = app.buttons["native-profile-row-preferences"].firstMatch
+                let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+                let row = nativeRow.exists || menu.exists ? nativeRow :
+                    web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Appearance & preferences")).firstMatch
                 // Profile preserves its internal route while closed. Return
                 // through authored Back controls, never a cold route/reset.
                 for _ in 0..<4 {
-                    if row.exists { break }
+                    if row.exists && row.isHittable { break }
                     let back = app.buttons["Back in Profile"].firstMatch
                     if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
                     back.tap()
                 }
                 XCTAssertTrue(row.waitForExistence(timeout: 10))
-                if !row.isHittable { web.swipeUp() }
+                for _ in 0..<5 {
+                    if row.isHittable { break }
+                    if menu.exists { menu.swipeDown() } else { web.swipeUp() }
+                }
                 XCTAssertTrue(row.isHittable)
                 row.tap()
             }
-            // XCTest need not make the segmented container itself hittable;
-            // every actual segment and the Accent trigger must be interactive.
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controlsReady() }, object: app)
             XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, "NATIVE_PREFERENCES_UNAVAILABLE")
+            XCTAssertFalse(app.segmentedControls["profile-appearance"].exists, "Profile exposed a native Appearance duplicate")
+            XCTAssertFalse(app.buttons["profile-accent"].exists, "Profile exposed a native Accent duplicate")
         }
-        func selectedTheme(_ name: String) -> Bool { picker.buttons[name].exists && picker.buttons[name].isSelected }
+        func selectedTheme(_ name: String) -> Bool {
+            let option = themeOption(name)
+            return option.exists && (option.isSelected || (option.value as? String) == "1")
+        }
         func selectTheme(_ name: String) {
-            let segment = picker.buttons[name]
+            let segment = themeOption(name)
             XCTAssertTrue(segment.exists && segment.isHittable)
             if !selectedTheme(name) { segment.tap() }
-            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: picker)
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: web)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_APPEARANCE_NOT_ACKNOWLEDGED")
         }
         func selectAccent(_ name: String) {
-            if (accent.value as? String) == name { return }
+            if accentValue() == name { return }
             accent.tap()
-            let option = accentSheet.buttons[name].firstMatch
+            let option = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
             XCTAssertTrue(option.waitForExistence(timeout: 10) && option.isHittable, "NATIVE_ACCENT_MENU_UNAVAILABLE")
             option.tap()
-            let done = accentSheet.buttons["Done"].firstMatch
-            XCTAssertTrue(done.exists && done.isHittable, "NATIVE_ACCENT_COMMIT_UNAVAILABLE")
-            done.tap()
-            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", name), object: accent)
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in accentValue() == name }, object: accent)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
         }
         func cancelAccentMenu() -> Bool {
-            let sheet = accentSheet
-            guard sheet.waitForExistence(timeout: 5),
-                  sheet.buttons["Blue"].firstMatch.isHittable,
-                  sheet.buttons["Molten Gold"].firstMatch.isHittable else {
+            guard let current = accentValue() else { XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return false }
+            let alternative = current == "Blue" ? "Molten Gold" : "Blue"
+            let option = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", alternative)).firstMatch
+            guard option.waitForExistence(timeout: 5) && option.isHittable else {
                 XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
             }
-            let cancel = sheet.buttons["Cancel"].firstMatch
-            guard cancel.exists && cancel.isHittable else { XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false }
-            cancel.tap()
+            // Dismiss through the real select's outside-press contract, not an
+            // invented native Cancel action. This quiet gutter is outside the
+            // bounded options and cannot activate a Profile row/header action.
+            let point = CGPoint(x: web.frame.minX + 4, y: option.frame.midY)
+            guard web.frame.contains(point) && !option.frame.contains(point) else {
+                XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false
+            }
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !sheet.exists && controlsReady()
+                !option.exists && controlsReady()
             }, object: app)
             let completed = XCTWaiter.wait(for: [retired], timeout: 5) == .completed
             XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
             return completed
         }
-        if accentSheet.exists {
-            guard cancelAccentMenu() else { return }
-        }
         openPreferences()
         guard let originalTheme = ["Light", "Dark", "System"].first(where: selectedTheme),
-              let originalAccent = accent.value as? String, ["Blue", "Molten Gold"].contains(originalAccent) else {
+              let originalAccent = accentValue() else {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
         }
         guard let initialFailureCount = testRun?.failureCount else {
@@ -3149,26 +3166,25 @@ final class AppUITests: XCTestCase {
             guard self.testRun?.failureCount == initialFailureCount else {
                 print("NATIVE_PREFERENCES_TEARDOWN skipped_after_failure_no_navigation_replay"); return
             }
-            if accentSheet.exists { _ = cancelAccentMenu() }
-            if !picker.exists { openPreferences() }
+            if !controlsReady() { openPreferences() }
             selectTheme(originalTheme); selectAccent(originalAccent)
             app.buttons["Close Profile"].firstMatch.tap()
             self.perfTapNav(app, label: "Chat")
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
         for name in ["Light", "Dark", "System"] {
-            let segment = picker.buttons[name]
+            let segment = themeOption(name)
             XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
             XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
             selectTheme(name)
             XCTAssertTrue(accent.isHittable)
         }
         for name in ["Blue", "Molten Gold"] { selectAccent(name) }
-        let value = accent.value as? String
+        let value = accentValue()
         for _ in 0..<2 {
             accent.tap()
             guard cancelAccentMenu() else { return }
-            XCTAssertEqual(accent.value as? String, value, "Native cancellation changed the preference")
+            XCTAssertEqual(accentValue(), value, "Cancellation changed the preference")
         }
         let hostFrame = web.frame
         for cycle in 0..<10 {
@@ -3183,7 +3199,7 @@ final class AppUITests: XCTestCase {
             close.coordinate(withNormalizedOffset: point).tap()
             let openProfile = web.buttons["Open Profile"].firstMatch
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !close.exists && !picker.exists && !accent.exists && openProfile.exists && openProfile.isHittable
+                !close.exists && !themeOption("System").exists && !accent.exists && openProfile.exists && openProfile.isHittable
             }, object: app)
             guard XCTWaiter.wait(for: [retired], timeout: 5) == .completed else {
                 XCTFail("NATIVE_PROFILE_CLOSE_NOT_CONFIRMED"); return
@@ -3196,7 +3212,7 @@ final class AppUITests: XCTestCase {
                 XCTFail("NATIVE_PROFILE_REOPEN_NOT_CONFIRMED"); return
             }
             openPreferences()
-            XCTAssertEqual(accent.value as? String, value, "Profile reopen lost the applied Accent")
+            XCTAssertEqual(accentValue(), value, "Profile reopen lost the applied Accent")
             XCTAssertEqual(hosts.count, 1)
             XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
             XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
@@ -4105,10 +4121,39 @@ final class AppUITests: XCTestCase {
         saved.tap()
         XCTAssertTrue(add.exists && sharing.exists, "Memory tabs are incomplete")
 
-        func swipeLeft() {
-            let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.56))
-            let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.56))
+        func swipeLeft() -> Bool {
+            // Start in the authored gap following the active pane's field,
+            // not over an arbitrary viewport fraction that can land on a
+            // saved-memory row or the Add textarea as content changes.
+            let label = add.isSelected ? "Memory note" : "Search Memory"
+            let anchor = webView.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@", label)).firstMatch
+            guard anchor.waitForExistence(timeout: 10) && anchor.isHittable else {
+                XCTFail("MEMORY_SWIPE_ANCHOR_UNAVAILABLE"); return false
+            }
+            // The shared pager deliberately yields to fields and row actions.
+            // Diagnose the actual start point without exposing Memory labels,
+            // values or its accessibility tree. Viewport fractions alone are
+            // not admission evidence for a changing, owner-specific list.
+            let point = CGPoint(x: webView.frame.minX + webView.frame.width * 0.82,
+                                y: anchor.frame.maxY + 8)
+            let guardedTypes: [XCUIElement.ElementType] = [.button, .textField, .secureTextField,
+                .textView, .searchField, .link, .slider, .switch]
+            let blocked = guardedTypes.contains { type in
+                webView.descendants(matching: type).allElementsBoundByIndex.contains { element in
+                    element.exists && element.isHittable && element.frame.contains(point)
+                }
+            }
+            print("MEMORY_SWIPE_ADMISSION guarded_start=\(blocked) saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+            guard webView.frame.contains(point) && !blocked else {
+                XCTFail("MEMORY_SWIPE_START_NOT_ADMITTED"); return false
+            }
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
+            let end = origin.withOffset(CGVector(dx: webView.frame.minX + webView.frame.width * 0.18 - app.frame.minX,
+                                                dy: point.y - app.frame.minY))
             start.press(forDuration: 0.06, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
+            return true
         }
         func waitForSelected(_ tab: XCUIElement) -> Bool {
             let deadline = Date().addingTimeInterval(12)
@@ -4119,10 +4164,12 @@ final class AppUITests: XCTestCase {
             return tab.isSelected
         }
 
-        swipeLeft()
-        XCTAssertTrue(waitForSelected(add), "One Memory swipe must land on Add")
+        guard swipeLeft() else { return }
+        let added = waitForSelected(add)
+        print("MEMORY_SWIPE_SELECTION saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+        XCTAssertTrue(added, "One Memory swipe must land on Add")
         XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
-        swipeLeft()
+        guard swipeLeft() else { return }
         XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
         // Keep the interruption test immediate. Selected state is not proof
         // that the compositor has settled or the original tab is reachable.
