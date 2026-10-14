@@ -420,13 +420,11 @@ jobs:
       fail-fast: false
       matrix:
         part: [node, browser]
-    # Was 15, which the job could not fit. Downloading Chromium and WebKit
-    # took 13-15 minutes on its own, so the lane either died mid-download or
-    # reached the checks with ~100 seconds left and was cancelled part-way
-    # through them. Both outcomes report as "cancelled", which reads like
-    # infrastructure noise rather than a budget that was never large enough.
-    # 30 leaves room for a cold cache; a warm one finishes far inside it.
-    timeout-minutes: 30
+    # Matched browser packs took 28 minutes before mobile Chrome in run
+    # 38601259072, excluding setup. Allow the complete pack and cold downloads
+    # to finish; individual interaction/performance assertions stay bounded.
+    # The node leg retains its existing budget.
+    timeout-minutes: ${{ matrix.part == 'browser' && 60 || 30 }}
     steps:
       - uses: actions/checkout@v6
         with:

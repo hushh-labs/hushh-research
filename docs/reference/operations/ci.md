@@ -133,7 +133,10 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-Web validation is intentionally split:
+Web validation is intentionally split. The targeted node job has a 30-minute
+budget and the browser job has 60 minutes for its complete matched packs and
+cold downloads. Individual interaction and performance assertions keep their
+own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
 2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. The job (`Web Targeted Contracts (node)` / `(browser)`) is a two-leg matrix: `WEB_TARGETED_PART=node` runs the Vitest and verifier packs without downloading a browser, and `WEB_TARGETED_PART=browser` runs the Playwright packs with `PLAYWRIGHT_WORKERS=3` (the Playwright config's CI worker count; one when unset). Each pack is classified by whether its npm script reaches `playwright`, so the legs partition the matched packs; a local run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.

@@ -1624,6 +1624,9 @@ test.describe("One profile artwork and animated presence", () => {
     { width: 1440, height: 900 },
   ]) {
     test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      // HD artwork and three complete tab round trips share this scenario's budget.
+      // Geometry/state expectations retain their individual deadlines.
+      test.setTimeout(60_000);
       await page.setViewportSize(viewport);
       await page.route("**/api/one/feed**", route => route.fulfill({
         contentType: "application/json",
