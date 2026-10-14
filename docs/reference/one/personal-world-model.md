@@ -6,7 +6,7 @@ Canonical owner: [One Index](./README.md).
 
 ```mermaid
 flowchart LR
-  Profile --> PWM[Personal World Model]
+  Profile[Profile] --> PWM[Personal World Model]
   PWM --> Build[Explicit research]
   Build --> Draft[Cited draft]
   Draft --> Review[Owner review]
