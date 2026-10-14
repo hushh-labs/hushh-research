@@ -324,6 +324,8 @@ for (const width of [390, 768])
  * A drawer left inside the workspace can never rise above that bar.
  */
 async function mountAppChrome(page: import("@playwright/test").Page, barHeight: number) {
+  // createRoot commits asynchronously after the fixture script is inserted.
+  await page.locator("main").waitFor({ state: "attached" });
   await page.evaluate((height) => {
     document.documentElement.style.setProperty("--app-bottom-shell-height", `${height}px`);
     const main = document.querySelector("main")!;

@@ -27,7 +27,7 @@ export function CalendarConnectHero({
   return (
     <section
       aria-labelledby="calendar-connect-title"
-      className="mx-auto flex w-full max-w-[420px] flex-col items-center text-center"
+      className="mx-auto flex w-full max-w-[420px] flex-col items-center text-center md:max-w-[480px]"
       data-testid="calendar-connect-hero"
     >
       <CalendarConnectIllustration />
@@ -37,12 +37,6 @@ export function CalendarConnectHero({
         <br />
         into One.
       </h1>
-
-      {journeyVariant === "workspace" ? (
-        <p className="ui-text-page-subtitle mt-[var(--page-header-copy-gap)] max-w-[20rem]">
-          See what’s ahead and make planning easier.
-        </p>
-      ) : null}
 
       {needsReauth ? (
         <p role="status" className="sr-only">
@@ -55,7 +49,7 @@ export function CalendarConnectHero({
         size="prominent"
         disabled={busy}
         onClick={onConnect}
-        className={`mx-auto ${journeyVariant === "onboarding" ? "mt-6" : "mt-[var(--page-header-section-gap)]"} w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]`}
+        className="mx-auto mt-6 w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
         data-voice-control-id="open_calendar_connector"
         data-voice-action-id={
           journeyVariant === "onboarding" ? "setup.connect_calendar" : undefined

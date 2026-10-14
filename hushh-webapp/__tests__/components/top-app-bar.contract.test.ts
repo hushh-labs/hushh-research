@@ -364,7 +364,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("showVaultUnlockAction");
     expect(source).toContain("VaultService.checkVault(user.uid)");
     expect(source).toContain('aria-label="Unlock vault"');
-    expect(source).toContain("<KeyRound");
+    expect(source).toContain("<AccentedKeyIcon");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",
     );
@@ -578,7 +578,7 @@ describe("Top app bar responsive contract", () => {
     // longer the element under its own coordinates, and at full collapse the
     // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
     // back is this arrow must therefore not collapse at all.
-    expect(update).toContain("if (hasBackControlRef.current)");
+    expect(update).toContain("hasBackControlRef.current ||");
     expect(update).toContain("topChromeProgress = 0;");
 
     expect(update).toContain(

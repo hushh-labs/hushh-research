@@ -72,6 +72,19 @@ describe("VaultMethodService.changePassphrase", () => {
     });
   });
 
+  it.each([
+    ["Passphrase wrapper is mandatory", "Password unlock is required and can’t be removed."],
+    ["Vault unlock method is not configured on this account: passphrase", "Password unlock is not set up yet. Use your recovery key to restore access."],
+  ])("keeps legacy backend wording consumer-readable: %s", async (backendMessage, expected) => {
+    getVaultStateMock.mockRejectedValueOnce(new Error(backendMessage));
+    await expect(VaultMethodService.changePassphrase({
+      userId: "uid-1",
+      currentVaultKey: "01".repeat(32),
+      newPassphrase: "new-password-123",
+    })).rejects.toThrow(expected);
+    expect(upsertWrapperMock).not.toHaveBeenCalled();
+  });
+
   it("updates passphrase wrapper without changing primary method by default", async () => {
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
@@ -281,7 +294,7 @@ describe("VaultMethodService.changePassphrase", () => {
           method: "generated_default_native_passkey_prf",
           wrapperId: "cred-1",
         }),
-      ).rejects.toThrow(/passphrase unlock must be repaired/i);
+      ).rejects.toThrow(/password unlock must be repaired/i);
 
       expect(deleteWrapperMock).not.toHaveBeenCalled();
     });

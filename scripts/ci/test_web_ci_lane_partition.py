@@ -178,6 +178,36 @@ def test_paid_answer_photo_inputs_schedule_browser_pack() -> None:
     assert f"{spec}" in pack.split("--project=chromium")[1].split("--project=webkit")[0]
 
 
+def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None:
+    for changed in (
+        "hushh-webapp/components/profile/profile-workspace-page.tsx",
+        "hushh-webapp/components/ui/alert-dialog.tsx",
+        "hushh-webapp/components/ui/sheet.tsx",
+        "hushh-webapp/components/icons/ui/shortcut-action-icons.tsx",
+        "hushh-webapp/components/icons/ui/shortcut-icon-motion.module.css",
+        "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/navigation/profile-pane.ts",
+        "hushh-webapp/lib/morphy-ux/hooks/use-shortcut-icon-motion.ts",
+        "hushh-webapp/app/globals.css",
+        "hushh-webapp/e2e/profile-confirmation-back.spec.ts",
+        "hushh-webapp/e2e/shortcut-icons.motion.spec.ts",
+        "hushh-webapp/e2e/fixtures/profile-confirmation-back.tsx",
+        "hushh-webapp/e2e/fixtures/shortcut-icon-motion.tsx",
+    ):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run test:connections-layout") == 1, (changed, calls)
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    pack = scripts["test:connections-layout"]
+    for spec in ("e2e/profile-confirmation-back.spec.ts", "e2e/shortcut-icons.motion.spec.ts"):
+        assert pack.count(spec) == 1
+        assert spec in pack.split("--project=chromium")[0]
+    assert "--project=chromium --project=webkit" in pack
+
+
 def test_full_suite_shards_run_verifiers_once() -> None:
     code, unsharded, output = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": ""})
     assert code == 0, output[-2000:]
@@ -234,6 +264,7 @@ def main() -> int:
         test_targeted_legs_partition_the_matched_packs,
         test_targeted_rejects_an_unknown_part,
         test_paid_answer_photo_inputs_schedule_browser_pack,
+        test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
     )

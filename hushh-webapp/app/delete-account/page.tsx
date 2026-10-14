@@ -51,7 +51,7 @@ export default function DeleteAccountPage() {
         <ol className="mt-3 list-decimal space-y-2 pl-6 text-[16px] leading-6 text-[color:var(--app-secondary-label)]">
           <li>Open Hussh One and sign in.</li>
           <li>Open Profile, or choose Delete account and start fresh on the locked-vault screen.</li>
-          <li>Verify your identity and review what will be removed. A locked vault does not require its passphrase or recovery key.</li>
+          <li>Verify your identity and review what will be removed. A locked vault does not require its password or recovery key.</li>
           <li>Confirm. You’re signed out when your One information is removed. Sign-in cleanup may continue afterward.</li>
         </ol>
 
@@ -72,7 +72,7 @@ export default function DeleteAccountPage() {
           Before we delete anything, we confirm the request came from the
           account owner. We reply to the email or phone number already on the
           account, and we only proceed once you confirm from there. We will
-          never ask for your password, your vault passphrase, or a verification
+          never ask for your sign-in password, your vault password, or a verification
           code sent to you by text. Don’t include them in your email.
         </p>
         <p className={bodyText}>
