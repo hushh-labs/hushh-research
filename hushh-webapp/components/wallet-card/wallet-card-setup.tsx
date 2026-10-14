@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "@/components/icons";
 
-import { SegmentedTabs as SettingsSegmentedTabs } from "@/components/profile/settings-ui";import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SegmentedTabs as SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,14 +25,6 @@ import {
   type WalletCardValidationErrors,
 } from "@/components/wallet-card/wallet-card-fields";
 import type { WalletCardPreferredContact } from "@/lib/services/wallet-card-service";
-
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "1";
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "1";
-}
 
 function DraftField({
   definition,
@@ -119,7 +111,6 @@ function DraftField({
 export function WalletCardSetup({
   draft,
   errors,
-  avatarUrl,
   saving,
   isEditingExisting,
   onChange,
@@ -193,38 +184,8 @@ export function WalletCardSetup({
     >
       <section
         className="space-y-4"
-        aria-labelledby="wallet-card-shared-information-heading"
+        aria-label="Profile details"
       >
-        <h2
-          id="wallet-card-shared-information-heading"
-          data-wallet-grid-item="shared-information-heading"
-          className="text-[15px] font-semibold leading-[1.2] text-[color:var(--app-primary-label)]"
-        >
-          Shared information
-        </h2>
-
-        <div
-          data-wallet-grid-item="photo-row"
-          className="flex min-h-[62px] items-center gap-3 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-4 py-2.5"
-        >
-          <div className="shrink-0">
-            <Avatar size="lg" className="size-11">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-              <AvatarFallback className="text-[13px] font-medium">
-                {initialsFrom(draft.fullName)}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
-              Photo
-            </p>
-            <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
-              {WALLET_CARD_OWNER_COPY.fromYourProfile}
-            </p>
-          </div>
-        </div>
-
         {WALLET_CARD_RECOMMENDED_FIELDS.map((definition) => (
           <div
             key={definition.key}
