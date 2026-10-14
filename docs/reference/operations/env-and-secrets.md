@@ -440,7 +440,7 @@ values.
 | Variable | Where read | Required | Notes |
 |----------|------------|----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | `lib/api/consent.ts`, `lib/config.ts`, api routes, etc. | Yes | Prod build: from Secret Manager `BACKEND_URL` |
-| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. Never place a provider secret here. |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. UAT image builds resolve the optional same-named Secret Manager resource; other hosted environments leave it unset. Never place a provider secret here. |
 | `NEXT_PUBLIC_FIREBASE_*` (6 base keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `lib/notifications/fcm-service.ts` | Yes (prod build) | Web FCM token registration; from Firebase Console. See [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md). |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `lib/observability/env.ts` | Recommended | Active GA4 measurement ID for the deployed environment |
@@ -459,6 +459,37 @@ values.
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `lib/firebase/admin.ts` | Server-side Firebase | Server-only |
 | `MAIL_API_ENDPOINT` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | `hushh-mail-api` origin. Plain env var, set from `_MAIL_API_ENDPOINT` in `deploy/frontend.cloudbuild.yaml`; not used for account notices. |
 | `MAIL_API_KEY` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | Server-only. This is not used for One support or account notices. |
+
+### UAT receipt-logo build configuration
+
+`deploy/frontend-image.cloudbuild.yaml` and the combined frontend build resolve
+`NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` from `hushh-pda-uat` Secret Manager only
+when constructing a UAT image. It is optional: precise `NOT_FOUND` leaves the
+variable unset before `next build`; permission/authentication errors and invalid
+configured values fail without printing the value. It is not a Cloud Run runtime
+binding. Changing the resource requires a new reviewed frontend build and the
+normal governed deployment; an existing pinned image is never reconfigured.
+
+The accepted value is the exact Logo.dev HTTPS domain template with one
+`{domain}` placeholder, a publishable `pk_` token, and `fallback=404&redirect=404`.
+The latter flags preserve the category/generic fallback for missing or redirected
+brands. Secret `sk_` API keys are prohibited. The existing reviewed merchant
+registry owns domain selection; no merchant names or receipt content enter the URL.
+
+Obtain the publishable token through the approved provider/deployment credential
+workflow before creating the resource. Validate the complete template with
+`scripts/ops/validate_receipt_logo_template.py` over stdin, then use the existing
+`scripts/ops/upsert_gcp_secret.py --project hushh-pda-uat --secret
+NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memory;
+do not put them in command arguments, logs, source, environment examples or files.
+Secret provisioning grants no deploy or traffic authority. Never copy this UAT
+credential to another environment.
+
+Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
+reject these requests, so the approved publishable token must support that existing
+policy. Do not change the component's referrer policy to enable a restricted token.
+See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
+[Logo CDN parameters](https://www.logo.dev/docs/api-reference/logo-cdn/get-a-logo).
 
 ---
 
