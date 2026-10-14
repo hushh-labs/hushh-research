@@ -886,7 +886,7 @@ def maintenance_due(
     release_run_id: int | None = None,
     restore: bool = True,
 ) -> bool:
-    """Avoid cron cloud work after a settled pass; failed first passes retry."""
+    """Avoid settled cron work; wake UAT drains even before their deadline."""
     if restore:
         restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
@@ -909,6 +909,7 @@ def maintenance_due(
         release_run_id is not None and completed["release_run_id"] != release_run_id
     ) or completed["observed_run_id"] != observed:
         return True
+    pending_uat_drain = False
     for service in LANES[environment]["services"]:
         path = directory / f"{service}.json"
         if not path.exists():
@@ -925,7 +926,16 @@ def maintenance_due(
             raise retention.UnsafeState(f"invalid {environment} drain receipt")
         if state["not_before"] <= time.time():
             return True
-    return False
+        if environment == "uat":
+            # The first pass may have completed without its delayed recheck
+            # running. Reinspect a trusted pending receipt so this new run
+            # emits a deadline and schedules its own wait outside the lock.
+            # The retention helper still requires live identity and the full
+            # drain interval before it can delete anything. Multiple cron
+            # wakes may wait for the same deadline; their rechecks serialize
+            # under the deploy lock and independently revalidate live state.
+            pending_uat_drain = True
+    return pending_uat_drain
 
 
 def production_maintenance_due(repository: str, directory: Path) -> bool:
