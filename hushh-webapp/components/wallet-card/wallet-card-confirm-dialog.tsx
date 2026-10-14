@@ -1,5 +1,8 @@
 "use client";
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
+import { cn } from "@/lib/utils";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +46,7 @@ export function WalletCardConfirmDialog({
         if (!busy) onOpenChange(next);
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent className={cn(profileStyles.accountDialog, destructive && profileStyles.dangerDialog)}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{body}</AlertDialogDescription>

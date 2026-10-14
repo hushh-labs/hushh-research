@@ -86,31 +86,36 @@ def _origin(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
-def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+def _fetch_once(url: str, timeout_seconds: int) -> _HttpResponse:
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            return _HttpResponse(
+                status=response.status,
+                content_type=response.headers.get_content_type(),
+                body=response.read(),
+            )
+    except urllib.error.HTTPError as error:
+        return _HttpResponse(
+            status=error.code,
+            content_type=error.headers.get_content_type(),
+            body=error.read(),
+        )
+
+
+def _fetch(url: str, timeout_seconds: int) -> _HttpResponse:
+    # A transient network/read timeout must not fail an otherwise healthy
+    # release. HTTP errors and invalid association payloads remain hard failures.
     for attempt in range(3):
         try:
-            with opener.open(request, timeout=timeout_seconds) as response:
-                return _HttpResponse(
-                    status=response.status,
-                    content_type=response.headers.get_content_type(),
-                    body=response.read(),
-                )
-        except urllib.error.HTTPError as error:
-            return _HttpResponse(
-                status=error.code,
-                content_type=error.headers.get_content_type(),
-                body=error.read(),
-            )
-        except (TimeoutError, urllib.error.URLError) as error:
+            return _fetch_once(url, timeout_seconds)
+        except (TimeoutError, ConnectionError, urllib.error.URLError) as error:
             if attempt == 2:
                 reason = str(getattr(error, "reason", error)).strip() or "network error"
-                raise RuntimeError(
-                    f"Could not fetch {url} after 3 attempts: {reason}"
-                ) from error
-            time.sleep(attempt + 1)
-    raise AssertionError("Fetch retry loop exhausted without a result")
+                raise RuntimeError(f"Could not fetch {url} after 3 attempts: {reason}") from error
+            time.sleep(2 ** attempt)
+    raise AssertionError("unreachable")
 
 
 def _json(response: _HttpResponse, label: str) -> Any:

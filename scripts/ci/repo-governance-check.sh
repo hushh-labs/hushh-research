@@ -21,6 +21,7 @@ python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
 python3 scripts/ci/test_runtime_capacity_budget.py
+python3 scripts/ci/test_verify_passkey_domain_associations.py
 python3 scripts/ci/test_verify_prod_places_readiness.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
