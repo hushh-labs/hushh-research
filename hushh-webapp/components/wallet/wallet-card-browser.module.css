@@ -35,7 +35,7 @@
 .transactions { list-style:none; padding:0; margin:0; }
 .transactions li { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); font-size:14px; }
 .transactions small { display:block; margin-top:4px; color:var(--muted-foreground); font-size:11px; }
-.transactions strong { flex:none; font-size:13px; font-weight:500; font-variant-numeric:tabular-nums; }
+.transactions strong { flex:none; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
 .quickActions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding-top:12px; }
 .addAction { width:244px; max-width:100%; font-size:13px; }
 .previewPanel { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding-block:12px; }
