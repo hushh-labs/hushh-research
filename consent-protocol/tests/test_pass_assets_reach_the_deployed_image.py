@@ -135,9 +135,13 @@ def test_every_apple_image_slot_is_produced_from_the_real_asset() -> None:
     }
 
 
-def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
+@pytest.mark.parametrize(
+    "config",
+    ["backend.cloudbuild.yaml", "frontend-image.cloudbuild.yaml", "frontend.cloudbuild.yaml"],
+)
+def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter(config: str) -> None:
     """Local preflight passes are useless when Cloud Build never receives its script."""
-    build = yaml.safe_load((REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text())
+    build = yaml.safe_load((REPO_ROOT / "deploy" / config).read_text())
     referenced = set()
     sources = []
     for step in build["steps"]:
@@ -162,7 +166,12 @@ def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
             if helper not in referenced:
                 referenced.add(helper)
                 sources.append((Path(helper), (REPO_ROOT / helper).read_text()))
-    assert "scripts/deploy/backend-deploy.sh" in referenced
+    required = (
+        "backend-deploy.sh"
+        if config == "backend.cloudbuild.yaml"
+        else "frontend-google-native-config.sh"
+    )
+    assert f"scripts/deploy/{required}" in referenced
     assert referenced, "Exercise the actual external preflight helper, not an empty upload list"
     patterns = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
     upload_filter = pathspec.GitIgnoreSpec.from_lines(patterns)
