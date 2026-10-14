@@ -28,6 +28,18 @@ Do not modify recovery/PKM prefixes or broad lifecycle rules. SQL stores only th
 owner resource inventory, library generation, mutation lease and opaque write
 receipts; large encrypted objects remain in object storage.
 
+
+Enrollment records the immutable bucket generation, project number and creation
+time in the existing inventory before accepting a write. A same-name replacement
+or legacy unbound record is refused; checking its current name is not recovery.
+Erasure reads the retained incarnation before and after bounded prefix cleanup.
+An unchanged, creation-time disabled soft-delete policy is a narrowly qualified
+no-history inference only for that recorded incarnation. Other buckets require a
+successful retained-object listing and expiration; an unsupported listing is not
+an empty result. A receipt establishes provider-visible object absence, not media
+sanitization. See [bucket identity and metageneration](https://docs.cloud.google.com/storage/docs/bucket-metadata)
+and [soft-delete retention](https://docs.cloud.google.com/storage/docs/disable-soft-delete).
+
 A durable exclusive lease serializes hierarchy mutations across browser tabs.
 Conditional writes protect immutable chunks and metadata revisions. Uncertain
 provider writes retain their fence; account reset/deletion cannot claim erasure

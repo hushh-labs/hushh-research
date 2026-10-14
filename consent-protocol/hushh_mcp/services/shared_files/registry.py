@@ -61,23 +61,28 @@ async def protect_placement_change(owner: str):
         yield
 
 
-async def resource(owner: str, *, bucket: str | None = None) -> dict[str, Any] | None:
+async def resource(
+    owner: str, *, bucket: str | None = None, admission: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     pool = await get_pool()
     if not bucket:
         row = await pool.fetchrow("SELECT * FROM shared_files_storage WHERE user_id=$1", owner)
         return dict(row) if row else None
+    if admission is None:
+        raise FilesRefused("FILES_STORAGE_IDENTITY_UNVERIFIED", 503)
     from hushh_mcp.services.owner_placement_guard import admit_hub_content  # noqa: PLC0415
 
     async with pool.acquire() as connection, connection.transaction():
         await _placement_lock(connection, owner)
         await admit_hub_content(owner, "shared_files_enrollment")
         await connection.execute(
-            """INSERT INTO shared_files_storage(user_id,bucket,prefix)
-               SELECT user_id,$2,$3 FROM vault_keys WHERE user_id=$1
+            """INSERT INTO shared_files_storage(user_id,bucket,prefix,bucket_admission)
+               SELECT user_id,$2,$3,$4::jsonb FROM vault_keys WHERE user_id=$1
                ON CONFLICT(user_id) DO NOTHING""",
             owner,
             bucket,
             owner_prefix(owner),
+            json.dumps(admission),
         )
         row = await connection.fetchrow(
             "SELECT * FROM shared_files_storage WHERE user_id=$1", owner
@@ -138,6 +143,7 @@ async def reserve_write(
              lease_until=now()+interval '30 seconds',updated_at=now()
            WHERE user_id=$1 AND library_id=$2::uuid AND state='active'
              AND lease_id=$3::uuid AND lease_until>now()
+             AND bucket_admission IS NOT NULL
              AND (SELECT count(*) FROM jsonb_object_keys(writes))<64 RETURNING user_id""",
         owner,
         _epoch(library_id),

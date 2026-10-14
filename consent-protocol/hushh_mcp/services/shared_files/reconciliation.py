@@ -9,7 +9,7 @@ from typing import Any
 
 from hushh_mcp.services.pod_commit_log import GcsObjectStore
 
-from . import registry
+from . import bucket_admission, registry
 
 
 async def reconcile(row: dict[str, Any], *, maximum: int = 4) -> None:
@@ -18,6 +18,7 @@ async def reconcile(row: dict[str, Any], *, maximum: int = 4) -> None:
     if not writes:
         return
     store = GcsObjectStore(row["bucket"], row["prefix"] + "/" + str(row["library_id"]))
+    bucket_admission.verify(row, await bucket_admission.observe(store, row["bucket"]))
     for operation, receipt in [
         (op, value)
         for op, value in writes.items()

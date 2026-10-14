@@ -12,7 +12,6 @@ import base64
 import json
 import os
 import re
-import time
 from functools import lru_cache
 from typing import Any
 
@@ -24,7 +23,7 @@ from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_cont
 from hushh_mcp.services.pod_files.contracts import FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesGcsStore
 from hushh_mcp.services.pod_object_version import decimal_generation
-from hushh_mcp.services.shared_files import registry
+from hushh_mcp.services.shared_files import bucket_admission, registry
 
 router = APIRouter(prefix="/api/one/files", tags=["Files ciphertext"])
 MAX_CIPHERTEXT_BYTES = 4 * 1024 * 1024 + 128 * 1024
@@ -43,8 +42,7 @@ def _identifier(value: str) -> str:
 
 
 class SharedCipherStore(FilesGcsStore):
-    _shared_verified_at: float = 0
-    _shared_retention: dict[str, Any] = {}
+    """Ciphertext-only owner prefix; no private-library decryption runtime."""
 
 
 @lru_cache(maxsize=128)
@@ -61,11 +59,14 @@ async def _store(
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]", bucket):
         raise _refuse("FILES_STORAGE_UNAVAILABLE", 503)
     try:
-        row = (
-            await registry.resource(owner, bucket=bucket)
-            if library_id is None
-            else await registry.active(owner, library_id)
-        )
+        if library_id is None:
+            metadata_store = _configured_store(bucket, registry.owner_prefix(owner))
+            observed = await bucket_admission.observe(metadata_store, bucket)
+            row = await registry.resource(
+                owner, bucket=bucket, admission=bucket_admission.admission(observed, bucket)
+            )
+        else:
+            row = await registry.active(owner, library_id)
         if not row or row["state"] != "active":
             raise _refuse("FILES_LIBRARY_CHANGED")
         if row["bucket"] != bucket:
@@ -112,24 +113,13 @@ async def _body(request: Request, maximum: int) -> bytes:
     return bytes(value)
 
 
-async def _security(store: SharedCipherStore) -> dict[str, Any]:
-    if time.monotonic() - getattr(store, "_shared_verified_at", 0) < 60:
-        return store._shared_retention
-    response = await asyncio.to_thread(
-        store._object_get, f"https://storage.googleapis.com/storage/v1/b/{store._bucket}", {}, 20
-    )
-    if response.status_code != 200:
-        raise _refuse("FILES_STORAGE_UNAVAILABLE", 503)
-    value = response.json()
-    iam = value.get("iamConfiguration") or {}
-    if (
-        value.get("name") != store._bucket
-        or iam.get("publicAccessPrevention") != "enforced"
-        or not (iam.get("uniformBucketLevelAccess") or {}).get("enabled")
-    ):
-        raise _refuse("FILES_STORAGE_ACCESS_UNVERIFIED", 503)
-    store._shared_verified_at = time.monotonic()
-    store._shared_retention = {
+async def _security(store: SharedCipherStore, row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = await bucket_admission.observe(store, row["bucket"])
+        bucket_admission.verify(row, value)
+    except FilesRefused as exc:
+        raise _refuse(exc.code, exc.status) from None
+    return {
         "retentionSeconds": int((value.get("retentionPolicy") or {}).get("retentionPeriod", 0)),
         "retentionLocked": bool((value.get("retentionPolicy") or {}).get("isLocked")),
         "softDeleteSeconds": int(
@@ -138,7 +128,6 @@ async def _security(store: SharedCipherStore) -> dict[str, Any]:
         "versioning": bool((value.get("versioning") or {}).get("enabled")),
         "physicalDeletion": "not_requested_by_trash",
     }
-    return store._shared_retention
 
 
 def _response(body: Any, status: int = 200) -> JSONResponse:
@@ -151,7 +140,7 @@ async def configuration(request: Request, token: dict = Depends(hub_content_owne
     from hushh_mcp.services.shared_files.reconciliation import reconcile  # noqa: PLC0415
 
     await reconcile(row)
-    retention = await _security(store)
+    retention = await _security(store, row)
     await _fresh_owner(request, token["user_id"])
     await _active(token["user_id"], str(row["library_id"]))
     await _fresh_owner(request, token["user_id"])
@@ -172,7 +161,7 @@ async def list_objects(
     if len(cursor) > 2048:
         raise _refuse("FILES_CURSOR_INVALID", 400)
     store, row = await _store(token["user_id"], request.headers.get("x-files-library-id"))
-    await _security(store)
+    await _security(store, row)
     paths, next_cursor = await store.list_page(_identifier(namespace), cursor, 100)
     keys = [_identifier(path.rsplit("/", 1)[-1]) for path in paths]
     await _fresh_owner(request, token["user_id"])
@@ -185,7 +174,7 @@ async def read_object(
     namespace: str, object_id: str, request: Request, token: dict = Depends(hub_content_owner)
 ) -> JSONResponse:
     store, row = await _store(token["user_id"], request.headers.get("x-files-library-id"))
-    await _security(store)
+    await _security(store, row)
     data, generation = await store.get_bounded_with_generation(
         _identifier(namespace) + "/" + _identifier(object_id), max_bytes=MAX_CIPHERTEXT_BYTES
     )
@@ -216,7 +205,7 @@ async def write_object(
     except (ValueError, TypeError, KeyError):
         raise _refuse("FILES_OBJECT_INVALID", 400) from None
     store, row = await _store(token["user_id"], request.headers.get("x-files-library-id"))
-    await _security(store)
+    await _security(store, row)
     await _fresh_owner(request, token["user_id"])
     await _active(token["user_id"], str(row["library_id"]))
     import hashlib  # noqa: PLC0415
@@ -236,6 +225,7 @@ async def write_object(
         raise _refuse(exc.code, exc.status) from None
     try:
         written = await store.put_if_generation(path, data, generation)
+        await _security(store, row)
     except BaseException:
         # Keep the durable permit when cancellation/network loss leaves a cloud
         # outcome unknown. Erasure never interprets an elapsed lease as absence.
@@ -270,7 +260,7 @@ async def analyze(request: Request, token: dict = Depends(hub_content_owner)) ->
     from hushh_mcp.services.pod_files.jobs import _organize  # noqa: PLC0415
 
     store, row = await _store(token["user_id"], request.headers.get("x-files-library-id"))
-    await _security(store)
+    await _security(store, row)
     body = await _body(request, 384 * 1024)
     try:
         projection_request = ForegroundRequest.model_validate_json(body)

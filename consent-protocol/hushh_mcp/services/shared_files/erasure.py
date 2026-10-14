@@ -17,7 +17,7 @@ from sqlalchemy.engine import Connection
 from hushh_mcp.services.pod_commit_log import GcsObjectStore
 from hushh_mcp.services.pod_files.contracts import FilesRefused
 
-from . import registry
+from . import bucket_admission, registry
 from .erasure_objects import erase_objects
 
 
@@ -35,15 +35,26 @@ async def erase(owner: str) -> dict[str, Any] | None:
     if row["state"] == "erased":
         receipt = row["receipt"]
         receipt = json.loads(receipt) if isinstance(receipt, str) else receipt
-        if not isinstance(receipt, dict) or receipt.get("complete") is not True:
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("complete") is not True
+            or receipt.get("bucketIdentityVerified") is not True
+            or receipt.get("libraryId") != str(row["library_id"])
+            or receipt.get("bucket") != row["bucket"]
+            or receipt.get("prefix") != row["prefix"] + "/" + str(row["library_id"]) + "/"
+        ):
             raise FilesRefused("FILES_ERASURE_RECEIPT_INVALID", 409)
+        try:
+            bucket_admission.verify(row, receipt.get("bucketIdentity", {}))
+        except FilesRefused:
+            raise FilesRefused("FILES_ERASURE_RECEIPT_INVALID", 409) from None
         return receipt
     prefix = row["prefix"] + "/" + str(row["library_id"]) + "/"
     if not prefix.startswith("shared-files/v1/") or ".." in prefix:
         raise FilesRefused("FILES_ERASURE_INVENTORY_INVALID", 409)
     store = GcsObjectStore(row["bucket"])
 
-    await erase_objects(store, row["bucket"], prefix)
+    identity = await erase_objects(store, row["bucket"], prefix, row)
     receipt = {
         "version": 1,
         "libraryId": str(row["library_id"]),
@@ -52,6 +63,8 @@ async def erase(owner: str) -> dict[str, Any] | None:
         "complete": True,
         "writesFenced": True,
         "activeAndRetainedObjectsAbsent": True,
+        "bucketIdentityVerified": True,
+        "bucketIdentity": identity,
     }
     await registry.erased(owner, str(row["library_id"]), receipt)
     return receipt

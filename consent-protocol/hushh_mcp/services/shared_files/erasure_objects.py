@@ -9,9 +9,15 @@ from urllib.parse import quote
 from hushh_mcp.services.pod_commit_log import GcsObjectStore
 from hushh_mcp.services.pod_files.contracts import FilesRefused
 
+from . import bucket_admission
 
-async def erase_objects(store: GcsObjectStore, bucket: str, prefix: str) -> None:
+
+async def erase_objects(
+    store: GcsObjectStore, bucket: str, prefix: str, row: dict[str, Any]
+) -> dict[str, str]:
     url = f"https://storage.googleapis.com/storage/v1/b/{quote(bucket, safe='')}/o"
+    before = await bucket_admission.observe(store, bucket)
+    retained = bucket_admission.verify(row, before)
 
     async def listing(*, soft_deleted: bool = False) -> list[dict[str, Any]]:
         params = {
@@ -61,5 +67,11 @@ async def erase_objects(store: GcsObjectStore, bucket: str, prefix: str) -> None
     await asyncio.gather(*(remove(item) for item in page))
     if await listing():
         raise FilesRefused("FILES_ERASURE_IN_PROGRESS", 409)
-    if await listing(soft_deleted=True):
+    qualified_disabled = retained["noSoftDeleteHistory"] and bucket_admission.no_history(before)
+    if not qualified_disabled and await listing(soft_deleted=True):
         raise FilesRefused("FILES_ERASURE_RETENTION_PENDING", 409)
+    after = await bucket_admission.observe(store, bucket)
+    bucket_admission.verify(row, after)
+    if qualified_disabled and not bucket_admission.no_history(after):
+        raise FilesRefused("FILES_ERASURE_RETENTION_UNCONFIRMED", 409)
+    return dict(retained["identity"])
