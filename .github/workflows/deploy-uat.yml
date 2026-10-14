@@ -132,7 +132,7 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 100
     permissions:
       contents: read
       checks: read
@@ -397,7 +397,7 @@ jobs:
               --candidate-service consent-protocol \
               --candidate-service consent-protocol-drive-worker
           elif [ "$DEPLOY_FRONTEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat --no-candidates
+            python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
           else
             echo "No resolved UAT deploy scope; refusing capacity admission." >&2
             exit 1
@@ -1379,6 +1379,20 @@ jobs:
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify frontend-only candidate has no SQL binding before smoke
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'
+        shell: bash
+        env:
+          FRONTEND_REVISION: ${{ steps.candidate-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FRONTEND_REVISION" ]; then
+            echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
+            exit 1
+          fi
+          python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            --frontend-only --frontend-revision "$FRONTEND_REVISION"
+
       - name: Verify frontend candidate runs the pinned image digest
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
         shell: bash
@@ -1588,6 +1602,13 @@ jobs:
           fi
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+              # Recheck the immutable candidate and current frontend template
+              # immediately before sending it serving traffic.
+              python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+                --frontend-only \
+                --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
+            fi
             gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \

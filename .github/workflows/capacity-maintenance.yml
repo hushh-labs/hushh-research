@@ -183,7 +183,10 @@ jobs:
     if: needs.select-release.outputs.cleanup_ready == 'true' && needs.select-release.outputs.environment == 'uat'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Short passes publish completed receipts; no runner waits through drainage.
+    outputs:
+      verified_source_run_id: ${{ steps.retention.outputs.verified_source_run_id }}
+      drain_not_before: ${{ steps.retention.outputs.drain_not_before }}
+    # Short mutation passes share the deploy lock; the deadline wait is separate.
     concurrency:
       group: deploy-uat
       cancel-in-progress: false
@@ -251,6 +254,147 @@ jobs:
           esac
           echo "Capacity: $outcome; cleanup success is independent." >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+  uat-drain-wait:
+    name: Wait for UAT request drainage outside the deploy lock
+    needs: uat-maintenance
+    if: needs.uat-maintenance.result == 'success' && needs.uat-maintenance.outputs.verified_source_run_id != '' && needs.uat-maintenance.outputs.drain_not_before != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions: {}
+    # Each maintenance run has its own verified deadline. Do not serialize
+    # hour-long waits from separate runs or discard a pending follow-up.
+    concurrency:
+      group: capacity-uat-drain-wait-${{ github.run_id }}
+      cancel-in-progress: false
+      queue: max
+    env:
+      VERIFIED_SOURCE_RUN_ID: ${{ needs.uat-maintenance.outputs.verified_source_run_id }}
+      DRAIN_NOT_BEFORE: ${{ needs.uat-maintenance.outputs.drain_not_before }}
+    steps:
+      - name: Wait until the verified drain deadline
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERIFIED_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$DRAIN_NOT_BEFORE" =~ ^[1-9][0-9]*$ ]]
+          now="$(date +%s)"
+          wait_seconds=$((DRAIN_NOT_BEFORE + 60 - now))
+          if [ "$wait_seconds" -lt 0 ]; then wait_seconds=0; fi
+          # Leave time for runner setup and teardown within the 75-minute cap.
+          if [ "$wait_seconds" -gt 4200 ]; then
+            echo "Drain deadline exceeds the bounded UAT recheck window." >&2
+            exit 1
+          fi
+          echo "Rechecking UAT retention after ${wait_seconds}s."
+          sleep "$wait_seconds"
+
+  uat-drain-recheck:
+    name: Recheck UAT retention after drainage
+    needs: [uat-maintenance, uat-drain-wait]
+    if: needs.uat-drain-wait.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GCP_REGION: us-central1
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERIFIED_SOURCE_RUN_ID: ${{ needs.uat-maintenance.outputs.verified_source_run_id }}
+    steps:
+      - name: Checkout current maintenance tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reverify source before cloud authentication
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERIFIED_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          python3 scripts/ci/uat-retention-maintenance.py \
+            --release-run-id "$VERIFIED_SOURCE_RUN_ID" --verify-source-only \
+            --state-dir "$RUNNER_TEMP/uat-retention-source"
+
+      - name: Report settled or superseded UAT source
+        if: steps.source.outputs.cleanup_ready != 'true'
+        run: |
+          echo "UAT retention follow-up skipped: the verified source is settled or no longer eligible. No Cloud Run mutation was attempted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore this run's first-pass drain evidence
+        if: steps.source.outputs.cleanup_ready == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: uat-retention-state
+          path: ${{ runner.temp }}/uat-retention-state/
+
+      - name: Authenticate to UAT
+        if: steps.source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        if: steps.source.outputs.cleanup_ready == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Finish eligible UAT revision cleanup
+        id: retention
+        if: steps.source.outputs.cleanup_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat-retention-maintenance.py \
+            --release-run-id "$VERIFIED_SOURCE_RUN_ID" --apply \
+            --state-dir "$RUNNER_TEMP/uat-retention-state"
+
+      - name: Require explicit UAT maintenance outcome
+        if: steps.source.outputs.cleanup_ready == 'true'
+        env:
+          CLEANUP_OUTCOME: ${{ steps.retention.outputs.cleanup_outcome }}
+        run: |
+          case "$CLEANUP_OUTCOME" in
+            applied|no_live_source|settled_or_not_due) ;;
+            *) echo "UAT maintenance returned no recognized outcome." >&2; exit 1 ;;
+          esac
+
+      - name: Report UAT source superseded before mutation
+        if: steps.retention.outputs.cleanup_outcome == 'no_live_source'
+        run: |
+          echo "UAT retention follow-up skipped: the source no longer matches live traffic or is ineligible. No Cloud Run revision was deleted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report UAT cleanup already settled or not due
+        if: steps.retention.outputs.cleanup_outcome == 'settled_or_not_due'
+        run: |
+          echo "UAT retention follow-up skipped: cleanup is settled or the verified drain clock is not yet due. Scheduled maintenance remains available." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save final UAT drain evidence
+        if: success() && steps.retention.outputs.cleanup_outcome == 'applied'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-retention-state
+          path: ${{ runner.temp }}/uat-retention-state/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Report remaining UAT connection capacity
+        if: steps.source.outputs.cleanup_ready == 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat --phase post-release
 
   cleanup:
     concurrency:
