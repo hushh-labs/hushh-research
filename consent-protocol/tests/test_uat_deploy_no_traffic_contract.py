@@ -377,6 +377,108 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
+def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() -> None:
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    steps = build["steps"]
+    preflight = next(step["args"][-1] for step in steps if step.get("id") == "verify-runtime-iam")
+    probe = next(
+        step["args"][-1] for step in steps if step.get("id") == "verify-managed-vertex-runtime"
+    )
+    step_ids = [step.get("id") for step in steps]
+    assert step_ids.index("verify-runtime-iam") < step_ids.index("deploy-backend")
+    assert step_ids.index("deploy-backend") < step_ids.index("verify-managed-vertex-runtime")
+
+    # Execute the actual preflight decision with a fake build-principal gcloud.
+    # Cross-project discovery is denied, as it is in the UAT Cloud Build account.
+    start = preflight.index("gcloud iam service-accounts describe")
+    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
+    decision = preflight[start:end]
+    script = (
+        """set -euo pipefail
+gcloud() {
+  printf 'CALL:%s\\n' "$*" >&2
+  if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
+  if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
+  if [[ "$1 $2" == "services list" ]]; then
+    printf 'aiplatform.googleapis.com\\n'
+  elif [[ "$*" == *roles/aiplatform.user* ]]; then
+    printf 'roles/aiplatform.user\\n'
+  elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
+    printf 'roles/serviceusage.serviceUsageConsumer\\n'
+  else
+    return 8
+  fi
+}
+"""
+        + decision
+    )
+
+    def run_case(
+        deploy_env: str,
+        no_traffic: str,
+        probe_enabled: str,
+        genai_project: str,
+        *,
+        deny_project_discovery: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML with a fake gcloud
+            ["/bin/bash", "-c", script],
+            env={
+                "PROJECT_ID": "hushh-pda-uat",
+                "genai_project_id": genai_project,
+                "_RUNTIME_SERVICE_ACCOUNT": "runtime@hushh-pda-uat.iam.gserviceaccount.com",
+                "_DEPLOY_ENV": deploy_env,
+                "_CLOUD_RUN_NO_TRAFFIC": no_traffic,
+                "_VERIFY_MANAGED_VERTEX_RUNTIME": probe_enabled,
+                "DENY_PROJECT_DISCOVERY": "true" if deny_project_discovery else "false",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    uat = load_profile("uat")["project"]
+    deferred = run_case("uat", "true", "true", uat, deny_project_discovery=True)
+    assert deferred.returncode == 0, deferred.stderr
+    assert deferred.stderr.count("CALL:") == 1
+    assert "CALL:iam service-accounts describe" in deferred.stderr
+
+    for deploy_env, no_traffic, probe_enabled, project in (
+        ("uat", "false", "true", uat),
+        ("uat", "true", "false", uat),
+        ("dev", "true", "true", uat),
+        ("production", "true", "true", uat),
+        ("uat", "true", "true", "hushh-pda-uat"),
+    ):
+        denied = run_case(
+            deploy_env,
+            no_traffic,
+            probe_enabled,
+            project,
+            deny_project_discovery=True,
+        )
+        assert denied.returncode != 0, (deploy_env, no_traffic, probe_enabled, project)
+        assert "CALL:services list --enabled" in denied.stderr
+
+    static = run_case("production", "true", "true", uat, deny_project_discovery=False)
+    assert static.returncode == 0, static.stderr
+    assert static.stderr.count("CALL:projects get-iam-policy") == 2
+
+    # Deferral is safe only while the exact runtime account probes the pinned
+    # candidate image and positive chat/voice verdicts precede any advisory exit.
+    assert '--service-account="${_RUNTIME_SERVICE_ACCOUNT}"' in probe
+    assert '--image="${image_reference}"' in probe
+    assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in probe
+    advisory = probe.index('if [[ "${classification}" == "provider_unavailable" ]]; then')
+    for required in (
+        'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]',
+        'verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"]',
+        'verdict.get("one_chat_probe_ok") is not True',
+        'verdict.get("one_voice_probe_ok") is not True',
+    ):
+        assert probe.index(required) < advisory
+
+
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
