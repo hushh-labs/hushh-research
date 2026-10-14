@@ -214,6 +214,10 @@ async function open(
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(assetPath)) {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
+      return;
+    }
     if (/^\/brand\/cards\/[a-z]+(?:-[a-z]+)*\.(svg|png)$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: assetPath.endsWith(".svg") ? "image/svg+xml" : "image/png" });
       return;
@@ -384,7 +388,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         await expect(details.getByText(fullNumber, { exact: true })).toBeVisible();
         await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toContain(`reveal:${lastCardId}`);
-        await page.getByRole("button", { name: "All cards", exact: true }).click();
+        await page.getByRole("button", { name: "Back", exact: true }).click();
       }
       await page.emulateMedia({ reducedMotion: "reduce" });
       expect(await stack.locator("li").first().evaluate((el) => getComputedStyle(el).transitionDuration)).toBe("0s");
@@ -490,7 +494,7 @@ for (const width of [320, 390, 1024]) {
     await profile.click();
     await expect(browser).toHaveAttribute("data-mode", "card");
     const detail = page.getByTestId("wallet-selected-card");
-    const allCards = detail.getByRole("button", { name: "All cards", exact: true });
+    const allCards = detail.getByRole("button", { name: "Back", exact: true });
     await allCards.scrollIntoViewIfNeeded();
     await expect(allCards).toBeInViewport();
     const next = detail.getByRole("button", { name: "Next card", exact: true });
@@ -504,7 +508,7 @@ for (const width of [320, 390, 1024]) {
     await page.screenshot({ path: testInfo.outputPath("cards-detail.png") });
     await expect(page.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/fixture-referral");
     expect(await page.evaluate(() => window.__walletEvents ?? [])).not.toContain("reveal:card_a");
-    await detail.getByRole("button", { name: "All cards", exact: true }).click();
+    await detail.getByRole("button", { name: "Back", exact: true }).click();
     await expect(browser).toHaveAttribute("data-mode", "all");
     const add = browser.getByRole("button", { name: "Add a payment card", exact: true });
     await add.scrollIntoViewIfNeeded();
@@ -646,7 +650,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(face).toContainText("5555555555554444");
   await expect(face).toHaveAttribute("data-revealed", "true");
   const artwork = await face.getAttribute("data-card-artwork");
-  await selected.getByRole("button", { name: "All cards", exact: true }).click();
+  await selected.getByRole("button", { name: "Back", exact: true }).click();
   const saved = page.locator('[data-gesture-card="card_saved_1"]');
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(page.getByTestId("wallet-add-stack").locator("li:not([inert])")).toHaveCount(4);
@@ -1012,13 +1016,13 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
   expect((await profileDetails.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await profileDetails.click();
   await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
-  await page.getByRole("button", { name: "All cards", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
   await scrollRoot.evaluate(el => { el.scrollTop = el.scrollHeight; });
   const last = page.getByTestId("wallet-add-stack").locator("li").last().getByRole("button").first();
   await last.focus();
   await last.press("Enter");
   await expect(page.getByRole("region", { name: "Saved card details", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "All cards", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   const sharing = page.getByTestId("wallet-sharing-content");
   await expect(sharing.locator("figure")).toHaveCount(0);
@@ -1053,19 +1057,39 @@ for (const width of [320, 393, 1024]) {
     expect(consoleErrors).toEqual([]);
     await email.blur();
     await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
-    // Exercise the actual owner wrapper: preview removes the large face and Back restores it.
+    // Exercise the selected card's real visitor and editor layers before the collection.
     await open(page, width, "light", { cards: 0 }, { shell: true, secure: true });
     await mount(page);
-    await page.getByRole("button", { name: "Agent One Profile", exact: true }).click();
-    const face = page.getByTestId("wallet-selected-card").locator("[data-agent-card]");
-    await expect(face).toBeVisible();
-    await page.getByRole("button", { name: /Preview as visitor/ }).click();
-    await expect(page.getByTestId("visitor-profile-card")).toBeVisible();
-    await expect(face).toBeHidden();
-    await expect(page.getByTestId("visitor-profile-card").locator("h1")).toHaveCSS("font-size", "20px");
-    await page.screenshot({ path: testInfo.outputPath(`owner-preview-${width}.png`), fullPage: true });
-    await page.getByRole("button", { name: "All cards", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Agent One Profile", exact: true })).toBeVisible();
+    for (const [kind, title] of [["profile", "Agent One Profile"], ["nws", "Agent One NWS"]] as const) {
+      await page.getByRole("button", { name: title, exact: true }).click();
+      const face = page.getByTestId("wallet-selected-card").locator("[data-agent-card]");
+      await expect(face).toHaveAttribute("data-agent-card", kind);
+      await expect(face).toHaveAttribute("data-artwork-ready", "true");
+      await page.getByRole("button", { name: /Preview as visitor/ }).click();
+      await expect(page.getByTestId("visitor-profile-card")).toBeVisible();
+      await expect(face).toBeVisible();
+      await expect(page.getByText("Profile card preview", { exact: true })).toHaveCount(0);
+      const order = await page.getByTestId("wallet-selected-card").evaluate(el => {
+        const face = el.querySelector('[data-agent-card]')!.getBoundingClientRect();
+        const visitor = el.querySelector('[data-testid="visitor-profile-card"]')!.getBoundingClientRect();
+        return face.bottom <= visitor.top;
+      });
+      expect(order).toBe(true);
+      await expect(page.getByTestId("visitor-profile-card").locator("h1")).toHaveCSS("font-size", "20px");
+      await page.screenshot({ path: testInfo.outputPath(`owner-preview-${kind}-${width}.png`), fullPage: true });
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await expect(page.getByTestId("visitor-profile-card")).toHaveCount(0);
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+      await expect(face).toHaveAttribute("data-agent-card", kind);
+      await expect(page.getByRole("button", { name: /Preview as visitor/ })).toBeVisible();
+      await page.getByRole("button", { name: /^Edit shared information/ }).click();
+      await expect(page.getByTestId("wallet-card-setup-form")).toBeVisible();
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await expect(page.getByTestId("wallet-card-setup-form")).toHaveCount(0);
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+    }
 
   });
 }
@@ -1103,7 +1127,7 @@ for (const width of [320, 1440]) {
       await page.screenshot({ path: testInfo.outputPath(`revoke-${kind.toLowerCase()}-${width}.png`) });
       if (kind !== "Referral") {
         if (kind === "NWS") {
-          await page.getByRole("button", { name: "All cards", exact: true }).click();
+          await page.getByRole("button", { name: "Back", exact: true }).click();
           await page.getByRole("button", { name: "Agent One Profile", exact: true }).click();
         } else {
           await page.getByRole("button", { name: "Next card", exact: true }).click();
