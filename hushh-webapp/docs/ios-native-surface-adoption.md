@@ -32,12 +32,30 @@ UI contract build/check, typecheck, signed iPhone build and exact local core pas
 
 The built UAT qualification candidate is Debug 1.4.0 (69), executable SHA-256
 `60cacf2510aac712309adc714acabca9e2aa313589c1418eb1b875f706e9f476`.
-Only its runner has been installed. The iPhone product still has the installed
-identity documented below; candidate installation/restart awaits draft-loss
-approval. The old-product resume rehearsal stopped at unavailable Chat controls
-before exercising the system interruption. It is neither a reproduced resume
-cycle nor a candidate pass. Physical resume, transition-frame, accessibility and
-performance acceptance remain open; no renderer family was newly qualified.
+This product was installed after explicit one-restart approval. Normal reviewer
+passphrase unlock passed once through process-only, whole-value input. The
+attach-only run passed two background cycles with actual Profile open/close,
+retained draft and session. It then stopped before Control Center touch recovery
+because the harness did not identify the system panel. That is not a combined
+resume pass. Preferences subsequently failed with an unavailable element/snapshot;
+the still-running product was left in a detail pane without admitted Back/Close.
+A focused Control Center rerun stopped at that entry gate, not at Control Center.
+One bounded normal hardware Escape did not recover the pane. No second product
+restart, account reset or credential retry was performed.
+
+Follow-up source `cff517c134` fences retained Back replacement to the exact pane
+identity, including privacy generation. Same-pane nested navigation retains its
+host; changed panes require ordinary retirement/preparation. All 156 bridge cases
+pass; removing the fence fails the changed-pane regression. Typecheck, UI contracts
+and native static checks pass. This replacement capability is disabled in the
+installed foreground shell, so the defect is not established as that physical
+failure's cause. The existing bounded Debug probe now samples the actual pane
+Back/Close admission rather than withdrawn History. Its further candidate install
+requires separate restart approval. Canonical UAT asset preparation and the signed
+iPhone app/test build pass at this source; the uninstalled executable SHA-256 is
+`4ca913cb4d6ea2f0f8a18482078d9e7be8c550583814b2274896667dd708954e`.
+No exact follow-up core or CI result is claimed. Transition-frame, accessibility, Control Center
+and physical performance acceptance remain open; no family was newly qualified.
 
 Consumers of lifecycle state must observe authoritative validation receipts as
 well as events. Preserve generation/owner fences, require fresh admission, and
@@ -48,7 +66,7 @@ React-owned until their complete overlapping presentation is separately qualifie
 
 ### Active Profile parity correction — 2026-10-13
 
-The installed iPhone qualification product is `e6456b8315`, Debug 1.4.0 (69),
+The previously installed iPhone qualification product was `e6456b8315`, Debug 1.4.0 (69),
 UAT-backed; executable SHA-256
 `fcbb4229acf1e75e1516397392713298117a8eb0539e55766c2983b46f8be116`.
 Exact local core passed in 485 seconds. Signing and packaged assets pass.
