@@ -1,0 +1,20 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(64px, 1fr) minmax(124px, 1.5fr);
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: var(--settings-row-py) 4px;
+}
+.qr { min-width: 0; width: 100%; max-width: 220px; }
+.actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; max-width: 244px; justify-self: end; }
+.actions > button {
+  width: 100%;
+  min-height: 44px;
+  height: auto;
+  padding: 8px;
+  white-space: normal;
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 1.3;
+}
