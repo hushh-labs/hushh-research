@@ -99,7 +99,7 @@
     {
       "action_id": "route.profile_world_model",
       "label": "Open Personal World Model",
-      "meaning": "Opens your Personal World Model inside Profile.",
+      "meaning": "Opens your Personal World Model in Profile.",
       "aliases": [
         "open personal world model",
         "open PWM"
@@ -115,7 +115,6 @@
           "/one/profile/world-model"
         ],
         "screens": [
-          "profile_home",
           "profile_account",
           "profile_world_model"
         ],
