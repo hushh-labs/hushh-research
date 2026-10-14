@@ -339,6 +339,18 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### WorkOS enterprise SSO (flagged)
+
+Gated by `WORKOS_SSO_ENABLED` (default off). While off, every route below answers `404` and Firebase sign-in is unchanged. SSO proves identity only: a successful exchange returns a Firebase custom token and grants no role, consent, or vault access. WorkOS is the authority for organizations, DNS-verified domains and connections; there is no Hussh-side registry or table. See the [ADR](./enterprise-sso-workos-adr.md). Both sign-in routes are rate limited per client IP.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/auth/sso/start?email=` or `?organization_id=` | None | Ask WorkOS which organization has verified the email's domain and has not had SSO switched off, and return `{authorization_url, state, organization}`. Free-mail domains, unknown domains and organizations whose connections are all inactive return `404 sso_not_available`. |
+| POST | `/api/auth/sso/exchange` | None (one-time WorkOS code + signed state) | `{code, state}` returns `{custom_token, user_id, is_new_account, organization}`. The client signs in with the custom token. Refusals: `sso_state_invalid`, `sso_code_invalid`, `sso_org_mismatch`, `sso_org_not_enabled`, `sso_domain_not_verified`, `sso_deprovisioned`, `sso_email_conflict`, `sso_account_conflict`, `sso_account_deleted`. |
+| POST | `/api/webhooks/workos` | `WorkOS-Signature` over the raw body (180 s window) | Directory Sync deprovisioning. `dsync.user.deleted` and `dsync.user.updated` with `state: inactive` mark the person deprovisioned and refuse later sign-in through the organization. An account SSO created is also disabled, its refresh tokens revoked and its consent grants revoked; an existing personal account that SSO only linked has its sessions revoked and is otherwise left alone. Every step is idempotent, so redelivery repeats harmlessly. Other events are acknowledged and ignored. |
+
+The custom token carries exactly `auth_provider=workos` and `workos_org_id`. The browser must compare the returned `state` to the value it stored before redirecting, then pass it back to the exchange.
+
 ### Chat push device registration
 
 `POST /api/notifications/register` uses Firebase authentication and verifies the

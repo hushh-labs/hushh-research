@@ -460,6 +460,15 @@ from api.routes import one_wallet_card  # noqa: E402
 app.include_router(one_wallet_card.router)
 logger.info("one_wallet_card.routes_registered")
 
+# WorkOS enterprise SSO: /api/auth/sso/* and /api/webhooks/workos. Gated by
+# WORKOS_SSO_ENABLED; when off every route answers 404, so registering
+# unconditionally is safe and Firebase sign-in is untouched.
+from api.routes import workos as workos_sso  # noqa: E402
+
+app.include_router(workos_sso.router)
+app.include_router(workos_sso.webhook_router)
+logger.info("workos_sso.routes_registered")
+
 # White Pages public lookup: unauthenticated, rate-limited; returns only verified
 # claims and the titles/prices of their for-sale packets.
 from api.routes import white_pages_public  # noqa: E402
