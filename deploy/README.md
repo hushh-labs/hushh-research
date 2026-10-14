@@ -92,9 +92,7 @@ provenance checks. Other failed deployments and no-op runs grant no cleanup auth
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
 `uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
-supports 3,600-second requests. Each pass finishes and publishes completed drain
-receipts promptly. The existing timer rechecks due work; no runner sleeps through
-the drain interval. Both environments skip cloud authentication for settled or
+supports 3,600-second requests, so its verified drain lasts about 61 minutes. A UAT follow-up waits until that deadline outside the deployment lock, then rechecks the source and live traffic under the lock before deletion. Scheduled passes retry inspection after a failed or missed follow-up, but a failed workflow's artifact is not trusted, so a retry may start a new drain interval. The timer also handles production. Both environments skip cloud authentication for settled or
 not-yet-due receipts. New deployment requests still wake inspection, and each
 mutation pass rechecks the newest receipt under the shared deployment lock.
 Traffic/generation or release changes invalidate the saved clock; missing or
@@ -102,19 +100,15 @@ expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
 the actual last-known-good revisions remain protected.
 
 Only a short maintenance pass shares its environment's rollout/rollback lock; all
-participants queue without replacing pending deployments. Admission checks
-conservatively count every retained UAT database revision while cleanup is
-deferred, so overlapping drains cannot silently exceed the database budget.
-The capacity gate can still reject an unsafe release.
+participants queue without replacing pending deployments. Backend and paired-release admission checks conservatively count every retained UAT database revision while cleanup is deferred, so overlapping drains cannot silently exceed the database budget. A frontend-only release is classified as zero incremental SQL demand only when the live web runtime and new candidate have no declared database bindings; this is checked under the deploy lock and again before candidate smoke and traffic promotion. Unverifiable web configuration blocks the release. This is a reviewed application contract: runtime configuration checks cannot prove arbitrary image code will never access a database. The frontend identity should ultimately have access only to its own named secrets.
 
-Both UAT deploy workflows poll capacity for at most five minutes, including
+Both UAT deploy workflows poll capacity for at most 90 minutes, including
 query and final-verification time, before taking
 the `deploy-uat` mutation lock. A backend request (including One chat and `auto`)
 waits in the backend request group; an explicit `scope=frontend` request uses a
 separate group and can proceed while backend revisions drain. GitHub's
 `queue: max` holds at most 100 pending runs per group; a further run is canceled.
-An exact job inventory drift with extra unprofiled jobs and no missing profiled
-jobs is retried within the five-minute check. Exhaustion returns `DEFERRED_CAPACITY`
+For backend admission, an exact job inventory drift with extra unprofiled jobs and no missing profiled jobs is retried within the 90-minute check. Exhaustion returns `DEFERRED_CAPACITY`
 with the original SHA/scope for a governed operator retry; it does not dispatch
 an automatic release or produce a healthy release receipt. The check never admits while that drift
 persists and reports the extra names if it times out. Missing profiled jobs,

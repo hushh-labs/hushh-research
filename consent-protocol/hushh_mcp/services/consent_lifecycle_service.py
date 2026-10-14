@@ -290,6 +290,42 @@ class ConsentLifecycleService:
                 else "No active consent found for the requested scope",
                 status_code=404,
             )
+        return await self._revoke_token_row(
+            user_id, token_to_revoke, scope=scope, export_cache=export_cache
+        )
+
+    async def revoke_all_active_grants(
+        self,
+        user_id: str,
+        *,
+        export_cache: MutableMapping[str, Any] | None = None,
+    ) -> int:
+        """Revoke every live grant this owner holds, one row at a time.
+
+        Same per-token behavior as ``revoke_active_grant`` (token revoked, export
+        deleted, REVOKED event written); only the selection differs. Returns how
+        many grants were revoked. Used when the owner's enterprise identity is
+        deprovisioned, so no previously issued grant outlives the session.
+        """
+        owned = await self._owned_identifiers(user_id)
+        active_tokens = await self._db.get_active_tokens(
+            user_id, **identifier_filter_kwargs(user_id, owned)
+        )
+        internal_tokens = await self._db.get_active_internal_tokens(user_id)
+        revoked = 0
+        for token in [*internal_tokens, *active_tokens]:
+            await self._revoke_token_row(user_id, token, scope=None, export_cache=export_cache)
+            revoked += 1
+        return revoked
+
+    async def _revoke_token_row(
+        self,
+        user_id: str,
+        token_to_revoke: dict[str, Any],
+        *,
+        scope: str | None,
+        export_cache: MutableMapping[str, Any] | None,
+    ) -> dict[str, Any]:
         resolved_scope = _clean(token_to_revoke.get("scope")) or scope or ""
 
         original_token = token_to_revoke.get("token_id")

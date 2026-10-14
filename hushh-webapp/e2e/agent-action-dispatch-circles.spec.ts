@@ -54,7 +54,7 @@ async function openReviewerLocationSession(page: Page) {
 
   const unlockInput = page.locator("#unlock-passphrase");
   const unlockButton = page
-    .getByRole("button", { name: /unlock with passphrase/i })
+    .getByRole("button", { name: /unlock with password/i })
     .first();
   const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
   const deadline = Date.now() + 90_000;

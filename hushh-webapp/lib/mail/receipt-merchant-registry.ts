@@ -1,3 +1,5 @@
+import type { ReceiptCategory } from "@/lib/services/gmail-receipts-service";
+
 type ReviewedReceiptMerchant = {
   merchantId: string;
   displayName: string;
@@ -7,6 +9,7 @@ type ReviewedReceiptMerchant = {
   senderDomains: readonly string[];
   includeSubdomains: boolean;
   canRelaySellerReceipts: boolean;
+  categoryFallback?: ReceiptCategory;
 };
 
 /**
@@ -116,12 +119,39 @@ const VERIFIED_MERCHANT_DOMAIN_RULES = [
     includeSubdomains: true,
     canRelaySellerReceipts: false,
   },
+  {
+    // Official contact trainings@internshala.com is published on:
+    // trainings.internshala.com/human-resource-management-launchpad/
+    merchantId: "internshala-trainings",
+    displayName: "Internshala Trainings",
+    senderDomains: ["internshala.com"],
+    logoDomain: "trainings.internshala.com",
+    homepageUrl: "https://trainings.internshala.com",
+    aliases: ["Internshala Trainings"],
+    includeSubdomains: false,
+    canRelaySellerReceipts: false,
+    categoryFallback: "Software & Subscriptions",
+  },
+  {
+    // Official sender guidance: support.udemy.com/hc/en-us/articles/1500010880021
+    // and /37094869867415. Do not approve the whole udemymail.com namespace.
+    merchantId: "udemy",
+    displayName: "Udemy",
+    senderDomains: ["udemy.com", "email.udemy.com", "e.udemymail.com"],
+    logoDomain: "udemy.com",
+    homepageUrl: "https://www.udemy.com",
+    aliases: ["Udemy"],
+    includeSubdomains: false,
+    canRelaySellerReceipts: false,
+    categoryFallback: "Software & Subscriptions",
+  },
 ] as const satisfies readonly ReviewedReceiptMerchant[];
 
 export type VerifiedReceiptMerchantKey =
   (typeof VERIFIED_MERCHANT_DOMAIN_RULES)[number]["merchantId"];
 
 export type VerifiedReceiptMerchant = {
+  categoryFallback?: ReceiptCategory;
   merchantId: VerifiedReceiptMerchantKey;
   displayName: string;
   logoDomain: string;
@@ -212,6 +242,7 @@ function merchantBrand(rule: VerifiedMerchantDomainRule): VerifiedReceiptMerchan
     displayName: rule.displayName,
     logoDomain: rule.logoDomain,
     homepageUrl: rule.homepageUrl,
+    ...("categoryFallback" in rule ? { categoryFallback: rule.categoryFallback } : {}),
   };
 }
 
@@ -257,8 +288,13 @@ export function resolveVerifiedReceiptMerchantBrand(input: {
 
   const domain = String(input.merchantDomain || input.senderDomain || "").trim();
   if (domain) {
-    const domainRule = findVerifiedMerchantDomainRule(domain);
-    if (!domainRule || (domainRule.merchantId !== seller.merchantId && !domainRule.canRelaySellerReceipts)) return null;
+    // A reviewed site/logo host is merchant evidence, not proof of an email sender.
+    const reviewedMerchantDomain = Boolean(input.merchantDomain &&
+      normalizeReceiptSenderDomain(input.merchantDomain) === seller.logoDomain);
+    if (!reviewedMerchantDomain) {
+      const domainRule = findVerifiedMerchantDomainRule(domain);
+      if (!domainRule || (domainRule.merchantId !== seller.merchantId && !domainRule.canRelaySellerReceipts)) return null;
+    }
   }
   return merchantBrand(seller);
 }

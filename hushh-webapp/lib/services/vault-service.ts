@@ -383,7 +383,7 @@ export class VaultService {
         new Set(normalizedWrappers.map((wrapper) => wrapper.method)),
       );
       throw new Error(
-        `Vault state is invalid: passphrase wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`,
+        `Vault state is invalid: password wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`,
       );
     }
 
@@ -733,7 +733,7 @@ export class VaultService {
     }
     const methods = new Set(state.wrappers.map((wrapper) => wrapper.method));
     if (!methods.has("passphrase")) {
-      throw new Error("Passphrase wrapper is mandatory.");
+      throw new Error("Password wrapper is mandatory.");
     }
     const hasPrimaryWrapper = state.wrappers.some(
       (wrapper) =>
@@ -1474,7 +1474,7 @@ export class VaultService {
           "default";
 
         if (normalizedMethod === "passphrase") {
-          throw new Error("Passphrase unlock cannot be removed.");
+          throw new Error("Password unlock cannot be removed.");
         }
 
         if (Capacitor.isNativePlatform()) {
@@ -1615,7 +1615,7 @@ export class VaultService {
     const normalized = this.normalizeVaultKeyHex(decrypted);
     if (!normalized) {
       if (!decrypted) return "";
-      throw new Error("Vault key format is invalid after passphrase unlock.");
+      throw new Error("Vault key format is invalid after password unlock.");
     }
     return normalized;
   }

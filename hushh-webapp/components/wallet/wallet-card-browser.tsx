@@ -13,7 +13,7 @@ import { WALLET_DEMO_CARDS, WalletDemoCardFace, isAgentWalletCard, type WalletDe
 import { cardNetworkLabel } from "./card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
+import { walletCardImageFields } from "@/lib/wallet/wallet-card-image";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./wallet-card-browser.module.css";
 
@@ -145,11 +145,11 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
       <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} demoProfile={demoProfile} renderCard={(card) => isAgentWalletCard(card.cardId) ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} cardholderName={cardholderNames[card.cardId]} collection />} cardControlSummary={(card) => isAgentWalletCard(card.cardId) ? {
         title: card.nickname || "Agent One",
         fields: [
-          { label: "Username", value: demoProfile?.cardPayload?.username || walletProfileUsername(demoProfile?.displayName ?? "") },
+          { label: "Name", value: walletCardImageFields(demoProfile).username },
           { label: "Member since", value: demoProfile?.memberSince && !Number.isNaN(Date.parse(demoProfile.memberSince)) ? String(new Date(demoProfile.memberSince).getFullYear()) : "—" },
           { label: "Wallet ID", value: demoProfile?.walletId?.slice(-8).toUpperCase() || "—" },
         ],
-      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} />
+      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showDetailsLink showActions={false} />
       <div className={styles.quickActions}>
         <Button variant="ghost" size="compact" className={styles.addAction} onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" className="size-4" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
       </div>

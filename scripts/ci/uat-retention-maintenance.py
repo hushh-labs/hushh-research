@@ -7,17 +7,21 @@ import argparse
 from collections.abc import Iterator
 from contextvars import ContextVar
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+import hashlib
 import importlib
+from io import BytesIO
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
 retention = importlib.import_module("cloudrun-retention")
 REGION = "us-central1"
@@ -810,12 +814,183 @@ def bounded_artifacts(repository: str, artifact: str) -> Iterator[dict]:
     raise retention.UnsafeState("retention artifact history exceeds bounded lookup")
 
 
+def _github_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return timestamp if timestamp.tzinfo is not None else None
+
+
+def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> bool:
+    """Trust a completed UAT first pass while its workflow waits for drainage."""
+    if (
+        run.get("path") != ".github/workflows/capacity-maintenance.yml"
+        or run.get("head_branch") != "main"
+        or run.get("status") != "in_progress"
+        or run.get("conclusion") is not None
+        or run.get("event") not in {"workflow_run", "workflow_dispatch", "schedule"}
+        or (run.get("repository") or {}).get("full_name") != repository
+        or (run.get("head_repository") or {}).get("full_name") != repository
+        or type(run.get("id")) is not int
+        or run.get("id") != (artifact.get("workflow_run") or {}).get("id")
+        or type(run.get("run_attempt")) is not int
+        or run["run_attempt"] < 1
+        or type(artifact.get("id")) is not int
+        or artifact["id"] < 1
+        or type(artifact.get("size_in_bytes")) is not int
+        or not 0 < artifact["size_in_bytes"] <= 10 * 1024 * 1024
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("digest", "")))
+    ):
+        return False
+    result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
+    jobs = result.get("jobs")
+    if (
+        not isinstance(jobs, list)
+        or result.get("total_count") != len(jobs)
+        or len(jobs) > 100
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        return False
+    authority = [job for job in jobs if job.get("name") == "Verify cleanup authority and release evidence"]
+    first_pass = [job for job in jobs if job.get("name") == "UAT revision maintenance (no drain wait)"]
+    if len(authority) != 1 or len(first_pass) != 1:
+        return False
+    if any(
+        job.get("status") != "completed"
+        or job.get("conclusion") != "success"
+        or job.get("run_attempt") != run["run_attempt"]
+        for job in (authority[0], first_pass[0])
+    ):
+        return False
+    steps = first_pass[0].get("steps")
+    if not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps):
+        return False
+    by_name = {step.get("name"): step for step in steps}
+    if len(by_name) != len(steps):
+        return False
+    for name in (
+        "Prepare or finish eligible UAT revision cleanup",
+        "Save UAT drain evidence for a later maintenance pass",
+    ):
+        step = by_name.get(name)
+        if not step or step.get("status") != "completed" or step.get("conclusion") != "success":
+            return False
+    saved = by_name["Save UAT drain evidence for a later maintenance pass"]
+    created = _github_timestamp(artifact.get("created_at"))
+    started = _github_timestamp(saved.get("started_at"))
+    completed = _github_timestamp(saved.get("completed_at"))
+    return bool(
+        created and started and completed
+        and started - timedelta(seconds=5) <= created <= completed + timedelta(seconds=30)
+    )
+
+
+def download_pending_uat_state(repository: str, artifact: dict, directory: Path) -> None:
+    """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races."""
+    response = subprocess.run(
+        ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )
+    archive = response.stdout
+    if (
+        len(archive) != artifact["size_in_bytes"]
+        or hashlib.sha256(archive).hexdigest() != artifact["digest"].removeprefix("sha256:")
+    ):
+        raise retention.UnsafeState("pending UAT drain artifact digest changed")
+    allowed = {"README.txt", "completed.json", *(f"{name}.json" for name in LANES["uat"]["services"])}
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            entries = bundle.infolist()
+            names = [entry.filename for entry in entries]
+            if (
+                len(names) != len(set(names))
+                or "completed.json" not in names
+                or "README.txt" not in names
+                or any(
+                    entry.filename not in allowed
+                    or entry.is_dir()
+                    or stat.S_IFMT(entry.external_attr >> 16) == stat.S_IFLNK
+                    or entry.file_size > 1024 * 1024
+                    for entry in entries
+                )
+            ):
+                raise retention.UnsafeState("pending UAT drain artifact has unsafe files")
+            for entry in entries:
+                (directory / entry.filename).write_bytes(bundle.read(entry))
+    except BadZipFile as exc:
+        raise retention.UnsafeState("pending UAT drain artifact is not a ZIP") from exc
+
+
+def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
+    """Carry only a clock that covers the same live identity and deletions."""
+    latest = json.loads(current.read_text())
+    prior = json.loads(older.read_text())
+    if not isinstance(latest, dict) or not isinstance(prior, dict):
+        raise retention.UnsafeState("invalid UAT drain state history")
+    identity = (
+        "schema_version", "service", "project", "region", "release_run_id",
+        "fingerprint", "protected",
+    )
+    if any(latest.get(key) != prior.get(key) for key in identity):
+        return False
+    newer_revisions = latest.get("revisions")
+    older_revisions = prior.get("revisions")
+    newer_clock = latest.get("observed_at")
+    older_clock = prior.get("observed_at")
+    newer_deadline = latest.get("not_before")
+    older_deadline = prior.get("not_before")
+    if (
+        not isinstance(newer_revisions, list)
+        or not isinstance(older_revisions, list)
+        or any(not isinstance(name, str) for name in newer_revisions + older_revisions)
+        or not set(newer_revisions).issubset(older_revisions)
+        or any(type(value) is not int or value <= 0 for value in (
+            newer_clock, older_clock, newer_deadline, older_deadline
+        ))
+        or newer_deadline < newer_clock
+        or older_deadline < older_clock
+    ):
+        return False
+    if older_clock < newer_clock:
+        latest["observed_at"] = older_clock
+        # The helper recomputes the required timeout under the live service
+        # fingerprint before deleting. An earlier due receipt only wakes it.
+        latest["not_before"] = min(newer_deadline, older_deadline)
+        current.write_text(json.dumps(latest, indent=2) + "\n")
+    return True
+
+
 def restore_state(
     repository: str, directory: Path, *, environment: str = "uat"
 ) -> None:
     lane = LANES[environment]
     artifact = lane["state_artifact"]
-    artifacts = bounded_artifacts(repository, artifact)
+    artifacts = list(bounded_artifacts(repository, artifact))
+    if environment == "uat":
+        # GitHub's artifact listing is not strictly ordered by created_at.
+        # Examine newer evidence first, then carry the earliest compatible
+        # clock until a changed or empty pass breaks the lineage.
+        if any(
+            _github_timestamp(item.get("created_at")) is None
+            for item in artifacts
+            if item.get("name") == artifact and item.get("expired") is False
+        ):
+            raise retention.UnsafeState("UAT drain artifact has no valid creation time")
+        artifacts.sort(
+            key=lambda item: _github_timestamp(item.get("created_at"))
+            or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+    selected = False
+    active = {
+        service for service in lane["services"]
+        if (directory / f"{service}.json").exists()
+    }
     for item in artifacts:
         if item.get("name") != artifact or item.get("expired") is not False:
             continue
@@ -823,11 +998,50 @@ def restore_state(
         if type(run_id) is not int or run_id < 1:
             raise retention.UnsafeState("state artifact lacks a valid source run")
         run = api(repository, f"runs/{run_id}")
-        if not trusted_run(run, repository, "capacity-maintenance.yml"):
+        completed = trusted_run(run, repository, "capacity-maintenance.yml")
+        pending_uat = environment == "uat" and trusted_pending_uat_state(
+            repository, run, item
+        )
+        if not completed and not pending_uat:
             continue
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
-            download(repository, run["id"], artifact, source)
+            if pending_uat:
+                download_pending_uat_state(repository, item, source)
+            else:
+                download(repository, run["id"], artifact, source)
+            if not selected and environment == "uat":
+                receipt = source / "completed.json"
+                if not receipt.is_file() or receipt.is_symlink():
+                    raise retention.UnsafeState("UAT drain artifact lacks a regular completion receipt")
+                source_states = {
+                    service for service in lane["services"]
+                    if (source / f"{service}.json").is_file()
+                    and not (source / f"{service}.json").is_symlink()
+                }
+                if not source_states:
+                    # A newer successful empty pass supersedes even preseeded
+                    # state from this workflow's earlier first pass.
+                    for service in lane["services"]:
+                        destination = directory / f"{service}.json"
+                        if destination.is_symlink():
+                            raise retention.UnsafeState("preseeded retention state is a symlink")
+                        destination.unlink(missing_ok=True)
+                    destination = directory / "completed.json"
+                    if destination.is_symlink():
+                        raise retention.UnsafeState("preseeded retention state is a symlink")
+                    shutil.copyfile(receipt, destination)
+                    return
+            if selected:
+                for service in tuple(active):
+                    earlier = source / f"{service}.json"
+                    if not earlier.is_file() or earlier.is_symlink() or not carry_earlier_uat_clock(
+                        directory / earlier.name, earlier
+                    ):
+                        active.remove(service)
+                if not active:
+                    return
+                continue
             for name in [
                 *(f"{service}.json" for service in lane["services"]),
                 "completed.json",
@@ -845,7 +1059,16 @@ def restore_state(
                     # preseeded state against live service identity before use.
                     if not destination.exists():
                         shutil.copyfile(state, destination)
-        return
+            selected = True
+            if environment == "production":
+                return
+            active = {
+                service for service in lane["services"]
+                if (directory / f"{service}.json").exists()
+            }
+            if not active:
+                # A newer empty pass must supersede older pending receipts.
+                return
 
 
 def latest_deploy_observation(repository: str, environment: str) -> int:
@@ -886,7 +1109,7 @@ def maintenance_due(
     release_run_id: int | None = None,
     restore: bool = True,
 ) -> bool:
-    """Avoid cron cloud work after a settled pass; failed first passes retry."""
+    """Avoid settled cron work; wake UAT drains even before their deadline."""
     if restore:
         restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
@@ -909,6 +1132,7 @@ def maintenance_due(
         release_run_id is not None and completed["release_run_id"] != release_run_id
     ) or completed["observed_run_id"] != observed:
         return True
+    pending_uat_drain = False
     for service in LANES[environment]["services"]:
         path = directory / f"{service}.json"
         if not path.exists():
@@ -925,7 +1149,16 @@ def maintenance_due(
             raise retention.UnsafeState(f"invalid {environment} drain receipt")
         if state["not_before"] <= time.time():
             return True
-    return False
+        if environment == "uat":
+            # The first pass may have completed without its delayed recheck
+            # running. Reinspect a trusted pending receipt so this new run
+            # emits a deadline and schedules its own wait outside the lock.
+            # The retention helper still requires live identity and the full
+            # drain interval before it can delete anything. Multiple cron
+            # wakes may wait for the same deadline; their rechecks serialize
+            # under the deploy lock and independently revalidate live state.
+            pending_uat_drain = True
+    return pending_uat_drain
 
 
 def production_maintenance_due(repository: str, directory: Path) -> bool:
@@ -1137,6 +1370,16 @@ def main() -> int:
         _LOOKUP_DEADLINE.reset(deadline)
 
 
+def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
+    """Expose a recheck result without treating a stale source as an error."""
+    if not args.apply or args.environment != "uat":
+        return
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with Path(output).open("a") as stream:
+            stream.write(f"cleanup_outcome={outcome}\n")
+
+
 def maintenance_pass() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
@@ -1185,6 +1428,7 @@ def maintenance_pass() -> int:
         return 0
     if found is None:
         print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
+        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
     if args.apply:
@@ -1197,11 +1441,13 @@ def maintenance_pass() -> int:
             restore=False,
         ):
             print("Maintenance settled or not yet due; no cloud mutation authorized.")
+            record_uat_cleanup_outcome(args, "settled_or_not_due")
             return 0
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
         )
+        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
@@ -1289,13 +1535,19 @@ def maintenance_pass() -> int:
             )
             + "\n"
         )
+        record_uat_cleanup_outcome(args, "applied")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
+        retry_path = (
+            "Pending deletions get a timed follow-up, with scheduled passes as backup. "
+            if args.environment == "uat"
+            else "Pending deletions are retried by short scheduled maintenance passes. "
+        )
         with Path(summary).open("a") as output:
             output.write(
                 f"## {args.environment} revision maintenance\n\nVerified source release: {run_id}. "
                 "This pass completes without waiting for requests to drain. "
-                "Pending deletions are retried by short scheduled maintenance passes. "
+                f"{retry_path}"
                 "Release health is separate.\n"
             )
             if args.apply:

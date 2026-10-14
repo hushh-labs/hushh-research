@@ -130,9 +130,9 @@ export default function TrustedDeviceAuthorizePage() {
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Approve this private computer as an extension of One. The vault
-          passphrase remains local to Hermes and is never sent to Hussh. When
+          password remains local to Hermes and is never sent to Hussh. When
           this browser can use an existing One passkey, Touch ID can secure the
-          device without asking for the passphrase again. Each signed device
+          device without asking for the password again. Each signed device
           proof can issue a short-lived vault-owner capability for protected
           actions, including confirmed PKM writes.
         </p>

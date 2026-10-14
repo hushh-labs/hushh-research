@@ -87,7 +87,7 @@ function WalletAgentCardImage({ kind, name, profile, onArtworkLoad }: {
       {failedKey === requestKey ? <span className="sr-only">The card image could not be loaded. Open details to view your card.</span> : null}
       {kind === "nws" ? <span className="sr-only">{NWS_SAMPLE_DESCRIPTION}</span> : null}
       <dl className="sr-only">
-        <div><dt>Username</dt><dd>{fields.username}</dd></div>
+        <div><dt>Name</dt><dd>{fields.username}</dd></div>
         <div><dt>Member since</dt><dd>{fields.memberSince}</dd></div>
         <div><dt>Wallet ID</dt><dd>{fields.walletId}</dd></div>
       </dl>

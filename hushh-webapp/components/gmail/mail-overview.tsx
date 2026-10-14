@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Check, FileText, Mail, PenLine, Undo2 } from "@/components/icons";
+import { Check, FileText, Mail, PenLine, Undo2 } from "@/components/icons";
 import { useRef, type CSSProperties } from "react";
 import styles from "./mail-overview.module.css";
 import {
@@ -11,22 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AskOneButton } from "@/components/agent/ask-one-button";
-import { SettingsRow } from "@/components/app-ui/settings-ui";
-
-/**
- * Ring with a single rotating arc. The track stays put and only the arc
- * turns, so the motion reads as activity at a glance. The global
- * `.animate-spin` rule keeps it turning even under Reduce Motion, which is the
- * convention for every other loading indicator in the app.
- */
-function ReceiptSyncSpinner() {
-  return (
-    <span role="status" aria-label="Fetching receipts" className="relative block size-6 shrink-0">
-      <span aria-hidden="true" className="absolute inset-0 rounded-full border-[2.5px] border-emerald-500/20" />
-      <span aria-hidden="true" className="absolute inset-0 animate-spin rounded-full border-[2.5px] border-transparent border-t-emerald-600 dark:border-t-emerald-400" />
-    </span>
-  );
-}
 
 /** The existing Mail identity, reused in the connected-account card. */
 function MailOverviewIcon() {
@@ -107,11 +91,6 @@ export function MailConnectedAccount({
 }
 
 export function MailOverview({
-  fetching,
-  receiptDetail,
-  receiptUpdated,
-  receiptIssue = false,
-  receiptCount,
   onOpenChat,
 }: {
   fetching: boolean;
@@ -159,16 +138,6 @@ export function MailOverview({
             ))}
           </div>
         </div>
-      </div>
-      <div className="border-t border-border/50 py-3 sm:py-4 lg:py-2">
-        <SettingsRow
-          title="Receipt sync"
-          leading={<span aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-full ${receiptIssue ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"}`}>{receiptIssue ? <AlertCircle className="size-6" /> : <FileText className="size-6" />}</span>}
-          description={<span className="block space-y-0.5"><span className="block text-[13px] leading-snug">{receiptDetail}</span>{receiptUpdated || receiptCount !== undefined ? <span className="block text-xs leading-snug text-muted-foreground/75">{[receiptCount !== undefined ? `${receiptCount} receipt${receiptCount === 1 ? "" : "s"}` : null, receiptUpdated].filter(Boolean).join(" · ")}</span> : null}</span>}
-          trailing={fetching ? <ReceiptSyncSpinner /> : undefined}
-          testId="mail-receipt-sync"
-          className={`!rounded-[20px] border ${receiptIssue ? "border-destructive/20 bg-destructive/[0.06] dark:bg-destructive/10" : "border-emerald-500/15 bg-emerald-500/[0.06] dark:bg-emerald-500/10"}`}
-        />
       </div>
       <div className="mx-auto mt-3 w-full max-w-[244px] lg:mt-1">
         <AskOneButton onClick={onOpenChat} showIcon={false} size="prominent" className="w-full sm:w-full">
