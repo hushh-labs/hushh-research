@@ -1,7 +1,7 @@
 /** Owner-only source provenance. These encrypted projections are derived,
  * not another authority and never an agent/shareable export. */
 export interface LivingSourceInput {
-  kind: "profile" | "consent";
+  kind: "profile" | "consent" | "connection" | "curated_oauth_connector" | "document_earning";
   id: string;
   value: Record<string, unknown>;
   createdAt: string | null;
@@ -17,6 +17,17 @@ export interface LivingSourceInventory {
   complete: boolean;
   unavailable: string[];
   observedAt: string;
+  /** Last complete read per bounded source. A skipped scan retains its prior time. */
+  verifiedAt?: Record<string, string>;
+}
+export const DOCUMENT_EARNINGS_FRESHNESS_MS = 5 * 60_000;
+export const CONNECTION_FRESHNESS_MS = 5 * 60_000;
+export const CONSENT_FRESHNESS_MS = 5 * 60_000;
+export const CURATED_OAUTH_CONNECTOR_FRESHNESS_MS = 5 * 60_000;
+function recentlyVerified(at: string | undefined, now: string, maxAge: number): boolean {
+  if (!at) return true; // Legacy inventories gain a timestamp on their next scan.
+  const age = Date.parse(now) - Date.parse(at);
+  return Number.isFinite(age) && age >= 0 && age <= maxAge;
 }
 export function reconcileLivingSources(
   previous: LivingSourceInventory | null,
@@ -24,7 +35,14 @@ export function reconcileLivingSources(
   successfulKinds: readonly string[],
   unavailable: string[],
   now: string,
+  sourceVerifiedAt: Partial<Record<"connection" | "document_earning" | "consent" | "curated_oauth_connector", string>> = {},
 ): LivingSourceInventory {
+  const verifiedAt = { ...(previous?.verifiedAt ?? {}) };
+  for (const kind of successfulKinds) {
+    if (kind === "connection" || kind === "document_earning" ||
+        kind === "consent" || kind === "curated_oauth_connector")
+      verifiedAt[kind] = sourceVerifiedAt[kind] ?? now;
+  }
   const records = new Map(
     (previous?.records ?? []).map((record) => [
       `${record.kind}:${record.id}`,
@@ -77,8 +95,13 @@ export function reconcileLivingSources(
     records: [...records.values()].sort((a, b) =>
       `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`),
     ),
-    complete: unavailable.length === 0,
+    complete: unavailable.length === 0 &&
+      recentlyVerified(verifiedAt.consent, now, CONSENT_FRESHNESS_MS) &&
+      recentlyVerified(verifiedAt.curated_oauth_connector, now, CURATED_OAUTH_CONNECTOR_FRESHNESS_MS) &&
+      recentlyVerified(verifiedAt.connection, now, CONNECTION_FRESHNESS_MS) &&
+      recentlyVerified(verifiedAt.document_earning, now, DOCUMENT_EARNINGS_FRESHNESS_MS),
     unavailable: [...unavailable].sort(),
     observedAt: now,
+    verifiedAt,
   };
 }

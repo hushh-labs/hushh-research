@@ -26,7 +26,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "hushh-pda-uat"
 REGION = "us-central1"
-MAX_WAIT_SECONDS = 300
+MAX_WAIT_SECONDS = 90 * 60
 POLL_SECONDS = 60
 QUERY_DEADLINE: ContextVar[float | None] = ContextVar("query_deadline", default=None)
 
@@ -200,7 +200,7 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
         return [*args, "--candidate-service", "consent-protocol",
                 "--candidate-service", "consent-protocol-drive-worker"]
     if decision.deploy_frontend:
-        return [*args, "--no-candidates"]
+        return [*args, "--frontend-only"]
     raise AdmissionError("UAT deploy scope has no candidate lane")
 
 
@@ -251,6 +251,31 @@ def capacity_report(mode: str, decision: Any | None) -> dict[str, Any]:
         )
     ):
         raise AdmissionError("UAT capacity report has an invalid admission shape")
+    frontend_only = (
+        mode == "full"
+        and decision is not None
+        and decision.deploy_frontend
+        and not decision.deploy_backend
+    )
+    if frontend_only:
+        revisions = report.get("verified_frontend_revisions")
+        if (
+            report.get("admission_mode") != "frontend-only-incremental"
+            or type(report.get("incremental_connections")) is not int
+            or report["incremental_connections"] != 0
+            or report["projected_connections"] != 0
+            or not report["admitted"]
+            or not isinstance(revisions, list)
+            or not revisions
+            or any(
+                not isinstance(name, str)
+                or not name.startswith("hushh-webapp-")
+                for name in revisions
+            )
+        ):
+            raise AdmissionError("UAT frontend incremental admission was not verified")
+    elif report.get("admission_mode") == "frontend-only-incremental":
+        raise AdmissionError("UAT backend capacity report used frontend-only admission")
     return report
 
 
@@ -278,6 +303,12 @@ def _wait_for_capacity(
             resolved_scope(target_sha, requested_scope) if mode == "full" else None
         )
         scope_name = decision.scope if decision is not None else "backend"
+        frontend_only = (
+            mode == "full"
+            and decision is not None
+            and decision.deploy_frontend
+            and not decision.deploy_backend
+        )
         try:
             report = capacity_report(mode, decision)
         except TransientJobInventoryDrift as exc:
@@ -288,7 +319,11 @@ def _wait_for_capacity(
                 report["projected_connections"],
                 report["admission_limit"],
             )
-            last_projection = f"{projected}/{limit}"
+            last_projection = (
+                f"{projected} incremental frontend SQL connections"
+                if frontend_only
+                else f"{projected}/{limit}"
+            )
         if report is not None and report["admitted"]:
             # A long wait may outlive the original CI/governance evidence and
             # the service base used for auto scope. Recheck both before handoff.
@@ -312,18 +347,29 @@ def _wait_for_capacity(
                     raise AdmissionError(
                         "UAT capacity not admitted: validation exceeded deadline"
                     )
-                print(
-                    f"UAT capacity admitted {projected}/{limit} for {scope_name}; "
-                    "deployment will recheck under the mutation lock.",
-                    flush=True,
-                )
+                if frontend_only:
+                    print(
+                        "UAT frontend SQL-free runtime verified; 0 incremental "
+                        "connections. Deployment will recheck under the mutation lock.",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"UAT capacity admitted {projected}/{limit} for {scope_name}; "
+                        "deployment will recheck under the mutation lock.",
+                        flush=True,
+                    )
                 return scope_name
             if final_report is not None:
                 projected, limit = (
                     final_report["projected_connections"],
                     final_report["admission_limit"],
                 )
-                last_projection = f"{projected}/{limit}"
+                last_projection = (
+                    f"{projected} incremental frontend SQL connections"
+                    if frontend_only
+                    else f"{projected}/{limit}"
+                )
         remaining = max_wait_seconds - (time.monotonic() - started)
         if remaining <= 0:
             raise CapacityDeferred(
@@ -333,7 +379,7 @@ def _wait_for_capacity(
         if not warned_about_maintenance:
             print(
                 "The deploy request wakes Capacity Maintenance, which independently verifies "
-                "a healthy release and records drainage for later short passes. This observer cannot "
+                "a healthy release and records drainage for a timed follow-up. This observer cannot "
                 "authorize deletion.",
                 flush=True,
             )
