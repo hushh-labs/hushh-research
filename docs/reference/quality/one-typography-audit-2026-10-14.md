@@ -33,6 +33,7 @@ and asset inspection.
 | Profile and account | 38 route files under `/one/profile`, including account, security, preferences, connected systems, receipts, and support. Local profile pane and row weights competed with shared tokens. | Align page and pane titles with 600, descriptive rows with 400, and labels/actions with the semantic roles. |
 | Specialist agents and chat | The roster includes Messages, Finance/Kai, Wallet, Location, Advisor/RIA, Mail, Calendar, KYC, Memory, Consent, Information Marketplace, and CRM. Chat workspaces and connector panels used local bold/medium utilities. | Use the shared family across One, Puppy, Marketplace, Circle, Gmail, Location, and specialist chat entry points. Align key chat titles, card titles, connectors, calendar, Kai, and Location headings. Capability status and visibility remain state driven. |
 | Wallet cards and image export | Versioned SVG artwork embedded Lexend 500/600/700; the live identity overlay used the same separate family. Static card reference pages requested Lexend from Google Fonts. | Embed the shipped Jakarta 400/600/700 faces in each self-contained SVG; use Jakarta for live identity fields and local font files on reference pages. |
+| Wallet card scanner | A later main update added a live “Scan here to add card” CTA at 500 weight and an illustrated scan card with baked-in serif lettering. | Use the shared Jakarta CTA weight for live text and 400 for the additional-fields summary. The illustrated card lettering is documented below as raster artwork. |
 | Portfolio image sharing | Canvas snapshot used Manrope. | Draw with loaded Jakarta faces and system mono for uppercase metadata. |
 | Mail OAuth placeholder | The brief popup used `system-ui`. | Load the local regular Jakarta face in its same-origin blank document. |
 | Verification fixtures | Layout fixtures pinned Inter; one markdown width constant came from Inter's x-height. | Load the actual shipped Jakarta faces and update font/geometry assertions. |
@@ -58,6 +59,8 @@ The main app renders in web or native WebView and uses the shared CSS. A small
 number of platform-owned pixels do not inherit it: iOS native tab labels and
 notification initials, Android's privacy overlay, splash images, and generated
 map marker initials. Third-party brand marks remain their supplied artwork.
+The wallet scanner's illustrated card has baked-in serif lettering (`AGENT ONE`
+and `PROFILE`); it is raster artwork rather than live UI text.
 Portable report and portfolio PDF generators use their own print-safe fonts;
 the app's on-screen and wallet PNG typography is covered here. Historical
 unreferenced SVG wordmark files remain static assets; the live wordmark
