@@ -3165,6 +3165,13 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
+        addTeardownBlock {
+            guard (self.testRun?.failureCount ?? 0) > 0 else { return }
+            // Observe the failure before another runner activation/privacy
+            // cycle. No Back, Close, retry or protected hierarchy serialization.
+            self.printCoherentPresentationAdmission(app)
+            self.printNativeControlStatuses(web)
+        }
         // The product Profile pane deliberately retains shared body controls.
         // Its native Back/Close are qualified independently. Do not enable an
         // unqualified renderer just to satisfy a historical native-only test.
