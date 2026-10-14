@@ -1555,17 +1555,13 @@ describe("ProfileReceiptsPage", () => {
       );
       render(<ProfileReceiptsPage initialWorkspace={workspace} />);
       if (workspace === "overview") {
-        expect(
-          await screen.findByRole("status", { name: "Fetching receipts" }),
-        ).toBeVisible();
+        expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
         expect(
           within(
             screen.getByRole("tabpanel", { name: "Overview" }),
           ).queryByRole("progressbar", { hidden: true }),
         ).not.toBeInTheDocument();
-        expect(screen.getByTestId("mail-receipt-sync")).toHaveTextContent(
-          "Receipt sync",
-        );
+        expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
       } else {
         expect(
           screen.queryByRole("progressbar", { name: "Receipt sync progress" }),
@@ -1581,38 +1577,7 @@ describe("ProfileReceiptsPage", () => {
     },
   );
 
-  it("keeps one steady fetching state while older purchases arrive as a chain of runs", async () => {
-    const run = (id: string, status: "running" | "completed") => ({
-      run_id: id, user_id: "user-123", trigger_source: "backfill", sync_mode: "backfill" as const,
-      status, listed_count: 10, filtered_count: 5, synced_count: 3, extracted_count: 1,
-      duplicates_dropped: 0, extraction_success_rate: 1,
-    });
-    const backfillView = (syncRun: ReturnType<typeof run>) => makeGmailView({
-      syncRun,
-      presentation: {
-        ...buildGmailView().presentation,
-        state: syncRun.status === "running" ? "connected_backfill_running" : "connected",
-      } as never,
-    });
-    mocks.useGmailConnectorStatus.mockReturnValue(backfillView(run("chunk-1", "running")));
-    const { rerender } = render(<ProfileReceiptsPage initialWorkspace="overview" />);
-    const receiptStatus = await screen.findByTestId("mail-receipt-sync");
-    expect(receiptStatus).toHaveTextContent("Fetching older purchases…");
-
-    // Chunk 1 ends before chunk 2 is visible: the seam must not read as "ready".
-    mocks.useGmailConnectorStatus.mockReturnValue(backfillView(run("chunk-1", "completed")));
-    rerender(<ProfileReceiptsPage initialWorkspace="overview" />);
-    expect(receiptStatus).toHaveTextContent("Fetching older purchases…");
-    expect(receiptStatus).not.toHaveTextContent("Your latest receipts are ready.");
-    expect(screen.getByRole("status", { name: "Fetching receipts" })).toBeVisible();
-
-    mocks.useGmailConnectorStatus.mockReturnValue(backfillView(run("chunk-2", "running")));
-    rerender(<ProfileReceiptsPage initialWorkspace="overview" />);
-    expect(receiptStatus).toHaveTextContent("Fetching older purchases…");
-    expect(receiptStatus).not.toHaveTextContent("Your latest receipts are ready.");
-  });
-
-  it("shows a connected sync failure only in the lower receipt status card", async () => {
+  it("keeps the Mail overview usable after a connected sync failure", async () => {
     const connected = buildGmailView();
     mocks.useGmailConnectorStatus.mockReturnValue(makeGmailView({
       status: { ...connected.status, last_sync_status: "failed" },
@@ -1620,9 +1585,7 @@ describe("ProfileReceiptsPage", () => {
     }));
     render(<ProfileReceiptsPage />);
 
-    const receiptStatus = await screen.findByTestId("mail-receipt-sync");
-    expect(receiptStatus).toHaveTextContent("Sync failed.");
-    expect(receiptStatus).toHaveClass("border-destructive/20");
+    expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
     expect(screen.queryByText("Status", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Draft with One." })).toBeVisible();
     expect(screen.getByRole("button", { name: "Manage" })).toBeVisible();
@@ -2481,9 +2444,9 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
-  it("shows a zero receipt count only after the receipt list has loaded", async () => {
+  it("keeps receipt fetching behind the receipt tab without an overview sync card", async () => {
     render(<ProfileReceiptsPage />);
-    expect(within(screen.getByTestId("mail-receipt-sync")).queryByText(/0 receipts/)).toBeNull();
+    expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
     expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
     await screen.findByText("Start sync to find receipts in your Mail.");
@@ -2491,7 +2454,7 @@ describe("ProfileReceiptsPage", () => {
     await startReceiptSync();
     await screen.findByText(/no receipts are available for this account/i);
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    expect(within(screen.getByTestId("mail-receipt-sync")).getByText(/0 receipts/)).toBeTruthy();
+    expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
   });
 
   it("deletes the Gmail receipt cache when disconnecting", async () => {
