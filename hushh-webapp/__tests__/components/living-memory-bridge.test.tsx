@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   vaultKey: "fixture-vault-key",
   vaultOwnerToken: "fixture-owner-token",
   token: vi.fn(),
+  connectorHead: vi.fn(),
   getMetadata: vi.fn(),
   refreshMemoryDocument: vi.fn(),
   syncLivingSources: vi.fn(),
@@ -31,6 +32,9 @@ vi.mock("@/lib/vault/session-epoch", () => ({
 }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdToken: m.token },
+}));
+vi.mock("@/lib/services/source-journal-service", () => ({
+  SourceJournalService: { connectorHead: (...args: unknown[]) => m.connectorHead(...args) },
 }));
 vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
@@ -109,6 +113,7 @@ describe("LivingMemoryBridge", () => {
     m.connectionChangeListener = null;
     m.payoutChangeListener = null;
     m.token.mockResolvedValue("fixture-id-token");
+    m.connectorHead.mockResolvedValue({ headCursor: "0", changed: false });
     m.getMetadata.mockResolvedValue({ domains: [{ key: "identity" }, { key: "professional" }] });
     m.syncLivingSources.mockResolvedValue(undefined);
     m.refreshMemoryDocument.mockResolvedValue({ document: null, status: "current", builtAt: null });
@@ -267,6 +272,36 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceCuratedConnectors: true }),
+    );
+  });
+
+  it("replays a committed connector hint and checkpoints only after the source scan", async () => {
+    m.connectorHead.mockResolvedValue({ headCursor: "7", changed: true });
+    render(<LivingMemoryBridge />);
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceCuratedConnectors: true }),
+    );
+    m.syncLivingSources.mockClear();
+    m.connectorHead.mockResolvedValue({ headCursor: "7", changed: false });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    expect(m.connectorHead).toHaveBeenLastCalledWith("fixture-owner-token", "7");
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceCuratedConnectors: false }),
+    );
+  });
+
+  it("replays the same hint after an incomplete encrypted source scan", async () => {
+    m.connectorHead.mockResolvedValue({ headCursor: "7", changed: true });
+    m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
+    render(<LivingMemoryBridge />);
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    expect(m.connectorHead).toHaveBeenNthCalledWith(2, "fixture-owner-token", "0");
+    expect(m.syncLivingSources).toHaveBeenLastCalledWith(
       expect.objectContaining({ forceCuratedConnectors: true }),
     );
   });
