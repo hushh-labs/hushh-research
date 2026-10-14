@@ -128,7 +128,8 @@
     "verify:ui-contracts": "node ./scripts/architecture/verify-ui-contracts.mjs",
     "build:ui-contracts": "npm run build:back-contracts && npm run build:search-contracts",
     "test:ui-contract-validators": "node --test ./scripts/architecture/back-navigation.test.mjs ./scripts/voice/search-contracts.test.mjs",
-    "test:ui-contracts": "npm run test:ui-contract-validators && npm run test:back-hierarchy"
+    "test:ui-contracts": "npm run test:ui-contract-validators && npm run test:back-hierarchy",
+    "test:calendar-workspace-layout": "CI=1 PLAYWRIGHT_START_SERVER=0 playwright test e2e/calendar-connected-workspace.layout.spec.ts --project=chromium --project=webkit --workers=1"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",

@@ -894,8 +894,10 @@ Rules:
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
 3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
-   Password fields and the shell's vault unlock control use `AccentedKeyIcon`:
-   the original canonical key artwork with Profile ink and an accent pinpoint.
+   All key aliases, password fields and the shell's vault unlock control use `AccentedKeyIcon`:
+   the original canonical outline key artwork with Profile ink and a blue accent
+   pinpoint. Keys have no translucent interior fill and ignore legacy yellow/gray
+   colour overrides.
    Field keys remain 18px and the shell key remains 20px.
    Chat's To-do, Get the app and Connectors shortcuts use foreground ink.
    All three use a finite 850ms registry-owned part animation on whole-row hover or
@@ -907,7 +909,7 @@ Rules:
    circle is a separate layer. Dark mode uses the corresponding semantic ink.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
-   - native `viewBox="0 0 256 256"` and the registry's duotone geometry
+   - native `viewBox="0 0 256 256"` and the registry's regular outline geometry, without translucent interior fills
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:

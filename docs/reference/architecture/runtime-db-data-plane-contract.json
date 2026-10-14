@@ -41,7 +41,8 @@
     "drive_packet_members",
     "drive_packet_versions",
     "drive_packet_version_sources",
-    "drive_packet_listings"
+    "drive_packet_listings",
+    "calendar_attendance_reviews"
   ],
   "retention_registry": [
     {
@@ -528,10 +529,11 @@
         "google_provider_connections",
         "google_service_grants",
         "google_oauth_attempts",
-        "google_calendar_action_proposals"
+        "google_calendar_action_proposals",
+        "calendar_attendance_reviews"
       ],
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
-      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
       "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
       "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
@@ -1796,16 +1798,16 @@
     {
       "id": "pwm_invitation_authority",
       "owner": "iam-consent-governance",
-      "data_class": "workflow_state",
+      "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
         "pwm_claim_invitations"
       ],
       "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority.",
-      "retention_policy": "Seven-day authorization expiry; expired rows removed on subsequent invitation creation. Explicit revocation deletes immediately.",
+      "retention_policy": "Seven-day expiry; expired rows are removed on invitation creation. Rejection/revocation deletes; claim clears transferable ciphertext.",
       "deletion_behavior": "Delete either participant rows on account reset; actor_profiles cascading foreign keys delete on account erasure. Migration refreshes canonical deleted-identity guards.",
-      "trust_boundary": "Keyed contact commitment and random token hash only; no raw contact, findings, names or passwords. Claim grants no sharing or research.",
-      "plaintext_posture": "metadata_only",
+      "trust_boundary": "Contact commitment and token hash remain metadata. Public professional preview is encrypted with a token-derived key; the token and plaintext are never stored. Recipient verified-contact claim transfers selected preview to their vault and may start research only with explicit recipient consent. No inviter access to full PWM.",
+      "plaintext_posture": "encrypted_professional_preview_and_opaque_claim_metadata",
       "expected_row_growth": "bounded_twenty_pending_per_owner"
     },
     {
@@ -1816,12 +1818,28 @@
       "exact_tables": [
         "pwm_provider_budget"
       ],
-      "primary_access_path": "Atomic monthly provider credit charge before dispatch.",
+      "primary_access_path": "Legacy Tavily aggregate accounting retained for history; native PWM has no active writer to this table.",
       "retention_policy": "One aggregate counter per provider/month; retained for operational cost audit.",
       "deletion_behavior": "No owner data or identifiers; account deletion does not alter shared quota.",
       "trust_boundary": "Provider name, UTC month and numeric credits only; never queries or contact identifiers.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one_row_per_provider_month"
+    },
+    {
+      "id": "pwm_research_lifecycle",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_research_preferences",
+        "pwm_completion_events"
+      ],
+      "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases.",
+      "retention_policy": "One preference per owner and completion metadata per draft, retained until reset/deletion. Research content stays in separately encrypted checkpoints with 24-hour expiry.",
+      "deletion_behavior": "Reset explicitly deletes preferences and cascades completion events. Erasure cascades from actor profile. Account graph locks fence checkpoint and email dispatch.",
+      "trust_boundary": "Flags, UUIDs, closed outcomes and delivery timestamps only. No names, contacts, findings, queries, plaintext keys or tokens.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_preference_per_owner_and_one_event_per_research_draft"
     }
   ]
 }

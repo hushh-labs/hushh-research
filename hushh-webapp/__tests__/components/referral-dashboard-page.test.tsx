@@ -90,6 +90,17 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
+  it("keeps the invitation gift and agent glyphs free of interior shading", async () => {
+    const { container } = render(<ReferralDashboardPage />);
+    await screen.findByRole("button", { name: "Invite & earn $" });
+    const gift = container.querySelector(".referral-share-gift svg");
+    expect(gift).not.toBeNull();
+    expect(gift!.querySelector('[opacity="0.2"]')).toBeNull();
+    const agents = container.querySelectorAll(".referral-agent-example svg, .referral-orbit-upright svg");
+    expect(agents).toHaveLength(18);
+    for (const icon of agents) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+  });
+
   it("hides incompatible backend rewards until the new catalogue is active", async () => {
     mocks.getMilestones.mockResolvedValue({
       lifetime_qualified_count: 0,

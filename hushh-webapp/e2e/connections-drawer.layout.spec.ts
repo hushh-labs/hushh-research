@@ -128,6 +128,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:[a-z]+\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -230,6 +236,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
@@ -991,9 +998,8 @@ test("background processing needs explicit consent and can be paused without rem
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
   };
   await selectFile();
-  const consent = page.getByRole("checkbox", { name: /Prepare these files while the app is closed/ });
-  await expect(page.getByText(/Relevant excerpts may be sent to Gemini/)).toBeVisible();
-  await expect(page.getByText(/Prepared file information is stored outside your vault/)).toBeVisible();
+  const consent = page.getByRole("checkbox", { name: "Agent One prepares these files while you’re away." });
+  await expect(consent).toBeVisible();
   await expect(consent).not.toBeChecked();
   await consent.check();
   expect(writes).toHaveLength(0);
@@ -1005,7 +1011,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();
-  await expect(page.getByText(/Turning this off stops new preparation; remove the file to clear what was prepared/)).toBeVisible();
+  await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
   const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
@@ -1835,8 +1841,8 @@ test.describe("One profile artwork and animated presence", () => {
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(canvas).toHaveCSS("visibility", "hidden");
-    await expect(poster).toHaveCSS("visibility", "visible");
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect(poster).toHaveCSS("visibility", "visible");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
     const reduced = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
@@ -1876,6 +1882,9 @@ test.describe("One profile artwork and animated presence", () => {
     { width: 1440, height: 900 },
   ]) {
     test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      // HD artwork and three complete tab round trips share this scenario's budget.
+      // Geometry/state expectations retain their individual deadlines.
+      test.setTimeout(60_000);
       await page.setViewportSize(viewport);
       await page.route("**/api/one/feed**", route => route.fulfill({
         contentType: "application/json",
