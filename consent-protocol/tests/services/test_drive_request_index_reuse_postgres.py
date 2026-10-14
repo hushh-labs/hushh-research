@@ -299,6 +299,7 @@ async def test_equivalent_request_reuses_unlisted_packet_with_owner_approval_sti
                 state="ready",
                 correct_subject_and_account=True,
                 correct_issuer_and_type=True,
+                correct_record_status=True,
                 correct_coverage=True,
                 no_unrelated_inclusions=True,
                 no_unexplained_omissions=True,

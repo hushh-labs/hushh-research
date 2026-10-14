@@ -527,7 +527,7 @@ const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = path.split("?", 1)[0];
-  if (isLongDriveSharingPath(path)) return 180_000;
+  if (isLongDriveSharingPath(path) || pathname === "/api/one/world-model/source-reviews") return 180_000;
   if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
     return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   }
@@ -931,7 +931,7 @@ async function apiFetch(
       // unbounded — keep legitimately-slow uploads/downloads working).
       // Synchronous Drive work, document preparation included, waits as long
       // natively as on the web (webFetchTimeoutMsForPath).
-      const readTimeoutMs = isLongDriveSharingPath(path)
+      const readTimeoutMs = isLongDriveSharingPath(path) || path.split("?", 1)[0] === "/api/one/world-model/source-reviews"
           ? 180_000
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS

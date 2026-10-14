@@ -403,29 +403,32 @@ jobs:
           if-no-files-found: ignore
 
   web-targeted-check:
-    name: "Web Targeted Contracts (${{ matrix.part }})"
+    name: "Web Targeted Contracts (${{ matrix.label }})"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
-    # Two legs that partition the matched packs (scripts/ci/web-targeted-check.sh,
-    # WEB_TARGETED_PART): `node` runs the Vitest and verifier packs and never
-    # downloads a browser; `browser` runs the Playwright packs, several at once.
-    # On one runner the browser packs ran one test at a time and were ~11 of
-    # the lane's ~13 minutes (run 36346187928). ci-status reads the aggregate
-    # result, which is `success` only when every leg succeeded. fail-fast is
-    # off so a red leg never hides the other leg's verdict.
+    # Keep node packs once; native Playwright sharding partitions each matched
+    # browser command across three runners. The aggregate succeeds only when all
+    # four jobs pass, and fail-fast leaves every verdict visible.
     strategy:
       fail-fast: false
       matrix:
-        part: [node, browser]
-    # Was 15, which the job could not fit. Downloading Chromium and WebKit
-    # took 13-15 minutes on its own, so the lane either died mid-download or
-    # reached the checks with ~100 seconds left and was cancelled part-way
-    # through them. Both outcomes report as "cancelled", which reads like
-    # infrastructure noise rather than a budget that was never large enough.
-    # 30 leaves room for a cold cache; a warm one finishes far inside it.
+        include:
+          - part: node
+            label: node
+            shard: ""
+          - part: browser
+            label: browser-1-of-3
+            shard: "1/3"
+          - part: browser
+            label: browser-2-of-3
+            shard: "2/3"
+          - part: browser
+            label: browser-3-of-3
+            shard: "3/3"
+    # Preserve the job limit; split work instead of extending the timeout.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -494,6 +497,7 @@ jobs:
           # runner and fixture builds from starving a browser. Only the Playwright
           # config reads it, so it is inert in the node leg.
           PLAYWRIGHT_WORKERS: "3"
+          PLAYWRIGHT_SHARD: ${{ matrix.shard }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
@@ -502,7 +506,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: web-targeted-npm-audit-report-${{ matrix.part }}
+          name: web-targeted-npm-audit-report-${{ matrix.label }}
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
@@ -1165,6 +1169,10 @@ jobs:
           fi
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
+            echo "Changed frontend sources require every targeted Node and browser shard to succeed."
+            fail=1
+          fi
           if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1

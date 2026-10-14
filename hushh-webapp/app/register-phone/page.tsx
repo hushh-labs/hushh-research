@@ -450,7 +450,7 @@ export function PhoneMandatePageContent() {
                     ? "Enter your phone number"
                     : "Verify your phone number"
               }
-              className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
+              className={cn("whitespace-nowrap font-semibold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
             >
               {verificationStep === "code"
                 ? "Enter your code"

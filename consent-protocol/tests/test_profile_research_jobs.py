@@ -53,6 +53,19 @@ class MemoryStore:
 
 @pytest.fixture(autouse=True)
 def authority(monkeypatch):
+    from hushh_mcp.services import world_model_service
+
+    monkeypatch.setattr(
+        world_model_service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000001",
+                "auto_started_at": None,
+            }
+        ),
+    )
     monkeypatch.setattr(jobs, "validate_first_party_owner_token", AsyncMock(return_value=object()))
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
 
@@ -689,3 +702,51 @@ async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch,
     instance.store.get = read
     with pytest.raises(PermissionError):
         await getattr(instance, operation)("owner", "token")
+
+
+@pytest.mark.asyncio
+async def test_pwm_resume_keeps_budget_and_new_consent_clears_evidence(monkeypatch):
+    import copy
+
+    from hushh_mcp.services import world_model_service as pwm
+
+    generation = {"id": "00000000-0000-4000-8000-000000000001"}
+    monkeypatch.setattr(
+        pwm,
+        "preferences",
+        AsyncMock(
+            side_effect=lambda *a, **k: {
+                "enabled": True,
+                "generation": generation["id"],
+                "auto_started_at": None,
+            }
+        ),
+    )
+    observed = []
+
+    async def check(*args):
+        return None, generation["id"]
+
+    async def research(**kwargs):
+        observed.append((kwargs["attempts_used"], copy.deepcopy(kwargs["work"])))
+        if not kwargs["attempts_used"]:
+            await kwargs["on_attempts_start"]((1, 33))
+        await kwargs["on_progress"]({"evidence": "synthetic owner evidence"})
+        return {"status": "paused", "pkm_written": False, "restart_required": True}
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, check=check)
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    original = instance.store.rows["owner"]["job_id"]
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    assert instance.store.rows["owner"]["job_id"] == original
+    generation["id"] = "00000000-0000-4000-8000-000000000002"
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    assert instance.store.rows["owner"]["job_id"] != original
+    assert observed == [
+        ((), {}),
+        ((1, 33), {"evidence": "synthetic owner evidence"}),
+        ((1, 33), {}),
+    ]

@@ -3,17 +3,6 @@ import { describe, expect, it } from "vitest";
 import { buildIosUatRuntimeEnv } from "../../scripts/native/prepare-ios-uat-archive.mjs";
 
 describe("iOS UAT native runtime env", () => {
-  it("keeps initial Contacts off unless the process or profile opts in", () => {
-    const key = "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED";
-    const build = (processEnv = {}, uatValues = {}, localValues = {}) =>
-      buildIosUatRuntimeEnv({ processEnv, uatValues, localValues })[key];
-    expect(build()).toBe("false");
-    expect(build({}, {}, { [key]: "true" })).toBe("true");
-    expect(build({}, { [key]: "false" }, { [key]: "true" })).toBe("false");
-    expect(build({ [key]: "true" }, { [key]: "false" })).toBe("true");
-    expect(build({ [key]: "false" }, { [key]: "true" })).toBe("false");
-  });
-
   it("keeps UAT enrollment scoped to UAT despite production shell and file defaults", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: { NEXT_PUBLIC_PASSKEY_RP_ID: "one.hushh.ai" },

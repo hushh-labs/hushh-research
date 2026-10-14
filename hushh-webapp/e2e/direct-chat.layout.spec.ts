@@ -438,9 +438,9 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   const threadTitle = await contact.evaluate(typography);
   expect(screenTitle.family).toBe(threadTitle.family);
   expect(screenTitle.size).toBe("20px");
-  expect(screenTitle.weight).toBe("700");
+  expect(screenTitle.weight).toBe("600");
   expect(threadTitle.size).toBe("16px");
-  expect(threadTitle.weight).toBe("700");
+  expect(threadTitle.weight).toBe("600");
 });
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);

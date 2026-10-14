@@ -353,7 +353,7 @@ export const FeedRow = memo(function FeedRow({
           )}
         </span>
         <span className="min-w-0">
-          <span data-slot="settings-row-title" className={`block truncate text-[13px] leading-[1.25] max-[360px]:text-[12.5px] ${read ? "font-medium" : "font-semibold"}`}>
+          <span data-slot="settings-row-title" data-feed-unread={!read ? "true" : undefined} className="block truncate text-[13px] leading-[1.25] max-[360px]:text-[12.5px]">
             {!read ? <span className="sr-only">Unread: </span> : null}
             {presentation.label}
           </span>

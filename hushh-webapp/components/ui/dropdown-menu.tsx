@@ -66,6 +66,7 @@ function DropdownMenuItem({
   children,
   inset,
   variant = "default",
+  asChild = false,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
   inset?: boolean
@@ -73,6 +74,7 @@ function DropdownMenuItem({
 }) {
   return (
     <DropdownMenuPrimitive.Item
+      asChild={asChild}
       data-slot="dropdown-menu-item"
       data-inset={inset}
       data-variant={variant}
@@ -82,8 +84,7 @@ function DropdownMenuItem({
       )}
       {...props}
     >
-      {children}
-      <MaterialRipple variant="none" effect="fade" className="z-0" />
+      {asChild ? children : <>{children}<MaterialRipple variant="none" effect="fade" className="z-0" /></>}
     </DropdownMenuPrimitive.Item>
   )
 }

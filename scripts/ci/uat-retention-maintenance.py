@@ -895,7 +895,10 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
     if (
         run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
-        or run.get("status") != "in_progress"
+        # GitHub can mark the workflow queued again after the drain wait
+        # finishes and before its recheck job gets a runner. The successful
+        # first-pass jobs and immutable artifact still prove this receipt.
+        or run.get("status") not in {"in_progress", "queued", "pending"}
         or run.get("conclusion") is not None
         or run.get("event") not in {"workflow_run", "workflow_dispatch", "schedule"}
         or (run.get("repository") or {}).get("full_name") != repository

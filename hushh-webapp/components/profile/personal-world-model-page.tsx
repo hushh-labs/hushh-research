@@ -10,10 +10,8 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { HelperText } from "@/components/app-ui/typography";
-import {
-  ProfileResearchCard,
-  type ProfileResearchAvailability,
-} from "@/components/agent/profile-research-card";
+import { WorldModelSources } from "@/components/profile/world-model-sources";
+import { WorldModelResearchPanel } from "@/components/profile/world-model-research-panel";
 import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
 import { SettingsPresentationProvider } from "@/components/profile/settings-ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
@@ -42,10 +40,6 @@ export function PersonalWorldModelPage() {
     vaultOwnerToken &&
     (tokenExpiresAt === null || Date.now() < tokenExpiresAt),
   );
-  const [run, setRun] = useState(0);
-  const [startedFor, setStartedFor] = useState<{ owner: string; key: string } | null>(null);
-  const [availability, setAvailability] =
-    useState<ProfileResearchAvailability>("hidden");
   const [saved, setSaved] = useState<{
     owner: string;
     key: string;
@@ -53,6 +47,7 @@ export function PersonalWorldModelPage() {
   } | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   const [reload, setReload] = useState(0);
+  const [sourceRevision, setSourceRevision] = useState(0);
   const revision = usePkmDomainChangeRevision(user?.uid);
   const authority = useRef({
     ready,
@@ -66,7 +61,6 @@ export function PersonalWorldModelPage() {
     key: vaultKey,
     token: vaultOwnerToken,
   };
-  const active = ready && startedFor?.owner === user?.uid && startedFor?.key === vaultKey;
   const facts =
     ready && saved && saved.owner === user?.uid && saved.key === vaultKey
       ? saved.facts
@@ -74,7 +68,6 @@ export function PersonalWorldModelPage() {
 
   useEffect(() => {
     if (!ready || !user || !vaultKey || !vaultOwnerToken) {
-      setStartedFor(null);
       setSaved(null);
       return;
     }
@@ -108,7 +101,6 @@ export function PersonalWorldModelPage() {
     return () => controller.abort();
   }, [ready, user, vaultKey, vaultOwnerToken, revision, reload]);
 
-  const building = active && ["pending", "loading"].includes(availability);
   return (
     <AppPageShell
       width="profile"
@@ -143,56 +135,14 @@ export function PersonalWorldModelPage() {
               </Card>
             ) : (
               <>
-                <Card preset="compact">
-                  <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-sm">Build your model</CardTitle>
-                    <HelperText>
-                      Find public details about you, check the sources, and
-                      choose what to keep. Your verified contact helps separate
-                      you from people with the same name.
-                    </HelperText>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4 pt-0">
-                    <HelperText>
-                      Your name and verified contact are sent to the search
-                      provider when you begin. Private accounts and breach
-                      reports need a separate connection.
-                    </HelperText>
-                    <Button
-                      size="compact"
-                      disabled={active && availability !== "failed"}
-                      data-voice-control-id="pwm_build"
-                      onClick={() => {
-                        setAvailability("pending");
-                        setStartedFor({ owner: user!.uid, key: vaultKey! });
-                        setRun((value) => value + 1);
-                      }}
-                    >
-                      {building
-                        ? "Building your model…"
-                        : active
-                          ? "Resume research"
-                          : "Build my model"}
-                    </Button>
-                  </CardContent>
-                </Card>
-                {active && (
-                  <ProfileResearchCard
-                    key={run}
-                    ownerId={user!.uid}
-                    vaultKey={vaultKey}
-                    vaultOwnerToken={vaultOwnerToken}
-                    enabled={ready}
-                    pathname={ROUTES.PROFILE_WORLD_MODEL}
-                    worldModel
-                    onAvailabilityChange={setAvailability}
-                    onSaved={() => {
-                      setReload((value) => value + 1);
-                      setStartedFor(null);
-                    }}
-                    onDiscarded={() => setStartedFor(null)}
-                  />
-                )}
+                <WorldModelResearchPanel />
+                <WorldModelSources
+                  key={`${user!.uid}:${vaultOwnerToken}:${sourceRevision}`}
+                  ownerId={user!.uid}
+                  vaultKey={vaultKey!}
+                  vaultOwnerToken={vaultOwnerToken!}
+                  name={user!.displayName ?? ""}
+                />
                 <Card preset="compact">
                   <CardHeader className="p-4 pb-2">
                     <CardTitle className="text-sm">Your model</CardTitle>
@@ -220,8 +170,8 @@ export function PersonalWorldModelPage() {
                       </HelperText>
                     ) : facts.length === 0 ? (
                       <HelperText>
-                        No approved public details yet. Build your model to get
-                        started.
+                        No approved details yet. Add information you want to
+                        keep from your own sources.
                       </HelperText>
                     ) : (
                       <ul className="space-y-3">
@@ -258,6 +208,7 @@ export function PersonalWorldModelPage() {
                   </CardContent>
                 </Card>
                 <WorldModelInvitations
+                  onClaimed={() => setSourceRevision((value) => value + 1)}
                   key={`${user!.uid}:${vaultOwnerToken}`}
                   ownerId={user!.uid}
                   vaultKey={vaultKey!}

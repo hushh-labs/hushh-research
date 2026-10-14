@@ -34,7 +34,7 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
             </li>
             <li className={styles.setup}>
               <span className={styles.marker} aria-hidden="true">
-                <CheckCircle weight="duotone" />
+                <CheckCircle weight="regular" />
                 <span className={styles.markerNumber}>02</span>
               </span>
               <div className={styles.stepCopy}>

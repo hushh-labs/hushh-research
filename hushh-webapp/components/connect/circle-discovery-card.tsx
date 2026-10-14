@@ -164,7 +164,7 @@ export function CircleDiscoveryCard({
               >
                 <Icon
                   aria-hidden="true"
-                  weight="duotone"
+                  weight="regular"
                   className="size-4.5"
                 />
               </span>

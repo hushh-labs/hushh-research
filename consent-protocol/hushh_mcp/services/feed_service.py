@@ -30,6 +30,7 @@ import json
 import logging
 import math
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_LIMIT = 100
 _SOURCE_DOMAINS = frozenset(
-    {"consent", "location", "kai", "kyc", "connected_systems", "connections"}
+    {"consent", "location", "kai", "kyc", "connected_systems", "connections", "pwm"}
 )
 _MAX_ACTOR_LABEL_LENGTH = 160
 _MAX_METADATA_STRING_LENGTH = 256
@@ -175,6 +176,8 @@ _SAFE_METADATA_KEYS = frozenset(
         # The Kai run a completion item announces, so the Feed opens that run's
         # own saved result. An opaque id owned by the same person.
         "run_id",
+        "draft_id",
+        "pwm_outcome",
         "user_facing_status",
         # Read-time status of a historical payment instruction. The source
         # order and request remain authoritative; this bounded projection
@@ -250,6 +253,16 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
     safe: dict[str, str | int | float | bool] = {}
     for key in _SAFE_METADATA_KEYS:
         raw = value.get(key)
+        if key == "pwm_outcome":
+            if isinstance(raw, str) and raw in {"ready", "partial", "attention"}:
+                safe[key] = raw
+            continue
+        if key == "draft_id":
+            if isinstance(raw, str) and re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", raw, re.I
+            ):
+                safe[key] = raw
+            continue
         if key == _COUNTERPART_PHOTO_KEY:
             photo = _safe_photo_url(raw)
             if photo is not None:
