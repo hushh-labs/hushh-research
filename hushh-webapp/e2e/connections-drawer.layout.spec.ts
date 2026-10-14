@@ -128,21 +128,15 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
-  await page.route(/^http:\/\/localhost\/one-presence\/(?:working|thinking|answering|connected)\.riv$/, route =>
-    route.fulfill({
-      contentType: "application/octet-stream",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
-    }),
-  );
-  await page.route("http://localhost/one-presence/rive.wasm", route =>
-    route.fulfill({
-      contentType: "application/wasm",
-      body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/rive.wasm")),
-    }),
-  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:(?:connected|thinking|working|answering)\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
@@ -1409,6 +1403,7 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
 
 async function presencePixels(artwork: Locator) {
   return artwork.evaluate((canvas: HTMLCanvasElement) => {
+    // Rive sizes its backing surface for the rendered bounds and device DPR.
     const { width, height } = canvas;
     const pixels = canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
     let hash = 0, opaque = 0;
@@ -1420,7 +1415,7 @@ async function presencePixels(artwork: Locator) {
   });
 }
 
-test.describe("One profile artwork and mapped work frames", () => {
+test.describe("One profile artwork and animated presence", () => {
   test.use({ deviceScaleFactor: 3 });
   test("keeps header and profile presence in sync through drafting, answering and idle", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1462,8 +1457,8 @@ test.describe("One profile artwork and mapped work frames", () => {
       } else {
         for (const artwork of [header, profile]) {
           const canvas = artwork.locator("canvas");
-          await expect(canvas).toBeVisible();
-          await expect(artwork.locator("img")).toBeHidden();
+          await expect(canvas).toHaveCSS("visibility", "visible");
+          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
           await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
           expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
           const first = (await presencePixels(canvas)).hash;
@@ -1473,7 +1468,7 @@ test.describe("One profile artwork and mapped work frames", () => {
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
   });
-  test("keeps HD reduced-motion artwork and pauses mapped frames for app lifecycle changes", async ({ page }) => {
+  test("keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.goto("http://localhost/connections-fixture?one-profile=1");
@@ -1482,34 +1477,34 @@ test.describe("One profile artwork and mapped work frames", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const artwork = panel.locator("[data-one-presence-state]");
-    const profile = artwork.locator("canvas");
-    const poster = artwork.locator("img");
-    await expect(profile).toBeVisible();
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
+    const profile = panel.locator("[data-one-presence-state]");
+    const canvas = profile.locator("canvas");
+    const poster = profile.locator("img");
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(profile).toBeHidden();
-    await expect(poster).toBeVisible();
+    await expect(canvas).toHaveCSS("visibility", "hidden");
+    await expect(poster).toHaveCSS("visibility", "visible");
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
-    const reduced = (await presencePixels(profile)).hash;
+    const reduced = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
-    expect((await presencePixels(profile)).hash).toBe(reduced);
+    expect((await presencePixels(canvas)).hash).toBe(reduced);
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect(profile).toBeVisible();
-    await expect(poster).toBeHidden();
-    await expect.poll(async () => (await presencePixels(profile)).opaque).toBeGreaterThan(0);
-    await expect.poll(async () => (await presencePixels(profile)).hash).not.toBe(reduced);
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
-    await expect(profile).toBeHidden();
-    await expect(poster).toBeVisible();
-    const paused = (await presencePixels(profile)).hash;
+    await expect(canvas).toHaveCSS("visibility", "hidden");
+    await expect(poster).toHaveCSS("visibility", "visible");
+    const paused = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
-    expect((await presencePixels(profile)).hash).toBe(paused);
+    expect((await presencePixels(canvas)).hash).toBe(paused);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
-    await expect(profile).toBeVisible();
-    await expect(poster).toBeHidden();
-    await expect.poll(async () => (await presencePixels(profile)).hash).not.toBe(paused);
+    await expect(canvas).toHaveCSS("visibility", "visible");
+    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
     await page.getByRole("button", { name: "Close One profile", exact: true }).click();
     await expect(panel).toBeHidden();
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false }));

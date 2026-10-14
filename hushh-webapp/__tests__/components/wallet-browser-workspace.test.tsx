@@ -152,6 +152,21 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(serviceMock.deleteCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0", vaultOwnerToken: "renewed_owner_token" })));
   });
+  it("returns to the overview after removal and opens the remaining card with working number access", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(2).slice(1));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() => expect(screen.queryByTestId("wallet-selected-card")).toBeNull());
+    const remaining = await screen.findByRole("button", { name: "Open Card 1, ending 1001" });
+    await waitFor(() => expect(remaining).not.toBeDisabled());
+    serviceMock.getCard.mockClear();
+    fireEvent.click(remaining);
+    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+  });
   it.each(["owner", "lock"])("cancels a pending removal after a %s change", async (change) => {
     const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
@@ -258,8 +273,10 @@ describe("Wallet video browser workspace", () => {
     vi.restoreAllMocks();
   });
   it("opens the matching card after selecting a search result", async () => {
-    await open();
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    const view = await open();
+    navigationMock.search = "q=1001";
+    view.rerender(<WalletWorkspace />);
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "Search cards" }), { target: { value: "1001" } });
     const result = await screen.findByRole("button", { name: "Card 1 · Visa ending 1001" });
     fireEvent.click(result);

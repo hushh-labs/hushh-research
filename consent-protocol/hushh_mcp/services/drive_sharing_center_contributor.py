@@ -4,6 +4,7 @@ No credential or document key is needed: recorded access remains manageable
 after disconnect, a rollout kill switch, or erasure of the private request.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -754,6 +755,66 @@ def _query_entry(row: Any) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class _ProjectionCapabilities:
+    installed: bool
+    queries: bool
+    owner_search: bool
+    bulk: bool
+    background: bool
+    payments: bool
+    identity_cache: bool
+    owner_allowed: bool
+    pricing: bool
+    payout_projection: bool
+    estimate: bool
+    packages: bool
+
+
+_CAPABILITY_SQL = """
+SELECT
+  (to_regclass('drive_share_requests') IS NOT NULL
+             AND to_regclass('drive_share_permission_operations') IS NOT NULL
+             AND to_regclass('drive_share_management_contexts') IS NOT NULL) AS installed,
+  (to_regclass('drive_live_query_requests') IS NOT NULL) AS queries,
+  (to_regclass('drive_owner_search_jobs') IS NOT NULL) AS owner_search,
+  (EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_bulk_shares')
+                    AND attname='progressive_batch' AND NOT attisdropped
+                ) AND EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_bulk_share_files')
+                    AND attname='origin_request_id' AND NOT attisdropped
+                )) AS bulk,
+  (to_regclass('drive_live_preferences') IS NOT NULL) AS background,
+  (to_regclass('drive_request_payment_orders') IS NOT NULL) AS payments,
+  (to_regclass('actor_identity_cache') IS NOT NULL) AS identity_cache,
+  (EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='owner_allowed_at' AND NOT attisdropped
+                )) AS owner_allowed,
+  (EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quoted_amount_cents' AND NOT attisdropped)
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quote_version' AND NOT attisdropped)) AS pricing,
+  (to_regclass('drive_request_owner_payouts') IS NOT NULL
+                  AND to_regclass('stripe_owner_payout_accounts') IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                    WHERE attrelid=to_regclass('stripe_owner_payout_accounts')
+                      AND attname='account_ready' AND NOT attisdropped)) AS payout_projection,
+  (EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='initial_quote_cents' AND NOT attisdropped)) AS estimate,
+  (EXISTS (SELECT 1 FROM pg_attribute
+            WHERE attrelid=to_regclass('drive_share_requests')
+              AND attname='agent_package_required' AND NOT attisdropped)) AS packages
+"""
+
+
 class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     def _supports_projection(self) -> bool:
         # Existing SQLite-only callers have no Drive domain. Check the dialect
@@ -762,120 +823,10 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         return self.db.engine.dialect.name == "postgresql"
 
     @staticmethod
-    def _queries_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("SELECT to_regclass('drive_live_query_requests') IS NOT NULL")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _owner_search_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("SELECT to_regclass('drive_owner_search_jobs') IS NOT NULL")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _bulk_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT EXISTS (
-                  SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_bulk_shares')
-                    AND attname='progressive_batch' AND NOT attisdropped
-                ) AND EXISTS (
-                  SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_bulk_share_files')
-                    AND attname='origin_request_id' AND NOT attisdropped
-                )""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _background_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("SELECT to_regclass('drive_live_preferences') IS NOT NULL")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _payments_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("SELECT to_regclass('drive_request_payment_orders') IS NOT NULL")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _owner_allowed_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT EXISTS (
-                  SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_share_requests')
-                    AND attname='owner_allowed_at' AND NOT attisdropped
-                )""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _pricing_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_share_requests')
-                    AND attname='quoted_amount_cents' AND NOT attisdropped)
-                  AND EXISTS (SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_share_requests')
-                    AND attname='quote_version' AND NOT attisdropped)""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _packages_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
-            WHERE attrelid=to_regclass('drive_share_requests')
-              AND attname='agent_package_required' AND NOT attisdropped)""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _estimate_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
-                  WHERE attrelid=to_regclass('drive_share_requests')
-                    AND attname='initial_quote_cents' AND NOT attisdropped)""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _payout_projection_installed(connection) -> bool:
-        return bool(
-            connection.execute(
-                text("""SELECT to_regclass('drive_request_owner_payouts') IS NOT NULL
-                  AND to_regclass('stripe_owner_payout_accounts') IS NOT NULL
-                  AND EXISTS (SELECT 1 FROM pg_attribute
-                    WHERE attrelid=to_regclass('stripe_owner_payout_accounts')
-                      AND attname='account_ready' AND NOT attisdropped)""")
-            ).scalar_one()
-        )
-
-    @staticmethod
-    def _identity_cache_installed(connection) -> bool:
-        # Test fixtures and rolling deployments can predate the optional
-        # identity cache. Keep the metadata projection available with its
-        # generic label until that table is installed.
-        return bool(
-            connection.execute(
-                text("SELECT to_regclass('actor_identity_cache') IS NOT NULL")
-            ).scalar_one()
-        )
+    def _capabilities(connection) -> _ProjectionCapabilities:
+        # Fresh within this transaction; never cache rolling-schema authority.
+        row = connection.execute(text(_CAPABILITY_SQL)).mappings().one()
+        return _ProjectionCapabilities(**row)
 
     @staticmethod
     def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
@@ -888,41 +839,28 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             "background_disclosure": LIVE_BACKGROUND_DISCLOSURE,
         }
 
-    @staticmethod
-    def _installed(connection) -> bool:
-        # Rolling deployments may still be on the pre-sharing schema. This is
-        # the only empty compatibility case; SQL/timeouts must remain errors.
-        return bool(
-            connection.execute(
-                text("""
-          SELECT to_regclass('drive_share_requests') IS NOT NULL
-             AND to_regclass('drive_share_permission_operations') IS NOT NULL
-             AND to_regclass('drive_share_management_contexts') IS NOT NULL
-        """)
-            ).scalar_one()
-        )
-
     async def counts(self, user_id: str) -> dict[str, int]:
         if not self._supports_projection():
             return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
 
         def operation(connection):
-            if not self._installed(connection):
+            capabilities = self._capabilities(connection)
+            if not capabilities.installed:
                 return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
             rows = connection.execute(
                 # Both SQL fragments are static; every value is bound below.
                 text(
                     _projection(
-                        self._queries_installed(connection),
-                        self._owner_search_installed(connection),
-                        self._bulk_installed(connection),
-                        self._background_installed(connection),
-                        self._payments_installed(connection),
-                        self._identity_cache_installed(connection),
-                        self._owner_allowed_installed(connection),
-                        self._pricing_installed(connection),
-                        self._payout_projection_installed(connection),
-                        packages=self._packages_installed(connection),
+                        capabilities.queries,
+                        capabilities.owner_search,
+                        capabilities.bulk,
+                        capabilities.background,
+                        capabilities.payments,
+                        capabilities.identity_cache,
+                        capabilities.owner_allowed,
+                        capabilities.pricing,
+                        capabilities.payout_projection,
+                        packages=capabilities.packages,
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -945,24 +883,25 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             return {"total": 0, "items": [], "schema_available": False}
 
         def operation(connection):
-            if not self._installed(connection):
+            capabilities = self._capabilities(connection)
+            if not capabilities.installed:
                 return {"total": 0, "items": [], "schema_available": False}
             rows = list(
                 connection.execute(
                     text(
                         # Both SQL fragments are static; every value is bound below.
                         _projection(
-                            self._queries_installed(connection),
-                            self._owner_search_installed(connection),
-                            self._bulk_installed(connection),
-                            self._background_installed(connection),
-                            self._payments_installed(connection),
-                            self._identity_cache_installed(connection),
-                            self._owner_allowed_installed(connection),
-                            self._pricing_installed(connection),
-                            self._payout_projection_installed(connection),
-                            self._estimate_installed(connection),
-                            packages=self._packages_installed(connection),
+                            capabilities.queries,
+                            capabilities.owner_search,
+                            capabilities.bulk,
+                            capabilities.background,
+                            capabilities.payments,
+                            capabilities.identity_cache,
+                            capabilities.owner_allowed,
+                            capabilities.pricing,
+                            capabilities.payout_projection,
+                            capabilities.estimate,
+                            packages=capabilities.packages,
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -997,7 +936,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             }
 
         def operation(connection):
-            if not self._installed(connection):
+            capabilities = self._capabilities(connection)
+            if not capabilities.installed:
                 return {
                     "buckets": {key: [] for key in BUCKETS},
                     "counts": dict.fromkeys(BUCKETS, 0),
@@ -1007,17 +947,17 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 text(
                     # Both SQL fragments are static; every value is bound below.
                     _projection(
-                        self._queries_installed(connection),
-                        self._owner_search_installed(connection),
-                        self._bulk_installed(connection),
-                        self._background_installed(connection),
-                        self._payments_installed(connection),
-                        self._identity_cache_installed(connection),
-                        self._owner_allowed_installed(connection),
-                        self._pricing_installed(connection),
-                        self._payout_projection_installed(connection),
-                        self._estimate_installed(connection),
-                        packages=self._packages_installed(connection),
+                        capabilities.queries,
+                        capabilities.owner_search,
+                        capabilities.bulk,
+                        capabilities.background,
+                        capabilities.payments,
+                        capabilities.identity_cache,
+                        capabilities.owner_allowed,
+                        capabilities.pricing,
+                        capabilities.payout_projection,
+                        capabilities.estimate,
+                        packages=capabilities.packages,
                     )  # nosec B608
                     + """
                     , ranked AS (

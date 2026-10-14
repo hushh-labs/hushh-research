@@ -13,6 +13,7 @@
  * States and the reveal rule live in `lib/wallet/wallet-view-state.ts`.
  */
 
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import {
   useCallback,
   useDeferredValue,
@@ -101,6 +102,7 @@ type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
 const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]";
+const WALLET_TAB_PANEL = "space-y-3.5 px-[var(--page-inline-gutter-standard)] pt-4 sm:pt-5";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -702,10 +704,9 @@ export function WalletWorkspace() {
         setRemovingCardId(cardId);
         if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
         if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        const index = cards.findIndex((card) => card.cardId === cardId);
-        setSelectedDeckCardId((current) => (current ?? cards[0]?.cardId) === cardId
-          ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
-          : current);
+        // Return to the overview after removal. A neighboring card must be
+        // explicitly opened before loading its number or sharing context.
+        setSelectedDeckCardId(null);
       }
       cardReadRevision.current += 1;
       setCardSnapshot((previous) => {
@@ -848,7 +849,7 @@ export function WalletWorkspace() {
           />
 
           {introductionOpen ? (
-            introductionLoading ? <div role="status" className="py-6 text-center text-sm text-muted-foreground">Opening your wallet…</div> :
+            introductionLoading ? <div role="status" className="py-6 text-center text-xs text-muted-foreground">Opening your wallet…</div> :
             <WalletIntroduction loading={introductionSaving} onConnect={() => void completeIntroduction()} />
           ) : <>
           <TopShellTabs
@@ -873,7 +874,7 @@ export function WalletWorkspace() {
             heightMode="active"
             holdHeightDuringTransition={false}
           >
-          <div className="space-y-2 px-[var(--page-inline-gutter-standard)] sm:space-y-3.5">
+          <div className={WALLET_TAB_PANEL}>
           {view.kind === "disabled" ? (
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
@@ -912,7 +913,6 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><ProfilePaneSearchIcon aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
             <div className="relative mx-auto w-full max-w-[820px]">
               <ProfilePaneSearchIcon
@@ -956,7 +956,7 @@ export function WalletWorkspace() {
             />
           ) : null}
           </div>
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
+          <div className={WALLET_TAB_PANEL}>
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
@@ -1034,7 +1034,7 @@ export function WalletWorkspace() {
             </div>
           ) : null}
           </div>
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
+          <div className={WALLET_TAB_PANEL} data-testid="one-wallet-sharing">
             {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
@@ -1048,7 +1048,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog)} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>

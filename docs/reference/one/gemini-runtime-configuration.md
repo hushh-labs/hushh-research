@@ -1,5 +1,16 @@
 # Gemini Runtime Configuration
 
+## Current managed profile contract
+
+Managed chat, PWM, Live, and embeddings now resolve the checked-in
+[managed AI profile](../../../consent-protocol/config/managed-ai-runtime.json).
+UAT selects `hussh-511311`; per-surface chat/voice project overrides are retired.
+Hosted revisions use this packaged profile; local development may use explicit
+overrides. The deploy compiler and candidate readiness compare its normalized
+hash. See [PWM KT](./personal-world-model.md) for paths and endpoint behavior.
+Historical environment-specific details below predate this central contract.
+
+
 ## Visual Context
 
 This is the AI access configuration boundary beneath the

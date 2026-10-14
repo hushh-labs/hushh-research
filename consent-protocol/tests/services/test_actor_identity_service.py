@@ -854,7 +854,7 @@ async def test_get_many_tolerates_pre_phone_shadow_schema(
         def __init__(self) -> None:
             self.calls = 0
 
-        async def fetch(self, query: str, user_ids: list[str]) -> list[dict[str, object]]:
+        async def fetch(self, query: str, user_ids: list[str], **kwargs) -> list[dict[str, object]]:
             self.calls += 1
             assert user_ids == ["firebase-user-123456789012"]
             if self.calls == 1:

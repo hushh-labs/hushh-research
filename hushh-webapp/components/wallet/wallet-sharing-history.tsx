@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./wallet-sharing.module.css";
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
@@ -17,10 +18,10 @@ type State = { context: CardShareContext; page: CardSharingHistory; direction: s
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 /** Small ledger in the existing Sharing tab; access remains server-authorized. */
-export function WalletSharingHistory({ ownerId, active, getContext }: {
+export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing" }: {
+  direction?: "outgoing" | "received";
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
 }) {
-  const [direction, setDirection] = useState<"outgoing" | "received">("outgoing");
   const [state, setState] = useState<State | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -100,22 +101,23 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     catch { /* Toast owns action feedback; confirmed history stays visible. */ }
     finally { if (context.isCurrent()) setBusy(null); }
   };
-  return <SettingsPresentationProvider density="compact"><section aria-label="Card sharing history" className={`space-y-4 ${styles.history}`}>
-    <div className="flex gap-2" role="group" aria-label="Share direction">
-      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "outgoing" ? "default" : "secondary"} aria-pressed={direction === "outgoing"} onClick={() => setDirection("outgoing")}>Sent cards</Button>
-      <Button size="compact" className="ui-text-compact-button-label" variant={direction === "received" ? "default" : "secondary"} aria-pressed={direction === "received"} onClick={() => setDirection("received")}>Received cards</Button>
-    </div>
+  return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={`${item.displayLabel} | ${direction === "outgoing" ? item.recipientName : item.senderName}`}
         description={<div className="space-y-1">
-          <p><time dateTime={item.createdAt}>{date(item.createdAt)}</time> | {item.durationMinutes} minutes</p>
-          <p>{item.status === "revoked" ? "Revoked" : item.status === "expired" ? "Expired" : "Active"} | {item.trustedCircle === true ? "Trusted Circle when shared" : item.trustedCircle === false ? "Connection" : "Earlier share"}</p>
-          <p>{item.verifiedAt ? `Identity verified ${date(item.verifiedAt)}` : item.verificationMethod === "identity_reauthentication" ? "Identity verification required" : item.trustedCircle === true && item.verificationMethod === "trusted_circle" ? "Trusted access when shared" : "Verification details unavailable"}</p>
-          <p>Expires <time dateTime={item.expiresAt}>{date(item.expiresAt)}</time></p>
-          {item.revokedAt ? <p>Revoked {date(item.revokedAt)}</p> : null}
-          {item.lastAccessedAt ? <p>Last viewed {date(item.lastAccessedAt)}</p> : null}
-          <details><summary>Activity</summary><ul className="mt-2 space-y-1">{item.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED")).map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} | {date(event.at)}</li>)}</ul></details>
+          <p className={styles.shareStatus}>{item.status === "revoked" ? "Revoked" : item.status === "expired" ? "Expired" : "Active"} · {item.status === "expired" ? "Expired" : "Expires"} <time dateTime={item.expiresAt}>{date(item.expiresAt)}</time></p>
+          <details className={styles.shareActivity}>
+            <summary>Activity</summary>
+            <div className="space-y-1">
+              <p>Shared <time dateTime={item.createdAt}>{date(item.createdAt)}</time> | {item.durationMinutes % 60 === 0 ? `${item.durationMinutes / 60} ${item.durationMinutes === 60 ? "hour" : "hours"}` : `${item.durationMinutes} minutes`}</p>
+              <p>{item.trustedCircle === true ? "Trusted Circle when shared" : item.trustedCircle === false ? "Connection" : "Earlier share"}</p>
+              <p>{item.verifiedAt ? `Identity verified ${date(item.verifiedAt)}` : item.verificationMethod === "identity_reauthentication" ? "Identity verification required" : item.trustedCircle === true && item.verificationMethod === "trusted_circle" ? "Trusted access when shared" : "Verification details unavailable"}</p>
+              {item.revokedAt ? <p>Revoked {date(item.revokedAt)}</p> : null}
+              {item.lastAccessedAt ? <p>Last viewed {date(item.lastAccessedAt)}</p> : null}
+              <ul className="space-y-1">{item.activity.filter((event, index, events) => event.event !== "SHARE_OPENED" || index === events.findIndex(candidate => candidate.event === "SHARE_OPENED")).map((event, index) => <li key={`${event.event}:${event.at}:${index}`}>{event.event.toLowerCase().replaceAll("_", " ")} | {date(event.at)}</li>)}</ul>
+            </div>
+          </details>
         </div>}
         trailing={direction === "outgoing" && item.status === "active" ? <Button size="compact" variant="secondary" aria-label={`Revoke ${item.displayLabel} shared with ${item.recipientName}`} disabled={Boolean(busy)} onClick={() => setSelection(item)}>Revoke</Button> : undefined} />)}
       {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
@@ -124,7 +126,7 @@ export function WalletSharingHistory({ ownerId, active, getContext }: {
     {failed ? <div role="alert"><p className="ui-text-row-description">Could not refresh card sharing.</p><Button variant="ghost" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : null}
     {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
-      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogContent className={profileStyles.accountDialog}><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>
         <AlertDialogFooter><AlertDialogCancel disabled={Boolean(busy)}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={Boolean(busy)} onClick={event => { event.preventDefault(); if (selection) void revoke(selection); }}>Revoke access</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

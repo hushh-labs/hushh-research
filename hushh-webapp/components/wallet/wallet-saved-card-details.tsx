@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, RefreshCw } from "@/components/icons";
+import { ProfileInnerSuccessIcon } from "@/components/profile/profile-inner-icons";
 import {
   ProfilePaneAccountIcon,
   ProfilePaneCalendarIcon,
@@ -12,6 +12,7 @@ import {
   ProfilePaneGlobeIcon,
   ProfilePaneKeyIcon,
   ProfilePaneSecurityIcon,
+  ProfilePaneRotateIcon,
 } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
@@ -70,7 +71,7 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
         {rows.map((row) => <SettingsRow key={row.label} density="compact" icon={row.icon} iconTone="transparent" title={row.label} trailing={
           <span className="flex min-w-0 items-center justify-end gap-2">
             <span className="min-w-0 break-words text-right">{row.value}</span>
-            {row.label === "Card number" && numberUnavailable && onRetryNumber ? <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center text-[color:var(--app-accent)]" aria-label="Retry card number" onClick={onRetryNumber} disabled={disabled}><RefreshCw className="size-4" aria-hidden="true" /></button> : null}
+            {row.label === "Card number" && numberUnavailable && onRetryNumber ? <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center" aria-label="Retry card number" onClick={onRetryNumber} disabled={disabled}><ProfilePaneRotateIcon className="size-4" /></button> : null}
             {row.copy || row.copyValue ? <button
               type="button"
               className="-my-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-50"
@@ -78,7 +79,7 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
               disabled={disabled || copying !== null}
               onClick={() => void copy(row)}
             >
-              {copied === row.label ? <Check className="size-4" aria-hidden="true" /> : <ProfilePaneCopyIcon className="size-4" />}
+              {copied === row.label ? <ProfileInnerSuccessIcon className="size-4 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" /> : <ProfilePaneCopyIcon className="size-4" />}
             </button> : <span className="-my-0.5 size-11 shrink-0" aria-hidden="true" />}
           </span>
         } />)}

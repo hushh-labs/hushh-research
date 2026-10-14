@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1432,7 +1432,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3548,6 +3548,7 @@
         "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
+        "route.profile_world_model",
         "route.ria_settings_compat"
       ],
       "action_coverage": "inherited",
@@ -3701,6 +3702,7 @@
         "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
+        "route.profile_world_model",
         "route.ria_settings_compat"
       ],
       "action_coverage": "none",
@@ -3768,6 +3770,7 @@
         "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
+        "route.profile_world_model",
         "route.ria_settings_compat"
       ],
       "action_coverage": "none",
@@ -5205,6 +5208,51 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/world-model",
+      "page_file": "app/one/profile/world-model/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.world_model",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.world_model",
+        "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Explicit Build starts public research; the owner checks exact statements and sources before saving. Invitation claiming verifies a contact and grants no sharing.",
+        "screen": "profile_world_model",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Research is a draft. Say saved only after all exact approved mutation receipts commit. Claim success means contact-bound invitation accepted, not research, ownership of a public biography, or sharing.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_world_model",
+      "voice_contract_file": "app/one/profile/world-model/page.voice-action-contract.json",
+      "action_ids": [
+        "route.profile_world_model"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-profile-world-model"
+    },
+    {
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
@@ -6038,6 +6086,49 @@
       },
       "trust_boundary": "auth",
       "native_surface_id": "native-route-one-wallet-card"
+    },
+    {
+      "route_pattern": "/one/welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.welcome",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.welcome",
+        "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+        "screen": "one_welcome",
+        "entry_cue": "Your welcome is ready. Review it and continue when you like.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+          "cancelled": "Respect source cancellation and keep the welcome available.",
+          "failed": "Show only confirmed results and offer explicit retry.",
+          "timeout": "Keep Continue available without claiming empty contacts.",
+          "callback_error": "Ignore late callbacks outside the owner signup session.",
+          "route_mismatch": "Stay within the registered welcome surface."
+        },
+        "completion_boundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+        "next_route": "/",
+        "return_policy": "resolve_root",
+        "out_of_scope_behavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_welcome",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-welcome"
     },
     {
       "route_pattern": "/people/[personRef]",

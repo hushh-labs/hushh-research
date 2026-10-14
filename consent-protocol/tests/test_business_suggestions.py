@@ -36,6 +36,7 @@ async def test_setup_admission_reads_fresh_canonical_async_state(monkeypatch, ro
     connection.fetchrow.assert_awaited_once_with(
         "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
         "synthetic-owner",
+        timeout=5,
     )
 
 

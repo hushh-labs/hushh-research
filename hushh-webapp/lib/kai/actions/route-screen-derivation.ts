@@ -53,6 +53,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_WELCOME) {
+    return { screen: "one_welcome", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_WALLET) {
     return { screen: "one_wallet", subview: null };
   }
@@ -335,6 +338,7 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
     return { screen: "marketplace", subview: query.get("tab") || null };
   }
+  if (normalizedPath === ROUTES.PROFILE_WORLD_MODEL) return { screen: "profile_world_model", subview: null };
   if (normalizedPath === ROUTES.PROFILE_PKM) {
     return {
       screen: "pkm",
