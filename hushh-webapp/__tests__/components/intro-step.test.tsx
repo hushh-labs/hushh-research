@@ -1,39 +1,10 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-
-vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({
-  OnboardingHeroBackground: () => null,
-}));
-
-// Browser coverage verifies GSAP; keep component tests focused on the flow.
-vi.mock("@/lib/morphy-ux/gsap", () => ({
-  getGsap: vi.fn(async () => null),
-}));
-
-const storyTitles = [
-  "Start with a clearer day.",
-  "Find what you already have.",
-  "Make the next move easier.",
-  "Share only what you choose.",
-];
-
-function activeStory() {
-  const heading = screen.getByRole("heading", { level: 1 });
-  const section = heading.closest("section");
-  if (!section) throw new Error("The active story must be a slide.");
-  return within(section);
-}
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -42,66 +13,100 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+function enterStories() {
+  fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
+  expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
+}
+
 describe("IntroStep", () => {
-  it("moves through four stories with next, keyboard, and dots without signing in", () => {
+  it("preserves the welcome and hands the four mentor stories to sign-in", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-
-    for (let index = 0; index < storyTitles.length; index += 1) {
-      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[index]);
-      expect(document.querySelectorAll('[data-intro-v2-card="true"]:not([hidden])')).toHaveLength(1);
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    expect(screen.getByRole("heading", { name: "Your private AI agent for everyday life." })).toBeInTheDocument();
+    const artwork = document.querySelector("[data-motion]");
+    expect(artwork).toHaveAttribute("aria-hidden", "true");
+    expect(artwork?.querySelectorAll("img").length).toBeGreaterThan(0);
+    enterStories();
+    const titles = [
+      /Big plans\.\s*Less busywork\./,
+      /Find answers\.\s*Not more tabs\./,
+      /Your people\.\s*Right here\./,
+      /Your information\.\s*Your call\./,
+    ];
+    for (const [index, title] of titles.entries()) {
+      expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+      expect(document.querySelectorAll(".ao-slide")).toHaveLength(1);
       expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(index + 2));
-      expect(activeStory().getByRole("button", {
-        name: `Screen ${index + 1}: ${storyTitles[index]}`,
-      })).toHaveAttribute("aria-current", "step");
-      if (index < storyTitles.length - 1) {
-        expect(screen.queryByRole("button", { name: "Start with One" })).not.toBeInTheDocument();
-        fireEvent.click(activeStory().getByRole("button", { name: "Next screen" }));
-      }
+      expect(onLogin).not.toHaveBeenCalled();
+      if (index < titles.length - 1) fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
     }
-    const carousel = screen.getByRole("region", { name: "Introducing One" });
+    const carousel = screen.getByRole("region", { name: "Meet Agent One" });
     fireEvent.keyDown(carousel, { key: "ArrowLeft" });
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
+    expect(screen.getByRole("heading", { name: titles[2] })).toBeInTheDocument();
     fireEvent.keyDown(carousel, { key: "ArrowRight" });
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
-    fireEvent.click(activeStory().getByRole("button", {
-      name: `Screen 1: ${storyTitles[0]}`,
-    }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
+    expect(screen.getByRole("heading", { name: titles[3] })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Screen 1 of 4: Less busywork" }));
+    expect(screen.getByRole("heading", { name: titles[0] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Screen 1 of 4: Less busywork" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
     expect(onLogin).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Get started", exact: true }));
+    await waitFor(() => expect(onLogin).toHaveBeenCalledOnce());
   });
 
   it("keeps reduced-motion stories static while allowing navigation and releases timers", () => {
     vi.useFakeTimers();
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        ...media,
-        media: query,
-        matches: query === "(prefers-reduced-motion: reduce)",
-      })),
-    );
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      ...media,
+      media: query,
+      matches: query === "(prefers-reduced-motion: reduce)",
+    })));
     const onLogin = vi.fn();
-    const { unmount } = render(<IntroStep onLogin={onLogin} />);
+    const view = render(<IntroStep onLogin={onLogin} />);
     expect(document.querySelector('[data-motion="static"]')).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    act(() => vi.advanceTimersByTime(20000));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
-    fireEvent.click(activeStory().getByRole("button", {
-      name: `Screen 3: ${storyTitles[2]}`,
-    }));
-    act(() => vi.advanceTimersByTime(20000));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
+    enterStories();
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(screen.getByRole("heading", { name: /Big plans\.\s*Less busywork\./ })).toBeInTheDocument();
+    expect(document.querySelector(".ao-mascot__loop")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Screen 3 of 4: Stay close" }));
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(screen.getByRole("heading", { name: /Your people\.\s*Right here\./ })).toBeInTheDocument();
+    expect(document.querySelector(".ao-mascot__loop")).toBeNull();
     expect(onLogin).not.toHaveBeenCalled();
-    unmount();
+    view.unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("blocks early voice sign-in and gives the final Start with One control tap/voice parity", async () => {
+  it("honors the explicit Skip action from the first story", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
+    enterStories();
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+    await waitFor(() => expect(onLogin).toHaveBeenCalledOnce());
+  });
+
+  it("unwinds native Back through the stories and welcome, then releases its layer", () => {
+    const onLogin = vi.fn();
+    const view = render(<IntroStep onLogin={onLogin} />);
+    expect(unwindBackLayer("/")).toBe(false);
+    enterStories();
+    fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+    act(() => expect(unwindBackLayer("/")).toBe(true));
+    expect(screen.getByRole("heading", { name: /Big plans\.\s*Less busywork\./ })).toBeInTheDocument();
+    act(() => expect(unwindBackLayer("/")).toBe(true));
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    expect(unwindBackLayer("/")).toBe(false);
+    expect(onLogin).not.toHaveBeenCalled();
+    enterStories();
+    view.unmount();
+    expect(unwindBackLayer("/")).toBe(false);
+  });
+
+  it("keeps voice sign-in guarded until the final story and releases its handler on leave", async () => {
+    const onLogin = vi.fn();
+    const view = render(<IntroStep onLogin={onLogin} />);
     await waitFor(() => {
       expect(getVoiceSurfaceMetadata()).toMatchObject({
         screenId: "one_intro",
@@ -110,77 +115,31 @@ describe("IntroStep", () => {
       });
       expect(resolveLocalOnboardingHandler("onboarding.claim_one")).not.toBeNull();
     });
-    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
+    enterStories();
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
     expect(onLogin).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
-    expect(onLogin).not.toHaveBeenCalled();
-    fireEvent.click(activeStory().getByRole("button", { name: "Skip", exact: true }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
-    const button = activeStory().getByRole("button", { name: "Start with One", exact: true });
-    expect(button).toHaveAttribute("data-voice-control-id", "onboarding_claim_one");
-    fireEvent.click(button);
-    expect(onLogin).toHaveBeenCalledTimes(1);
-    const result = await resolveLocalOnboardingHandler("onboarding.claim_one")?.({});
-    expect(onLogin).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
+    expect(screen.getByRole("button", { name: "Get started", exact: true })).toHaveAttribute("data-voice-control-id", "onboarding_claim_one");
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toEqual({
       status: "started",
       summary: "Opening sign-in.",
       routeAfter: "/login",
       screenAfter: "login",
     });
-    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
-    expect((await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}))?.status).toBe("blocked");
-    expect(onLogin).toHaveBeenCalledTimes(2);
+    expect(onLogin).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
+    expect(onLogin).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(resolveLocalOnboardingHandler("onboarding.claim_one")).toBeNull();
   });
 
-  it("retains the welcome and returns there through Back without signing in", () => {
-    const onLogin = vi.fn();
-    render(<IntroStep onLogin={onLogin} />);
-    const welcomeTitle = "Your private AI agent for everyday life.";
-    expect(screen.getByRole("heading", { name: welcomeTitle, level: 1 })).toBeVisible();
-    // The new welcome keeps its headline accessible and its artwork decorative.
-    const artwork = document.querySelector("[data-motion]");
-    expect(artwork).toHaveAttribute("aria-hidden", "true");
-    expect(artwork?.querySelectorAll("img").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
-    expect(screen.queryByRole("button", { name: "Start with One", exact: true })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
-    expect(activeStory().getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(4);
-    fireEvent.click(activeStory().getByRole("button", { name: "Skip", exact: true }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[3]);
-    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[2]);
-    fireEvent.click(activeStory().getByRole("button", {
-      name: `Screen 2: ${storyTitles[1]}`,
-    }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[1]);
-    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(storyTitles[0]);
-    fireEvent.click(activeStory().getByRole("button", { name: "Previous screen" }));
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
-    expect(screen.getByRole("heading", { name: welcomeTitle, level: 1 })).toBeVisible();
-    expect(onLogin).not.toHaveBeenCalled();
-  });
-
-  it("keeps the root public navigation to Research, Blog, and Developers", () => {
+  it("keeps the public Research, Blog, and Developers destinations", () => {
     render(<IntroStep onLogin={vi.fn()} />);
-
-    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
-    expect(publicNav.querySelectorAll("a")).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
-      "href",
-      "/research",
-    );
-    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute(
-      "href",
-      "/blog",
-    );
-    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
-      "href",
-      "/developers",
-    );
+    expect(screen.getByRole("navigation", { name: "Explore Hussh" }).querySelectorAll("a")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute("href", "/research");
+    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blog");
+    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute("href", "/developers");
   });
 });
