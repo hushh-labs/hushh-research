@@ -14,13 +14,14 @@ import {
 } from "@/components/icons/agents";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
+import { GiftIcon } from "@/components/icons/ui/detail-icons";
 
 afterEach(cleanup);
 
 it("uses transparent official outline glyphs for controls and capabilities", () => {
-  const { container } = render(<><XIcon /><PlusIcon /><ShieldIcon /><WalletIcon /></>);
+  const { container } = render(<><XIcon /><PlusIcon /><ShieldIcon /><WalletIcon /><GiftIcon /></>);
   const icons = container.querySelectorAll("svg");
-  expect(icons).toHaveLength(4);
+  expect(icons).toHaveLength(5);
   for (const icon of icons) expect(icon.getAttribute("viewBox")).toBe("0 0 256 256");
   for (const icon of icons) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
 });
