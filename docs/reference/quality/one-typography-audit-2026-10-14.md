@@ -17,8 +17,8 @@ registration, and redirects; (2) One home, Feed, Profile, wallet, and settings;
 and (4) shared type tokens, native wrappers, route coverage, and automated
 layout checks. The implementation was then made in a fresh branch from `main`.
 
-The route census below contains **151 `app/**/page.tsx` files**: 95 under
-`/one` and 56 elsewhere. A route file is not necessarily a unique rendered
+The route census below contains **152 `app/**/page.tsx` files**: 95 under
+`/one` and 57 elsewhere. A route file is not necessarily a unique rendered
 screen: some routes redirect, and chat panels, sheets, tabs, and OAuth popups
 can render without their own `page.tsx`. These were included in the component
 and asset inspection.
@@ -33,6 +33,7 @@ and asset inspection.
 | One home and Feed | Shared app shell and capability tiles inherit the global family; Feed rows use shared semantic list roles. | Shared family/role change reaches both. The roster and Feed keep their existing route and data behavior. |
 | Profile and account | 38 route files under `/one/profile`, including account, security, preferences, connected systems, receipts, and support. Local profile pane and row weights competed with shared tokens. | Align page and pane titles with 600, descriptive rows with 400, and labels/actions with the semantic roles. |
 | Specialist agents and chat | The roster includes Messages, Finance/Kai, Wallet, Location, Advisor/RIA, Mail, Calendar, KYC, Memory, Consent, Information Marketplace, and CRM. Chat workspaces and connector panels used local bold/medium utilities. | Use the shared family across One, Puppy, Marketplace, Circle, Gmail, Location, and specialist chat entry points. Align key chat titles, card titles, connectors, calendar, Kai, and Location headings. Capability status and visibility remain state driven. |
+| Connected Calendar workspace | A later main update added schedule rows with 600-weight event titles, 500-weight provider titles, a regular-weight Join action, 400-weight form labels, and a 500-weight Ask One CTA override. Its browser contract still expected Inter. | Use 400 for event/provider card titles and quiet row copy, 650 for Join and the shared Ask One CTA, 600 for form labels and settings legends, and assert Jakarta in the Calendar browser contract. |
 | ToDos | A later main update added a ToDos page with task titles at 600 and an uppercase “Completed” label in Jakarta 600. | Render task titles in the regular 400 row role and the completed-group metadata in system monospace 400. Keep the page and section headings at 600, action buttons at the CTA weight, and form labels at 600. |
 | Referrals dashboard | The earlier route-local CSS forced the hero H1 to 700, the streak heading to 500, a reward heading to 650, and the uppercase eyebrow to Jakarta 700. A later dashboard redesign demoted several live H2/H3 headings and the invite CTA through broad 400-weight rules; its new SVG hero still drew live text in Arial. | Set live H1/H2/H3 and reward headings to 600, the highlighted earlier hero span to 700, card titles and rule copy to 400, navigation tabs to 550, the invite CTA to 650, and uppercase eyebrows to system monospace 400. Draw the SVG hero labels and amounts in Jakarta at 400/600. |
 | Messages, Circle, Sources, and account dialogs | Later component CSS forced Messages and Circle chat headings and account dialog titles to 700; the agent Sources heading was 500. | Align these live H1/H2 titles to 600 in their winning local selectors. |
@@ -108,6 +109,7 @@ automated contracts without signing into a personal account.
 | `/blog/[slug]` | [page.tsx](../../../hushh-webapp/app/blog/[slug]/page.tsx) |
 | `/blog` | [page.tsx](../../../hushh-webapp/app/blog/page.tsx) |
 | `/c/[token]` | [page.tsx](../../../hushh-webapp/app/c/[token]/page.tsx) |
+| `/calendar/reschedule` | [page.tsx](../../../hushh-webapp/app/calendar/reschedule/page.tsx) |
 | `/circle/join` | [page.tsx](../../../hushh-webapp/app/circle/join/page.tsx) |
 | `/connected-systems/[systemId]` | [page.tsx](../../../hushh-webapp/app/connected-systems/[systemId]/page.tsx) |
 | `/connected-systems` | [page.tsx](../../../hushh-webapp/app/connected-systems/page.tsx) |
