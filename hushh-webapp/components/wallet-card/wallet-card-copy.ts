@@ -95,7 +95,7 @@ export const WALLET_CARD_OWNER_COPY = {
   scanCountLabel: "Scans",
   lastScannedLabel: "Last scan",
   noLinkOnThisDevice:
-    "Your share link isn't stored on this device, so the QR can't be shown here. Rotate QR access to create a new link — the current QR stops working.",
+    "Revoke access to create a QR on this device.",
   vaultLocked: "Unlock your vault to set up your Wallet Profile.",
   featureUnavailable: "Wallet Profile isn't available on this account yet.",
   loadFailed:
