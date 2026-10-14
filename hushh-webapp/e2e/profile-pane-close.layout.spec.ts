@@ -256,6 +256,28 @@ test.describe("Profile pane custom close layout", () => {
         expect(control!.width).toBe(44);
         expect(control!.height).toBe(44);
         expect(control!.y).toBeCloseTo(leading!.y, 0);
+        // A nested Profile pane inherits the shared modal backdrop. Only
+        // bounded feature pages may suppress it; transparent details caused
+        // the reported disappearance during the menu/content handoff.
+        const scrim = page.locator('.native-feature-pane-overlay[data-slot="dialog-overlay"]');
+        const material = () => scrim.evaluate(node => {
+          const style = getComputedStyle(node);
+          return { color: style.backgroundColor, filter: style.backdropFilter };
+        });
+        await expect(scrim).toBeVisible();
+        const settled = await material();
+        expect(settled.color).not.toBe("rgba(0, 0, 0, 0)");
+        expect(settled.filter).not.toBe("none");
+        // Negative control: reinstate the former overbroad selector without
+        // changing the component, geometry or native admission fixture.
+        const brokenRule = await page.addStyleTag({ content:
+          '.native-feature-page-overlay[data-slot="dialog-overlay"] { background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; animation:none; }',
+        });
+        expect(await scrim.evaluate(node => node.matches('.native-feature-page-overlay[data-slot="dialog-overlay"]'))).toBe(true);
+        await expect.poll(async () => (await material()).color).toBe("rgba(0, 0, 0, 0)");
+        await expect.poll(async () => (await material()).filter).toBe("none");
+        await brokenRule.evaluate(node => node.remove());
+        await expect.poll(material).toEqual(settled);
       }
     } finally { fs.rmSync(output, { recursive: true, force: true }); }
   });

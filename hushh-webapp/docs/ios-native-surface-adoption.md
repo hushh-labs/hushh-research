@@ -33,6 +33,29 @@ Subsequent acceptance runs remain attach-only. Historical installed identities
 below do not identify this new candidate; source, executable and runtime receipts
 must be recorded after its build and installation.
 
+The installed product on both devices is Debug 1.4.0 (69), UAT-backed, from
+`82176c8f84`; executable SHA-256
+`574fef745dd231750d578ecfdbca9feca90b4a86b7cc6e5e2e2bc138706f22e1`.
+Strict signatures and 38 packaged presence/onboarding asset hashes pass. Both
+devices passed XCTest body admission and normal passphrase unlock. Core passed
+in 445 seconds at `3501811eb6`, after correcting owner-scoped message-delivery
+effect dependencies. Later runner builds do not replace that installed product.
+
+Physical failures remain acceptance evidence, not environmental waivers: iPad
+History has one AX element reported unhittable despite one diagnostic touch
+opening its native drawer; Profile detail handoffs remain unaccepted on both
+devices. iPhone History alignment, independent row hit regions and inline Rename
+cancellation passed before its subsequent Delete-menu interruption. Neither
+result completes ten integrated cycles, accessibility or Release performance.
+
+Nested Profile content now retains the shared `DialogOverlay` backdrop. The
+transparent rule is restricted to bounded non-pane feature pages. The optimized
+real-component fixture passes in Chromium and WebKit at phone/tablet widths;
+reinstating the old rule removes dimming/blur and restoring the fix restores
+them. Body push/pop remains owned by the existing `ProfileStackNavigator`; no
+new outer-pane animation is introduced. This correction is not yet in the
+installed executable above.
+
 ### Profile content handoffs and circular controls — 2026-10-13
 
 At this earlier checkpoint, custom-native controls were qualification-launch-only

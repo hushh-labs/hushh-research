@@ -3029,7 +3029,7 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   box-shadow: none;
   overflow: hidden;
 }
-.native-feature-page-overlay[data-slot="dialog-overlay"] {
+.native-feature-page-overlay:not(.native-feature-pane-overlay)[data-slot="dialog-overlay"] {
   inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
   background: transparent;
   backdrop-filter: none;
