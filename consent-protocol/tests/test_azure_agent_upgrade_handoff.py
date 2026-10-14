@@ -120,6 +120,65 @@ async def test_without_an_approved_operation_there_is_nothing_to_drain(arm):  # 
     assert _Handoff.events == []
 
 
+@pytest.mark.parametrize(
+    "state", ["missing", "matching", "mismatch", "duplicate", "secret_ref", "unapproved"]
+)
+async def test_same_image_connector_repair_requires_the_existing_owner_handoff(
+    arm,  # noqa: F811 -- canonical fixture
+    monkeypatch,
+    state,
+):
+    from copy import deepcopy
+
+    from hushh_mcp.runtime_environment import pod_connector_public_environment
+    from tests.test_user_azure_backend import _OLD, _SOURCE
+
+    backend, acks = _backend(arm), []
+    values = {
+        "APP_FRONTEND_ORIGIN": "https://dev.one.hussh.ai",
+        "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID": "acct_synthetic",
+        "SCOPE_COMMERCE_STRIPE_LIVEMODE": "false",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    wanted = pod_connector_public_environment(values)
+    app = arm.resources[backend.app_id]
+    entries = app["properties"]["template"]["containers"][0]["env"]
+    if state in {"matching", "mismatch", "duplicate", "secret_ref"}:
+        entries.extend(deepcopy(wanted))
+    if state == "mismatch":
+        entries[-3]["value"] = "https://uat.one.hussh.ai"
+    elif state == "duplicate":
+        entries.append(deepcopy(wanted[0]))
+    elif state == "secret_ref":
+        entries[-3] = {"name": "APP_FRONTEND_ORIGIN", "secretRef": "private-secret"}
+    before = deepcopy(app)
+    spec = _upgrade_spec(
+        arm,
+        backend,
+        acks,
+        upgrade_target_image=f"{_SOURCE}@{_OLD}",
+        upgrade_operation_id=None if state == "unapproved" else "approved-connector-update",
+    )
+    with jit_person_authority("person-jit-token"):
+        if state in {"mismatch", "duplicate", "secret_ref", "unapproved"}:
+            with pytest.raises(RuntimeError):
+                await backend.upgrade(spec)
+            assert not arm.writes() and not _Handoff.events
+            assert arm.resources[backend.app_id] == before
+            return
+        handle = await backend.upgrade(spec)
+    assert handle.backend_metadata["upgraded"] is (state == "missing")
+    if state == "matching":
+        assert not arm.writes() and not _Handoff.events and not acks
+    else:
+        assert _Handoff.events[1][0] == "prepare"
+        assert any(method == "PUT" and path == backend.app_id for method, path in arm.writes())
+        assert acks[0]["connectorEnvironment"] == wanted
+        installed = arm.resources[backend.app_id]["properties"]["template"]["containers"][0]["env"]
+        assert all(item in installed for item in wanted)
+
+
 @pytest.mark.parametrize("failure", ["forbidden", "timeout"])
 async def test_files_preflight_read_refusal_has_no_mutations_or_ambiguous_receipts(arm, failure):  # noqa: F811
     from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
@@ -241,7 +300,7 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
         )
 
 
-@pytest.mark.parametrize("failure", ["intent_refused", "put_uncertain"])
+@pytest.mark.parametrize("failure", ["intent_refused", "put_uncertain", "configuration_changed"])
 async def test_files_replacement_is_journaled_before_put_and_never_replayed(
     arm,  # noqa: F811 - shared fixture
     monkeypatch,
@@ -254,11 +313,14 @@ async def test_files_replacement_is_journaled_before_put_and_never_replayed(
     backend, _, plan, _, _, checkpoint, _, spec = approved_update_fixture(arm, monkeypatch)
     persist = spec.on_files_upgrade_checkpoint
     request = arm.request
+    acknowledgements = []
 
     def journal(phase, step, completed):
         if phase == "replacement_intent" and failure == "intent_refused":
             raise RuntimeError("fixture CAS refused")
         persist(phase, step, completed)
+        if phase == "replacement_intent" and failure == "configuration_changed":
+            monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://different.synthetic.invalid")
 
     def submit(method, path, **kwargs):
         if path != backend.app_id:
@@ -271,12 +333,19 @@ async def test_files_replacement_is_journaled_before_put_and_never_replayed(
     monkeypatch.setattr(arm, "request", submit)
     with jit_person_authority("person-fixture"):
         with pytest.raises((RuntimeError, TimeoutError)):
-            await backend.upgrade(replace(spec, on_files_upgrade_checkpoint=journal))
+            await backend.upgrade(
+                replace(
+                    spec,
+                    on_files_upgrade_checkpoint=journal,
+                    on_upgrade_ack=acknowledgements.append,
+                )
+            )
     assert checkpoint.complete
     assert checkpoint.previous["phase"] == (
         "observed" if failure == "intent_refused" else "replacement_intent"
     )
     assert not any(path == backend.app_id for method, path in arm.writes() if method == "PUT")
+    assert not acknowledgements
     assert not any(event[0] == "release" for event in _Handoff.events)
     if failure == "put_uncertain":
         with pytest.raises(ValueError, match="complete observed"):

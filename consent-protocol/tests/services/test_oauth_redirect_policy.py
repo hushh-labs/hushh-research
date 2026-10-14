@@ -8,8 +8,33 @@ from hushh_mcp.services.google_connection_service import (
 )
 from hushh_mcp.services.oauth_redirect_policy import (
     google_compatibility_callback,
+    mcp_oauth_callback,
     validated_frontend_callback,
 )
+
+
+@pytest.mark.parametrize(
+    "origin,allowed",
+    [
+        ("https://dev.one.hussh.ai/", True),
+        ("http://dev.one.hussh.ai", False),
+        ("https://owner@dev.one.hussh.ai", False),
+        ("https://dev.one.hussh.ai/other", False),
+        ("https://dev.one.hussh.ai?return=other", False),
+        ("https://dev.one.hussh.ai#other", False),
+    ],
+)
+def test_private_mcp_callback_requires_the_exact_configured_https_origin(origin, allowed):
+    if allowed:
+        assert mcp_oauth_callback(origin, environment="dev") == (
+            "https://dev.one.hussh.ai/one/profile/connectors/oauth/return"
+        )
+    else:
+        with pytest.raises(ValueError):
+            mcp_oauth_callback(origin, environment="dev")
+    assert mcp_oauth_callback("http://localhost:3000", environment="test") == (
+        "http://localhost:3000/one/profile/connectors/oauth/return"
+    )
 
 
 @pytest.mark.parametrize(

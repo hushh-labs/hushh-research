@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.pod_files.provisioning import coordinates, extend_plan
 from hushh_mcp.services.pod_release import is_immutable_image_reference
 
@@ -266,4 +267,31 @@ def plan_from_observation(
         if isinstance(item, dict)
     ):
         raise ValueError("Files requires retained bucket identity evidence")
+    return plan
+
+
+def approved_upgrade_plan(
+    spec: PodSpec, existing: dict[str, Any], *, project: str, bootstrap_sa: str
+) -> FilesCapabilityPlan | None:
+    """Retain the exact existing Files plan and observation gates before any mutation."""
+    if spec.files_upgrade_plan is None:
+        return None
+    plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    if (
+        not spec.upgrade_operation_id
+        or not spec.upgrade_attempt_id
+        or spec.on_files_upgrade_checkpoint is None
+        or plan.hushhId != spec.hushh_id
+        or plan.serviceUid != spec.expected_service_uid
+        or plan.project != project
+        or plan.targetImage != spec.upgrade_target_image
+        or plan.bootstrapAccount != bootstrap_sa
+    ):
+        raise ValueError("Files activation is missing its approved operation")
+    try:
+        plan.require_observation(existing)
+    except ValueError:
+        raise FilesCapabilityChanged(
+            "Pod configuration changed. Review Files setup again."
+        ) from None
     return plan

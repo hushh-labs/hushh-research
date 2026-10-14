@@ -639,6 +639,7 @@ tests/test_pod_upgrade_handoff.py
 tests/test_pod_upgrade_rollback_guard.py
 tests/test_pod_update_detection.py
 tests/test_pod_image_upgrade_path.py
+tests/test_pod_connector_configuration.py
 tests/test_governed_mcp_toolset.py
 tests/test_stripe_mcp_admission.py
 tests/test_stripe_mcp_reads.py

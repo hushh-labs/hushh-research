@@ -11,6 +11,11 @@ from typing import Any
 
 from hushh_mcp.services.azure_agent_setup import parse_source_image
 from hushh_mcp.services.azure_container_app_renderer import refuse_metered_configuration
+from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
+from hushh_mcp.services.pod_connector_configuration import (
+    reconcile_connector_environment,
+    require_connector_configuration,
+)
 
 #: Writable fields of a container app; everything else ARM computes.
 _WRITABLE = ("location", "tags", "identity")
@@ -43,7 +48,13 @@ def _carry_idle_window(template: dict[str, Any], container: dict[str, Any]) -> N
         env.append(dict(IDLE_GRACE_ENV))
 
 
-def replacement_body(app: dict[str, Any], *, image: str, suffix: str) -> dict[str, Any]:
+def replacement_body(
+    app: dict[str, Any],
+    *,
+    image: str,
+    suffix: str,
+    connector_environment: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """The existing agent with one image and one revision suffix changed."""
     body = {key: copy.deepcopy(app[key]) for key in _WRITABLE if key in app}
     properties = app.get("properties") or {}
@@ -56,6 +67,10 @@ def replacement_body(app: dict[str, Any], *, image: str, suffix: str) -> dict[st
     if len(containers) != 1:
         raise ValueError("the agent runs exactly one container")
     containers[0]["image"] = image
+    if connector_environment is not None:
+        containers[0]["env"] = reconcile_connector_environment(
+            containers[0].get("env", []), connector_environment
+        )
     _carry_idle_window(template, containers[0])
     # Secrets are Key Vault references (name, URL, identity), so the GET shape is
     # exactly what a replace must carry; no secret value ever transits Hussh here.
@@ -78,3 +93,49 @@ def verified_import_source(approved: str, source: str) -> tuple[str, str, str]:
     if digest != approved_digest:
         raise RuntimeError("the import source must name the approved digest")
     return registry, repository, digest
+
+
+def upgrade_acknowledgement(
+    service: str,
+    spec: PodSpec,
+    revision: str,
+    image: str,
+    connector_environment: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Bind provider acceptance to this attempt and its admitted public configuration."""
+    return {
+        "version": 1,
+        "service": service,
+        "serviceUid": str(spec.expected_service_uid or ""),
+        "revision": revision,
+        "attemptId": spec.upgrade_attempt_id or "",
+        "image": image,
+        "connectorEnvironment": connector_environment,
+    }
+
+
+def verified_files(
+    handle: BackendHandle,
+    spec: PodSpec,
+    app: dict,
+    connector_environment: list[dict[str, str]] | None = None,
+) -> BackendHandle:
+    if connector_environment is not None:
+        require_connector_configuration(app, connector_environment)
+    if spec.files_upgrade_plan is None:
+        return handle
+    from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+
+    plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    plan.require_installed(app)
+    return with_metadata(handle, filesCapability={"planDigest": plan.digest, "status": "enabled"})
+
+
+def with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
+    return BackendHandle(
+        external_agent_id=handle.external_agent_id,
+        a2a_route=handle.a2a_route,
+        status=handle.status,
+        backend=handle.backend,
+        backend_metadata={**(handle.backend_metadata or {}), **extra},
+    )

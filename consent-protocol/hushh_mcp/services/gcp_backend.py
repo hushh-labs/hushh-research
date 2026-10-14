@@ -32,7 +32,7 @@ import os
 import re
 from typing import Any, Optional
 
-from hushh_mcp.runtime_environment import scope_commerce_test_pin_environment
+from hushh_mcp.runtime_environment import pod_connector_public_environment
 from hushh_mcp.runtime_settings import pod_turn_enabled
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
@@ -429,7 +429,7 @@ class GcpBackend:
                         public_verification_keys(OWNER_FEED), separators=(",", ":")
                     ),
                 },
-                *scope_commerce_test_pin_environment(os.environ),
+                *pod_connector_public_environment(os.environ),
                 *[
                     {"name": name, "value": _env(name) or ""}
                     for name in (
@@ -653,31 +653,18 @@ class GcpBackend:
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:
-        """Read-only recovery of an acknowledged managed upgrade."""
+        """Read-only recovery; retain the existing owner and provider receipt authority."""
         if not self._live or not spec.expected_service_uid or not spec.upgrade_attempt_id:
             raise RuntimeError("upgrade recovery authority unavailable")
-        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.gcp_upgrade_observation import observe_hosted_upgrade
 
-        name = str(self.render_deploy_config(spec)["metadata"]["name"])
-        client = self._client or self._build_client()
-        ready, service = await asyncio.to_thread(
-            client.observe_upgrade_acknowledgement,
-            receipt,
-            name=name,
-            expected_uid=spec.expected_service_uid,
-            attempt_id=spec.upgrade_attempt_id,
-        )
-        if ready is None:
-            return None
-        return BackendHandle(
-            external_agent_id=name,
-            a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
-            status="live" if ready else "failed",
-            backend=self.backend_id,
-            backend_metadata={
-                "image": receipt["image"],
-                "url": GcpRunClient.service_url(service) or "",
-            },
+        return await observe_hosted_upgrade(
+            self._client or self._build_client(),
+            name=_service_name(spec.hushh_id),
+            route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
+            backend_id=self.backend_id,
+            spec=spec,
+            receipt=receipt,
         )
 
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
@@ -707,6 +694,13 @@ class GcpBackend:
             )
         from hushh_mcp.services.gcp_run_client import GcpRunClient
         from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_maintenance_permitted
+        from hushh_mcp.services.pod_connector_configuration import (
+            capture_gcp_connector_repair,
+            gcp_connector_environment,
+            preserve_connector_configuration,
+            reconcile_connector_environment,
+            require_gcp_connector_configuration,
+        )
 
         # A fleet that is not aimed may not be rolled either.
         require_hosted_pod_maintenance_permitted("hussh-managed pod upgrade")
@@ -725,6 +719,16 @@ class GcpBackend:
                     f"cannot upgrade {name}: no such pod service; provision it instead"
                 )
             GcpRunClient.require_service_uid(existing, expected_uid)
+            connector_environment, _ = capture_gcp_connector_repair(
+                existing, spec.upgrade_operation_id
+            )
+            config["spec"]["template"]["spec"]["containers"][0]["env"] = (
+                preserve_connector_configuration(
+                    gcp_connector_environment(existing),
+                    gcp_connector_environment(config),
+                    expected=connector_environment,
+                )
+            )
             previous = None
             try:
                 previous = str(
@@ -732,38 +736,15 @@ class GcpBackend:
                 )
             except (KeyError, IndexError, TypeError):
                 previous = None
-            handoff = None
-            handoff_incarnation = None
-            replacement_submitted = False
-            if spec.upgrade_operation_id:
-                from hushh_mcp.services.pod_upgrade_handoff import (
-                    PodUpgradeHandoffClient,
-                    service_incarnation,
-                )
+            from hushh_mcp.services.pod_upgrade_handoff import prepare_managed_upgrade_handoff
 
-                pod_url = GcpRunClient.service_url(existing)
-                handoff_incarnation = service_incarnation(existing)
-                if not pod_url or not handoff_incarnation:
-                    raise RuntimeError("pod upgrade handoff capability is unavailable")
-                handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
-                try:
-                    handoff.prepare_and_wait(
-                        operation_id=spec.upgrade_operation_id,
-                        incarnation=handoff_incarnation,
-                    )
-                except Exception:
-                    try:
-                        handoff.release(
-                            operation_id=spec.upgrade_operation_id,
-                            incarnation=handoff_incarnation,
-                        )
-                    except Exception:
-                        logger.info(
-                            "gcp_backend.handoff_release_after_prepare_failed", exc_info=True
-                        )
-                    raise
+            handoff, handoff_incarnation = prepare_managed_upgrade_handoff(spec, existing)
+            replacement_submitted = False
             tag = str(target_image).rsplit(":", 1)[-1] or "latest"
             try:
+                reconcile_connector_environment(
+                    gcp_connector_environment(existing), connector_environment
+                )
                 replacement_submitted = True
                 acknowledged = client.replace_service(
                     name,
@@ -780,6 +761,8 @@ class GcpBackend:
                         expected_uid=expected_uid,
                         attempt_id=spec.upgrade_attempt_id or "",
                     )
+                    if connector_environment:
+                        receipt["connectorEnvironment"] = connector_environment
                     spec.on_upgrade_ack(receipt)
                     acknowledgement_options["expected_generation"] = receipt["generation"]
                 ready, svc = client.wait_ready(
@@ -803,6 +786,7 @@ class GcpBackend:
                     raise RuntimeError(
                         f"upgrade of {name} to {target_image} was not confirmed Ready in time"
                     )
+                require_gcp_connector_configuration(svc, connector_environment)
                 return ready, svc, previous
             except Exception:
                 # Before a provider mutation the old revision can safely resume.

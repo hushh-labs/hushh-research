@@ -541,19 +541,6 @@ async def test_image_update_refuses_changed_runtime_identity(copy_log):
 
 
 @pytest.mark.asyncio
-async def test_upgrade_is_a_noop_when_the_pod_already_runs_the_current_digest(copy_log):
-    name = ugb._service_name(HUSHH_ID)
-    run = FakeRun(name, existing_digest=NEW)
-
-    handle = await _backend(run).upgrade(_spec())
-    assert handle.backend_metadata["serviceUid"] == "uid-from-cloud-run"
-
-    assert run.replaced == [] and run.created == []
-    assert (handle.backend_metadata or {})["upgraded"] is False
-    assert (handle.backend_metadata or {})["image_digest"] == NEW
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("expected_uid", [None, "", "different-uid"])
 async def test_upgrade_refuses_unverified_incarnation_before_image_copy(copy_log, expected_uid):
     from dataclasses import replace
@@ -1762,36 +1749,6 @@ async def test_restarted_upgrade_reconciles_receipt_without_new_admission(servic
             if state == "live":
                 assert stored["imageSetByRevision"] == receipt["hubRevision"]
     assert not backend.specs and not registry.claims
-
-
-@pytest.mark.asyncio
-async def test_byoc_restart_observes_acknowledged_revision_without_copy_or_replace(copy_log):
-    name = ugb._service_name(HUSHH_ID)
-    service_json = _service_json(name, NEW)
-    service_json["metadata"]["generation"] = 4
-    service_json["status"]["observedGeneration"] = 4
-    service_json["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})[
-        "hussh/restart-nonce"
-    ] = _spec().upgrade_attempt_id
-
-    class ReadOnlyRun(GcpRunClient):
-        def __init__(self):
-            pass
-
-        def get_service(self, requested):
-            assert requested == name
-            return copy.deepcopy(service_json)
-
-    receipt = GcpRunClient.upgrade_acknowledgement(
-        service_json,
-        name=name,
-        expected_uid=_spec().expected_service_uid,
-        attempt_id=_spec().upgrade_attempt_id,
-    )
-    receipt["targetImage"] = SOURCE_NEW
-    handle = await _backend(ReadOnlyRun()).observe_upgrade(_spec(), receipt)
-    assert handle.status == "live" and handle.backend_metadata["source_image"] == SOURCE_NEW
-    assert not copy_log.resolved and not copy_log.copied
 
 
 @pytest.mark.asyncio

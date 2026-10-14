@@ -52,9 +52,22 @@ from hushh_mcp.services.azure_upgrade_configuration import (
     revision_suffix as revision_suffix,
 )
 from hushh_mcp.services.azure_upgrade_configuration import (
+    upgrade_acknowledgement,
     verified_import_source,
 )
+from hushh_mcp.services.azure_upgrade_configuration import (
+    verified_files as _verified_files,
+)
+from hushh_mcp.services.azure_upgrade_configuration import (
+    with_metadata as _with_metadata,
+)
 from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
+from hushh_mcp.services.pod_connector_configuration import (
+    connector_configuration_current,
+    expected_connector_environment,
+    require_connector_configuration,
+    validate_connector_environment,
+)
 from hushh_mcp.services.pod_release import is_immutable_image_reference
 
 if TYPE_CHECKING:
@@ -122,6 +135,10 @@ def upgrade_agent(
     api = API_VERSIONS["container_apps"]
     app = arm.get(backend.app_id, api_version=api, op="upgrade")
     nonce, created = _fence(app, spec, expected)
+    connector_environment = expected_connector_environment()
+    configuration_current = connector_configuration_current(app, connector_environment)
+    if not configuration_current and not spec.upgrade_operation_id:
+        raise RuntimeError("Connector configuration repair requires an approved upgrade handoff.")
     from hushh_mcp.services.pod_files.azure_bootstrap import approved_bootstrap
 
     files = approved_bootstrap(spec, app, arm, backend.app_id)
@@ -129,8 +146,11 @@ def upgrade_agent(
     scopes = Scopes(backend.plan_inputs(spec.hushh_id, nonce), names)
     target = image_reference(f"{names.registry}.azurecr.io", digest)
     previous = _image(app)
-    if previous == target and files is None:
-        running = backend.verified_handle(spec.hushh_id, backend.observe_sync())
+    if previous == target and files is None and configuration_current:
+        observation = backend.observe_sync()
+        _fence(observation.app, spec, expected)
+        require_connector_configuration(observation.app, connector_environment)
+        running = backend.verified_handle(spec.hushh_id, observation)
         return _with_metadata(running, upgraded=False, source_image=spec.upgrade_target_image)
     handoff = _prepare_handoff(spec, app)
     try:
@@ -143,6 +163,7 @@ def upgrade_agent(
         current = arm.get(backend.app_id, api_version=api, op="upgrade")
         if _fence(current, spec, expected) != (nonce, created):
             raise RuntimeError("the agent changed while its image was imported; nothing replaced")
+        connector_configuration_current(current, connector_environment)
     except Exception:
         _release_handoff(handoff, spec)
         raise
@@ -161,6 +182,7 @@ def upgrade_agent(
         current=current,
         target=target,
         previous=previous,
+        connector_environment=connector_environment,
         clock=clock,
         sleep=sleep,
     )
@@ -174,14 +196,16 @@ def _replace(
     current: dict[str, Any],
     target: str,
     previous: str,
+    connector_environment: list[dict[str, str]],
     clock: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> BackendHandle:
     """Submit the one-image replacement, acknowledge it, and wait for its revision."""
     api = API_VERSIONS["container_apps"]
-    expected = str(spec.expected_service_uid or "")
     suffix = revision_suffix(spec.upgrade_attempt_id or spec.upgrade_operation_id or "")
-    body = replacement_body(current, image=target, suffix=suffix)
+    body = replacement_body(
+        current, image=target, suffix=suffix, connector_environment=connector_environment
+    )
     if spec.files_upgrade_plan is not None:
         from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
 
@@ -209,6 +233,8 @@ def _replace(
             arm.get(backend.app_id, api_version=api, op="files_replace_identity")
         )
         spec.on_files_upgrade_checkpoint("replacement_intent", completed[-1]["step"], completed)
+    if not connector_configuration_current(body, connector_environment):
+        raise RuntimeError("Connector public configuration changed; reconcile the update.")
     started = arm.request(
         "PUT",
         backend.app_id,
@@ -219,14 +245,7 @@ def _replace(
     revision = f"{CONTAINER_APP_NAME}--{suffix}"
     if spec.on_upgrade_ack is not None:
         spec.on_upgrade_ack(
-            {
-                "version": 1,
-                "service": backend.app_id,
-                "serviceUid": expected,
-                "revision": revision,
-                "attemptId": spec.upgrade_attempt_id or "",
-                "image": target,
-            }
+            upgrade_acknowledgement(backend.app_id, spec, revision, target, connector_environment)
         )
     try:  # the replace was sent: the revision verdict below, not this poll, decides
         if arm.needs_poll(started):
@@ -238,7 +257,7 @@ def _replace(
         backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
     )
     handle = backend.verified_handle(spec.hushh_id, observation)
-    handle = _verified_files(handle, spec, observation.app)
+    handle = _verified_files(handle, spec, observation.app, connector_environment)
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
@@ -435,6 +454,11 @@ def observe_upgrade(
         or not is_immutable_image_reference(image)
     ):
         raise RuntimeError("upgrade recovery receipt binding invalid")
+    connector_environment = (
+        validate_connector_environment(receipt["connectorEnvironment"])
+        if "connectorEnvironment" in receipt
+        else None
+    )
     observation = backend.observe_sync()
     if not observation.present:
         raise observation.refusal("observe the update of")
@@ -447,7 +471,7 @@ def observe_upgrade(
         read_revision=_revision_reader(observer, backend.app_id, revision, "observe_upgrade"),
     )
     if verdict == "live":
-        handle = _verified_files(handle, spec, observation.app)
+        handle = _verified_files(handle, spec, observation.app, connector_environment)
         return _with_metadata(handle, upgraded=True, source_image=receipt.get("targetImage") or "")
     if verdict is None:
         return None
@@ -457,26 +481,6 @@ def observe_upgrade(
         status="failed",
         backend=handle.backend,
         backend_metadata={"image": observation.image, "failedRevision": revision},
-    )
-
-
-def _verified_files(handle: BackendHandle, spec: PodSpec, app: dict) -> BackendHandle:
-    if spec.files_upgrade_plan is None:
-        return handle
-    from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
-
-    plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-    plan.require_installed(app)
-    return _with_metadata(handle, filesCapability={"planDigest": plan.digest, "status": "enabled"})
-
-
-def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
-    return BackendHandle(
-        external_agent_id=handle.external_agent_id,
-        a2a_route=handle.a2a_route,
-        status=handle.status,
-        backend=handle.backend,
-        backend_metadata={**(handle.backend_metadata or {}), **extra},
     )
 
 

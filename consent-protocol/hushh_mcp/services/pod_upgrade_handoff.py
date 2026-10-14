@@ -12,6 +12,8 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+from hushh_mcp.services.compute_backend import PodSpec
+
 
 class PodUpgradeHandoffUnavailable(RuntimeError):
     """The pod could not authenticate or complete the lifecycle handoff."""
@@ -148,3 +150,32 @@ __all__ = [
     "PodUpgradeHandoffUnavailable",
     "service_incarnation",
 ]
+
+
+def prepare_managed_upgrade_handoff(
+    spec: PodSpec, existing: dict[str, Any]
+) -> tuple[PodUpgradeHandoffClient | None, str | None]:
+    """Drain an existing managed runtime through its already approved operation."""
+    if not spec.upgrade_operation_id:
+        return None, None
+    from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+    pod_url = GcpRunClient.service_url(existing)
+    incarnation = service_incarnation(existing)
+    if not pod_url or not incarnation:
+        raise RuntimeError("pod upgrade handoff capability is unavailable")
+    handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
+    try:
+        handoff.prepare_and_wait(operation_id=spec.upgrade_operation_id, incarnation=incarnation)
+    except Exception:
+        try:
+            handoff.release(operation_id=spec.upgrade_operation_id, incarnation=incarnation)
+        except Exception:
+            import logging
+
+            logging.getLogger("hushh_mcp.services.gcp_backend").info(
+                "gcp_backend.handoff_release_after_prepare_failed",
+                exc_info=True,
+            )
+        raise
+    return handoff, incarnation

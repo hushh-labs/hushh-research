@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -253,24 +253,15 @@ def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
 
 
 def _mcp_oauth_return_uri() -> str:
+    from hushh_mcp.services.oauth_redirect_policy import mcp_oauth_callback
+
     settings = get_app_runtime_settings()
-    origin = settings.app_frontend_origin
-    parsed = urlsplit(origin)
-    local = settings.environment in {"development", "test"} and parsed.hostname in {
-        "localhost",
-        "127.0.0.1",
-    }
-    if (
-        not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.path not in {"", "/"}
-        or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
-    ):
-        raise HTTPException(status_code=503, detail="Connector return address is not configured.")
-    return origin.rstrip("/") + "/one/profile/connectors/oauth/return"
+    try:
+        return mcp_oauth_callback(settings.app_frontend_origin, environment=settings.environment)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503, detail="Connector return address is not configured."
+        ) from exc
 
 
 @router.post("/{connector_id}/mcp/oauth/begin")

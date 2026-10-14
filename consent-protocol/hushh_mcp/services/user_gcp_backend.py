@@ -1691,47 +1691,20 @@ class UserGcpBackend:
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:
-        """Read-only recovery; never recopy an image or issue another replacement."""
+        """Read-only recovery; retain the existing owner and provider receipt authority."""
         if not self._live or not spec.expected_service_uid or not spec.upgrade_attempt_id:
             raise RuntimeError("upgrade recovery authority unavailable")
         import asyncio
 
-        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.gcp_upgrade_observation import observe_user_upgrade
 
-        name = _service_name(spec.hushh_id)
-        client = await asyncio.to_thread(self._client)
-        ready, service = await asyncio.to_thread(
-            client.observe_upgrade_acknowledgement,
-            receipt,
-            name=name,
-            expected_uid=spec.expected_service_uid,
-            attempt_id=spec.upgrade_attempt_id,
-        )
-        if ready is None:
-            return None
-        image = receipt["image"]
-        digest = image.rsplit("@", 1)[-1] if "@" in image else None
-        if not digest or not digest.startswith("sha256:"):
-            raise RuntimeError("upgrade recovery image unverified")
-        files_metadata = {}
-        if ready and spec.files_upgrade_plan is not None:
-            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
-
-            plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-            plan.require_installed(service)
-            files_metadata = {"filesCapability": {"planDigest": plan.digest, "status": "enabled"}}
-        return BackendHandle(
-            external_agent_id=name,
-            a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
-            status="live" if ready else "failed",
-            backend=self.backend_id,
-            backend_metadata={
-                "image": image,
-                "image_digest": digest,
-                "source_image": receipt["targetImage"],
-                "url": GcpRunClient.service_url(service) or "",
-                **files_metadata,
-            },
+        return await observe_user_upgrade(
+            await asyncio.to_thread(self._client),
+            name=_service_name(spec.hushh_id),
+            route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
+            backend_id=self.backend_id,
+            spec=spec,
+            receipt=receipt,
         )
 
     async def discover_files_upgrade_ack(self, spec: PodSpec) -> Optional[dict]:
@@ -1831,30 +1804,21 @@ class UserGcpBackend:
                 "provision (or adopt) it instead"
             )
         GcpRunClient.require_service_uid(existing, expected_uid)
-        files_capability = None
-        if spec.files_upgrade_plan is not None:
-            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+        from hushh_mcp.services.pod_connector_configuration import (
+            capture_gcp_connector_repair,
+            gcp_connector_environment,
+            reconcile_connector_environment,
+            require_gcp_connector_configuration,
+        )
 
-            files_capability = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-            if (
-                not spec.upgrade_operation_id
-                or not spec.upgrade_attempt_id
-                or spec.on_files_upgrade_checkpoint is None
-                or files_capability.hushhId != spec.hushh_id
-                or files_capability.serviceUid != expected_uid
-                or files_capability.project != self._user_project
-                or files_capability.targetImage != spec.upgrade_target_image
-                or files_capability.bootstrapAccount != self._bootstrap_sa
-            ):
-                raise ValueError("Files activation is missing its approved operation")
-            from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+        connector_environment, connector_repair = capture_gcp_connector_repair(
+            existing, spec.upgrade_operation_id
+        )
+        from hushh_mcp.services.pod_files.capability_update import approved_upgrade_plan
 
-            try:
-                files_capability.require_observation(existing)
-            except ValueError:
-                raise FilesCapabilityChanged(
-                    "Pod configuration changed. Review Files setup again."
-                ) from None
+        files_capability = approved_upgrade_plan(
+            spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
+        )
         observed_runtime = (
             existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
         )
@@ -1929,31 +1893,29 @@ class UserGcpBackend:
                 preserve_image_upgrade_configuration,
             )
 
-            preserve_image_upgrade_configuration(existing, config)
+            preserve_image_upgrade_configuration(
+                existing, config, connector_environment=connector_environment
+            )
             if files_capability is not None:
                 from hushh_mcp.services.pod_files.capability_bootstrap import (
-                    FilesCapabilityBootstrap,
+                    apply_upgrade_configuration,
                 )
-                from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
-                token = await asyncio.to_thread(
-                    mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa
-                )
-                bootstrap = FilesCapabilityBootstrap(capability=files_capability, token=token)
                 await asyncio.to_thread(
-                    bootstrap.apply_delta,
-                    checkpoint=spec.on_files_upgrade_checkpoint,
-                    completed_prefix=spec.files_upgrade_completed_steps,
+                    apply_upgrade_configuration,
+                    files_capability,
+                    client,
+                    spec,
+                    existing,
+                    config,
+                    bootstrap_sa=self._bootstrap_sa,
+                    service_name=name,
                 )
-                # Re-observe immediately before replacement; resource provisioning
-                # does not authorize overwriting an independently edited service.
-                latest = await asyncio.to_thread(client.get_service, name)
-                files_capability.require_observation(latest)
-                files_capability.apply_configuration(existing=existing, desired=config)
             changed = (
                 image_digest != previous_digest
                 or files_capability is not None
                 or notification_changed
+                or connector_repair
             )
             svc: Optional[dict[str, Any]] = existing
             if changed:
@@ -1964,6 +1926,9 @@ class UserGcpBackend:
                         "gmail_runtime_configuration",
                         [],
                     )
+                reconcile_connector_environment(
+                    gcp_connector_environment(existing), connector_environment
+                )
                 replacement_submitted = True
                 acknowledged = await asyncio.to_thread(
                     client.replace_service,
@@ -1981,6 +1946,8 @@ class UserGcpBackend:
                         expected_uid=expected_uid,
                         attempt_id=spec.upgrade_attempt_id or "",
                     )
+                    if connector_environment:
+                        receipt["connectorEnvironment"] = connector_environment
                     await asyncio.to_thread(spec.on_upgrade_ack, receipt)
                     acknowledgement_options["expected_generation"] = receipt["generation"]
                 ready, svc = await asyncio.to_thread(
@@ -2063,6 +2030,7 @@ class UserGcpBackend:
         )
         if files_capability is not None:
             files_capability.require_installed(svc)
+        require_gcp_connector_configuration(svc, connector_environment)
         logger.info(
             "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
             name,
