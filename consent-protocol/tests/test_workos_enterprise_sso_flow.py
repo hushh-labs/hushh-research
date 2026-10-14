@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -666,3 +667,20 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
 
     assert workos_sso_enabled()
     assert config.sign_in_ready and config.webhook_secret
+
+
+async def test_sign_in_is_unavailable_without_the_webhook_secret():
+    """Offboarding arrives by webhook, so SSO that cannot receive it must not sign anyone in."""
+    service = EnterpriseSsoService(
+        workos=FakeWorkOS(),
+        config=replace(CONFIG, webhook_secret=""),
+        firebase=FakeFirebase(),
+        consent=FakeConsent(),
+        is_tombstoned=lambda uid: False,
+    )
+
+    with pytest.raises(EnterpriseSsoError) as refused:
+        await service.start(email="person@example.com", organization_id=None)
+
+    assert refused.value.code == "sso_unavailable"
+    assert refused.value.status_code == 503

@@ -50,7 +50,9 @@ class WorkOSConfig:
 
     @property
     def sign_in_ready(self) -> bool:
-        return bool(self.api_key and self.client_id and self.redirect_uri)
+        # The webhook is how offboarding reaches us, so sign-in is not offered
+        # without it: SSO that cannot deprovision must not sign anyone in.
+        return bool(self.api_key and self.client_id and self.redirect_uri and self.webhook_secret)
 
 
 @dataclass(frozen=True)
