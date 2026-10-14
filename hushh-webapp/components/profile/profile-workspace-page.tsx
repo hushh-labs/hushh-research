@@ -196,7 +196,6 @@ import {
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
-  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
