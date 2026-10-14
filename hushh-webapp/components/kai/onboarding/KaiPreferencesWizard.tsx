@@ -309,7 +309,7 @@ export function KaiPreferencesWizard(props: {
                 )}
               >
                 {isSubmitting ? "Saving..." : primaryLabel}
-                {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
+                {!isSubmitting && <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />}
               </Button>
 
               {props.mode === "onboarding" && props.onSkip && (
@@ -326,7 +326,7 @@ export function KaiPreferencesWizard(props: {
                   className="h-11 rounded-full !bg-primary/10 text-[15px] font-medium !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
                 >
                   {isSubmitting ? "Saving..." : "Skip"}
-                  {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
+                  {!isSubmitting && <ArrowRight aria-hidden="true" className="ml-2 h-5 w-5" />}
                 </Button>
               )}
             </div>
