@@ -13,6 +13,9 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -107,11 +110,12 @@ def test_routes_answer_404_while_the_flag_is_off(monkeypatch):
     from api.routes import workos as routes
 
     monkeypatch.delenv("WORKOS_SSO_ENABLED", raising=False)
+    monkeypatch.delenv("WORKOS_WEBHOOK_SECRET", raising=False)
     app = FastAPI()
     app.include_router(routes.router)
     app.include_router(routes.webhook_router)
     client = TestClient(app)
-    assert client.get("/api/auth/sso/start", params={"email": "a@b.example"}).status_code == 404
+    assert client.post("/api/auth/sso/start", json={"email": "a@b.example"}).status_code == 404
     assert (
         client.post("/api/auth/sso/exchange", json={"code": "c", "state": "s"}).status_code == 404
     )
@@ -748,3 +752,99 @@ async def test_start_sends_workos_the_redirect_for_the_origin_the_person_started
     )
 
     assert workos.redirects == ["https://alt.example/cb", "https://app.example/cb"]
+
+
+def _routes_client(monkeypatch, *, enabled, secret=None):
+    from api.routes import workos as routes
+
+    monkeypatch.delenv("WORKOS_SSO_ENABLED", raising=False)
+    monkeypatch.delenv("WORKOS_WEBHOOK_SECRET", raising=False)
+    if enabled:
+        monkeypatch.setenv("WORKOS_SSO_ENABLED", "true")
+    if secret:
+        monkeypatch.setenv("WORKOS_WEBHOOK_SECRET", secret)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.include_router(routes.webhook_router)
+    return TestClient(app)
+
+
+def test_the_webhook_keeps_working_after_sign_in_is_switched_off(monkeypatch):
+    # Turning sign-in off is the rollback. It must not make WorkOS's offboarding events fail.
+    client = _routes_client(monkeypatch, enabled=False, secret=SECRET)
+
+    bad = client.post(
+        "/api/webhooks/workos", content=b"{}", headers={"WorkOS-Signature": "t=1, v1=00"}
+    )
+
+    assert bad.status_code == 400  # reachable and verifying, not the 404 of a dark deployment
+    assert client.post("/api/auth/sso/start", json={"email": "a@acme.example"}).status_code == 404
+
+
+def test_start_takes_the_email_in_the_body_never_the_url(monkeypatch):
+    client = _routes_client(monkeypatch, enabled=True, secret=SECRET)
+
+    assert client.get("/api/auth/sso/start", params={"email": "a@acme.example"}).status_code == 405
+    assert client.post("/api/auth/sso/start", json={}).status_code == 422
+
+
+def _request(forwarded=None, peer="10.0.0.1"):
+    from starlette.requests import Request
+
+    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    return Request({"type": "http", "headers": headers, "client": (peer, 1234)})
+
+
+@pytest.mark.parametrize(
+    ("forwarded", "expected"),
+    [
+        ("203.0.113.9, 10.0.0.1", "sso:203.0.113.9"),
+        # A visitor who sends their own X-Forwarded-For cannot take over the slot we read.
+        ("1.1.1.1, 203.0.113.9, 10.0.0.1", "sso:203.0.113.9"),
+        ("203.0.113.9", "sso:10.0.0.1"),  # no proxy hop to trust: fall back to the peer
+        (None, "sso:10.0.0.1"),
+    ],
+)
+def test_the_rate_limit_tells_visitors_apart_behind_the_proxy(forwarded, expected):
+    from api.routes import workos as routes
+
+    assert routes._client_key(_request(forwarded)) == expected
+
+
+@pytest.mark.parametrize(
+    ("event", "state", "expected"),
+    [
+        ("dsync.user.deleted", None, True),
+        ("dsync.user.updated", "inactive", True),
+        ("dsync.user.updated", "suspended", True),
+        ("dsync.user.updated", "active", False),
+        ("dsync.group.created", "inactive", False),
+    ],
+)
+def test_which_directory_events_deprovision(event, state, expected):
+    data = {"state": state} if state else {}
+    assert EnterpriseSsoService._is_deprovision(event, data) is expected
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs POSIX bash")
+@pytest.mark.parametrize(
+    ("flag", "bound", "ok"),
+    [
+        ("true", "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET", True),
+        ("true", "WORKOS_API_KEY WORKOS_CLIENT_ID", False),  # a missing secret must stop the deploy
+        ("", "", True),  # SSO off: the secrets stay optional
+    ],
+)
+def test_deploy_refuses_to_enable_sso_with_a_secret_missing(flag, bound, ok):
+    script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
+    stubs = (
+        "secrets=BASE=x:latest; PROJECT_ID=p\n"
+        'add_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
+        "add_env() { :; }\n"
+    )
+    env = {**os.environ, "BOUND": bound, "_WORKOS_SSO_ENABLED": flag}
+    env["_WORKOS_REDIRECT_URI"] = "https://app.example/login"
+    run = subprocess.run(  # noqa: S603 - fixed shell and repository script; fixed inputs
+        ["bash", "-c", f"{stubs}source {script}"], env=env, capture_output=True, text=True
+    )
+    assert (run.returncode == 0) is ok
