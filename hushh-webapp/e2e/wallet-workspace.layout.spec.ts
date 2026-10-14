@@ -608,6 +608,14 @@ for (const width of [320, 393, 1440]) {
       const box = await form.boundingBox();
       return Boolean(box && box.x >= 0 && box.x + box.width <= width);
     }).toBe(true);
+    const network = form.getByTestId("secure-card-network-select");
+    await expect(network).toBeVisible();
+    expect(await network.evaluate(el => el.closest("details"))).toBeNull();
+    const networkBounds = (await network.boundingBox())!;
+    for (const label of ["Expiry (MM/YY)", "CVV"]) {
+      const box = (await form.getByLabel(label, { exact: true }).boundingBox())!;
+      expect(networkBounds.y).toBeGreaterThanOrEqual(box.y + box.height);
+    }
     await page.getByText("Additional details", { exact: true }).click();
     for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "CVV", "PIN (optional)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
@@ -731,17 +739,25 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
     await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    const profileFont = await history.getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
     await expect(history.getByText(/15 minutes/)).toBeHidden();
     await expect(history.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true }).click();
     const receivedDetail = page.getByRole("dialog", { name: "Example Sender", exact: true });
     await expect(receivedDetail.getByText(/15 minutes/)).toBeVisible();
+    await expect(receivedDetail.getByRole("heading", { name: "Example Sender", exact: true })).toHaveCSS("font-size", "13px");
     await expect(receivedDetail.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await receivedDetail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(receivedDetail).toBeHidden();
     await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();
     const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
     await expect(detail.getByText(/15 minutes/)).toBeVisible();
+    const name = detail.getByRole("heading", { name: "Sample recipient", exact: true });
+    await expect(name).toHaveCSS("font-size", "13px");
+    await expect(name).toHaveCSS("font-weight", "500");
+    await expect(name).toHaveCSS("font-family", profileFont);
+    await expect(detail.getByText("Shared card", { exact: true })).toHaveCSS("font-size", "12px");
+    await expect(detail.locator('[data-slot$="-header"] .ui-text-row-description')).toHaveCSS("font-size", "12px");
     if (width < 768) {
       // WebKit rounds dvh to fractional CSS pixels.
       await expect.poll(async () => Math.abs((await detail.boundingBox())!.height - 844)).toBeLessThan(1);
