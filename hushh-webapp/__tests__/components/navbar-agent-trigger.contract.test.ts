@@ -31,7 +31,7 @@ describe("Navbar bottom chrome contract", () => {
     const providers = read("app/providers.tsx");
     // Chat has no top shell, but Search still needs its global receiver.
     expect(providers).toMatch(
-      /!hidesPersistentChrome && !effectiveHideCommandBar \? \(\s*<KaiCommandBarGlobal/,
+      /!hidesPersistentChrome\s*&&\s*!effectiveHideCommandBar\s*\?\s*\(\s*<KaiCommandBarGlobal/,
     );
 
     // One column for both bars: the pill fills the shared bottom chrome

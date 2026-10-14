@@ -425,18 +425,15 @@
       "label": "Prepare Personal World Model",
       "meaning": "Opt in to research using the account name and verified contact after setup and vault readiness.",
       "aliases": [
-        "choose my ai",
-        "set up AI access",
-        "ai access",
-        "choose gemini",
-        "configure one",
-        "use my gemini key"
+        "prepare my personal world model",
+        "enable personal research",
+        "PWM consent"
       ],
       "search_keywords": [
-        "AI access",
-        "gemini",
-        "runtime",
-        "key",
+        "personal world model",
+        "PWM",
+        "research",
+        "consent",
         "setup"
       ],
       "reachability": {
@@ -453,7 +450,7 @@
       "guard_ids": [
         "auth_signed_in"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -471,18 +468,14 @@
       "label": "Personal World Model readiness emails",
       "meaning": "Opt in to a minimal readiness email after personal research finishes.",
       "aliases": [
-        "choose my ai",
-        "set up AI access",
-        "ai access",
-        "choose gemini",
-        "configure one",
-        "use my gemini key"
+        "email me when my model is ready",
+        "PWM readiness emails"
       ],
       "search_keywords": [
-        "AI access",
-        "gemini",
-        "runtime",
-        "key",
+        "personal world model",
+        "PWM",
+        "email",
+        "notification",
         "setup"
       ],
       "reachability": {
@@ -499,7 +492,7 @@
       "guard_ids": [
         "auth_signed_in"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",

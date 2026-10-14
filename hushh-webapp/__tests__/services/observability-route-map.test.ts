@@ -160,7 +160,14 @@ describe("observability route map", () => {
     expect(unknownRoutes).toEqual([]);
   });
 
+  it("maps invitation fragments without retaining the claim token", () => {
+    expect(resolveRouteId("/world-model/invite#token=private-claim-token")).toBe(
+      "world_model_invite",
+    );
+  });
+
   it.each([
+    ["/world-model/invite", "world_model_invite"],
     ["/one/profile/payouts", "profile_payouts"],
     ["/one/profile/request-pricing", "profile_request_pricing"],
   ])("maps %s without retaining return or navigation parameters", (route, routeId) => {
