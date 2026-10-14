@@ -2055,6 +2055,60 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.shielded)
     }
 
+    @MainActor
+    func testOwnedAlertsKeepUIKitDelegateAndCompleteDismissalBeforeChoice() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        for style in [UIAlertController.Style.alert, .actionSheet] {
+            let alert = UIAlertController(title: "Public confirmation", message: nil, preferredStyle: style)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.popoverPresentationController?.sourceView = parent.view
+            alert.popoverPresentationController?.sourceRect = CGRect(x: 44, y: 44, width: 44, height: 44)
+            var choices = 0
+            let presenter = HushhNativeChromePresenter(parent: parent, controller: alert, updateSequence: 7) { _, sequence in
+                XCTAssertNil(alert.presentingViewController, "Choice cannot precede actual native dismissal")
+                XCTAssertEqual(sequence, 7)
+                choices += 1
+            }
+            presenter.present() // Old code aborts in UIKit's alert delegate setter here.
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                alert.presentingViewController === parent && !alert.isBeingPresented
+            }, object: nil)
+            await fulfillment(of: [visible], timeout: 3)
+            XCTAssertFalse(alert.presentationController?.delegate === presenter)
+            if style == .alert {
+                presenter.choose("delete")
+                presenter.choose("delete") // Duplicate callbacks must not replay.
+            }
+            let dismissed = expectation(description: "Owned alert detached")
+            presenter.retire { dismissed.fulfill() }
+            await fulfillment(of: [dismissed], timeout: 3)
+            XCTAssertNil(alert.presentingViewController)
+            XCTAssertEqual(choices, style == .alert ? 1 : 0)
+        }
+        // The fix is alert-specific. Custom sheets retain adaptive dismissal.
+        let sheet = UIViewController()
+        sheet.modalPresentationStyle = .pageSheet
+        let presenter = HushhNativeChromePresenter(parent: parent, controller: sheet, updateSequence: 1) { _, _ in
+            XCTFail("Retirement alone must not execute a choice")
+        }
+        presenter.present()
+        XCTAssertTrue(sheet.presentationController?.delegate === presenter)
+        let dismissed = expectation(description: "Custom sheet detached")
+        presenter.retire { dismissed.fulfill() }
+        await fulfillment(of: [dismissed], timeout: 3)
+        XCTAssertNil(sheet.presentingViewController)
+    }
+
     func testSessionPrivacyStatePreservesBackgroundDebtThroughTransientInactivity() {
         var state = HushhSessionPrivacyState()
         state.protectForAppInactive()

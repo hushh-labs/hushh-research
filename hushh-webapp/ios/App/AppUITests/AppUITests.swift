@@ -3815,6 +3815,7 @@ final class AppUITests: XCTestCase {
             print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
         }
         XCTAssertTrue(waitForAdmittedControl(close))
+        printCoherentPresentationAdmission(app)
         close.tap()
         guard waitForAdmittedControl(editor) else {
             printCoherentPresentationAdmission(app)
