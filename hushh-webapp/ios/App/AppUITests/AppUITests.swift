@@ -144,6 +144,15 @@ final class AppUITests: XCTestCase {
                 }
             }
         }
+        // Public authored identity only: distinguish a duplicate AX projection
+        // from a single control with an unusable activation point. Do not dump
+        // the tree, row titles, private identity or editor contents.
+        let historyMatches = app.buttons.matching(identifier: "chat-history-toggle")
+        print("COHERENT_HISTORY_AX count=\(historyMatches.count)")
+        for (index, candidate) in historyMatches.allElementsBoundByIndex.prefix(4).enumerated() {
+            let frame = candidate.frame
+            print("COHERENT_HISTORY_AX_ELEMENT index=\(index) hittable=\(candidate.isHittable) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
+        }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
         let probe = app.buttons["native-profile-back-admission"].firstMatch
         if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
@@ -983,6 +992,22 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(editor), waitForAdmittedControl(history), waitForAdmittedControl(profile), selector.exists else {
             printCoherentPresentationAdmission(app)
             printNativeControlStatuses(web)
+            if ProcessInfo.processInfo.environment["HUSHH_CHARACTERIZE_HISTORY_HIT"] == "true",
+               history.exists, history.isEnabled, !history.isHittable,
+               let packet = app.buttons["native-profile-back-admission"].firstMatch.value as? String,
+               packet.utf8.count <= 1024, packet.contains("hAdmitted=1"), packet.contains("hAllowed=1"),
+               packet.contains("hIsolated=0"), packet.contains("hHidden=0"),
+               packet.contains("hHits=target>target,target>target,target>target,target>target,target>target"),
+               app.frame.contains(CGPoint(x: history.frame.midX, y: history.frame.midY)) {
+                // Diagnosis only, never acceptance or an operation retry. One
+                // touch of the admitted opener separates AX projection from
+                // actual callback delivery; keep the original failure below.
+                history.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                let close = app.buttons["Close chat history"].firstMatch
+                let opened = waitForAdmittedControl(close)
+                print("COHERENT_HISTORY_TOUCH_DIAG opened=\(opened)")
+                if opened { close.tap() }
+            }
             XCTFail("COHERENT_SHELL_COMPOSITION_NOT_ADMITTED"); return
         }
         let initialDraft = editor.value as? String // Process-only; never an assertion operand or artifact.
@@ -1088,9 +1113,12 @@ final class AppUITests: XCTestCase {
                     print("COHERENT_HISTORY_ACTION_STAGE stage=delete_menu_opened")
                     let delete = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Delete")).firstMatch
                     guard waitForAdmittedControl(delete) else { XCTFail("COHERENT_HISTORY_DELETE_MENU_UNAVAILABLE"); return }
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=delete_menu_admitted")
                     delete.tap()
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=delete_choice_delivered")
                     let confirmation = app.alerts["Delete chat?"].firstMatch
                     guard confirmation.waitForExistence(timeout: 10) else { XCTFail("COHERENT_HISTORY_DELETE_CONFIRMATION_UNAVAILABLE"); return }
+                    print("COHERENT_HISTORY_ACTION_STAGE stage=delete_confirmation_present")
                     let deleteCancel = confirmation.buttons["Cancel"].firstMatch
                     guard waitForAdmittedControl(deleteCancel) else { XCTFail("COHERENT_HISTORY_DELETE_CANCEL_UNAVAILABLE"); return }
                     deleteCancel.tap() // Never delete a reviewer record.
@@ -3719,6 +3747,11 @@ final class AppUITests: XCTestCase {
             }
             guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
                 print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
+                for (index, candidate) in containers.allElementsBoundByIndex.prefix(6).enumerated() {
+                    let frame = candidate.frame
+                    print("PROFILE_DETAIL_PUBLIC_CANDIDATE index=\(index) role=\(candidate.elementType.rawValue) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
+                }
+                print("PROFILE_DETAIL_PUBLIC_CLOSE x=\(Int(detailClose.frame.minX.rounded())) y=\(Int(detailClose.frame.minY.rounded())) width=\(Int(detailClose.frame.width.rounded())) height=\(Int(detailClose.frame.height.rounded()))")
                 XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
             }
             print("PROFILE_DETAIL_PUBLIC_FRAME top=\(Int(detailFrame.minY)) bottom=\(Int(detailFrame.maxY)) expected_top=\(Int(app.frame.minY)) expected_bottom=\(Int(app.frame.maxY))")
@@ -6938,9 +6971,26 @@ final class AppUITests: XCTestCase {
         // Recover only authored dismissals left by this rehearsal. A failed
         // XCTest assertion can interrupt Swift defer, so do not assume a prior
         // drawer test restored its warm entry state. No account/fixture reset.
+        let deleteConfirmation = app.alerts["Delete chat?"].firstMatch
+        if deleteConfirmation.exists {
+            let cancel = deleteConfirmation.buttons["Cancel"].firstMatch
+            if waitForAdmittedControl(cancel) {
+                cancel.tap()
+                let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: deleteConfirmation)
+                guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else { return }
+            } else { return }
+        }
         for label in ["Close One profile", "Close Profile", "Close chat history", "Close search"] {
             let close = app.buttons[label].firstMatch
-            if close.exists && close.isHittable { close.tap() }
+            if close.exists && close.isHittable {
+                close.tap()
+                // A delivered tap is not completed retirement. Do not let
+                // subsequent Back/Chat actions race the old interaction layer.
+                let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    !close.exists || !close.isHittable
+                }, object: close)
+                guard XCTWaiter.wait(for: [retired], timeout: 10) == .completed else { return }
+            }
         }
         // A roster entry can legitimately open unfinished capability setup,
         // where the dock is absent. Use the authored Back, not a cold route or
