@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 // Connection/OAuth owner tests use the workspace composition seam; its real
 // event, keyboard and attendance behavior is covered in the connected suite.
 vi.mock("@/components/calendar/calendar-connected-workspace", () => ({
-  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p><p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
+  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -298,7 +298,7 @@ describe("CalendarAgentPage", () => {
     await act(async () => resolveStatus({ configured: true, connected: connectionState === "connected", status: connectionState, access_level: "read", scope_csv: "" }));
     if (connectionState === "connected") {
       expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
-      expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: journeyVariant === "workspace" ? "Calendar" : "Google Calendar" })).toBeTruthy();
       expect(screen.getByText("Connected")).toBeTruthy();
     } else {
       expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
