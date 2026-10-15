@@ -3841,3 +3841,21 @@ Azure model repair has been removed. No additional financial action or new IAM
 authority is implied by this integration. Both reviewer funding totals remain
 $10.50 and the cumulative Sandbox capital remains $15. Scope purchases, term
 maturity, withdrawals and private-agent Stripe account/balance reads remain pending.
+
+
+The normal merge is committed at `4f38d45fd98c12b96347fd389025f5a29b47127f`.
+Its clean Back run passed 460 of 461 cases; the unchanged remaining Location file
+then passed all 103 cases in isolation, including late decrypted-refresh refusal
+after consent revocation. The earlier root run's Memory failures also do not
+reproduce in its isolated 52-case file. Initial failures are retained as evidence;
+these are not claims that either initial broad run passed. All covered behaviors
+were reviewed before Back and Search receipts were refreshed together.
+
+The reviewer transport additionally supports explicitly admitted document POSTs
+at Stripe's declared authorization endpoint only. The current-attempt callback
+remains mandatory; token, payment, wrong-origin and fragment-bearing paths are
+refused. All 63 nearest preparation-guard cases pass, and independent source review
+found no authority broadening. This is rehearsal transport support, not an OAuth
+completion receipt. The same Chrome transport and ordinary unlocked owner lease
+remain current. No ChatGPT host plugin or application SDK credential substitutes
+for the private agent's owner OAuth.

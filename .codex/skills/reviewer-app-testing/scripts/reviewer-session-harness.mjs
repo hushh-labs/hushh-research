@@ -180,7 +180,10 @@ export async function installReadOnlyMutationGuard(context, {
     if (admitProviderOAuth && admitMutation && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && method === "POST") {
       try {
         const url = new URL(request.url());
-        if (OWNER_OAUTH_ORIGINS.has(url.origin) && !url.username && !url.password && !url.port &&
+        const reviewedProvider = OWNER_OAUTH_ORIGINS.has(url.origin) ||
+          (url.origin === "https://access.stripe.com" &&
+            url.pathname === "/mcp/oauth2/authorize" && !url.hash);
+        if (reviewedProvider && !url.username && !url.password && !url.port &&
             request.isNavigationRequest() && request.resourceType() === "document" &&
             request.frame().parentFrame() === null && await admitProviderOAuth(request) === true) {
           await route.continue();

@@ -102,17 +102,25 @@ describe("reviewer preparation-only authority", () => {
       expect(admission).not.toHaveBeenCalled();
   });
   it.each([
+    [true, "https://access.stripe.com/mcp/oauth2/authorize?state=synthetic", true, true, true],
+    [true, "https://access.stripe.com/mcp/oauth2/authorize", true, true, false, false],
+    [true, "https://access.stripe.com/mcp/oauth2/token", true, true, false],
+    [true, "https://access.stripe.com/v1/payouts", true, true, false],
+    [true, "https://api.stripe.com/mcp/oauth2/authorize", true, true, false],
+    [true, "https://access.stripe.com/mcp/oauth2/authorize#other", true, true, false],
+
     [true, "https://login.microsoftonline.com/common/Consent/Set", true, true, true],
     [true, "https://login.microsoftonline.com/common/Consent/Set", false, true, false],
     [true, "https://login.microsoftonline.com/common/Consent/Set", true, false, false],
     [true, "https://evil.invalid/common/Consent/Set", true, true, false],
     [false, "https://login.microsoftonline.com/common/Consent/Set", true, true, false],
-  ])("admits only explicit owner OAuth document navigation (%s %s %s %s)", async (authorized, url, navigation, topFrame, allowed) => {
+  ])("admits only explicit owner OAuth document navigation (%s %s %s %s)", async (authorized, url, navigation, topFrame, allowed, current = true) => {
     vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", String(authorized));
     let handler!: (route: unknown) => Promise<void>;
     const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
       appOrigin: "https://dev.one.hussh.ai", admitMutation: () => false,
-      admitProviderOAuth: (request: { url: () => string }) => new URL(request.url()).pathname === "/common/Consent/Set",
+      admitProviderOAuth: (request: { url: () => string }) => current &&
+        ["/common/Consent/Set", "/mcp/oauth2/authorize"].includes(new URL(request.url()).pathname),
     });
     const route = { request: () => ({ url: () => url, method: () => "POST", isNavigationRequest: () => navigation,
       resourceType: () => navigation ? "document" : "fetch", frame: () => ({ parentFrame: () => topFrame ? null : {} }) }),

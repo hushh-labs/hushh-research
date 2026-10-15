@@ -171,12 +171,6 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
-  await page.route(/^http:\/\/localhost\/one-presence\/(?:rive\.wasm|(?:working|thinking)\.riv)$/, route =>
-    route.fulfill({
-      contentType: new URL(route.request().url()).pathname.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
-    }),
-  );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
