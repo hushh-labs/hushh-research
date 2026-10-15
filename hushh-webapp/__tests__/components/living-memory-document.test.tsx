@@ -1,11 +1,14 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
+
 const m = vi.hoisted(() => ({
   uid: "owner-a",
   unlocked: true,
   token: "fixture-token-0",
   epoch: 0,
-  markdown: "SYNTHETIC_A",
+  view: null as LiveMirrorView | null,
   listeners: new Set<() => void>(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -22,11 +25,7 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
 }));
 vi.mock("@/lib/pkm/memory-refresh", () => ({
-  peekMemoryView: () => ({
-    status: "current",
-    builtAt: "2026-10-11T00:00:00Z",
-    document: { markdown: m.markdown },
-  }),
+  peekLiveMirror: () => m.view,
 }));
 vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
@@ -40,52 +39,234 @@ vi.mock("@/lib/services/cache-service", () => ({
     }),
   },
 }));
+
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
+import {
+  appendVerifiedLivingSourceChanges,
+  reconcileLivingSources,
+  type LivingSourceChange,
+  type LivingSourceHistory,
+  type LivingSourceInput,
+  type LivingSourceInventory,
+} from "@/lib/pkm/living-source-records";
+import type { MemoryDocument } from "@/lib/pkm/memory-document";
+
+const T0 = "2026-10-15T10:00:00.000Z";
+const T1 = "2026-10-15T10:01:00.000Z";
+const NOW = "2026-10-15T10:02:00.000Z";
+const UPDATED = "2026-10-15T09:30:00.000Z";
+type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
+
+const profile = (name: string, owner = "owner-a"): LivingSourceInput => ({
+  kind: "profile", id: owner, createdAt: null, updatedAt: UPDATED, value: { name, email: "owner@example.test" },
+});
+const consent = (id: string, scope: string): LivingSourceInput => ({
+  kind: "consent", id, createdAt: T0, updatedAt: T0, value: { scope, status: "active" },
+});
+
+/** A real projection with read time applied, built through the real reconciler and history. */
+function mirror(options: {
+  steps?: Step[];
+  owner?: string;
+  epoch?: number;
+  status?: MemoryRefreshStatus;
+  readAt?: string;
+  document?: Partial<MemoryDocument>;
+  history?: (history: LivingSourceHistory) => LivingSourceHistory;
+  extra?: Partial<Parameters<typeof buildLiveMirrorProjection>[0]>;
+} = {}): LiveMirrorView {
+  let inventory: LivingSourceInventory | null = null;
+  let history: LivingSourceHistory | null = null;
+  for (const step of options.steps ?? [{ inputs: [profile("SYNTHETIC_A_NAME", options.owner)], kinds: ["profile"], now: T1 }]) {
+    const next = reconcileLivingSources(inventory, step.inputs, step.kinds, step.unavailable ?? [], step.now);
+    history = appendVerifiedLivingSourceChanges(history, inventory, next);
+    inventory = next;
+  }
+  const projection = buildLiveMirrorProjection({
+    ownerId: options.owner ?? "owner-a",
+    vaultEpoch: options.epoch ?? 0,
+    now: NOW,
+    inventory,
+    history: history && options.history ? options.history(history) : history,
+    document: { markdown: "", complete: true, sourceLinks: [], excludedDomains: [], freshness: [], ...options.document },
+    ...options.extra,
+  });
+  return applyLiveMirrorReadTime(projection, options.readAt ?? NOW, options.status ?? "current");
+}
+const fire = () => act(() => { for (const listener of m.listeners) listener(); });
+const openTab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
+const row = (group: string, label: string) => within(
+  screen.getByRole("heading", { name: group }).closest<HTMLElement>('[data-testid="settings-group"]')!,
+).getByText(label).closest<HTMLElement>('[data-testid="settings-row"]')!;
+
 beforeEach(() => {
   m.uid = "owner-a";
   m.unlocked = true;
   m.token = "fixture-token-0";
   m.epoch = 0;
-  m.markdown = "SYNTHETIC_A";
+  m.view = mirror();
   m.listeners.clear();
 });
 afterEach(cleanup);
-it("does not carry one owner document into another account", () => {
-  const view = render(<LivingMemoryDocument />);
-  expect(screen.getByText("SYNTHETIC_A")).toBeInTheDocument();
-  m.uid = "owner-b";
-  m.epoch++;
-  m.token = "fixture-b-token";
-  m.markdown = "SYNTHETIC_B";
-  view.rerender(<LivingMemoryDocument />);
-  expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
-  expect(screen.getByText("SYNTHETIC_B")).toBeInTheDocument();
-});
-it("clears the visible document while locked and accepts fresh unlocked readback", () => {
-  const view = render(<LivingMemoryDocument />);
-  m.unlocked = false;
-  m.epoch++;
-  view.rerender(<LivingMemoryDocument />);
-  expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
-  m.unlocked = true;
-  m.token = "fixture-token-1";
-  m.markdown = "SYNTHETIC_REBUILT";
-  view.rerender(<LivingMemoryDocument />);
-  expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
-  expect(screen.getByText("SYNTHETIC_REBUILT")).toBeInTheDocument();
-});
-it("accepts fresh readback after token renewal without requiring another lock", () => {
-  const view = render(<LivingMemoryDocument />);
-  m.epoch++;
-  m.token = "fixture-token-1";
-  m.markdown = "SYNTHETIC_RENEWED";
-  view.rerender(<LivingMemoryDocument />);
-  act(() => {
-    for (const listener of m.listeners) listener();
+
+describe("Profile Live Mirror", () => {
+  it.each([
+    ["locked", () => { m.unlocked = false; }, "Memory locked"],
+    ["loading", () => { m.view = null; }, "Checking sources"],
+    ["current", () => undefined, "Up to date"],
+    ["updating", () => { m.view = mirror({ status: "refresh_pending" }); }, "Updating"],
+    ["stale by age", () => { m.view = mirror({ readAt: "2026-10-15T10:08:01.000Z" }); }, "May be out of date"],
+    ["partial", () => {
+      m.view = mirror({ status: "refresh_failed", steps: [{ inputs: [profile("Ankit")], kinds: ["profile"], unavailable: ["consent"], now: T1 }] });
+    }, "Some sources unavailable"],
+    ["conflict", () => { m.view = mirror({ extra: { nameConflict: true } }); }, "Needs your review"],
+    ["empty", () => { m.view = mirror({ steps: [] }); }, "Nothing here yet"],
+  ])("shows one plain status line when %s", (_state, arrange, headline) => {
+    arrange();
+    render(<LivingMemoryDocument />);
+    expect(screen.getByRole("status")).toHaveTextContent(headline);
   });
-  expect(screen.queryByText("SYNTHETIC_A")).not.toBeInTheDocument();
-  expect(screen.getByText("SYNTHETIC_RENEWED")).toBeInTheDocument();
-  expect(screen.getByText("Living memory · current")).toBeInTheDocument();
-  view.unmount();
-  expect(m.listeners.size).toBe(0);
+
+  it("states the open-and-unlocked boundary in plain words and never shows raw states", () => {
+    m.view = mirror({
+      status: "refresh_failed",
+      steps: [{ inputs: [profile("Ankit"), consent("c1", "attr.food.*")], kinds: ["profile", "consent", "connection"], now: T1 },
+        { inputs: [profile("Ankit")], kinds: ["profile", "connection"], unavailable: ["consent"], now: T1 }],
+      extra: {
+        pending: { version: 1, kinds: { consent: { count: 3, firstOccurredAt: T0, lastOccurredAt: T1, historySequence: 3 } } },
+        health: { version: 1, kinds: { connection: { lastLagMs: 42_000, lagSamplesMs: [42_000], lastVerifiedAt: T1 } } },
+      },
+    });
+    const { container } = render(<LivingMemoryDocument />);
+    expect(screen.getByText("Updates while the app is open and unlocked.")).toBeInTheDocument();
+    expect(within(row("Sources", "Consents")).getByText("Couldn’t check · last 1 min ago · 3 changes waiting")).toBeInTheDocument();
+    expect(within(row("Sources", "Connections")).getByText(/Updated 42s after change/)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/partial|refresh_failed|refresh pending|refresh_pending|24\/7|always on|while (the app is )?closed/i);
+    expect(container.querySelector("pre")).toBeNull();
+  });
+
+  it("keeps withheld and unavailable saved sections in different rows", () => {
+    m.view = mirror({ document: {
+      excludedDomains: ["secrets"],
+      freshness: [{ domain: "professional", title: "Professional", status: "unavailable", contentRevision: null, updatedAt: null, cardCount: 0 }],
+    } });
+    render(<LivingMemoryDocument />);
+    expect(within(row("Saved details", "Secrets")).getByText("Withheld")).toBeInTheDocument();
+    expect(within(row("Saved details", "Secrets")).getByText("Kept out of memory")).toBeInTheDocument();
+    expect(within(row("Saved details", "Professional")).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(row("Saved details", "Professional")).getByText("Couldn’t check")).toBeInTheDocument();
+  });
+
+  it("opens a fact's source details and closes them with Done", () => {
+    m.view = mirror({ steps: [
+      { inputs: [profile("Ankit Kumar Singh")], kinds: ["profile"], now: T0 },
+      { inputs: [profile("Ankit")], kinds: ["profile"], now: T1 },
+    ] });
+    render(<LivingMemoryDocument />);
+    fireEvent.click(screen.getByRole("button", { name: /^Name/ }));
+    const dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(within(dialog).getByText("From").closest<HTMLElement>('[data-testid="settings-row"]')!).getByText("Profile")).toBeInTheDocument();
+    expect(within(dialog).getByText("2")).toBeInTheDocument();
+    for (const at of [UPDATED, T1]) expect(dialog.querySelector(`time[datetime="${at}"]`)).not.toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows removals, gaps and the retention boundary in history without inventing values", () => {
+    const gap = (sequence: number): LivingSourceChange => ({
+      sequence, kind: "consent", id: "*", revision: 0, operation: "gap", capturedAt: T1, sourceUpdatedAt: null,
+      value: { reason: "unobserved_changes", committedChanges: 3, verifiedChanges: 1, firstOccurredAt: T0, lastOccurredAt: T1 },
+    });
+    const steps = [
+      { inputs: [profile("Ankit"), consent("c1", "OLD_CONSENT_SCOPE")], kinds: ["profile", "consent"], now: T0 },
+      { inputs: [profile("Ankit")], kinds: ["profile", "consent"], now: T1 },
+    ];
+    m.view = mirror({ steps, history: history => ({ ...history, truncatedAt: T0, firstRetainedSequence: 6,
+      changes: [...history.changes.map(change => ({ ...change, sequence: change.sequence + 5 })), gap(history.nextSequence + 5)] }) });
+    const view = render(<LivingMemoryDocument />);
+    openTab("History");
+    expect(screen.getByText("5 older changes not kept")).toBeInTheDocument();
+    expect(screen.getByText("Removed")).toBeInTheDocument();
+    expect(screen.getByText("Details hidden")).toBeInTheDocument();
+    expect(screen.getByText("3 changes made. Only the latest seen.")).toBeInTheDocument();
+    expect(screen.getByText("Only changes seen while open")).toBeInTheDocument();
+    expect(view.container.textContent).not.toContain("OLD_CONSENT_SCOPE");
+    view.unmount();
+
+    m.view = mirror({ steps, history: history => ({ ...history,
+      changes: Array.from({ length: 51 }, (_, index) => gap(index + 1)), firstRetainedSequence: 1, truncatedAt: null }) });
+    render(<LivingMemoryDocument />);
+    openTab("History");
+    expect(screen.queryByText(/older changes not kept/)).toBeNull();
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getAllByTestId("settings-row")).toHaveLength(50);
+    fireEvent.click(screen.getByRole("button", { name: "Show more changes" }));
+    expect(within(panel).getAllByTestId("settings-row")).toHaveLength(51);
+  });
+
+  it("renders the preview as safe Markdown with hostile values as literal text", () => {
+    const hostile = "# Hi ![t](https://x.test/p.png) <script>alert(1)</script> [l](javascript:alert(1))";
+    m.view = mirror({ steps: [{ inputs: [profile(hostile)], kinds: ["profile"], now: T1 }] });
+    const { container } = render(<LivingMemoryDocument />);
+    openTab("Preview");
+    const preview = screen.getByLabelText("Live memory preview");
+    expect(within(preview).getByRole("heading", { name: "Profile" })).toBeInTheDocument();
+    expect(within(preview).getAllByText(/^Name: # Hi !\[t\]\(https:\/\/x\.test\/p\.png\) <script>alert\(1\)<\/script> \[l\]\(javascript:alert\(1\)\)$/))
+      .not.toHaveLength(0);
+    expect(preview.querySelectorAll("a")).toHaveLength(0);
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    expect([...container.querySelectorAll("a")].some(anchor => anchor.getAttribute("href")?.startsWith("javascript:"))).toBe(false);
+  });
+
+  it("moves to Updating and then shows the new verified value without a remount", () => {
+    m.view = mirror({ steps: [{ inputs: [profile("Ankit Kumar Singh")], kinds: ["profile"], now: T0 }] });
+    const { container } = render(<LivingMemoryDocument />);
+    const section = container.firstElementChild;
+    expect(screen.getByText("Ankit Kumar Singh")).toBeInTheDocument();
+    m.view = mirror({ steps: [{ inputs: [profile("Ankit Kumar Singh")], kinds: ["profile"], now: T0 }], status: "refresh_pending" });
+    fire();
+    expect(screen.getByRole("status")).toHaveTextContent("Updating");
+    m.view = mirror({ steps: [
+      { inputs: [profile("Ankit Kumar Singh")], kinds: ["profile"], now: T0 },
+      { inputs: [profile("Ankit")], kinds: ["profile"], now: T1 },
+    ] });
+    fire();
+    expect(screen.getByRole("status")).toHaveTextContent("Up to date");
+    expect(within(screen.getByRole("tabpanel")).getByText("Ankit")).toBeInTheDocument();
+    expect(screen.queryByText("Ankit Kumar Singh")).toBeNull();
+    expect(container.firstElementChild).toBe(section);
+  });
+
+  it("never shows another owner's or epoch's mirror, and shows only a status line while locked", () => {
+    const view = render(<LivingMemoryDocument />);
+    expect(screen.getByText("SYNTHETIC_A_NAME")).toBeInTheDocument();
+
+    m.uid = "owner-b";
+    view.rerender(<LivingMemoryDocument />);
+    expect(screen.getByRole("status")).toHaveTextContent("Checking sources");
+    expect(view.container.textContent).not.toContain("SYNTHETIC_A_NAME");
+
+    m.uid = "owner-a";
+    m.epoch++;
+    m.token = "fixture-token-1";
+    view.rerender(<LivingMemoryDocument />);
+    expect(screen.getByRole("status")).toHaveTextContent("Checking sources");
+    expect(view.container.textContent).not.toContain("SYNTHETIC_A_NAME");
+
+    m.unlocked = false;
+    view.rerender(<LivingMemoryDocument />);
+    expect(view.container.textContent).toBe("Memory lockedUnlock to see it");
+
+    m.unlocked = true;
+    m.view = mirror({ epoch: m.epoch, steps: [{ inputs: [profile("SYNTHETIC_RENEWED")], kinds: ["profile"], now: T1 }] });
+    view.rerender(<LivingMemoryDocument />);
+    fire();
+    expect(screen.getByText("SYNTHETIC_RENEWED")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Up to date");
+    view.unmount();
+    expect(m.listeners.size).toBe(0);
+  });
 });
