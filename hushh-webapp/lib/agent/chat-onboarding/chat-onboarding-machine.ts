@@ -279,12 +279,23 @@ export function reduceChatOnboarding(
     if (state.step !== "name_typing") return { state, effects: [], consumed: false };
     const name = normalizePreferredName(event.text);
     if (state.saveNameOnAnswer) {
-      if (!name) {
+      if (!name && (state.nameOnly || !event.text.trim())) {
         const next = state.nameReasked ? state : pushTurn(
           { ...state, nameReasked: true },
           { role: "assistant", text: "What would you like me to call you? Use up to 40 characters, or skip for now.", anchor: event.anchor, chips: nameChips(null) },
         );
         return { state: next, effects: [], consumed: true };
+      }
+      if (!name) {
+        const progress = complete({
+          ...state.progress,
+          questions: { name: "skipped", focus: "skipped", tone: "skipped" },
+        }, event.today);
+        return {
+          state: { ...state, progress, step: "done", draft: { name: null, tone: null } },
+          effects: [{ type: "persist_progress", progress }],
+          consumed: false,
+        };
       }
       const next = pushTurn(
         { ...state, step: "saving", savingName: true, draft: { ...state.draft, name } },
@@ -405,10 +416,13 @@ export function reduceChatOnboarding(
         questions: { name: "skipped", focus: "skipped", tone: "skipped" },
       }, today);
       const next = pushTurn(
-        { ...state, progress, step: "done", draft: { name: null, tone: null } },
-        { role: "user", text: "Something else", anchor },
+        pushTurn(
+          { ...state, progress, step: "done", draft: { name: null, tone: null } },
+          { role: "user", text: "Something else", anchor },
+        ),
+        { role: "assistant", text: "Okay. What would you like help with?", anchor },
       );
-      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "close_conversation" }] };
+      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "focus_composer" }] };
     }
     return { state, effects: [] };
   }

@@ -40,15 +40,14 @@ const answered: Message[] = [
 ];
 
 describe("smart follow-ups", () => {
-  it.each(["Others", "Something else"])("ends once for the explicit %s choice without submitting a turn", (choice) => {
+  it.each(["Others", "Something else"])("submits %s as a normal follow-up without ending the conversation", (choice) => {
     const end = vi.fn();
     const select = vi.fn();
     render(<AgentFollowUpSuggestions suggestions={[choice]} onSelect={select} onEndConversation={end} />);
     const button = screen.getByRole("button", { name: choice });
     fireEvent.click(button);
-    fireEvent.click(button);
-    expect(end).toHaveBeenCalledExactlyOnceWith(choice);
-    expect(select).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
+    expect(select).toHaveBeenCalledExactlyOnceWith(choice);
   });
 
   it("keeps ordinary suggestions that contain similar words on the normal path", () => {

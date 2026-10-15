@@ -59,6 +59,16 @@ describe("chat onboarding sequence", () => {
     expect(skipped.state.progress.status).toBe("completed");
     expect(skipped.effects.every((effect) => effect.type === "persist_progress")).toBe(true);
   });
+  it("lets a non-name reply continue to One instead of trapping the person in name entry", () => {
+    const requested = run(null, { type: "request_name", progress: newChatOnboardingProgress(),
+      firstName: null, anchor: null, nameOnly: false });
+    const reply = run(requested.state, { type: "typed_answer", text: "Can you help me plan my week instead?", anchor: null, today: TODAY });
+    expect(reply.consumed).toBe(false);
+    expect(reply.state.step).toBe("done");
+    expect(reply.effects.map(effect => effect.type)).toEqual(["persist_progress"]);
+    expect(reply.state.draft.name).toBeNull();
+  });
+
   it("accepts a direct name answer, saves once, and advances only after encrypted-save success", () => {
     const requested = run(null, { type: "request_name", progress: newChatOnboardingProgress(),
       firstName: null, anchor: null, nameOnly: false });
@@ -150,12 +160,12 @@ describe("unrelated input never breaks onboarding", () => {
     const started = start().state;
     const dismissed = chip(started, "name_other");
     expect(dismissed.state.step).toBe("done");
-    expect(dismissed.state.turns.filter((turn) => turn.role === "assistant")).toEqual(
-      started.turns.filter((turn) => turn.role === "assistant"),
-    );
+    expect(dismissed.state.turns.at(-1)).toMatchObject({
+      role: "assistant", text: "Okay. What would you like help with?",
+    });
     expect(dismissed.state.progress.status).toBe("completed");
     expect(dismissed.effects).toEqual([
-      { type: "persist_progress", progress: dismissed.state.progress }, { type: "close_conversation" },
+      { type: "persist_progress", progress: dismissed.state.progress }, { type: "focus_composer" },
     ]);
     const ordinary = run(dismissed.state, { type: "typed_answer", text: "tell me the news", anchor: "msg-1", today: TODAY });
     expect(ordinary.consumed).toBe(false);

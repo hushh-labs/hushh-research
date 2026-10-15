@@ -299,7 +299,8 @@ describe("onboarding conversation", () => {
     await waitFor(() =>
       expect(screen.getByTestId("capture").textContent).toBe("null"),
     );
-    expect(onEndConversation).toHaveBeenCalledTimes(1);
+    expect(onEndConversation).not.toHaveBeenCalled();
+    expect(await screen.findByText("Okay. What would you like help with?")).toBeInTheDocument();
     // Later input never restarts the ended onboarding.
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
     await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));
