@@ -3977,3 +3977,30 @@ exclusions and 500/250/80 budgets remain unchanged. This checkpoint is source
 verification; canonical core, hosted CI, Dev/pod deployment and financial/OAuth
 acceptance are still required. Funding and capital have not been repeated. The
 shared Chrome debugger is untouched; no new connection requests are made.
+
+The first full core run on `577bfa619279` passed secret/governance checks and
+20,202 protocol cases, but failed 23 cases; it is not a core pass. Corrections
+retain the actual route authority: an explicit owner-consent token admits memory,
+while Firebase-only protected context is rejected. Calendar fixtures preserve
+`httpx.AsyncClient` as a type and supply only their synthetic owner's placement
+fact through the canonical guard. Three pre-existing schema-column arrays regain
+their original main ordering without changing column sets. Seven incoming routes
+are classified in the existing Network/Support inventories.
+
+Migration 347 already supplies actor-profile cascades; no additional runtime
+delete or retention exemption is needed. The erasure inventory now proves those
+edges, and the nearest real PostgreSQL deletion case proves the deleted owner's
+activity/membership rows disappear while another owner's rows survive. Focused
+checks pass 168 route/migration cases, 28 calendar/Kai, 26 hub inventory, 22
+deployment and 25 PostgreSQL/erasure cases. One direct focused DB skip is not
+counted as PostgreSQL evidence. The Linux workflow's SHA-256 command is supplied
+locally by a task-scoped macOS adapter, qualified against independent digest
+vectors; production workflow hashing is unchanged. Four exact test-size findings
+are independently reviewed with unchanged scanner and budgets. Full core must
+rerun on the corrected commit before pushing.
+
+At `2026-10-15T13:11:48Z`, a fresh provider read confirms the same $10.50 per
+reviewer, $15 capital and conserved/backed ledger. Both reviewers then passed
+isolated headless authentication, vault unlock and owner-bound metadata checks;
+neither yet has the synthetic financial/professional scopes for paid acceptance.
+These checks create no fixtures, financial activity or shared Chrome connection.

@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2700,
+  "finding_count": 2701,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -19633,7 +19633,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6464
+      "value": 6470
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26443,7 +26443,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestGmailEmailDraftDirective",
-      "value": 315
+      "value": 321
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26722,7 +26722,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_referral_lifecycle_postgres.py",
       "symbol": null,
-      "value": 730
+      "value": 753
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26732,6 +26732,15 @@
       "path": "hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx",
       "symbol": null,
       "value": 509
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_calendar_shared_availability.py|journey|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_calendar_shared_availability.py",
+      "symbol": "journey",
+      "value": 87
     }
   ],
   "inspected_files": 6625,
@@ -48773,6 +48782,51 @@
     "retained_parent_revision": "acdc522d4e23ef81e970d9d9b48717b609bc0d35",
     "reviewed_report_sha256": "512bc467cb6c83090dff30f8454a2f6575068d6d7899259633c6ea8c4dcc8258",
     "verification": "212 backend,100frontend,141placement/Postgres,239eval pass;3existing expected gaps. Core/CI/deployed acceptance remain required."
+  },
+  "scope_commerce_main28e_core_fixture_repair_20261015": {
+    "boundary": "Exactly three size replacements and one added fixture occurrence. Prior records, all other findings, scanner and500/250/80budgets unchanged. Canonical core rerun required.",
+    "entries": [
+      {
+        "accepted_ceiling": 321,
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 315,
+        "review": "Bounded nearest fixture corrections and real PostgreSQL erasure proof; strict consent/hosting rejection, independent provider type shape, actual CASCADE and other-owner preservation remain enforced. Existing assertions retained or strengthened; no runtime authority or gate changes.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "c3a5ed951002db367c35a4bb6e44d117c5c03b95a3464a1ae6b6e6bc7dd5dfc7"
+      },
+      {
+        "accepted_ceiling": 87,
+        "key": "function_size|consent-protocol/tests/services/test_calendar_shared_availability.py|journey|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Bounded nearest fixture corrections and real PostgreSQL erasure proof; strict consent/hosting rejection, independent provider type shape, actual CASCADE and other-owner preservation remain enforced. Existing assertions retained or strengthened; no runtime authority or gate changes.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "b7f10b9875ea3c627d0c538b0bf8ad9339a089173e66d1c2111c74c61f3b8a57"
+      },
+      {
+        "accepted_ceiling": 6470,
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 6464,
+        "review": "Bounded nearest fixture corrections and real PostgreSQL erasure proof; strict consent/hosting rejection, independent provider type shape, actual CASCADE and other-owner preservation remain enforced. Existing assertions retained or strengthened; no runtime authority or gate changes.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "c3a5ed951002db367c35a4bb6e44d117c5c03b95a3464a1ae6b6e6bc7dd5dfc7"
+      },
+      {
+        "accepted_ceiling": 753,
+        "key": "module_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 730,
+        "review": "Bounded nearest fixture corrections and real PostgreSQL erasure proof; strict consent/hosting rejection, independent provider type shape, actual CASCADE and other-owner preservation remain enforced. Existing assertions retained or strengthened; no runtime authority or gate changes.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "ba30f2eab0dc3398aeec86e4bb8dec73cbe3a5b762082ffb1df6cf47a7be8ecc"
+      }
+    ],
+    "parent_revision": "577bfa6192790163b2bcd4f6582b760ef0d3135f",
+    "prior_baseline_sha256": "e994ba6c862d08d5cfe7457576fbea9b48f3a999f4f0e780cd5ecfcb1e7eff13",
+    "reviewed_report_sha256": "c01981f3343ed67ffc0e976df8982fb567c2d7aa9ea8943b0d97bbb31c33efb7",
+    "verification": "168 route/migration cases,28calendar/Kai,26hubinventory,22deploy and25realPostgres/erasure cases pass. One existing DB-dependent skip in direct focused run; owned-Postgres canonical run required."
   },
   "scope_commerce_main5d_test_composition_review_20261014": {
     "boundary": "Exactly two independently reviewed test-module ceilings. All previous occurrences, metadata, detector, exclusions and 500/250/80 budgets retained; future one-line growth negative controls fail. Browser CI remains required.",

@@ -142,6 +142,10 @@ POST /api/one/payouts/account/onboard
 POST /api/one/payouts/connect/webhook
 GET /api/one/referrals/challenge
 GET /api/one/referrals/points
+GET /api/one/referrals/transactions
+POST /api/one/referrals/activity
+POST /api/one/referrals/app-open
+POST /api/one/referrals/rewards/claim
 GET /api/one/referrals/policy
 GET /api/one/business/suggestion
 GET /api/one/credits
