@@ -50,9 +50,8 @@ keyboard/layering unit cases pass. A controlled-interpolation diagnostic passed
 both engines and eight broken-motion controls, but was superseded during normal
 composition with the developer's concurrent browser fix. The retained collector
 uses trusted Playwright input and real RAF/timer geometry; its caller preserves
-the original sub-100 ms onset and settled geometry assertions. Focused verification
-of that final composition is tracked separately; neither collector proves physical
-presented-frame latency or FPS.
+the original sub-100 ms onset and settled geometry assertions. The final trusted-input motion case passes Chromium and WebKit. Neither collector
+proves physical presented-frame latency or FPS.
 
 Normal merges `b1ddad85be8d` and `de4f5aa20056` incorporate main through
 `ef703daa8981` in the existing verification checkout, including its three-file
@@ -78,6 +77,11 @@ The subsequent normal merge also preserves root `a2b1e87d6e89` and its three
 browser-test corrections without replacing the broader main integration.
 UI-contract verification and the architecture ratchet pass on the composed source.
 No database mutation or Dev promotion follows from this local composition.
+Root was fast-forwarded to the normally merged candidate `66b9364ba434` with all
+ten unrelated preservation hashes unchanged. TypeScript and generated UI checks
+pass. The first composed core run found two stale migration hyperlinks in this
+reference; both now point to the registered 350 migration and rollback, without
+changing either SQL body or weakening the docs gate.
 Shared Dev still serves `5c2d1483aa06`; final merged core, hosted CI, deployment
 and reviewer financial acceptance remain open.
 
@@ -1148,7 +1152,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/343_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/350_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -1493,7 +1497,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/343_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/350_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
