@@ -13,6 +13,9 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+The newest entry below is current; older dated candidates are historical
+evidence, not admission or release claims for the latest implementation.
+
 ### Profile transition owner and single custom-shell switch — 2026-10-15
 
 Profile's bounded Account stack now uses an owned `UINavigationController`
@@ -23,14 +26,21 @@ updates, and emit user Back only after a completed pop. A cancelled edge swipe
 does not emit Back. Retired controllers cannot revive presentation or callbacks.
 The drawer, WebView, private editor and session are not recreated by page Back.
 This replaces the experimental SwiftUI path binding, not the React router.
-Physical functional verification passes at `3a60bc7b84`: ten warm Account →
+Physical functional verification passes at `0c35f5a73a`: ten warm Account →
 Name → Cancel → Back cycles, preserved draft/single-host assertions, two
 background/resume cycles and an observed Control Center interruption with touch
 recovery. No checks were skipped. Three native regressions also pass, including
 superseded Account-pop rejection and callbacks after retirement. This is not
 whole-Profile conversion, visual/accessibility qualification or Release frame
-pacing acceptance. The installed native-only candidate retains the preceding
-web bundle; a final full preparation includes the latest Wallet artwork.
+pacing acceptance. The installed UAT-backed Debug 1.4.0 (69) contains the full
+web export prepared at `9cabdfe234`; authored web sources are unchanged at
+`0c35f5a73a`. This includes main's latest Wallet artwork. The native executable
+SHA-256 is `79abf32ad0ad87b365040481b3b859e579908a0db0f8755c41c7bf3fdcac0776`;
+sealed-resource manifest SHA-256 is
+`0f2f2bf6b9b3d45e7ce3a812650c7009458cdb59bf2fc136e0d9055d86be444c`.
+Strict signatures, packaged assets, UAT target, typecheck, native static/Siri,
+design-system/brand checks and UI-contract validation pass. Core/exact-head CI,
+iPad and Release visual/accessibility/performance acceptance are not claimed.
 
 Keep interaction gates with their renderer. UIKit's transition flag must not be
 sampled into a SwiftUI hit-testing/accessibility modifier without observation:
@@ -71,8 +81,8 @@ On this merged source, typecheck and plugin parity pass. The Back run passed
 458/459 cases; its one timeout passed unchanged in isolation. Back/Search
 contracts were regenerated, and UI contract validation passes. These checks
 do not establish integrated visual, accessibility or Release performance
-acceptance. The diagnostic native build retains the preceding web bundle;
-the newest combined web/native candidate must be built before acceptance.
+acceptance. Those earlier diagnostic artifacts retained a preceding web bundle;
+the final combined artifact's provenance and bounded checks are recorded above.
 
 ### Main integration and Profile escape control — 2026-10-15
 
