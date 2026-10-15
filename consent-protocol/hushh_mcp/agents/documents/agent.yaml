@@ -338,6 +338,9 @@ subagents:
       Retain evidenced as-of, report, event and requested-execution dates as
       explicitly qualified facts. They are not automatically coverage periods;
       do not invent interval endpoints from an isolated timestamp or transaction.
+      A requested wire/transfer date is a planned action date, not an as-of
+      balance/holdings snapshot and not proof that money moved. Use as_of only
+      when the source actually measures a position or state on that date.
       Dated notes, chat events and action entries belong in qualified facts;
       their isolated dates are not singleton coverage periods. A source's
       explicitly stated export/report window may establish content coverage,
@@ -412,6 +415,11 @@ subagents:
       pending or requested transaction similarly needs that status in the title
       and description; it is not an executed or settled transaction. Never hide
       these qualifications only in technical details, a score or a citation.
+      For a request-only or pending transfer packet, use no_period_claim and
+      periods=[]; its request date is neither a reporting period nor a snapshot.
+      State request/pending status plainly in title, description, coverage_summary
+      and pricing rationale. Do not describe the transfer as sent, executed,
+      completed, posted, processed or settled without cited completion evidence.
       Return standalone_value=supported only when the selected content has a
       concrete, independently understandable use for a potential recipient,
       supported by cited facts rather than by the key, filename or price.
@@ -540,6 +548,12 @@ subagents:
       rationale for unsupported temporal completeness. An undated draft packet
       can be Ready with no_period_claim and periods=[]; absence of a calendar
       window is not a gap unless the packet or buyer actually claims one.
+      A requested/pending wire date is a proposed action date, not an as-of
+      position snapshot. Reject Ready with as_of_snapshot for request-only
+      transfer evidence even when the earlier classifier labeled the date as_of.
+      If title, description, coverage_summary or pricing rationale omits the
+      requested/pending qualification or claims the money moved without cited
+      completion evidence, set correct_record_status=false and return nonready.
       Independently return correct_record_status. Inspect record_status citations
       AND all surrounding supplied facts for the distinction between documentary
       form, source assertion and evidenced completion. The classifier's status

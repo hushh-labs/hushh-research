@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -75,6 +76,9 @@ def _validation_code(error):
         "invented packet match": "model_membership_invalid",
         "unsupported content period": "model_period_invalid",
         "unsupported snapshot scope": "model_period_invalid",
+        "requested event is not a snapshot": "model_period_invalid",
+        "requested status missing from packet claims": "model_readiness_invalid",
+        "requested event described as completed": "model_readiness_invalid",
     }.get(str(error))
 
 
@@ -295,6 +299,66 @@ def _require_source_periods(periods, source_periods, *, citations=True):
                 raise ValueError("unsupported content period")
 
 
+_REQUEST_QUALIFIER = re.compile(r"\b(?:request(?:ed|s)?|pending|unexecuted)\b", re.I)
+_COMPLETION_CLAIM = re.compile(
+    r"\b(?:complete|completed|executed|settled|posted|sent|processed|transferred|paid|fulfilled|wired|moved|cleared|succeeded|successful)\b",
+    re.I,
+)
+_NEGATED_CLAIM = re.compile(
+    r"(?:\b(?:not(?!\s+(?:only|merely|just|solely)\b)|never|unverified|unconfirmed)"
+    r"\b(?:\W+\w+){0,2}|\b(?:no|without)\s+(?:evidence|proof|record)"
+    r"\b(?:\W+\w+){0,5})\W*$",
+    re.I,
+)
+_COMPLETE_DOCUMENT = re.compile(
+    r"\bcomplete\s+(?:set|list|collection|packet|file|form|document|report|summary|record|statement|coverage)s?\b",
+    re.I,
+)
+
+
+def _assert_no_completed_event_claim(value):
+    for match in _COMPLETION_CLAIM.finditer(value):
+        if match.group().lower() == "complete" and _COMPLETE_DOCUMENT.match(value, match.start()):
+            continue
+        clause = re.split(r"[.;!?]", value[max(0, match.start() - 60) : match.start()])[-1]
+        if _NEGATED_CLAIM.search(clause):
+            continue
+        if match.group().lower() == "sent" and re.search(
+            r"\b(?:request(?:ed|s)?|instruction|form)\b(?:\W+\w+){0,3}\W*$",
+            clause,
+            re.I,
+        ):
+            continue
+        raise ValueError("requested event described as completed")
+
+
+def _check_requested_event_claims(packet, selected_facts):
+    """Fence request-only sources even when a model mislabels their event date.
+
+    This deliberately requires simple, explicit buyer-facing qualification. The
+    independent model checker still judges the full semantics and citations.
+    """
+    statuses = [
+        (facts.get("record_status") or {}).get("status")
+        for facts in selected_facts
+        if isinstance(facts, dict) and isinstance(facts.get("record_status"), dict)
+    ]
+    if not any(status in {"requested", "pending"} for status in statuses):
+        return
+    if packet.temporal_scope == "as_of_snapshot":
+        raise ValueError("requested event is not a snapshot")
+    visible = (
+        packet.title,
+        packet.description,
+        packet.coverage_summary,
+        packet.pricing.rationale,
+    )
+    if any(not _REQUEST_QUALIFIER.search(value) for value in visible[:2]):
+        raise ValueError("requested status missing from packet claims")
+    for value in visible:
+        _assert_no_completed_event_claim(value)
+
+
 async def consolidate_facts(
     *, user_id, previous, page_facts, complete, canonical_context=None, interpret=_interpret
 ):
@@ -406,6 +470,11 @@ async def construct_packet(
             )
             if not (current_snapshot or prior_snapshot):
                 raise ValueError("unsupported snapshot scope")
+        if result.state == "ready":
+            _check_requested_event_claims(
+                result,
+                [item["facts"] for item in documents if item["document_id"] in selected],
+            )
         if result.state == "ready" and not complete:
             raise ValueError("unfinished assembly cannot be ready")
 
@@ -475,6 +544,7 @@ async def verify_packet(
                     for date in facts.get("date_evidence", [])
                 ):
                     raise ValueError("unsupported snapshot scope")
+                _check_requested_event_claims(proposal, selected_facts)
                 if scope_mode == "complete_compact_summary" and not any(
                     facts.get("facts") or facts.get("periods") for facts in selected_facts
                 ):
