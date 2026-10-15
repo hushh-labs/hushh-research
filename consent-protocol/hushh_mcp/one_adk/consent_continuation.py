@@ -397,10 +397,10 @@ def strip_sensitive_shared_information(
     *,
     model_processing_labels: frozenset[str] = frozenset(),
 ) -> tuple[str, int]:
-    """Replace every sensitive value with a names-only outline (C7, item and field level).
+    """Apply C7 withholding unless the current grant authorizes model processing.
 
-    ``text`` is the device's "- Label > path: value" lines. A line belongs to
-    the longest label it starts with.
+    ``text`` is the device's "- Label > path: value" lines; the longest label wins.
+    Only current-grant labels allow identifiers; credentials remain withheld.
 
     * Lines of a sensitive item become one outline line built from their key
       path names (never the part after the colon), or from the device's own

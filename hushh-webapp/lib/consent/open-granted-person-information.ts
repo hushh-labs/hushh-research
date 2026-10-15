@@ -19,8 +19,8 @@ import { findSecretSpans } from "@/lib/pkm/secret-patterns";
 import { isSecretShapedKey } from "@/lib/pkm/internal-path-keys";
 
 /**
- * Contract C7. `sensitive` values are opened and shown on this device only;
- * a model turn receives their field-name outline, never the values.
+ * Contract C7. Sensitive values remain device-only by default. The current
+ * owner's grant may separately allow model processing for its stated purpose.
  */
 export type SharedSensitivity = "sensitive" | "standard";
 
@@ -321,8 +321,8 @@ function humanKey(key: string): string {
  * "Label > path: value" lines for one standard item. A field whose key (or a
  * key above it) is identifier-class, whose value is identifier-shaped, or
  * that the server's `fields[]` names sensitive, is withheld and its name
- * collected instead (C7, field level): the EIN inside "Legal entity" never
- * leaves this device, while "Trade name" still reaches One.
+ * collected instead (C7, field level), unless this grant allows model use.
+ * Credentials and security codes remain withheld under either policy.
  */
 function appendLines(
   lines: string[],
@@ -466,8 +466,8 @@ export function isSensitiveSharedValue(value: Pick<OpenedPersonInformation, "lab
 /**
  * The plain text One reads for the one follow-up turn: each approved item as
  * "Label > path: value" lines, bounded to the server's accepted size. A
- * sensitive item (C7) contributes its outline only; its values never leave
- * this device.
+ * sensitive item (C7) contributes its outline unless the current grant allows
+ * model processing. Credentials and security codes never enter this text.
  */
 export function formatSharedInformationForAgent(values: OpenedPersonInformation[]): string {
   const lines: string[] = [];
