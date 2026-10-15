@@ -528,13 +528,19 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         #endif
     }
     @objc func getCapabilities(_ call: CAPPluginCall) {
-        call.resolve(["contractVersion": 1, "supported": admitted,
-                      "draftSnapshot": admitted,
-                      "coherentPresentation": compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
-                      "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
-                      "contentBackedPresentation": compositor?.contentBackedPresentation == true,
-                      "reservedPresentationRegions": compositor?.legacyRegionPresentation == true,
-                      "fullWindowOverlays": compositor?.legacyRegionPresentation == true])
+        // Capacitor invokes plugin methods on its bridge queue. Capability
+        // discovery reads the actual UIKit host just like presentation does.
+        DispatchQueue.main.async { [weak self] in
+            let admitted = self?.admitted == true
+            let compositor = self?.compositor
+            call.resolve(["contractVersion": 1, "supported": admitted,
+                          "draftSnapshot": admitted,
+                          "coherentPresentation": compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
+                          "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
+                          "contentBackedPresentation": compositor?.contentBackedPresentation == true,
+                          "reservedPresentationRegions": compositor?.legacyRegionPresentation == true,
+                          "fullWindowOverlays": compositor?.legacyRegionPresentation == true])
+        }
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in

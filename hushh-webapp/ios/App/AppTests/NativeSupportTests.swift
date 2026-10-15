@@ -22,6 +22,19 @@ final class NativeSupportTests: XCTestCase {
         }, error: { _ in XCTFail("NATIVE_PROFILE_CAPABILITY_REFUSED"); receipt.fulfill() })
         plugin.getCapabilities(try XCTUnwrap(call))
         await fulfillment(of: [receipt], timeout: 3)
+
+        let dock = try XCTUnwrap(host.bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)
+        let dockReceipt = expectation(description: "Bridge-queue discovery reads UIKit on main")
+        let dockCall = try XCTUnwrap(CAPPluginCall(callbackId: "public-dock-capability", methodName: "getCapabilities", options: [:], success: { result, _ in
+            defer { dockReceipt.fulfill() }
+            XCTAssertTrue(Thread.isMainThread, "Capability discovery must not access UIViewController.view on the bridge queue")
+            guard case let .dictionary(value)? = result?.resultData else {
+                XCTFail("NATIVE_DOCK_CAPABILITY_UNAVAILABLE"); return
+            }
+            XCTAssertEqual(value["contractVersion"] as? Int, 1)
+        }, error: { _ in XCTFail("NATIVE_DOCK_CAPABILITY_REFUSED"); dockReceipt.fulfill() }))
+        DispatchQueue.global().async { dock.getCapabilities(dockCall) }
+        await fulfillment(of: [dockReceipt], timeout: 3)
     }
 
     @MainActor
