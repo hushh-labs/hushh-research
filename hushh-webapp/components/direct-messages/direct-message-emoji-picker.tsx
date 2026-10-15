@@ -1,196 +1,29 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import catalogue from "@/lib/circle-chat/emoji-reactions.generated.json";
 import { cn } from "@/lib/utils";
 
 import styles from "./direct-message-emoji-picker.module.css";
 
-type EmojiCategory = {
-  id: string;
-  label: string;
-  icon: string;
-  keywords: string[];
-  emojis: string[];
-};
-
 const RECENT_EMOJI_STORAGE_KEY = "hushh.direct-messages.recent-emojis";
 const MAX_RECENT_EMOJIS = 32;
-
-// These categories mirror the familiar WhatsApp picker structure while keeping
-// the selector local to direct messages and free from a second UI dependency.
-const EMOJI_CATEGORIES: EmojiCategory[] = [
-  {
-    id: "smileys",
-    label: "Smileys and people",
-    icon: "🙂",
-    keywords: ["smile", "face", "happy", "person", "love", "hand"],
-    emojis: [
-      "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
-      "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
-      "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥳",
-      "🤩", "🥺", "🥹", "😏", "😒", "😞", "😔", "😟", "😕", "🙁",
-      "☹️", "😣", "😖", "😫", "😩", "🥱", "😤", "😠", "😡", "🤬",
-      "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🫡", "🤭", "🫢",
-      "🫣", "🤫", "🤥", "😶", "😶‍🌫️", "😐", "😑", "😬", "🫠", "🙄",
-      "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵",
-      "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠",
-      "😈", "👿", "👹", "👺", "🤡", "💩", "👋", "🤚", "🖐️", "✋",
-      "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🫶", "🤟", "🤘", "🤙",
-      "👈", "👉", "👆", "👇", "☝️", "👍", "👎", "✊", "👊", "🤝",
-      "🙏", "💪", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
-      "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝",
-    ],
-  },
-  {
-    id: "animals",
-    label: "Animals and nature",
-    icon: "🐶",
-    keywords: ["animal", "nature", "pet", "flower", "weather"],
-    emojis: [
-      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
-      "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🙈", "🙉", "🙊", "🐒",
-      "🐔", "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗",
-      "🐴", "🦄", "🐝", "🪲", "🐞", "🦋", "🐌", "🐛", "🕷️", "🐢",
-      "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🐠", "🐟",
-      "🐡", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍",
-      "🦧", "🐘", "🦣", "🦛", "🦏", "🐪", "🐫", "🦒", "🦘", "🐃",
-      "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕",
-      "🐩", "🐈", "🐓", "🦃", "🕊️", "🐇", "🦝", "🦨", "🦡", "🦫",
-      "🌵", "🎄", "🌲", "🌳", "🌴", "🪴", "🌱", "🌿", "☘️", "🍀",
-      "🎍", "🪷", "🌷", "🌹", "🥀", "🌺", "🌸", "💐", "🌼", "🌻",
-      "🌞", "🌝", "🌛", "🌜", "🌚", "🌕", "🌖", "🌗", "🌘", "🌙",
-      "⭐", "🌟", "💫", "✨", "☀️", "🌤️", "⛅", "🌦️", "🌈", "☁️",
-      "🌧️", "⛈️", "🌩️", "❄️", "☃️", "🔥", "💧", "🌊", "🌍", "🌎",
-    ],
-  },
-  {
-    id: "food",
-    label: "Food and drink",
-    icon: "🍔",
-    keywords: ["food", "drink", "coffee", "meal", "party"],
-    emojis: [
-      "🍏", "🍎", "🍐", "🍊", "🍋", "🍋‍🟩", "🍌", "🍉", "🍇", "🍓",
-      "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆",
-      "🥑", "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄",
-      "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚",
-      "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔",
-      "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗",
-      "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟",
-      "🦪", "🍤", "🍙", "🍚", "🍘", "🍥", "🥠", "🥮", "🍢", "🍡",
-      "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬",
-      "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🫘", "🍯", "🥛", "🫗",
-      "☕", "🫖", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂",
-      "🍷", "🫗", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🥢",
-    ],
-  },
-  {
-    id: "activities",
-    label: "Activities",
-    icon: "⚽",
-    keywords: ["activity", "sport", "game", "music", "award"],
-    emojis: [
-      "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱",
-      "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳",
-      "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛷", "⛸️",
-      "🥌", "🎿", "⛷️", "🏂", "🪂", "🏋️", "🤼", "🤸", "⛹️", "🤺",
-      "🏇", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵", "🚴", "🏆", "🥇",
-      "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️", "🎪", "🤹",
-      "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘",
-      "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯", "🎳",
-      "🎮", "🎰", "🧩", "🪄", "🪩", "🎉", "🎊", "🎈", "🎂", "🎁",
-    ],
-  },
-  {
-    id: "travel",
-    label: "Travel and places",
-    icon: "🚗",
-    keywords: ["travel", "place", "car", "home", "map"],
-    emojis: [
-      "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐",
-      "🛻", "🚚", "🚛", "🚜", "🏍️", "🛵", "🚲", "🛴", "🛹", "🚏",
-      "🛣️", "🛤️", "🛢️", "⛽", "🚨", "🚥", "🚦", "🛑", "🚧", "⚓",
-      "⛵", "🛶", "🚤", "🛳️", "⛴️", "🛥️", "🚢", "✈️", "🛩️", "🛫",
-      "🛬", "🪂", "💺", "🚁", "🚟", "🚠", "🚡", "🛰️", "🚀", "🛸",
-      "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬", "🏣", "🏤",
-      "🏥", "🏦", "🏨", "🏩", "🏪", "🏫", "🏬", "🏯", "🏰", "💒",
-      "🗼", "🗽", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋", "⛲", "⛺",
-      "🌁", "🌃", "🏙️", "🌄", "🌅", "🌆", "🌇", "🌉", "♨️", "🎠",
-      "🎡", "🎢", "💈", "🎪", "🚂", "🚆", "🚇", "🚊", "🚉", "🗺️",
-    ],
-  },
-  {
-    id: "objects",
-    label: "Objects",
-    icon: "💡",
-    keywords: ["object", "phone", "work", "technology", "tool"],
-    emojis: [
-      "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️",
-      "🗜️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥",
-      "📞", "☎️", "📟", "📠", "📺", "📻", "🎙️", "⏱️", "⏲️", "⏰",
-      "🕰️", "⌛", "⏳", "📡", "🔋", "🪫", "🔌", "💡", "🔦", "🕯️",
-      "🪔", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙", "💳",
-      "🧾", "💎", "⚖️", "🪜", "🧰", "🪛", "🔧", "🔨", "⚒️", "🛠️",
-      "⛏️", "🪚", "🔩", "⚙️", "⛓️", "🧲", "🔫", "💣", "🧨", "🪓",
-      "🔪", "🗡️", "⚔️", "🛡️", "🚬", "⚰️", "🪦", "⚱️", "🏺", "🔮",
-      "📿", "🧿", "💈", "⚗️", "🔭", "🔬", "🕳️", "🩹", "🩺", "💊",
-      "💉", "🩸", "🧬", "🦠", "🧫", "🧪", "🌡️", "🧹", "🧺", "🧻",
-      "🚽", "🚰", "🚿", "🛁", "🛋️", "🛏️", "🧸", "🧷", "🧹", "🧼",
-      "🪥", "🧽", "🧴", "🛎️", "🔑", "🗝️", "🚪", "🪑", "🛋️", "🛒",
-    ],
-  },
-  {
-    id: "symbols",
-    label: "Symbols",
-    icon: "❤️",
-    keywords: ["symbol", "heart", "arrow", "check", "number"],
-    emojis: [
-      "🔇", "🔈", "🔉", "🔊", "📢", "📣", "📯", "🔔", "🔕", "🎵",
-      "🎶", "💤", "💢", "💬", "💭", "🗯️", "♠️", "♣️", "♥️", "♦️",
-      "🃏", "🀄", "🎴", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤",
-      "⚫", "⚪", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "🟫", "⬛",
-      "⬜", "◼️", "◻️", "◾", "◽", "▪️", "▫️", "🔶", "🔷", "🔸",
-      "🔹", "🔺", "🔻", "💠", "🔘", "🔳", "🔲", "✔️", "☑️", "✅",
-      "❌", "❎", "➕", "➖", "➗", "✖️", "♾️", "‼️", "⁉️", "❓",
-      "❔", "❕", "❗", "〰️", "💯", "🔞", "🔱", "⚜️", "〽️", "⚠️",
-      "🚸", "🔰", "♻️", "✅", "🈯", "💹", "❇️", "✳️", "❎", "🌐",
-      "Ⓜ️", "🈂️", "🛂", "🛃", "🛄", "🛅", "♿", "🚹", "🚺", "🚻",
-      "🚼", "🚾", "🅿️", "🚰", "🚮", "🛑", "♈", "♉", "♊", "♋",
-      "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "⛎", "🔀",
-      "🔁", "🔂", "▶️", "⏩", "⏭️", "⏯️", "◀️", "⏪", "⏮️", "🔼",
-      "⏫", "🔽", "⏬", "⏸️", "⏹️", "⏺️", "⏏️", "🎦", "🔅", "🔆",
-    ],
-  },
-  {
-    id: "flags",
-    label: "Flags",
-    icon: "🏳️",
-    keywords: ["flag", "country", "place", "nation"],
-    emojis: [
-      "🏳️", "🏴", "🏁", "🚩", "🏳️‍🌈", "🏳️‍⚧️", "🇦🇺", "🇧🇷", "🇨🇦", "🇨🇳",
-      "🇩🇪", "🇪🇸", "🇫🇷", "🇬🇧", "🇮🇳", "🇮🇩", "🇮🇹", "🇯🇵", "🇰🇷", "🇲🇽",
-      "🇳🇱", "🇳🇿", "🇵🇭", "🇵🇱", "🇵🇹", "🇷🇺", "🇸🇦", "🇸🇬", "🇹🇭", "🇹🇷",
-      "🇺🇦", "🇦🇪", "🇺🇸", "🇻🇳", "🇿🇦", "🇦🇷", "🇦🇹", "🇧🇪", "🇨🇭", "🇨🇴",
-      "🇩🇰", "🇪🇬", "🇫🇮", "🇬🇷", "🇭🇰", "🇮🇪", "🇮🇱", "🇰🇪", "🇲🇾", "🇳🇴",
-      "🇵🇰", "🇶🇦", "🇸🇪", "🇹🇼", "🇻🇪", "🇳🇬", "🇧🇩", "🇨🇱", "🇨🇿", "🇭🇺",
-    ],
-  },
-];
-
-const EMOJI_BY_VALUE = new Set(
-  EMOJI_CATEGORIES.flatMap((category) => category.emojis),
-);
+const EMOJI_PAGE_SIZE = 128;
+const EMOJI_CATEGORIES = catalogue.categories.map((category) => ({
+  ...category,
+  emojis: category.entries.map(([emoji]) => emoji!),
+}));
+const EMOJI_BY_VALUE = new Map(catalogue.categories.flatMap((category) =>
+  category.entries.map(([emoji, name]) => [emoji!, name!] as const),
+));
 const DEFAULT_CATEGORY = EMOJI_CATEGORIES[0]!;
 
-// The picker is intentionally dependency-free, so keep the small searchable
-// vocabulary here instead of pretending that a category label is an emoji
-// index. These aliases cover the common names people use in a chat search
-// (including the reported “cat” case) and can grow without changing the UI.
 const EMOJI_SEARCH_TERMS: Record<string, string> = {
   "🐶": "dog puppy pet animal",
   "🐱": "cat kitten kitty pet animal",
@@ -282,6 +115,7 @@ type DirectMessageEmojiPickerProps = {
   triggerClassName?: string;
   compact?: boolean;
   dismissSignal?: number;
+  triggerIcon?: ReactNode;
 };
 
 export function DirectMessageEmojiPicker({
@@ -291,12 +125,20 @@ export function DirectMessageEmojiPicker({
   triggerClassName,
   compact = false,
   dismissSignal,
+  triggerIcon,
 }: DirectMessageEmojiPickerProps) {
   const searchId = useId();
   const [open, setOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY.id);
   const [recent, setRecent] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(EMOJI_PAGE_SIZE);
+  const grid = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setShown(EMOJI_PAGE_SIZE);
+    grid.current?.scrollTo?.(0, 0);
+  }, [activeCategory, query, open]);
 
   useEffect(() => { setOpen(false); }, [dismissSignal]);
 
@@ -316,11 +158,11 @@ export function DirectMessageEmojiPicker({
     if (!normalizedQuery) return selectedCategory?.emojis || [];
     const matches = new Set<string>();
     for (const category of EMOJI_CATEGORIES) {
-      const categoryTerms = [category.label, ...category.keywords]
+      const categoryTerms = [category.label]
         .join(" ")
         .toLocaleLowerCase();
       for (const emoji of category.emojis) {
-        const terms = `${emoji} ${EMOJI_SEARCH_TERMS[emoji] || ""} ${categoryTerms}`;
+        const terms = `${emoji} ${EMOJI_BY_VALUE.get(emoji)} ${EMOJI_SEARCH_TERMS[emoji] || ""} ${categoryTerms}`.toLocaleLowerCase();
         if (terms.includes(normalizedQuery)) matches.add(emoji);
       }
     }
@@ -354,13 +196,14 @@ export function DirectMessageEmojiPicker({
           data-compact={compact || undefined}
           disabled={disabled}
         >
-          <span aria-hidden="true">☺</span>
+          <span aria-hidden="true">{triggerIcon ?? "☺"}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
         side="top"
         align="end"
         sideOffset={10}
+        collisionPadding={8}
         className={styles.content}
         aria-label="Emoji picker"
       >
@@ -421,6 +264,14 @@ export function DirectMessageEmojiPicker({
         </div>
         <div
           className={styles.grid}
+          ref={grid}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            // Grow only at the end of a batch; never set state per scroll frame.
+            if (element.scrollHeight - element.scrollTop - element.clientHeight < 100 && shown < emojis.length) {
+              setShown((count) => Math.min(count + EMOJI_PAGE_SIZE, emojis.length));
+            }
+          }}
           role="tabpanel"
           aria-label={
             normalizedQuery
@@ -428,17 +279,20 @@ export function DirectMessageEmojiPicker({
               : selectedCategory?.label || "Emoji"
           }
         >
-          {emojis.map((emoji, index) => (
+          {emojis.slice(0, shown).map((emoji, index) => (
             <button
               key={`${emoji}-${index}`}
               type="button"
               className={styles.emojiButton}
               aria-label={`Use ${emoji}`}
+              title={EMOJI_BY_VALUE.get(emoji)}
               onClick={() => selectEmoji(emoji)}
             >
               {emoji}
             </button>
           ))}
+          {shown < emojis.length ? <button type="button" className={styles.more}
+            onClick={() => setShown((count) => count + EMOJI_PAGE_SIZE)}>More emoji</button> : null}
           {!emojis.length ? (
             <p className={styles.empty}>
               No emojis match “{query.trim()}”.
