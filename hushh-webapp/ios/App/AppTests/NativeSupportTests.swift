@@ -1,9 +1,29 @@
 import XCTest
 import SwiftUI
 import WebKit
+import Capacitor
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testInstalledProfileBackCapabilityMatchesItsAdmittedFamily() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = try XCTUnwrap(scene.windows.compactMap { $0.rootViewController as? CAPBridgeViewController }.first)
+        let plugin = try XCTUnwrap(host.bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)
+        let receipt = expectation(description: "Actual native capability, not a mocked JS flag")
+        let call = CAPPluginCall(callbackId: "public-capability", methodName: "getCapabilities", options: [:], success: { result, _ in
+            defer { receipt.fulfill() }
+            guard case let .dictionary(value)? = result?.resultData,
+                  let families = value["families"] as? [String], let replacement = value["profileBackReplacement"] as? Bool else {
+                XCTFail("NATIVE_PROFILE_CAPABILITY_UNAVAILABLE"); return
+            }
+            XCTAssertEqual(replacement, families.contains("profile-back"),
+                "Admitted Profile Back must advertise its retained binding replacement")
+        }, error: { _ in XCTFail("NATIVE_PROFILE_CAPABILITY_REFUSED"); receipt.fulfill() })
+        plugin.getCapabilities(try XCTUnwrap(call))
+        await fulfillment(of: [receipt], timeout: 3)
+    }
+
     @MainActor
     func testOrdinarySheetRetirementWaitsForOpeningAndOwnedPopupCompletion() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
