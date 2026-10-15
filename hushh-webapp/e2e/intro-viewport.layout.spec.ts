@@ -69,7 +69,7 @@ for (const dark of [false, true]) {
 }
 
 for (const theme of ["light", "dark"]) {
-  for (const viewport of [{ width: 320, height: 568 }, { width: 402, height: 874 }, { width: 1440, height: 900 }]) {
+  for (const viewport of [{ width: 320, height: 568 }, { width: 400, height: 788 }, { width: 402, height: 874 }, { width: 800, height: 700 }, { width: 1440, height: 900 }]) {
     test(`sign-in ${theme} ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       await page.addInitScript(value => localStorage.setItem("theme", value), theme);
@@ -77,28 +77,80 @@ for (const theme of ["light", "dark"]) {
       const screen = page.getByTestId("auth-step-primary");
       await expect(screen).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
+      await expect(screen).toHaveCSS("background-color", "rgb(255, 255, 255)");
+
+      const illustration = screen.locator("[data-auth-illustration]");
+      const mascot = illustration.locator("[data-welcome-mascot]");
+      await expect(illustration).toBeVisible();
+      await expect(mascot).toBeVisible();
+      await expect(mascot).toHaveAttribute("src", /one-mascot\.png/);
+      await expect.poll(() => mascot.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+      const form = screen.locator("[data-auth-content-block]");
+      const artBox = await illustration.boundingBox();
+      const formBox = await form.boundingBox();
+      expect(artBox && formBox).toBeTruthy();
+      if (!artBox || !formBox) return;
+      if (viewport.width >= 800) {
+        expect(artBox.x + artBox.width).toBeLessThanOrEqual(formBox.x + 8);
+        expect(artBox.width).toBeLessThanOrEqual(500);
+        expect(formBox.width).toBeLessThanOrEqual(430);
+      } else {
+        expect(artBox.y + artBox.height).toBeLessThanOrEqual(formBox.y + 8);
+        expect(artBox.x).toBeGreaterThanOrEqual(-1);
+        expect(artBox.x + artBox.width).toBeLessThanOrEqual(viewport.width + 1);
+      }
+
       const heading = screen.getByRole("heading", { name: "Welcome to One" });
       await expect(heading).toHaveCSS("font-size", "30px");
       await expect(heading).toHaveCSS("font-weight", "600");
       await expect(heading).toHaveCSS("line-height", "36px");
+      await expect(heading).toHaveCSS("font-family", /Plus Jakarta Sans/);
       for (const provider of ["Apple", "Google"]) {
         const button = screen.getByRole("button", { name: `Continue with ${provider}`, exact: true });
         await expect(button).toBeVisible();
         await expect(button).toHaveCSS("border-top-width", "1px");
         await expect(button).toHaveCSS("border-top-style", "solid");
+        await expect(button).toHaveCSS("font-family", /Plus Jakarta Sans/);
+        expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(52);
       }
       const footer = screen.locator("[data-auth-supporting-content]");
       await expect(footer.locator("p")).toHaveCSS("font-size", "13px");
       await expect(footer.locator("p")).toHaveCSS("line-height", "18px");
-      await expect(footer).toHaveCSS("text-align", "center");
-      await expect(footer.locator("img")).toHaveCount(0);
+      await expect(footer.locator("p")).toHaveCSS("font-family", /Plus Jakarta Sans/);
+      if (viewport.width === 400) {
+        await expect(footer).toBeInViewport();
+        expect(await screen.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+      }
       await footer.scrollIntoViewIfNeeded();
       await expect(footer).toBeInViewport();
+      if (viewport.width === 320) {
+        expect(await screen.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: testInfo.outputPath("sign-in.png") });
     });
   }
 }
+
+test("sign-in keeps the Contacts choice and returning sign-in control usable", async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.goto("/login");
+  const screen = page.getByTestId("auth-step-primary");
+  const contacts = screen.getByRole("checkbox", { name: "Find people I know" });
+  await expect(contacts).toBeChecked();
+  await contacts.click();
+  await expect(contacts).not.toBeChecked();
+  await contacts.click();
+  await expect(contacts).toBeChecked();
+
+  await screen.getByRole("button", { name: "Already have an account? Sign in" }).click();
+  await expect(contacts).toHaveCount(0);
+  await expect(screen.getByRole("button", { name: "New to One? Get started" })).toBeVisible();
+  await expect(screen.getByRole("button", { name: "Continue with Apple" })).toBeVisible();
+  await expect(screen.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+  await expect(screen.getByRole("button", { name: "Go back" })).toBeVisible();
+});
 
 // Terms and Privacy on sign-in are plain links to the full pages, in the same
 // tab, never an in-app popup. Back returns to sign-in.
