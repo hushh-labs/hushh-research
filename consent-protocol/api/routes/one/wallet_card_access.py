@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Literal
+from functools import partial
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -95,6 +96,11 @@ class ShareBody(RegistrationBody):
 
 class CardRequestBody(RegistrationBody):
     person_ref: UUID = Field(alias="personRef")
+
+
+class GrantOptions(TypedDict, total=False):
+    encrypted_cards: dict[str, str]
+    card_request_id: str
 
 
 class SharingActivity(BaseModel):
@@ -379,19 +385,21 @@ async def sharing_details(grant_id: UUID, viewer: str = Depends(owner_identity))
 async def create_grants(card_id: str, body: ShareBody, owner: str = Depends(owner_identity)):
     if len(card_id) > 64:
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"})
+    options: GrantOptions = {}
+    if body.encrypted_cards is not None:
+        options["encrypted_cards"] = {str(k): v for k, v in body.encrypted_cards.items()}
+    if body.card_request_id:
+        options["card_request_id"] = str(body.card_request_id)
     return await run_in_threadpool(
-        service().create_grants,
-        owner,
-        card_id,
-        str(body.request_id),
-        [str(v) for v in body.recipient_person_refs],
-        body.duration_minutes,
-        **(
-            {"encrypted_cards": {str(k): v for k, v in body.encrypted_cards.items()}}
-            if body.encrypted_cards is not None
-            else {}
-        ),
-        **({"card_request_id": str(body.card_request_id)} if body.card_request_id else {}),
+        partial(
+            service().create_grants,
+            owner,
+            card_id,
+            str(body.request_id),
+            [str(v) for v in body.recipient_person_refs],
+            body.duration_minutes,
+            **options,
+        )
     )
 
 

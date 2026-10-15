@@ -22,6 +22,7 @@ const BOUNDARY_MODULES = [
   "@/lib/services/wallet-service",
   "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
+  "@/lib/cache/cache-sync-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",

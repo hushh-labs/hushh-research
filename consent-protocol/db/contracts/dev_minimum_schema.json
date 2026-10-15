@@ -2684,6 +2684,19 @@
       "source_projection",
       "source_projection_revision"
     ],
+    "wallet_card_requests": [
+      "id",
+      "requester_user_id",
+      "target_user_id",
+      "client_request_id",
+      "message_id",
+      "status",
+      "created_at",
+      "expires_at",
+      "resolved_at",
+      "payment_grant_id",
+      "profile_grant_id"
+    ],
     "wallet_card_share_requests": [
       "owner_user_id",
       "request_id",
@@ -2706,19 +2719,6 @@
       "card_id",
       "expires_at",
       "duration_minutes"
-    ],
-    "wallet_card_requests": [
-      "id",
-      "requester_user_id",
-      "target_user_id",
-      "client_request_id",
-      "message_id",
-      "status",
-      "created_at",
-      "expires_at",
-      "resolved_at",
-      "payment_grant_id",
-      "profile_grant_id"
     ]
   }
 }
