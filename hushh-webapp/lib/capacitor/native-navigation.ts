@@ -164,6 +164,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
   const [height, setHeight] = useState(49);
   const [scrollFailed, setScrollFailed] = useState(false);
+  const [privacyAdmissionRevision, setPrivacyAdmissionRevision] = useState(0);
   const overlayBlocked = useSyncExternalStore(subscribe, () => overlays.size > 0, () => false);
   const regionRevision = useNativePresentationRegionRevision();
   const current = useRef<NavigationState | null>(null);
@@ -196,6 +197,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     if (!enabled || !isNativeIOS()) return;
     let cancelled = false;
     let confirmationEpoch = 0;
+    let releasedPrivacyGeneration: number | undefined;
     const invalidateConfirmations = () => {
       confirmationEpoch += 1;
       // A late visible event must not revoke the native release receipt that
@@ -243,8 +245,18 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
           }));
         }
         await retain(subscribeNativeSessionPrivacy(event => {
+          if (cancelled) return;
           invalidateConfirmations();
-          if (event.shielded || !event.appIsActive) scrollDelivery.current?.update(null);
+          if (event.shielded || !event.appIsActive) {
+            releasedPrivacyGeneration = undefined;
+            scrollDelivery.current?.update(null);
+          } else if (releasedPrivacyGeneration !== event.generation) {
+            releasedPrivacyGeneration = event.generation;
+            // A state sent during inactivity can be refused by native admission.
+            // Rebind the latest presentation after validation releases privacy,
+            // even when routes/props did not change. Never replay a choice.
+            setPrivacyAdmissionRevision(value => value + 1);
+          }
         }));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
           const state = current.current;
@@ -357,7 +369,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, scrollFailed]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, scrollFailed, privacyAdmissionRevision]);
 
   return { ready, height, reserved: ready || discovering || supported };
 }

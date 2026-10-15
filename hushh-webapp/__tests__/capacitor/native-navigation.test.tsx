@@ -337,9 +337,16 @@ describe("native navigation presentation boundary", () => {
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect }));
     await waitFor(() => expect(view.result.current.ready).toBe(true));
     select(lastState());
+    const priorRevision = lastState().revision;
     const privacy = bridge.callbacks.get("privacyStateChanged")!;
     act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: true, appIsActive: false }));
     act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: false, appIsActive: true }));
+    await waitFor(() => expect(lastState().revision).toBeGreaterThan(priorRevision));
+    expect(lastState().interactionEnabled).toBe(true);
+    const admittedRevision = lastState().revision;
+    act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: false, appIsActive: true }));
+    await act(async () => { await Promise.resolve(); });
+    expect(lastState().revision).toBe(admittedRevision);
     await act(async () => { settle({ valid: true }); });
     expect(onSelect).not.toHaveBeenCalled();
     select(lastState());
