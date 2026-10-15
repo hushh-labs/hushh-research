@@ -48,7 +48,7 @@ export function shiftCalendarDate(date: string, days: number) {
   return value.toISOString().slice(0, 10);
 }
 export function calendarDayLabel(date: string) {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`));
+  return new Intl.DateTimeFormat(undefined, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 }
 export function calendarProviderDayUrl(date: string, email?: string | null) {
   const [year, month, day] = date.split("-").map(Number);
@@ -67,6 +67,21 @@ export function timeRangeLabel(start: string, end: string, zone: string) {
     return `${clocks.format(new Date(start))} – ${clocks.format(new Date(end))}`;
   }
   return new Intl.DateTimeFormat(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" }).formatRange(new Date(start), new Date(end));
+}
+// Availability alone needs to distinguish the exclusive end of a civil day.
+// Keep event labels and booking handoff formatting unchanged.
+export function availabilityTimeRangeLabel(start: string, end: string, zone: string, selectedDate: string) {
+  const endParts = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(end));
+  if (calendarDate(Date.parse(end), zone) === shiftCalendarDate(selectedDate, 1) && endParts === "00:00:00") {
+    const offsets = new Intl.DateTimeFormat(undefined, { timeZone: zone, timeZoneName: "shortOffset" });
+    const offset = (value: string) => offsets.formatToParts(new Date(value)).find(part => part.type === "timeZoneName")?.value;
+    if (offset(start) !== offset(end)) {
+      const clock = new Intl.DateTimeFormat(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit", timeZoneName: "shortOffset" });
+      return `${clock.format(new Date(start))} – Midnight (next day) ${offset(end)}`;
+    }
+    return `${timeLabel(start, zone)} – Midnight (next day)`;
+  }
+  return timeRangeLabel(start, end, zone);
 }
 export function railTimeLabel(value: string, zone: string) {
   return new Intl.DateTimeFormat(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" }).formatToParts(new Date(value)).filter(part => part.type !== "dayPeriod").map(part => part.value).join("").trim();

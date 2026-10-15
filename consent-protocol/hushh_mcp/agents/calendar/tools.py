@@ -43,7 +43,9 @@ def _user_id(tool_context: ToolContext) -> str:
     user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not user_id:
         raise GoogleConnectionError(
-            "Sign in and unlock your vault to use Calendar", status_code=401
+            "Sign in and unlock your vault to use Calendar",
+            status_code=401,
+            reason_code="google_not_connected",
         )
     return user_id
 
@@ -154,7 +156,14 @@ def _handle_connection_error(
     *,
     access_level: str,
 ) -> dict[str, Any] | None:
-    if exc.status_code not in {401, 403}:
+    if exc.reason_code not in {
+        "google_not_connected",
+        "google_reauthorization_required",
+        "google_permission_required",
+        "calendar_reauthorization_required",
+        "calendar_permission_required",
+        "calendar_list_permission_required",
+    }:
         return None
     if exc.reason_code == "calendar_list_permission_required":
         return _connection_directive(
@@ -570,8 +579,14 @@ async def _propose(
         directive = _handle_connection_error(tool_context, exc, access_level="manage")
         if directive is not None:
             return directive
-        logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
-        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+        logger.warning(
+            "one_adk_calendar_call_failed status=%s reason=%s", exc.status_code, exc.reason_code
+        )
+        return {
+            "status": "failed",
+            "reason_code": exc.reason_code or "calendar_unavailable",
+            "message": _CALENDAR_UNAVAILABLE_MESSAGE,
+        }
     except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
         logger.warning("one_adk_calendar_call_failed reason=unexpected")
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
@@ -630,6 +645,7 @@ async def _propose(
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
+            "timeZone": plan.get("time_zone") or _timezone(tool_context),
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "googleMeet": google_meet,

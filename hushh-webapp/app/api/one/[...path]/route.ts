@@ -196,6 +196,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       return withRequestIdJson(requestId, { error: "Chat request is too large" },
         { status: 413, headers: privateResponseHeaders() });
     }
+    if (path === "calendar/schedule/availability") {
+      const timedOut = isUpstreamTimeoutError(error) || (error instanceof DOMException && error.name === "TimeoutError");
+      return withRequestIdJson(requestId, { detail: {
+        reason_code: timedOut ? "calendar_backend_timeout" : "calendar_backend_unavailable",
+        message: timedOut ? "The Calendar service took too long to respond. Try again." : "The Calendar service could not be reached. Try again shortly.",
+      } }, { status: timedOut ? 504 : 503, headers: privateResponseHeaders() });
+    }
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
       requestId,

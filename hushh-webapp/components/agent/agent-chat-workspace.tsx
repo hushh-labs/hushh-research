@@ -9738,6 +9738,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           title={typeof payload.title === "string" ? payload.title : null}
                           startAt={typeof payload.startAt === "string" ? payload.startAt : null}
                           endAt={typeof payload.endAt === "string" ? payload.endAt : null}
+                          timeZone={typeof payload.timeZone === "string" ? payload.timeZone : undefined}
                           attendees={attendees}
                           location={typeof payload.location === "string" ? payload.location : null}
                           sendUpdates={payload.sendUpdates === true}
