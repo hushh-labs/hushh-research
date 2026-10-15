@@ -2199,6 +2199,29 @@
     "function_lines": 80,
     "module_lines": 500
   },
+  "dev_vertex_bridge_backport_review_20261015": {
+    "entries": [
+      {
+        "after": 209,
+        "before": 206,
+        "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+        "source_sha256": "c32522195f456e523c05e6f09120212cfbee8e0ff9ba5bccf006319f6ca876ca"
+      },
+      {
+        "after": 1078,
+        "before": 1066,
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "source_sha256": "44601b922b07d25571e5ac350e948b9176837a8a64306d7afc09df2cc06b730c"
+      }
+    ],
+    "evidence_revisions": [
+      "5c2d1483aa0691134c72615b244da7c3bc0e1747",
+      "9b45e61b289e1b7e57e22011cc27d45f03b3171a",
+      "cfec8a49"
+    ],
+    "review": "Bounded backport of existing readiness fixes: main adds one prewarm await plus two explanatory lines in its inherited orchestrator; nearest existing deployment-contract module adds one 12-line resource regression. New cold-first-use fake adapters were extracted into a small helper; no new oversized function accepted. Exact measured ceilings only; 500/250/80 budgets and all behavior, provider deadlines, identity and provenance checks remain unchanged.",
+    "reviewer": "shared_vertex_release_path"
+  },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
   "finding_count": 2590,
   "findings": [
@@ -12433,7 +12456,7 @@
       "limit": 80,
       "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
       "symbol": "main",
-      "value": 206
+      "value": 209
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20020,7 +20043,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1066
+      "value": 1078
     },
     {
       "detail": "module exceeds the advisory operon budget",

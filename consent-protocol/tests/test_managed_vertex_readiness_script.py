@@ -184,27 +184,7 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     assert cancelled == ["live"]
 
 
-@pytest.mark.asyncio
-async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """2026-10-15 UAT: Location's first ADK run imports ~2,400 modules on the loop
-    every probe shares. On the 1-vCPU candidate job that synchronous burst outlasted
-    the deadlines already armed for text, ADK, One chat and audio, so all of them
-    timed out while Vertex served their requests in under 5 s."""
-    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
-    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
-    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
-    spec = importlib.util.spec_from_file_location("readiness_first_use_test", SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
-    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
-    from hushh_mcp.operons.location import capabilities, plan
-    from hushh_mcp.runtime_providers import factory
-    from hushh_mcp.services import action_gateway
-
+def _cold_command_flow_provider_fakes() -> SimpleNamespace:
     first_use_paid: list[bool] = []
 
     async def provider_reply(**kwargs):
@@ -234,6 +214,39 @@ async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
         await provider_reply()
         yield None
 
+    return SimpleNamespace(
+        first_use_paid=first_use_paid,
+        provider_reply=provider_reply,
+        AdkModel=AdkModel,
+        transcribe=transcribe,
+        assess=assess,
+        connect=connect,
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-10-15 UAT: Location's first ADK run imports ~2,400 modules on the loop
+    every probe shares. On the 1-vCPU candidate job that synchronous burst outlasted
+    the deadlines already armed for text, ADK, One chat and audio, so all of them
+    timed out while Vertex served their requests in under 5 s."""
+    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
+    spec = importlib.util.spec_from_file_location("readiness_first_use_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from hushh_mcp.operons.location import capabilities, plan
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import action_gateway
+
+    fakes = _cold_command_flow_provider_fakes()
+
     monkeypatch.setattr(module, "PROBE_TIMEOUT_SECONDS", 0.2)
     monkeypatch.setattr(module, "_managed_manifest_models", lambda: ("gemini-3.6-flash",))
     binding = module.ManagedGeminiRuntimeBinding(
@@ -246,19 +259,19 @@ async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
         module.ManagedGeminiRuntimeBinding,
         "build_direct_client",
         lambda self: SimpleNamespace(
-            aio=SimpleNamespace(models=SimpleNamespace(generate_content=provider_reply))
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=fakes.provider_reply))
         ),
     )
     monkeypatch.setattr(
-        module.ManagedGeminiRuntimeBinding, "build_adk_model", lambda self, model: AdkModel()
+        module.ManagedGeminiRuntimeBinding, "build_adk_model", lambda self, model: fakes.AdkModel()
     )
     monkeypatch.setattr(
         module.ManagedGeminiRuntimeBinding,
         "build_regional_adk_model",
-        lambda self, model: AdkModel(),
+        lambda self, model: fakes.AdkModel(),
     )
-    monkeypatch.setattr(LocationCommandBrain, "transcribe", transcribe)
-    monkeypatch.setattr(LocationCommandBrain, "assess", assess)
+    monkeypatch.setattr(LocationCommandBrain, "transcribe", fakes.transcribe)
+    monkeypatch.setattr(LocationCommandBrain, "assess", fakes.assess)
     monkeypatch.setattr(action_gateway, "list_action_gateway_actions", lambda: [])
     monkeypatch.setattr(
         capabilities, "compile_location_capabilities", lambda actions: ("synthetic", {})
@@ -277,13 +290,13 @@ async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
         factory,
         "build_managed_live_client",
         lambda **kwargs: SimpleNamespace(
-            aio=SimpleNamespace(live=SimpleNamespace(connect=connect))
+            aio=SimpleNamespace(live=SimpleNamespace(connect=fakes.connect))
         ),
     )
 
     report = await asyncio.wait_for(module.main(), timeout=5)
 
-    assert first_use_paid
+    assert fakes.first_use_paid
     assert [p["probe"] for p in report["probes"] if not p["ok"]] == []
     assert report["ok"] is True
 
