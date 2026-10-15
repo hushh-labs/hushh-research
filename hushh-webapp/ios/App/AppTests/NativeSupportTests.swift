@@ -847,8 +847,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
         XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
-        var closedRoot = root
-        closedRoot.open = false; closedRoot.surfaceOpen = false
+        var closedRoot = privateDrawerState(open: false, backEnabled: true)
+        closedRoot.profileStack = []; closedRoot.surfaceOpen = false
         let controller = NativeDrawerPresentationController(closedRoot)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         var closeFrame = CGRect.zero
