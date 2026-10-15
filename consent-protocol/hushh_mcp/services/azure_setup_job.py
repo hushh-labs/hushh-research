@@ -14,15 +14,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Awaitable, Callable, Optional
 
 from hushh_mcp.services.azure_agent_setup import AzureSetupResult, run_agent_setup
 from hushh_mcp.services.azure_agent_upgrade import REVISION_FAILED_MESSAGE
 from hushh_mcp.services.azure_arm_client import ArmError
+from hushh_mcp.services.azure_arm_mutations import ArmMutationJournal
 from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
 from hushh_mcp.services.azure_entra_authorizer import AzureAuthorizeError
 from hushh_mcp.services.azure_federation import AzureFederationError
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+from hushh_mcp.services.azure_setup_authority import azure_setup_authority
 from hushh_mcp.services.azure_setup_plan import PlanInputs
 from hushh_mcp.services.azure_setup_worker import AzureSetupCancelled, run_setup_thread
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
@@ -220,6 +223,9 @@ async def run_azure_setup_job(
     publish: Callable[..., Awaitable[None]] = record_proven_azure_cloud,
     on_recorded: Optional[Callable[[], Awaitable[None]]] = None,
     note_offer: Optional[Callable[..., Awaitable[Any]]] = None,
+    authority_factory: Callable[
+        ..., AbstractAsyncContextManager[ArmMutationJournal]
+    ] = azure_setup_authority,
 ) -> None:
     """``note_offer`` (``azure_subscription_offer``) records a free trial; best effort."""
     jobs = repo or ByocSetupJobRepo()
@@ -235,18 +241,20 @@ async def run_azure_setup_job(
             )
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
         bind_setup, guard = _setup_boundary(jobs, user_id=user_id, job_id=job_id)
-        result = await run_setup_thread(
-            setup,
-            access_token=access_token,
-            tenant_id=tenant_id,
-            subscription_id=subscription_id,
-            location=location,
-            spec=spec,
-            source_image=source_image,
-            advance=advance,
-            bind_setup=bind_setup,
-            guard=guard,
-        )
+        async with authority_factory(owner=user_id, job=job_id) as authority:
+            result = await run_setup_thread(
+                setup,
+                access_token=access_token,
+                tenant_id=tenant_id,
+                subscription_id=subscription_id,
+                location=location,
+                spec=spec,
+                source_image=source_image,
+                advance=advance,
+                bind_setup=bind_setup,
+                guard=guard,
+                mutations=authority,
+            )
         await publish(
             jobs,
             user_id=user_id,

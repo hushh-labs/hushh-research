@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 from hushh_mcp.services import azure_federation as federation
 from hushh_mcp.services.azure_agent_observation import assigned_identity
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
+from hushh_mcp.services.azure_arm_mutations import ArmMutationJournal
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
 from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_keyed import digest_matches
@@ -244,6 +245,7 @@ def run_agent_setup(
     adopt: bool = False,
     bind_setup: Callable[[PlanInputs], None] | None = None,
     guard: Callable[[], None] | None = None,
+    mutations: ArmMutationJournal | None = None,
 ) -> AzureSetupResult:
     """Every setup stage before and including ``proving``. Synchronous.
 
@@ -255,7 +257,7 @@ def run_agent_setup(
     registry, repository, digest = parse_source_image(source_image)
     if image_credentials is None:
         image_credentials = import_credentials(registry)
-    arm = arm or ArmClient(access_token, sleep=sleep, before_write=guard)
+    arm = arm or ArmClient(access_token, sleep=sleep, before_write=guard, mutations=mutations)
     nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=adopt)
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id
     if not principal:

@@ -52,7 +52,7 @@ BEGIN
  SELECT count(*), (jsonb_agg(s->'intent'))->0 INTO matches, previous
    FROM jsonb_array_elements(job.stages) s WHERE s->>'stage'='azure_setup_intent';
  IF matches > 0 THEN RETURN matches=1 AND previous=intent; END IF;
- IF jsonb_array_length(job.stages) >= 256 OR (SELECT count(*)
+ IF jsonb_array_length(job.stages) >= 2048 OR (SELECT count(*)
    FROM jsonb_array_elements(job.stages) x
    WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')) >= 64
  THEN RETURN false; END IF;
@@ -89,11 +89,189 @@ BEGIN
 END;
 $$;
 
+-- Session-scoped local worker identity. Its release does not prove provider drain.
+CREATE OR REPLACE FUNCTION public.byoc_azure_worker_session_held(owner_id text)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
+ SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() AND locktype='advisory'
+   AND granted AND mode='ExclusiveLock' AND objsubid=1
+   AND classid=((hashtextextended(owner_id,206)>>32)&4294967295)::oid
+   AND objid=(hashtextextended(owner_id,206)&4294967295)::oid);
+$$;
+
+-- Reserve completion and exit slots BEFORE admitting a cloud write. Ordinary
+-- stage updates must not consume the budget already owed to in-flight work.
+CREATE OR REPLACE FUNCTION public.byoc_azure_worker_history_has_capacity(history jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+ WITH events AS (SELECT value e FROM jsonb_array_elements(history)), pending AS (
+   SELECT request.e, EXISTS(SELECT 1 FROM events ack WHERE ack.e->>'stage'='azure_provider_ack'
+     AND ack.e->>'requestId'=request.e->>'requestId') acknowledged
+   FROM events request WHERE request.e->>'stage'='azure_provider_request'
+    AND NOT EXISTS(SELECT 1 FROM events terminal WHERE terminal.e->>'stage'='azure_provider_terminal'
+      AND terminal.e->>'requestId'=request.e->>'requestId')
+ ), active AS (
+   SELECT count(*) n FROM events worker WHERE worker.e->>'stage'='azure_worker_started'
+    AND NOT EXISTS(SELECT 1 FROM events ended WHERE ended.e->>'stage'='azure_worker_exited'
+      AND ended.e->>'executionId'=worker.e->>'executionId')
+ ) SELECT jsonb_array_length(history)+(SELECT count(*) FROM pending)
+    +(SELECT count(*) FROM pending WHERE NOT acknowledged)+(SELECT n FROM active)<=2048
+   AND octet_length(history::text)+(SELECT count(*)*1024 FROM pending)
+    +(SELECT count(*)*24576 FROM pending WHERE NOT acknowledged)
+    +(SELECT n*512 FROM active)<=1048576;
+$$;
+
+CREATE OR REPLACE FUNCTION public.valid_byoc_azure_worker_event(
+ owner_id text, expected_job text, event jsonb, history jsonb, target text, hushh_id text
+) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
+DECLARE kind text:=event->>'stage'; worker jsonb; request jsonb; acknowledgement jsonb;
+ intent jsonb; request_id text:=event->>'requestId';
+BEGIN
+ IF jsonb_typeof(event) IS DISTINCT FROM 'object' OR octet_length(event::text)>24576
+ OR jsonb_typeof(event->'jobId') IS DISTINCT FROM 'string'
+ OR length(expected_job) NOT BETWEEN 1 AND 128
+ OR (target ~ '^/subscriptions/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/resourceGroups/[A-Za-z0-9_().-]{0,89}[A-Za-z0-9_()-]$') IS NOT TRUE
+ OR event->>'jobId' IS DISTINCT FROM expected_job
+ OR (event->>'executionId' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') IS NOT TRUE
+ OR public.byoc_azure_worker_session_held(owner_id) IS NOT TRUE THEN RETURN false; END IF;
+ SELECT x INTO worker FROM jsonb_array_elements(history) x
+ WHERE x->>'stage'='azure_worker_started' AND x->>'executionId'=event->>'executionId';
+ IF kind IN ('azure_worker_started','azure_provider_request') AND NOT EXISTS (
+   SELECT 1 FROM public.personal_agent_registry r JOIN public.byoc_setup_jobs j ON j.user_id=r.user_id
+   WHERE r.user_id=owner_id AND j.job_id=expected_job AND j.status='running'
+    AND r.status IN ('pending','unprovisioned','logical') AND NOT coalesce(r.backend_metadata ? 'erasure',false)
+    AND nullif(r.backend,'') IS NULL AND nullif(r.external_agent_id,'') IS NULL
+    AND nullif(r.user_cloud_project,'') IS NULL) THEN RETURN false; END IF;
+ IF kind='azure_worker_started' THEN
+   RETURN worker IS NULL AND event-ARRAY['stage','jobId','executionId','backendPid']='{}'::jsonb
+    AND event->'backendPid'=to_jsonb(pg_backend_pid())
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(history) pending_request
+      WHERE pending_request->>'stage'='azure_provider_request' AND NOT EXISTS (
+       SELECT 1 FROM jsonb_array_elements(history) terminal
+       WHERE terminal->>'stage'='azure_provider_terminal'
+       AND terminal->>'requestId'=pending_request->>'requestId'))
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(history) started
+      WHERE started->>'stage'='azure_worker_started' AND NOT EXISTS (
+       SELECT 1 FROM jsonb_array_elements(history) ended WHERE ended->>'stage'='azure_worker_exited'
+       AND ended->>'executionId'=started->>'executionId'));
+ END IF;
+ IF worker IS NULL OR worker->>'jobId' IS DISTINCT FROM expected_job
+ OR worker->'backendPid' IS DISTINCT FROM to_jsonb(pg_backend_pid())
+ OR EXISTS (SELECT 1 FROM jsonb_array_elements(history) ended
+   WHERE ended->>'stage'='azure_worker_exited' AND ended->>'executionId'=event->>'executionId')
+ THEN RETURN false; END IF;
+ IF kind='azure_worker_exited' THEN
+   RETURN event-ARRAY['stage','jobId','executionId']='{}'::jsonb;
+ END IF;
+ IF (request_id ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') IS NOT TRUE
+ THEN RETURN false; END IF;
+ SELECT x INTO request FROM jsonb_array_elements(history) x
+ WHERE x->>'stage'='azure_provider_request' AND x->>'requestId'=request_id;
+ IF kind='azure_provider_request' THEN
+   SELECT x->'intent' INTO intent FROM jsonb_array_elements(history) x
+     WHERE x->>'stage'='azure_setup_intent';
+   RETURN request IS NULL AND public.valid_byoc_azure_setup_intent(
+      owner_id,expected_job,target,hushh_id,intent) IS TRUE
+    AND event-ARRAY['stage','jobId','executionId','requestId','method','path','apiVersion','purpose']='{}'::jsonb
+    AND event->>'method' IN ('PUT','POST')
+    AND (event->>'apiVersion' ~ '^\d{4}-\d{2}-\d{2}(-preview)?$') IS TRUE
+    AND event->>'purpose' IN ('creating_resource_group','registering_providers','creating_identity',
+      'creating_key_vault','creating_storage','creating_registry','creating_model','creating_environment',
+      'assigning_roles','importing_image','deploying_agent')
+    AND length(event->>'path') BETWEEN 1 AND 2048
+    AND (event->>'path' ~ '^[A-Za-z0-9_./()@:-]+$') IS TRUE
+    AND position('..' IN event->>'path')=0
+    AND (event->>'path'=target OR starts_with(event->>'path',target||'/')
+      OR (event->>'method'='POST' AND event->>'purpose'='registering_providers'
+       AND event->>'path'=ANY(ARRAY(
+        SELECT '/subscriptions/'||(intent->>'subscriptionId')||'/providers/'||p||'/register'
+        FROM unnest(ARRAY['Microsoft.App','Microsoft.ManagedIdentity','Microsoft.KeyVault',
+         'Microsoft.Storage','Microsoft.ContainerRegistry','Microsoft.CognitiveServices']) p))));
+ END IF;
+ IF request IS NULL OR request->>'executionId' IS DISTINCT FROM event->>'executionId'
+ OR request->>'jobId' IS DISTINCT FROM expected_job THEN RETURN false; END IF;
+ IF EXISTS (SELECT 1 FROM jsonb_array_elements(history) x
+  WHERE x->>'stage'='azure_provider_terminal' AND x->>'requestId'=request_id)
+ THEN RETURN false; END IF;
+ SELECT x INTO acknowledgement FROM jsonb_array_elements(history) x
+ WHERE x->>'stage'='azure_provider_ack' AND x->>'requestId'=request_id;
+ IF kind='azure_provider_ack' THEN
+   RETURN acknowledgement IS NULL
+    AND event-ARRAY['stage','jobId','executionId','requestId','status','operationUrl','operationUrlSha256']='{}'::jsonb
+    AND event ?& ARRAY['status','operationUrl','operationUrlSha256']
+    AND jsonb_typeof(event->'status')='number' AND (event->>'status' ~ '^[2-5][0-9]{2}$') IS TRUE
+    AND (event->'operationUrlSha256'='null'::jsonb OR (
+      jsonb_typeof(event->'operationUrlSha256')='string'
+      AND event->>'operationUrlSha256' ~ '^[0-9a-f]{64}$'))
+    AND ((event->'operationUrl'='null'::jsonb) OR (
+      jsonb_typeof(event->'operationUrl')='string'
+      AND starts_with(event->>'operationUrl','https://management.azure.com/subscriptions/'||
+        split_part(target,'/',3)||'/')
+      AND event->>'operationUrl' ~ '^https://management\.azure\.com/[A-Za-z0-9_./():-]+(\?(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true)(&(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true))?)?$'
+      AND event->>'operationUrlSha256'=encode(sha256(convert_to(event->>'operationUrl','UTF8')),'hex')));
+ END IF;
+ IF kind='azure_provider_terminal' THEN
+   RETURN event-ARRAY['stage','jobId','executionId','requestId','outcome']='{}'::jsonb
+    AND ((event->>'outcome'='not_dispatched' AND acknowledgement IS NULL)
+     OR (event->>'outcome'='refused' AND acknowledgement->>'status'=ANY(
+       ARRAY['400','401','403','404','405','409','412','422','429']))
+     OR (event->>'outcome' IN ('succeeded','failed') AND
+       (acknowledgement->>'status' ~ '^2[0-9]{2}$') IS TRUE));
+ END IF;
+ RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.retain_byoc_azure_worker_event(
+ owner_id text, expected_job text, event jsonb
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+DECLARE agent public.personal_agent_registry%ROWTYPE; job public.byoc_setup_jobs%ROWTYPE;
+BEGIN
+ IF public.byoc_azure_setup_guards_ready() IS NOT TRUE THEN RETURN false; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ SELECT * INTO agent FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
+ IF NOT FOUND THEN RETURN false; END IF;
+ SELECT * INTO job FROM public.byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
+ IF NOT FOUND OR job.job_id IS DISTINCT FROM expected_job
+ OR jsonb_typeof(job.stages) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+ IF EXISTS (SELECT 1 FROM jsonb_array_elements(job.stages) x WHERE x=event) THEN RETURN true; END IF;
+ IF event->>'stage' IN ('azure_worker_started','azure_provider_request') AND (
+   agent.backend_metadata ? 'erasure' OR job.status<>'running'
+   OR agent.status NOT IN ('pending','unprovisioned','logical')
+   OR nullif(agent.backend,'') IS NOT NULL OR nullif(agent.external_agent_id,'') IS NOT NULL
+   OR nullif(agent.user_cloud_project,'') IS NOT NULL) THEN RETURN false; END IF;
+ IF public.byoc_azure_worker_history_has_capacity(job.stages||jsonb_build_array(event)) IS NOT TRUE
+ THEN RETURN false; END IF;
+ IF public.valid_byoc_azure_worker_event(owner_id,expected_job,event,job.stages,
+    job.project_id,agent.hushh_id) IS NOT TRUE THEN RETURN false; END IF;
+ UPDATE public.byoc_setup_jobs SET stages=stages||jsonb_build_array(event),updated_at=now()
+ WHERE user_id=owner_id AND job_id=expected_job;
+ RETURN FOUND;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.begin_byoc_azure_worker(
+ owner_id text, expected_job text, execution_id text
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+DECLARE result boolean;
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ IF NOT pg_try_advisory_lock(hashtextextended(owner_id,206)) THEN RETURN false; END IF;
+ result:=public.retain_byoc_azure_worker_event(owner_id,expected_job,jsonb_build_object(
+   'stage','azure_worker_started','jobId',expected_job,'executionId',execution_id,
+   'backendPid',pg_backend_pid()));
+ IF result IS NOT TRUE THEN PERFORM pg_advisory_unlock(hashtextextended(owner_id,206)); END IF;
+ RETURN result;
+EXCEPTION WHEN OTHERS THEN
+ PERFORM pg_advisory_unlock(hashtextextended(owner_id,206)); RAISE;
+END;
+$$;
+
 -- Azure jobs have no GCP authorization_attempts; their original binding must
 -- nevertheless survive a reserved erasure. Worker liveness is not drain proof.
 CREATE OR REPLACE FUNCTION public.guard_byoc_azure_erasure_job()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE reservation jsonb; owner_id text; previous_target text; item jsonb; history jsonb;
+DECLARE reservation jsonb; owner_id text; previous_target text; item jsonb; history jsonb; agent public.personal_agent_registry%ROWTYPE; old_journal jsonb; new_journal jsonb;
 BEGIN
  IF TG_OP='INSERT' THEN owner_id:=NEW.user_id; previous_target:=NEW.project_id;
  ELSE owner_id:=OLD.user_id; previous_target:=OLD.project_id; END IF;
@@ -110,18 +288,42 @@ BEGIN
  IF NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,171))
    OR NOT pg_try_advisory_xact_lock(hashtextextended(owner_id,198))
  THEN RAISE EXCEPTION 'Azure setup admission is busy' USING ERRCODE='42501'; END IF;
- SELECT backend_metadata->'erasure' INTO reservation FROM public.personal_agent_registry
-   WHERE user_id=owner_id;
+ SELECT * INTO agent FROM public.personal_agent_registry WHERE user_id=owner_id;
+ reservation:=agent.backend_metadata->'erasure';
+ IF TG_OP='UPDATE' THEN
+   IF jsonb_typeof(NEW.stages) IS DISTINCT FROM 'array'
+      OR public.byoc_azure_worker_history_has_capacity(NEW.stages) IS NOT TRUE
+   THEN RAISE EXCEPTION 'Azure setup recovery requires reconciliation' USING ERRCODE='42501'; END IF;
+   IF NEW.job_id=OLD.job_id THEN
+    SELECT coalesce(jsonb_agg(x),'[]'::jsonb) INTO old_journal FROM jsonb_array_elements(OLD.stages) x
+     WHERE x->>'stage' IN ('azure_worker_started','azure_worker_exited','azure_provider_request',
+       'azure_provider_ack','azure_provider_terminal');
+    SELECT coalesce(jsonb_agg(x),'[]'::jsonb) INTO new_journal FROM jsonb_array_elements(NEW.stages) x
+     WHERE x->>'stage' IN ('azure_worker_started','azure_worker_exited','azure_provider_request',
+       'azure_provider_ack','azure_provider_terminal');
+    IF jsonb_array_length(new_journal)<jsonb_array_length(old_journal)
+     OR jsonb_array_length(new_journal)>jsonb_array_length(old_journal)+1
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(old_journal) WITH ORDINALITY entry(value,n)
+       WHERE new_journal->((n-1)::integer) IS DISTINCT FROM entry.value)
+    THEN RAISE EXCEPTION 'Azure worker history is immutable' USING ERRCODE='42501'; END IF;
+    IF jsonb_array_length(new_journal)>jsonb_array_length(old_journal)
+      AND public.valid_byoc_azure_worker_event(owner_id,OLD.job_id,new_journal->-1,OLD.stages,
+        OLD.project_id,agent.hushh_id) IS NOT TRUE
+    THEN RAISE EXCEPTION 'Azure worker receipt refused' USING ERRCODE='42501'; END IF;
+   END IF;
+ END IF;
  IF reservation IS NULL THEN
    IF TG_OP='INSERT' THEN
      IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) x
-       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))
+       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent','azure_worker_started',
+       'azure_worker_exited','azure_provider_request','azure_provider_ack','azure_provider_terminal'))
      THEN RAISE EXCEPTION 'Azure setup binding admission required' USING ERRCODE='42501'; END IF;
      RETURN NEW;
    END IF;
    SELECT coalesce(jsonb_agg(x),'[]'::jsonb) INTO history
      FROM jsonb_array_elements(OLD.stages) x
-     WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent');
+     WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent','azure_worker_started',
+       'azure_worker_exited','azure_provider_request','azure_provider_ack','azure_provider_terminal');
    IF history='[]'::jsonb THEN
      IF TG_OP='DELETE' THEN RETURN OLD; END IF;
      RETURN NEW;
@@ -133,10 +335,12 @@ BEGIN
        RAISE EXCEPTION 'Azure setup worker reconciliation required' USING ERRCODE='42501';
      END IF;
      IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) x
-       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))
+       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent','azure_worker_started',
+       'azure_worker_exited','azure_provider_request','azure_provider_ack','azure_provider_terminal'))
      THEN RAISE EXCEPTION 'Azure retry binding must be retained by admission' USING ERRCODE='42501'; END IF;
      FOR item IN SELECT value FROM jsonb_array_elements(history) LOOP
-       NEW.stages:=NEW.stages||jsonb_build_array(jsonb_set(item,'{stage}','"azure_setup_prior_intent"'::jsonb));
+       NEW.stages:=NEW.stages||jsonb_build_array(CASE WHEN item->>'stage'='azure_setup_intent'
+        THEN jsonb_set(item,'{stage}','"azure_setup_prior_intent"'::jsonb) ELSE item END);
      END LOOP;
    ELSE
      FOR item IN SELECT value FROM jsonb_array_elements(history) LOOP
@@ -147,10 +351,21 @@ BEGIN
    IF NEW.stages IS DISTINCT FROM OLD.stages AND (
      (SELECT count(*) FROM jsonb_array_elements(NEW.stages) x
        WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))>64
-     OR jsonb_array_length(NEW.stages)>256 OR octet_length(NEW.stages::text)>262144)
+     OR jsonb_array_length(NEW.stages)>2048 OR octet_length(NEW.stages::text)>1048576)
    THEN RAISE EXCEPTION 'Azure setup recovery requires reconciliation' USING ERRCODE='42501'; END IF;
    RETURN NEW;
  END IF;
+ -- Existing admitted writes may report their actual outcome after erasure fences new work.
+ IF TG_OP='UPDATE' AND to_jsonb(NEW)-ARRAY['stages','updated_at'] =
+      to_jsonb(OLD)-ARRAY['stages','updated_at']
+  AND jsonb_array_length(NEW.stages)=jsonb_array_length(OLD.stages)+1
+  AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(OLD.stages) WITH ORDINALITY old_item(value,n)
+    WHERE NEW.stages->((n-1)::integer) IS DISTINCT FROM old_item.value)
+  AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) WITH ORDINALITY added(value,n)
+    WHERE n>jsonb_array_length(OLD.stages)
+     AND (jsonb_typeof(added.value) IS DISTINCT FROM 'object' OR
+       (added.value->>'stage' IN ('azure_provider_ack','azure_provider_terminal','azure_worker_exited')) IS NOT TRUE))
+ THEN RETURN NEW; END IF;
  IF TG_OP='DELETE' AND public.personal_agent_erasure_archived(owner_id,reservation) IS TRUE
  THEN RETURN OLD; END IF;
  IF TG_OP='UPDATE'

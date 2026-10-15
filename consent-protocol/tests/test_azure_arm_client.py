@@ -28,8 +28,16 @@ class _Session:
         self.queue = list(responses)
         self.sent: list[dict] = []
 
-    def request(self, method, url, headers=None, json=None, timeout=None):
-        self.sent.append({"method": method, "url": url, "headers": headers, "json": json})
+    def request(self, method, url, headers=None, json=None, timeout=None, allow_redirects=None):
+        self.sent.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": dict(headers or {}),
+                "json": json,
+                "allow_redirects": allow_redirects,
+            }
+        )
         return self.queue.pop(0)
 
 
@@ -82,7 +90,7 @@ def test_throttling_waits_for_retry_after_then_succeeds():
 @pytest.mark.parametrize(
     "status,body",
     [
-        (503, {}),
+        (429, {}),
         (409, {"error": {"code": "AnotherOperationInProgress"}}),
     ],
 )
@@ -220,3 +228,265 @@ def test_files_scaler_uses_managed_identity_supported_api():
     assert request["url"].endswith("?api-version=2025-01-01")
     rule = request["json"]["properties"]["template"]["scale"]["rules"][1]["custom"]
     assert rule["identity"] == identity and "auth" not in rule
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_redirect_cannot_forward_owner_authority_or_private_request_body(status):
+    session = _Session(_Response(status, {}, {"Location": "https://foreign.example/collect"}))
+    client, _ = _client(session)
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={"value": "synthetic-private-value"})
+    assert refused.value.code == "UnsafeRedirect"
+    assert len(session.sent) == 1 and session.sent[0]["allow_redirects"] is False
+    assert "synthetic-private-value" not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:private@management.azure.com/operation",
+        "https://management.azure.com:8443/operation",
+        "https://management.azure.com/operation#private",
+        "https://management.azure.com:bad/operation",
+        "https://management.azure.com/operation\n",
+    ],
+)
+def test_unqualified_poll_authority_is_refused_without_echoing_its_contents(url):
+    session = _Session(_Response(202, {}, {"Location": url}))
+    client, _ = _client(session)
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={})
+    assert refused.value.code == "UntrustedPollUrl"
+    assert len(session.sent) == 1 and url not in str(refused.value)
+
+
+@pytest.mark.parametrize("initial", [201, 202])
+def test_location_with_nonterminal_resource_is_polled_before_completion(initial):
+    location = "https://management.azure.com/subscriptions/s/operations/create"
+    session = _Session(
+        _Response(
+            initial, {"properties": {"provisioningState": "Creating"}}, {"Location": location}
+        ),
+        _Response(200, {"properties": {"provisioningState": "Succeeded"}}),
+        _Response(200, {"id": _PATH}),
+    )
+    client, _ = _client(session)
+    assert client.put(_PATH, api_version="v", body={}) == {"id": _PATH}
+    assert session.sent[1]["url"] == location and len(session.sent) == 3
+
+
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ({"properties": {"provisioningState": "Creating"}}, 201),
+        ({}, 202),
+    ],
+)
+def test_missing_async_reference_cannot_report_success(body, status):
+    client, _ = _client(_Session(_Response(status, body)))
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={})
+    assert refused.value.code == "OperationReferenceMissing"
+
+
+@pytest.mark.parametrize("state", ["Failed", "Canceled"])
+def test_resource_terminal_failure_is_not_a_successful_write(state):
+    client, _ = _client(_Session(_Response(200, {"properties": {"provisioningState": state}})))
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={})
+    assert refused.value.kind == "failed"
+
+
+class _MutationJournal:
+    def __init__(self, *, refuse=""):
+        self.events = []
+        self.refuse = refuse
+
+    def admit(self, request_id, request):
+        self.events.append(("intent", request_id, request))
+        return self.refuse != "intent"
+
+    def acknowledge(self, request_id, receipt):
+        self.events.append(("acknowledgement", request_id, receipt))
+        return self.refuse != "acknowledgement"
+
+    def terminal(self, request_id, outcome):
+        self.events.append(("terminal", request_id, outcome))
+        return self.refuse != "terminal"
+
+
+def test_async_write_is_admitted_before_dispatch_and_settles_only_after_provider_completion():
+    journal = _MutationJournal()
+    location = "https://management.azure.com/subscriptions/s/operations/one?monitor=true&api-version=2023-05-01"
+
+    class ObservedSession(_Session):
+        def request(self, method, url, **kwargs):
+            if method == "PUT":
+                assert journal.events[-1][0] == "intent"
+                assert kwargs["headers"]["x-ms-client-request-id"] == journal.events[-1][1]
+            else:
+                assert (
+                    not any(event[0] == "terminal" for event in journal.events) or url != location
+                )
+            return super().request(method, url, **kwargs)
+
+    session = ObservedSession(
+        _Response(202, {}, {"Location": location}),
+        _Response(202, {}),
+        _Response(200, {}),
+        _Response(200, {"id": _PATH}),
+    )
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    assert client.put(_PATH, api_version="v", body={"private": "synthetic-private-value"}) == {
+        "id": _PATH
+    }
+    assert [event[0] for event in journal.events] == ["intent", "acknowledgement", "terminal"]
+    assert journal.events[1][2].operation_url == location
+    assert journal.events[-1][2] == "succeeded"
+    assert "synthetic-private-value" not in repr(journal.events) and _BEARER not in repr(
+        journal.events
+    )
+
+
+@pytest.mark.parametrize(
+    "refuse,expected_calls,code",
+    [
+        ("intent", 0, "MutationAdmissionUnconfirmed"),
+        ("acknowledgement", 1, "MutationAcknowledgementUnconfirmed"),
+        ("terminal", 1, "MutationTerminalUnconfirmed"),
+    ],
+)
+def test_unretained_mutation_receipt_never_reports_a_successful_write(refuse, expected_calls, code):
+    journal = _MutationJournal(refuse=refuse)
+    session = _Session(_Response(200, {"id": _PATH}))
+    client = ArmClient(_BEARER, session=session, mutations=journal)
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={})
+    assert refused.value.code == code and len(session.sent) == expected_calls
+
+
+def test_server_error_does_not_replay_an_uncertain_mutation():
+    journal = _MutationJournal()
+    session = _Session(_Response(503, {}), _Response(200, {"id": _PATH}))
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    with pytest.raises(ArmError) as refused:
+        client.put(_PATH, api_version="v", body={})
+    assert refused.value.kind == "server"
+    assert len(session.sent) == 1
+    assert [event[0] for event in journal.events] == ["intent", "acknowledgement"]
+
+
+def test_throttled_mutation_has_separate_ids_for_each_definitely_refused_attempt():
+    journal = _MutationJournal()
+    session = _Session(_Response(429, {}), _Response(200, {"id": _PATH}))
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    assert client.put(_PATH, api_version="v", body={}) == {"id": _PATH}
+    admitted = [event[1] for event in journal.events if event[0] == "intent"]
+    settled = [event for event in journal.events if event[0] == "terminal"]
+    assert len(set(admitted)) == 2
+    assert [(event[1], event[2]) for event in settled] == list(
+        zip(admitted, ["refused", "succeeded"], strict=True)
+    )
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST", "DELETE"])
+def test_successful_raw_mutation_settles_without_requiring_a_wrapper(method):
+    journal = _MutationJournal()
+    session = _Session(_Response(200, {"id": _PATH}))
+    client = ArmClient(_BEARER, session=session, mutations=journal)
+    assert client.request(method, _PATH, api_version="v").body == {"id": _PATH}
+    assert [event[0] for event in journal.events] == ["intent", "acknowledgement", "terminal"]
+
+
+def test_fence_after_admission_records_no_dispatch_and_does_not_contact_arm():
+    journal = _MutationJournal()
+    session = _Session()
+
+    def fence():
+        raise PermissionError("owner execution fenced")
+
+    client = ArmClient(_BEARER, session=session, mutations=journal, before_write=fence)
+    with pytest.raises(PermissionError):
+        client.put(_PATH, api_version="v", body={})
+    assert session.sent == []
+    assert [event[0] for event in journal.events] == ["intent", "terminal"]
+    assert journal.events[-1][2] == "not_dispatched"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "opaque=synthetic-value",
+        "api-version=synthetic-value",
+        "monitor=synthetic-value",
+        "api-version=2023-05-01&api-version=2024-01-01",
+        "monitor=true&monitor=false",
+    ],
+)
+def test_opaque_poll_query_is_not_copied_into_durable_receipts(query):
+    journal = _MutationJournal()
+    location = "https://management.azure.com/subscriptions/s/operations/one?" + query
+    session = _Session(
+        _Response(202, {}, {"Location": location}), _Response(200, {}), _Response(200, {})
+    )
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    assert client.put(_PATH, api_version="v", body={}) == {}
+    receipt = journal.events[1][2]
+    assert receipt.operation_url is None and len(receipt.operation_url_sha256) == 64
+    assert "synthetic-value" not in repr(journal.events)
+
+
+@pytest.mark.parametrize("properties", ["malformed", [], {"provisioningState": 1}])
+def test_malformed_provisioning_state_does_not_complete_a_write(properties):
+    journal = _MutationJournal()
+    session = _Session(_Response(200, {"properties": properties}))
+    client = ArmClient(_BEARER, session=session, mutations=journal)
+    with pytest.raises(ArmError, match="InvalidOperationBody"):
+        client.put(_PATH, api_version="v", body={})
+    assert not any(event[0] == "terminal" for event in journal.events)
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["Running", "InProgress", "Accepted", {"properties": {"provisioningState": "Creating"}}],
+)
+def test_location_http_200_with_running_status_keeps_polling(state):
+    journal = _MutationJournal()
+    url = "https://management.azure.com/subscriptions/s/operations/one"
+    session = _Session(
+        _Response(202, {}, {"Location": url}),
+        _Response(200, state if isinstance(state, dict) else {"status": state}),
+        _Response(200, {"status": "Succeeded"}),
+        _Response(200, {}),
+    )
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    assert client.put(_PATH, api_version="v", body={}) == {}
+    assert len(session.sent) == 4 and journal.events[-1][2] == "succeeded"
+
+
+@pytest.mark.parametrize("body", [["unexpected"], {"status": "Unknown"}, {"status": []}])
+def test_unrecognized_location_body_does_not_settle_mutation(body):
+    journal = _MutationJournal()
+    session = _Session(
+        _Response(202, {}, {"Location": "https://management.azure.com/operations/one"}),
+        _Response(200, body),
+    )
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    with pytest.raises(ArmError):
+        client.put(_PATH, api_version="v", body={})
+    assert not any(event[0] == "terminal" for event in journal.events)
+
+
+@pytest.mark.parametrize(
+    "status,kind",
+    [("Running", "timeout"), ("Failed", "failed"), ("Unknown", "timeout"), ([], "failed")],
+)
+def test_initial_operation_status_cannot_claim_synchronous_success(status, kind):
+    journal = _MutationJournal()
+    client = ArmClient(
+        _BEARER, session=_Session(_Response(200, {"status": status})), mutations=journal
+    )
+    with pytest.raises(ArmError) as refused:
+        client.post(_PATH, api_version="v", body={})
+    assert refused.value.kind == kind
+    assert not any(event[0] == "terminal" and event[2] == "succeeded" for event in journal.events)

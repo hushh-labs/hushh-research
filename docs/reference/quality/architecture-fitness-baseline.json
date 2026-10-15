@@ -27319,7 +27319,7 @@
       "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_setup.py|run_agent_setup|function exceeds the advisory gene budget",
       "limit": 80,
-      "value": 89
+      "value": 90
     },
     {
       "kind": "class_size",
@@ -52353,6 +52353,19 @@
         "after": 252,
         "reviewer": "owner_lifecycle_cleanup_review",
         "source_sha256": "d5a2fba0950289bcb0389275608f504e0ad980a3210d3a664cf6fab333eeed38"
+      }
+    ]
+  },
+  "azure_provider_receipt_review_20261015": {
+    "evidence_revision": "d86fe4953c0b4d6b3a1a39878a6df7398c113abc",
+    "review": "Independent lifecycle security reviewer qualifies only one typed mutations port parameter on existing setup orchestration (89 to90). ARM response parsing and mutation receipts use cohesive bounded helpers; no class or global budget increase. Provider reconciliation and actual resource deletion remain separate obligations.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_setup.py|run_agent_setup|function exceeds the advisory gene budget",
+        "before": 89,
+        "after": 90,
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "8c096f9a2d404855bb64ee6ebeccf01dfff3579b3427bf09f8f2957dc58c4caa"
       }
     ]
   }

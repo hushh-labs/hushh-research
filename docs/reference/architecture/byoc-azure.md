@@ -497,13 +497,17 @@ reaches each one through a typed capability in
   `pod_wake`'s confirmed-gone check cannot resolve an Azure backend: its spec
   carries no Azure coordinates.
 - **Full teardown** under a sign-in remains incomplete. Dev-only migration 961
-  retains the original setup binding before its first resource write and fences
-  replacement, deletion and further writes once erasure is reserved. Admission
-  verifies its protecting triggers; this does not prove worker drain or provider
-  completion. The signed teardown authorization purpose is bound to the exact
-  owner, tenant, subscription and deletion attempt; its callback refuses before
-  token redemption until resource cleanup is implemented. Account deletion stays
-  refused while owned resources are unresolved.
+  retains original setup bindings and fresh-worker/provider receipts before
+  writes, preserving them through retries and erasure. The dedicated worker
+  session is held until the actual setup thread exits; this is not proof that
+  an accepted cloud operation has settled. Completion capacity is reserved
+  before dispatch; HTTP redirects and uncertain write replay are refused.
+  Journal admission fences the resource group; it is not evidence that every
+  resource in that group is owned by this agent. Rebuild/update worker drain,
+  unresolved provider reconciliation and verified individual-resource deletion
+  need separate qualification. The attempt-bound teardown callback still
+  refuses before token redemption. Account deletion remains refused while
+  owned resources are unresolved; unrelated resources must be preserved.
 - **Registry retention:** every imported digest stays in the person's Basic
   registry; pruning to the current and previous digest is not built.
 - **Placement** is fixed to `eastus2` (where the model was measured available).

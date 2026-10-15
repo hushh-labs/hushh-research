@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from threading import Event
 
 import pytest
@@ -18,6 +19,11 @@ from hushh_mcp.services.byoc_setup_job_service import JobSuperseded
 from hushh_mcp.services.compute_backend import PodSpec
 
 _TOKEN = "person-delegated-token-for-tests"  # noqa: S105 - no service exists to authenticate to
+
+
+@asynccontextmanager
+async def _fixture_authority(**_):
+    yield object()  # Synthetic setup callables do not dispatch ARM.
 
 
 class _Repo:
@@ -53,7 +59,9 @@ def _result(**overrides) -> AzureSetupResult:
     return AzureSetupResult(**{**fields, **overrides})
 
 
-async def _run_setup(repo: _Repo, setup, publish=None, on_recorded=None) -> list[dict]:
+async def _run_setup(
+    repo: _Repo, setup, publish=None, on_recorded=None, authority_factory=_fixture_authority
+) -> list[dict]:
     published: list[dict] = []
 
     async def _publish(_repo, **kwargs):
@@ -63,7 +71,7 @@ async def _run_setup(repo: _Repo, setup, publish=None, on_recorded=None) -> list
         user_id="u1", job_id="j1", access_token=_TOKEN, tenant_id="t", subscription_id="s",
         location="eastus2", spec=PodSpec(hushh_id="h", phone_e164_hash="p", pod_pubkey=""),
         source_image="r.example.com/p@sha256:" + "b" * 64, repo=repo, setup=setup,
-        publish=publish or _publish, on_recorded=on_recorded,
+        publish=publish or _publish, on_recorded=on_recorded, authority_factory=authority_factory,
     )  # fmt: skip
     return published
 
@@ -239,7 +247,14 @@ async def test_cancelled_setup_joins_the_thread_before_recording_interruption(
         finally:
             exited.set()
 
-    task = asyncio.create_task(_run_setup(repo, setup))
+    @asynccontextmanager
+    async def witness(**_):
+        try:
+            yield object()
+        finally:
+            assert exited.is_set(), "worker authority released before actual thread exit"
+
+    task = asyncio.create_task(_run_setup(repo, setup, authority_factory=witness))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         if cancel_executor_proxy:

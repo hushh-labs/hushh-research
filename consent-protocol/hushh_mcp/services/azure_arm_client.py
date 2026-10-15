@@ -19,8 +19,14 @@ from __future__ import annotations
 import logging
 import time
 import urllib.parse
-from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Optional, Union
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Literal, NoReturn, Optional, Union
+
+from hushh_mcp.services.azure_arm_mutations import (
+    ArmMutationJournal,
+    ArmMutationRecorder,
+    ArmMutationRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +98,7 @@ class ArmResponse:
     status: int
     body: dict[str, Any] = field(default_factory=dict)
     headers: dict[str, str] = field(default_factory=dict)
+    mutation_id: str = ""
 
 
 def _kind_for(status: int) -> ArmErrorKind:
@@ -129,10 +136,27 @@ def _retry_after(headers: dict[str, str], default: float) -> float:
 
 def require_arm_url(url: str) -> str:
     """A URL the token may be sent to: https on the ARM host, nothing else."""
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != _ARM_HOST:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        trusted = (
+            parsed.scheme == "https"
+            and parsed.hostname == _ARM_HOST
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.fragment
+            and len(url) <= 16_384
+            and not any(ord(c) < 32 or ord(c) == 127 for c in url)
+        )
+    except ValueError:
+        trusted = False
+    if not trusted:
         raise ArmError(
-            "bad_request", status=0, code="UntrustedPollUrl", message=url[:120], op="poll"
+            "bad_request",
+            status=0,
+            code="UntrustedPollUrl",
+            message="Operation URL is not permitted.",
+            op="poll",
         )
     return url
 
@@ -142,6 +166,86 @@ def _url(path: str, api_version: str) -> str:
         raise ValueError(f"not an ARM resource path: {path[:120]!r}")
     query = urllib.parse.urlencode({"api-version": api_version})
     return f"{ARM_BASE}{urllib.parse.quote(path, safe='/:@')}?{query}"
+
+
+def _mutation_refused(code: str) -> NoReturn:
+    raise ArmError("timeout", status=0, code=code, message="", op="receipt")
+
+
+def _provisioning_state(body: dict[str, Any]) -> str:
+    properties = body.get("properties")
+    if properties is not None and not isinstance(properties, dict):
+        raise ArmError("failed", status=0, code="InvalidOperationBody", message="", op="poll")
+    state = (properties or {}).get("provisioningState")
+    if state is not None and not isinstance(state, str):
+        raise ArmError("failed", status=0, code="InvalidOperationBody", message="", op="poll")
+    return (state or "").lower()
+
+
+def _operation_state(body: dict[str, Any]) -> str:
+    state = _provisioning_state(body)
+    status = body.get("status")
+    if status is None:
+        return state
+    if not isinstance(status, str):
+        raise ArmError("failed", status=0, code="InvalidOperationBody", message="", op="poll")
+    status = status.lower()
+    if status not in _TERMINAL_OK | _TERMINAL_BAD | {"running", "inprogress", "accepted"}:
+        raise ArmError("timeout", status=0, code="OperationUnconfirmed", message="", op="poll")
+    if status in _TERMINAL_BAD:
+        return status
+    return state if status in _TERMINAL_OK else status
+
+
+def _location_finished(response: ArmResponse) -> bool:
+    state = _operation_state(response.body)
+    return response.status in (200, 204) and (not state or state in _TERMINAL_OK | _TERMINAL_BAD)
+
+
+def _finished_body(
+    response: ArmResponse, op: str, mutations: ArmMutationRecorder
+) -> dict[str, Any]:
+    state = _operation_state(response.body)
+    if state in _TERMINAL_BAD:
+        mutations.terminal(response.mutation_id, "failed")
+        raise ArmError("failed", status=response.status, code="OperationFailed", message="", op=op)
+    if state and state not in _TERMINAL_OK:
+        raise ArmError(
+            "timeout", status=response.status, code="OperationUnconfirmed", message="", op=op
+        )
+    mutations.terminal(response.mutation_id, "succeeded")
+    return response.body
+
+
+def _parse_response(raw: Any, method: str) -> ArmResponse:
+    if 300 <= int(raw.status_code) < 400:
+        raise ArmError(
+            "bad_request",
+            status=int(raw.status_code),
+            code="UnsafeRedirect",
+            message="ARM redirects are not permitted.",
+            op=method,
+        )
+    lowered = {str(k).lower(): str(v) for k, v in (raw.headers or {}).items()}
+    try:
+        parsed = raw.json() if getattr(raw, "content", b"") else {}
+    except ValueError as exc:
+        raise ArmError(
+            "failed",
+            status=int(raw.status_code),
+            code="InvalidOperationBody",
+            message="",
+            op=method,
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ArmError(
+            "failed",
+            status=int(raw.status_code),
+            code="InvalidOperationBody",
+            message="",
+            op=method,
+        )
+    return ArmResponse(status=int(raw.status_code), body=parsed, headers=lowered)
 
 
 class ArmClient:
@@ -158,6 +262,7 @@ class ArmClient:
         throttle_retries: int = 4,
         transient_retries: int = 12,
         before_write: Callable[[], None] | None = None,
+        mutations: ArmMutationJournal | None = None,
     ) -> None:
         self._token = token
         self._session = session
@@ -167,6 +272,9 @@ class ArmClient:
         self._throttle_retries = throttle_retries
         self._transient_retries = transient_retries
         self._before_write = before_write
+        self._mutations = ArmMutationRecorder(
+            mutations, validate_url=require_arm_url, refuse=_mutation_refused
+        )
 
     def _bearer(self) -> str:
         token = self._token() if callable(self._token) else self._token
@@ -181,16 +289,41 @@ class ArmClient:
             self._session = requests.Session()
         return self._session
 
-    def _send(self, method: str, url: str, body: Optional[dict], op: str) -> ArmResponse:
+    def _send(
+        self,
+        method: str,
+        url: str,
+        body: Optional[dict],
+        op: str,
+        mutation: ArmMutationRequest | None = None,
+    ) -> ArmResponse:
         headers = {"Authorization": f"Bearer {self._bearer()}", "Accept": "application/json"}
         throttled = settling = 0
         while True:
-            # Recheck every dispatch, including throttled/settling retries. Reads
-            # may finish observing an operation already submitted before fencing.
+            mutation_id = self._mutations.admit(mutation) if mutation is not None else ""
+            if mutation_id:
+                headers["x-ms-client-request-id"] = mutation_id
             if method not in ("GET", "HEAD") and self._before_write is not None:
-                self._before_write()
+                try:
+                    self._before_write()
+                except Exception:
+                    self._mutations.terminal(mutation_id, "not_dispatched")
+                    raise
             response = self._send_once(method, url, headers, body)
-            if response.status in (429, 503) and throttled < self._throttle_retries:
+            if mutation_id:
+                self._mutations.acknowledge(
+                    mutation_id,
+                    response.status,
+                    response.headers.get("azure-asyncoperation")
+                    or response.headers.get("location"),
+                )
+                response = replace(response, mutation_id=mutation_id)
+            if (
+                response.status == 429 or (response.status == 503 and mutation is None)
+            ) and throttled < self._throttle_retries:
+                if response.status == 429:
+                    self._mutations.terminal(mutation_id, "refused")
+                # A dispatched write with 503 is uncertain: never replay it here.
                 throttled += 1
                 self._sleep(_retry_after(response.headers, _DEFAULT_POLL_SECONDS * throttled))
                 continue
@@ -200,6 +333,7 @@ class ArmClient:
                 and code in TRANSIENT_CODES
                 and settling < self._transient_retries
             ):
+                self._mutations.terminal(mutation_id, "refused")
                 settling += 1
                 logger.info("azure_arm.settling op=%s code=%s attempt=%s", op, code, settling)
                 self._sleep(_TRANSIENT_WAIT_SECONDS)
@@ -209,14 +343,10 @@ class ArmClient:
     def _send_once(
         self, method: str, url: str, headers: dict[str, str], body: Optional[dict]
     ) -> ArmResponse:
-        raw = self._http().request(method, url, headers=headers, json=body, timeout=60)
-        lowered = {str(k).lower(): str(v) for k, v in (raw.headers or {}).items()}
-        try:
-            parsed = raw.json() if getattr(raw, "content", b"") else {}
-        except ValueError:
-            parsed = {}
-        parsed = parsed if isinstance(parsed, dict) else {"value": parsed}
-        return ArmResponse(status=int(raw.status_code), body=parsed, headers=lowered)
+        raw = self._http().request(
+            method, url, headers=headers, json=body, timeout=60, allow_redirects=False
+        )
+        return _parse_response(raw, method)
 
     @staticmethod
     def _raise_for(response: ArmResponse, op: str) -> None:
@@ -235,9 +365,21 @@ class ArmClient:
         op: str = "",
     ) -> ArmResponse:
         """One call, no polling. Non-2xx raises a typed ``ArmError``."""
-        response = self._send(method, _url(path, api_version), body, op or f"{method} {path}")
+        label = op or f"{method} {path}"
+        url = _url(path, api_version)
+        mutation = (
+            ArmMutationRequest(method, path, api_version, label)
+            if method not in ("GET", "HEAD")
+            else None
+        )
+        response = self._send(method, url, body, label, mutation)
         if response.status >= 400:
-            self._raise_for(response, op or f"{method} {path}")
+            if response.status in (400, 401, 403, 404, 405, 412, 422, 429):
+                self._mutations.terminal(response.mutation_id, "refused")
+            self._raise_for(response, label)
+        if mutation is not None and not self.needs_poll(response):
+            _finished_body(response, label, self._mutations)
+            response = replace(response, mutation_id="")  # already settled, including raw callers
         return response
 
     def get(self, path: str, *, api_version: str, op: str = "") -> dict[str, Any]:
@@ -257,8 +399,12 @@ class ArmClient:
         response = self.request("PUT", path, api_version=api_version, body=body, op=label)
         if self.needs_poll(response):
             self.wait(response, label)
-            return self.get(path, api_version=api_version, op=label)
-        return response.body
+            return _finished_body(
+                ArmResponse(200, self.get(path, api_version=api_version, op=label)),
+                label,
+                self._mutations,
+            )
+        return _finished_body(response, label, self._mutations)
 
     def post(
         self, path: str, *, api_version: str, body: Optional[dict] = None, op: str = ""
@@ -268,7 +414,7 @@ class ArmClient:
         response = self.request("POST", path, api_version=api_version, body=body, op=label)
         if self.needs_poll(response):
             return self.wait(response, label)
-        return response.body
+        return _finished_body(response, label, self._mutations)
 
     def delete(self, path: str, *, api_version: str, op: str = "") -> bool:
         """Delete and wait. Returns False when nothing was there (idempotent)."""
@@ -280,21 +426,36 @@ class ArmClient:
                 return False
             raise
         if response.status == 204:
+            self._mutations.terminal(response.mutation_id, "succeeded")
             return False
         if self.needs_poll(response):
             self.wait(response, label)
+        else:
+            _finished_body(response, label, self._mutations)
         return True
 
     @staticmethod
     def needs_poll(response: ArmResponse) -> bool:
-        return response.status == 202 or bool(response.headers.get("azure-asyncoperation"))
+        state = _operation_state(response.body)
+        return (
+            response.status == 202
+            or bool(response.headers.get("azure-asyncoperation"))
+            or bool(response.headers.get("location"))
+            or bool(state and state not in _TERMINAL_OK | _TERMINAL_BAD)
+        )
 
     def wait(self, response: ArmResponse, op: str) -> dict[str, Any]:
         """Poll ``Azure-AsyncOperation`` (status body) or ``Location`` (202 until done)."""
         async_url = response.headers.get("azure-asyncoperation")
         location = response.headers.get("location")
         if not async_url and not location:
-            return response.body
+            raise ArmError(
+                "timeout",
+                status=response.status,
+                code="OperationReferenceMissing",
+                message="",
+                op=op,
+            )
         deadline = self._clock() + self._lro_timeout
         delay = _retry_after(response.headers, _DEFAULT_POLL_SECONDS)
         while True:
@@ -307,8 +468,10 @@ class ArmClient:
                     self._raise_for(polled, op)
                 status = str(polled.body.get("status") or "").lower()
                 if status in _TERMINAL_OK:
+                    self._mutations.terminal(response.mutation_id, "succeeded")
                     return polled.body
                 if status in _TERMINAL_BAD:
+                    self._mutations.terminal(response.mutation_id, "failed")
                     code, message = _error_detail(polled.body)
                     raise ArmError(
                         "failed", status=polled.status, code=code, message=message, op=op
@@ -317,8 +480,10 @@ class ArmClient:
                 polled = self._send("GET", require_arm_url(str(location)), None, op)
                 if polled.status >= 400:
                     self._raise_for(polled, op)
-                if polled.status != 202:
-                    return polled.body
+                if polled.status != 202 and _location_finished(polled):
+                    return _finished_body(
+                        replace(polled, mutation_id=response.mutation_id), op, self._mutations
+                    )
             delay = _retry_after(polled.headers, _DEFAULT_POLL_SECONDS)
 
 

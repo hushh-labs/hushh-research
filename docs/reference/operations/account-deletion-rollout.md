@@ -48,6 +48,28 @@ resources. Full teardown needs fresh owner authorization, qualified inventory
 and final absence receipts through the existing erasure operation. Until those
 exist, account deletion stays pending. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
+## Private Azure setup and cleanup
+
+Dev-only 961 records original setup bindings and bounded provider receipts in
+`byoc_setup_jobs.stages`; it adds no credential store or second operation ledger.
+Its latest verified dev ledger read (2026-10-15, 05:37 UTC) stops at 959. Recheck
+that ledger before deploying: an applied migration must never be edited.
+
+Fresh setup holds a dedicated database session until its actual thread exits.
+The worker's exit, Azure's acceptance and Azure's terminal result are separate
+receipts. Reserve acknowledgement, terminal and exit capacity before dispatch;
+ordinary progress writes cannot spend it. A lost write response remains
+unresolved and cannot be automatically replayed. Late results for admitted
+writes remain retainable after erasure has fenced new work.
+
+These receipts do not qualify historical workers or authorize group-wide
+resource deletion. Before full cleanup, reconcile every retained setup attempt,
+stop old writers and upgrades, establish exact resource ownership and obtain
+fresh owner authority through the existing deletion attempt. Preserve unrelated
+resources. Record soft-delete and purge-protection retention separately from
+logical erasure; never report cleanup solely from key destruction or an accepted
+DELETE. The full Azure cleanup callback remains refused until that path exists.
+
 ## Forward rollout authority gate
 
 The release owner must complete this sequence for each environment:

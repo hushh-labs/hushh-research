@@ -34,7 +34,7 @@ from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
 from hushh_mcp.services.azure_setup_plan import resource_group_name
 from hushh_mcp.services.user_azure_backend import UserAzureBackend
 from tests.azure_arm_fake import FakeArm
-from tests.test_azure_setup_job import _Repo
+from tests.test_azure_setup_job import _fixture_authority, _Repo
 from tests.test_user_azure_backend import (
     _HUSHH_ID,
     _NEW,
@@ -276,6 +276,7 @@ async def test_a_setup_that_stops_keeps_its_own_wording_without_a_class_name():
         raise KeyError("surprise")
 
     await job.run_azure_setup_job(
+        authority_factory=_fixture_authority,
         user_id="u1", job_id="j10", access_token="person-token-for-tests", tenant_id="t",  # noqa: S106
         subscription_id="s", location="eastus2", spec=_spec(),
         source_image=f"{_SOURCE}@{_OLD}", repo=repo, setup=failing_setup,
