@@ -36,6 +36,10 @@ Playback and resizing wait for Rive's post-load paused-state initialization.
 The public `play` method owns rendering startup; a separate early render can
 consume the first pose's invalidation before the state machine is ready.
 Only the SDK resizes the bitmap, so resizing also invalidates its next draw.
+The Connections browser pack runs native presence cases separately on one
+worker. The authored idle blink spans only two frames; unrelated fixture
+builds must not starve the renderer and skip it. All cases remain included in
+the native CI shard partition with unchanged motion and first-paint deadlines.
 Backing buffers are capped at the embedded images' 128px resolution while CSS
 geometry remains 44/72px in the header and 192px in the panel. This avoids
 20.25 times the backing-pixel count of a 576px Retina profile buffer without
