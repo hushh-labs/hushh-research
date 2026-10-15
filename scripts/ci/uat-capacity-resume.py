@@ -593,6 +593,8 @@ def main() -> int:
     verify.add_argument("--selected-sha", required=True)
     verify.add_argument("--requested-scope", required=True)
     verify.add_argument("--check-supersession", action="store_true")
+    source = sub.add_parser("verify-maintenance")
+    source.add_argument("--maintenance-run-id", type=int, required=True)
     resume = sub.add_parser("resume-after-maintenance")
     resume.add_argument("--maintenance-run-id", type=int, required=True)
     resume.add_argument("--apply", action="store_true")
@@ -612,6 +614,9 @@ def main() -> int:
             verify_original_on_rerun(
                 args.selected_sha, args.requested_scope, args.check_supersession
             )
+        elif args.command == "verify-maintenance":
+            require(args.maintenance_run_id > 0, "maintenance ID is invalid")
+            print("READY" if verify_maintenance(args.maintenance_run_id) else "NO_OP")
         else:
             require(args.maintenance_run_id > 0, "maintenance ID is invalid")
             print(resume_after_maintenance(args.maintenance_run_id, apply=args.apply))

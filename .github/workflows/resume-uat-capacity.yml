@@ -36,7 +36,20 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify maintenance authority before cloud authentication
+        id: authority
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          result=$(python3 scripts/ci/uat-capacity-resume.py verify-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID")
+          if [ "$result" = READY ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Authenticate for read-only UAT capacity inventory
+        if: steps.authority.outputs.ready == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -45,8 +58,10 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - name: Set up Cloud SDK
+        if: steps.authority.outputs.ready == 'true'
         uses: google-github-actions/setup-gcloud@v2
       - name: Inspect one-shot resumption without mutation
+        if: steps.authority.outputs.ready == 'true'
         id: inspect
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +96,20 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Reverify maintenance authority before cloud authentication
+        id: authority
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          result=$(python3 scripts/ci/uat-capacity-resume.py verify-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID")
+          if [ "$result" = READY ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Authenticate for fresh UAT capacity proof
+        if: steps.authority.outputs.ready == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -90,8 +118,10 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - name: Set up Cloud SDK
+        if: steps.authority.outputs.ready == 'true'
         uses: google-github-actions/setup-gcloud@v2
       - name: Revalidate and resume the exact original capacity job once
+        if: steps.authority.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

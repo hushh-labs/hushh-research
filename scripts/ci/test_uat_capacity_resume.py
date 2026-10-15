@@ -284,6 +284,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'", retry)
         self.assertIn("--apply", retry)
         self.assertNotIn("gcloud run revisions delete", source)
+        for job in (inspect, retry):
+            self.assertLess(job.index("verify-maintenance"), job.index("google-github-actions/auth@v2"))
+            self.assertIn("if: steps.authority.outputs.ready == 'true'", job)
 
 
 if __name__ == "__main__":
