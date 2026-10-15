@@ -950,7 +950,7 @@ describe("agent PKM memory helpers", () => {
 
     for (const context of [loaded, peeked]) {
       expect(context?.text.startsWith(`${soul}\n\nLIVE MIRROR FACTS v1 (`)).toBe(true);
-      expect(context?.text).toContain('profile.name="Synthetic Owner"');
+      expect(context?.text).toContain('name="Synthetic Owner"');
       expect(context?.text.endsWith("\nEND LIVE MIRROR FACTS")).toBe(true);
       // Debug and telemetry get counts, never the packet.
       expect(context?.liveMirror).toEqual({ shownFacts: 2, omittedFacts: 0 });

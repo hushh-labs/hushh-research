@@ -117,8 +117,8 @@ describe("Live Mirror agent allowlist (B-R5)", () => {
       // A record id that leaked into `ref` is never a safe reference.
       fact("connection", "uid-other", "establishedAt", at(-10 * MIN)),
     ] }));
-    expect(text).toContain('profile.name="Ankit Synthetic"');
-    expect(text).toContain('- Connection 1: connection.establishedAt="2026-10-15T08:30:00.000Z"');
+    expect(text).toContain('name="Ankit Synthetic"');
+    expect(text).toContain('- Connection 1: establishedAt="2026-10-15T08:30Z"');
     for (const forbidden of [
       "1990-01-01", "ya29.SYNTH", "uid-other", "latitude", "37.7749", "dateOfBirth", "accessToken",
       "https://photo", "profile.photo", "counterpart", "src-raw",
@@ -138,7 +138,7 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
   };
   it.each<[string, Partial<LiveMirrorView>, string[], string[]]>([
     ["verified", {}, [
-      '- Profile: profile.name="Ankit Synthetic", profile.email="ankit@example.test" [verified 2026-10-15T10:00Z; revision 3]',
+      '- Profile: name="Ankit Synthetic", email="ankit@example.test" [verified 2026-10-15T10:00Z; revision 3]',
       "Mirror: up to date; read 2026-10-15T10:01Z; last verified 2026-10-15T10:00Z",
     ], []],
     ["stale with its last verified time", {
@@ -151,10 +151,10 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
       sources: withSource("consent", { state: "unavailable", verifiedAt: at(-20 * MIN) }),
       facts: BASE_FACTS.map((each) => each.kind === "consent" ? { ...each, state: "unavailable" as const, verifiedAt: at(-20 * MIN) } : each),
     }, [
-      '- Consent 2: consent.scope="attr.food.*", consent.status="active" [cannot verify now, last verified 2026-10-15T09:40Z; revision 5]',
+      '- Consent 2: scope="attr.food.*", status="active" [cannot verify now, last verified 2026-10-15T09:40Z; revision 5]',
       "consent cannot verify now (last verified 2026-10-15T09:40Z)",
-    ], ["Consent 2: consent.scope=\"attr.food.*\", consent.status=\"active\" [verified"]],
-    ["none recorded", {}, ["connection verified 2026-10-15T10:00Z, none recorded"], []],
+    ], ["Consent 2: scope=\"attr.food.*\", status=\"active\" [verified"]],
+    ["none recorded", {}, ["connection, curated_oauth_connector, document_earning, payout_activity, document_request_payment verified 2026-10-15T10:00Z, none recorded"], []],
     ["deleted at a revision, without values", {
       facts: [...BASE_FACTS, fact("consent", "Consent 3", "scope", "OLD_SCOPE_VALUE", { state: "deleted", revision: 6 })],
       history: { ...view().history, entries: [
@@ -175,7 +175,7 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
     ["update pending", {
       overall: "updating", sources: withSource("consent", { state: "updating", pendingChanges: 2 }),
     }, ["[update pending, last verified 2026-10-15T10:00Z; revision 5]", "consent update pending (last verified 2026-10-15T10:00Z)"],
-    ["consent.status=\"active\" [verified"]],
+    ["status=\"active\" [verified"]],
     ["name conflict", { nameConflict: true },
       ["Name conflict: the owner-authored Soul name differs from the verified profile.name."], []],
     ["retained history window", { history }, [
@@ -241,7 +241,7 @@ describe("Live Mirror packet budget (B-R8)", () => {
     expect(packet.shownFacts + packet.omittedFacts).toBe(41);
     expect(packet.omittedFacts).toBeGreaterThan(0);
     expect(packet.text).toContain(`Not shown: ${packet.omittedFacts} more records`);
-    expect(packet.text).toContain("- Profile: profile.name=");
+    expect(packet.text).toContain("- Profile: name=");
     expect(packet.text).toContain("- Consent 40:");
     expect(packet.text).not.toContain("- Consent 1:");
   });
@@ -251,5 +251,52 @@ describe("Live Mirror packet budget (B-R8)", () => {
     expect(build(view(), { budgetChars: 300 }).text.endsWith(LIVE_MIRROR_PACKET_END)).toBe(true);
     expect(liveMirrorPacketBudget(19_800)).toBeLessThan(300);
     expect(appendLiveMirrorPacket("soul", "")).toBe("soul");
+  });
+});
+
+describe("packet built from a real projection", () => {
+  // Cross-lane contract: refs, states and fields produced by the real
+  // projection must survive the packet's fail-closed checks unchanged.
+  it("keeps every allowlisted record and leaks no identifier", async () => {
+    const { reconcileLivingSources, appendVerifiedLivingSourceChanges } = await import("@/lib/pkm/living-source-records");
+    const { buildLiveMirrorProjection, applyLiveMirrorReadTime } = await import("@/lib/pkm/live-mirror-projection");
+    const inputs = [
+      { kind: "profile", id: "owner-a", createdAt: null, updatedAt: T,
+        value: { name: "Ankit Synthetic", email: "ankit@example.test", photo: "https://example.test/private-photo.png" } },
+      { kind: "consent", id: "src-consent-alpha", createdAt: at(-9 * MIN), updatedAt: T,
+        value: { scope: "attr.food.*", status: "active", active: true, counterpart: "OTHER_PERSON_UID_1" } },
+      { kind: "consent", id: "src-consent-beta", createdAt: at(-8 * MIN), updatedAt: T,
+        value: { scope: "attr.travel.*", status: "revoked", active: false, counterpart: "OTHER_PERSON_UID_2" } },
+      { kind: "connection", id: "src-connection-gamma", createdAt: at(-7 * MIN), updatedAt: T,
+        value: { counterpartId: "OTHER_PERSON_UID_3", establishedAt: T, connectedFromContacts: false } },
+      { kind: "curated_oauth_connector", id: "src-connector-delta", createdAt: at(-6 * MIN), updatedAt: T,
+        value: { provider: "google_calendar", status: "connected", connectedAt: T, authStyle: "oauth" } },
+      { kind: "document_earning", id: "src-earning-epsilon", createdAt: at(-5 * MIN), updatedAt: T,
+        value: { stripeMode: "test", status: "paid", grossCents: 1000, netCents: 970, createdAt: T } },
+      { kind: "payout_activity", id: "src-activity-zeta", createdAt: at(-4 * MIN), updatedAt: T,
+        value: { kind: "earning", mode: "test", occurredAt: T, amountCents: 970, status: "available" } },
+      { kind: "document_request_payment", id: "src-payment-eta", createdAt: at(-3 * MIN), updatedAt: T,
+        value: { counterpartRef: "OTHER_REF_9", mode: "test", status: "paid", amountCents: 500, currency: "usd", paidAt: T } },
+    ] as const;
+    const inventory = reconcileLivingSources(null, inputs.map((input) => ({ ...input, value: { ...input.value } })),
+      LIVE_MIRROR_KINDS, [], T);
+    const history = appendVerifiedLivingSourceChanges(null, null, inventory);
+    const projection = buildLiveMirrorProjection({ ownerId: "owner-a", vaultEpoch: 0, now: T, inventory, history, document: null });
+    const view = applyLiveMirrorReadTime(projection, Date.parse(T) + MIN, "current");
+    const packet = buildLiveMirrorFactsPacket({
+      expectedOwnerId: "owner-a", currentVaultEpoch: 0, view, budgetChars: 1_800, now: Date.parse(T) + MIN,
+    });
+
+    const eligible = view.facts.filter((each) => (AGENT_FACT_FIELDS[each.kind] as readonly string[]).includes(each.field));
+    const records = new Set(eligible.map((each) => `${each.kind}|${each.ref}`));
+    expect(view.overall).toBe("current");
+    expect(records.size).toBe(inputs.length);
+    expect(packet.omittedFacts).toBe(0);
+    expect(packet.shownFacts).toBe(records.size);
+    for (const each of eligible) expect(packet.text).toContain(`- ${each.ref}:`);
+    for (const value of ["Ankit Synthetic", "ankit@example.test", "attr.food.*", "google_calendar"])
+      expect(packet.text).toContain(value);
+    for (const leaked of ["OTHER_PERSON_UID", "OTHER_REF_9", "private-photo.png", "owner-a", "src-"])
+      expect(packet.text).not.toContain(leaked);
   });
 });

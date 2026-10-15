@@ -248,8 +248,15 @@ function collectRecords(
   return [...records.values()].sort(compareRecords);
 }
 
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function formatValue(value: LiveMirrorFactValue): string {
   if (typeof value !== "string") return String(value);
+  // A timestamp to the minute keeps more records inside the budget.
+  if (ISO_TIMESTAMP.test(value)) {
+    const minute = formatTime(Date.parse(value));
+    if (minute) return JSON.stringify(minute);
+  }
   const clean = value.replace(UNSAFE_TEXT, " ");
   return clean.length > MAX_VALUE_CHARS
     ? `${JSON.stringify(clean.slice(0, MAX_VALUE_CHARS))} (shortened)`
@@ -274,11 +281,11 @@ function recordLine(entry: RecordEntry): string {
   if (entry.tag === "conflicted") return `- ${entry.ref}: conflicting revisions, no value selected`;
   const fields = [...entry.values.entries()]
     .sort(([left], [right]) => fieldIndex(entry.kind, left) - fieldIndex(entry.kind, right))
-    .map(([predicate, value]) => `${predicate}=${formatValue(value)}`);
+    .map(([predicate, value]) => `${predicate.slice(entry.kind.length + 1)}=${formatValue(value)}`);
   return `- ${entry.ref}: ${fields.length ? fields.join(", ") : "recorded"} [${tagText(entry)}]`;
 }
 
-function sourcePhrase(source: LiveMirrorSource, kind: LiveMirrorKind, now: number): string {
+function sourcePhrase(source: LiveMirrorSource, now: number): string {
   const state = sourceState(source, now);
   const at = formatTime(parseTime(source.verifiedAt));
   const last = `last verified ${at ?? "never"}`;
@@ -295,7 +302,17 @@ function sourcePhrase(source: LiveMirrorSource, kind: LiveMirrorKind, now: numbe
   let none = "";
   if (empty && state === "current") none = ", none recorded";
   else if (empty && (state === "stale" || state === "updating" || state === "conflict")) none = ", none recorded at last check";
-  return `${kind} ${phrase[state]}${none}`;
+  return `${phrase[state]}${none}`;
+}
+
+/** Kinds that share one state phrase are listed together, in kind order. */
+function sourcesLineText(living: readonly { kind: LiveMirrorKind; source: LiveMirrorSource }[], now: number): string {
+  const groups = new Map<string, LiveMirrorKind[]>();
+  for (const { kind, source } of living) {
+    const phrase = sourcePhrase(source, now);
+    groups.set(phrase, [...(groups.get(phrase) ?? []), kind]);
+  }
+  return `Sources: ${[...groups].map(([phrase, kinds]) => `${kinds.join(", ")} ${phrase}`).join("; ")}`;
 }
 
 const OPERATIONS: ReadonlySet<string> = new Set(["upsert", "delete", "gap"]);
@@ -382,9 +399,7 @@ export function buildLiveMirrorFactsPacket(params: {
   const mirror =
     `Mirror: ${OVERALL_TEXT[overall]}; read ${formatTime(now)}; ` +
     `last verified ${formatTime(parseTime(view.lastVerifiedAt)) ?? "never"}`;
-  const sourcesLine = living.length
-    ? `Sources: ${living.map(({ kind, source }) => sourcePhrase(source, kind, now)).join("; ")}`
-    : null;
+  const sourcesLine = living.length ? sourcesLineText(living, now) : null;
   const nameLine = view.nameConflict
     ? "Name conflict: the owner-authored Soul name differs from the verified profile.name."
     : null;
