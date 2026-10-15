@@ -40,25 +40,13 @@ const answered: Message[] = [
 ];
 
 describe("smart follow-ups", () => {
-  it.each(["Others", "Something else"])("submits %s as a normal follow-up without ending the conversation", (choice) => {
-    const end = vi.fn();
+  it.each(["Other", "Others", "Something else"])("keeps %s on the ordinary follow-up path", (choice) => {
     const select = vi.fn();
-    render(<AgentFollowUpSuggestions suggestions={[choice]} onSelect={select} onEndConversation={end} />);
-    const button = screen.getByRole("button", { name: choice });
-    fireEvent.click(button);
-    expect(end).not.toHaveBeenCalled();
+    render(<AgentFollowUpSuggestions suggestions={[choice]} onSelect={select} />);
+    fireEvent.click(screen.getByRole("button", { name: choice }));
     expect(select).toHaveBeenCalledExactlyOnceWith(choice);
   });
 
-  it("keeps ordinary suggestions that contain similar words on the normal path", () => {
-    const select = vi.fn();
-    const end = vi.fn();
-    const prompt = "Tell me something else about my calendar";
-    render(<AgentFollowUpSuggestions suggestions={[prompt]} onSelect={select} onEndConversation={end} />);
-    fireEvent.click(screen.getByRole("button", { name: prompt }));
-    expect(select).toHaveBeenCalledExactlyOnceWith(prompt);
-    expect(end).not.toHaveBeenCalled();
-  });
   it("does not accept a starter while disabled and resumes after the owner enables it", () => {
     const select = vi.fn();
     const props = {

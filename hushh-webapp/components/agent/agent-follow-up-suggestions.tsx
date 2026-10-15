@@ -39,7 +39,6 @@ export function AgentFollowUpSuggestions({
 }: {
   suggestions: readonly string[];
   onSelect: (suggestion: string) => void;
-  onEndConversation?: (suggestion: string) => void;
 }) {
   return (
     <AgentSuggestionList
