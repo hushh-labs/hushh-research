@@ -323,8 +323,10 @@ function historyChange(change: LiveMirrorHistoryEntry): string {
     const committed = change.gap?.committedChanges;
     const recorded = change.gap?.verifiedChanges;
     let detail = "an unknown number of changes not captured";
+    // An unknown recorded count says so; it never claims changes were missed.
     if (Number.isSafeInteger(committed))
-      detail = `${committed} changes committed, ${Number.isSafeInteger(recorded) ? recorded : "not all"} recorded`;
+      detail = `${committed} ${committed === 1 ? "change" : "changes"} committed, ` +
+        (Number.isSafeInteger(recorded) ? `${recorded} recorded` : "recorded count unknown");
     return `#${change.sequence} ${change.kind} gap (${detail}) ${at}`;
   }
   const revision = Number.isSafeInteger(change.revision) ? change.revision : "?";

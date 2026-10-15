@@ -211,6 +211,9 @@ export function appendVerifiedLivingSourceChanges(
  * pending. A marker counts changes; it never invents the values in between.
  * An unknown count (after a journal reset) is a "journal_gap". When retention
  * already removed part of that span, the recorded count is unknown (null).
+ * Journal triggers also fire for rows that map to no mirrored record (a sent
+ * connection request, a consent audit row), so a verified source with no
+ * recorded change gets no marker.
  */
 export function appendJournalGapMarkers(
   history: LivingSourceHistory,
@@ -230,6 +233,7 @@ export function appendJournalGapMarkers(
       ? history.changes.filter((change) => change.kind === kind &&
           change.operation !== "gap" && change.sequence >= entry.historySequence).length
       : null;
+    if (verifiedChanges === 0) continue;
     if (entry.count !== null && verifiedChanges !== null && entry.count <= verifiedChanges)
       continue;
     const value: LivingSourceGapValue = {

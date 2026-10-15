@@ -51,7 +51,10 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   isVaultSessionEpochCurrent: (epoch: number) => epoch === m.epoch,
 }));
 import { LivingSourcesIncompleteError, syncLivingSources } from "@/lib/pkm/living-source-sync";
-import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
+import {
+  clearLivingSourceSessionVerification,
+  getLivingSourceSessionVerification,
+} from "@/lib/pkm/living-source-session-verification";
 import { DocumentRequestPaymentSourceCapacityError } from "@/lib/services/document-request-payment-source-service";
 import type {
   LivingJournalPending,
@@ -911,7 +914,7 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-14T00:00:00.000Z"));
   try {
-    expect(await syncLivingSources(params)).toEqual({ stored: true });
+    expect(await syncLivingSources(params)).toEqual({ stored: true, recordsChanged: true });
     const observedAt = inventory().observedAt;
     const previousStored = stored;
     m.save.mockImplementation(async (p) => {
@@ -921,7 +924,7 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
       return { success: true, idempotentReplay: true };
     });
     vi.setSystemTime(new Date("2026-10-14T00:01:00.000Z"));
-    expect(await syncLivingSources(params)).toEqual({ stored: false });
+    expect(await syncLivingSources(params)).toEqual({ stored: false, recordsChanged: false });
     expect(stored).toBe(previousStored);
     expect(inventory().observedAt).toBe(observedAt);
     // The skipped write still verified the profile in this unlocked session.
@@ -957,6 +960,46 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
     m.identity.mockRejectedValueOnce(new Error("identity offline"));
     await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
     expect(getLivingSourceSessionVerification(OWNER, 0).profile).toBe("2026-10-14T00:01:00.000Z");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("vouches in the session only for sources whose records this write left unchanged", async () => {
+  // The session time is stamped on the cached mirror. Stamped on a source
+  // whose records just changed, it called the old values verified at the very
+  // check that found them changed, until the rebuild landed.
+  vi.useFakeTimers();
+  clearLivingSourceSessionVerification();
+  const consentList = (status: string) => ({
+    ...emptyConsent(), items: [{ ...entry("c1"), status, active: status === "approved" }],
+  });
+  try {
+    vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
+    m.list.mockResolvedValue(consentList("approved"));
+    expect(await syncLivingSources(params)).toEqual({ stored: true, recordsChanged: true });
+
+    // A routine wake past the five-minute window re-reads consent and finds it
+    // revoked. Profile is unchanged, so only profile is vouched for.
+    vi.setSystemTime(new Date("2026-10-15T10:06:00.000Z"));
+    m.list.mockResolvedValue(consentList("revoked"));
+    expect(await syncLivingSources(params)).toEqual({ stored: true, recordsChanged: true });
+    expect(inventory().records.find((record) => record.id === "c1")).toMatchObject({ revision: 2 });
+    expect(getLivingSourceSessionVerification(OWNER, 0).profile).toBe("2026-10-15T10:06:00.000Z");
+    expect(getLivingSourceSessionVerification(OWNER, 0).consent).toBeUndefined();
+
+    // A consent audit row hints consent again and the re-read finds nothing
+    // new: no gap marker, only verification bookkeeping, now vouched for.
+    vi.setSystemTime(new Date("2026-10-15T10:07:00.000Z"));
+    const historyLength = privateData().observed_history.changes.length;
+    m.sourceChanges.mockResolvedValue(exactHints("9", { consent: 1 }));
+    expect(await syncLivingSources(params)).toEqual({ stored: true, recordsChanged: false });
+    expect(privateData().observed_history.changes).toHaveLength(historyLength);
+    expect(getLivingSourceSessionVerification(OWNER, 0).consent).toBe("2026-10-15T10:07:00.000Z");
+
+    vi.setSystemTime(new Date("2026-10-15T10:08:00.000Z"));
+    m.sourceChanges.mockResolvedValue(quietEvents("9"));
+    expect(await syncLivingSources(params)).toEqual({ stored: false, recordsChanged: false });
   } finally {
     vi.useRealTimers();
   }

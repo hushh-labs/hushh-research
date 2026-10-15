@@ -15,7 +15,7 @@ const m = vi.hoisted(() => ({
   connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
   payoutChangeListener: null as ((detail: { kinds: string[] }) => void) | null,
   LivingSourcesIncompleteError: class extends Error {
-    constructor(readonly failedKinds: string[]) {
+    constructor(readonly failedKinds: string[], readonly recordsChanged = false) {
       super("Source inventory incomplete; retry required");
     }
   },
@@ -153,8 +153,8 @@ describe("LivingMemoryBridge", () => {
     expect(m.refreshMemoryDocument.mock.calls[0]![0]).toMatchObject({ force: false });
   });
 
-  it("rebuilds the mirror quietly after a stored sync and marks it updating only for owner changes", async () => {
-    m.syncLivingSources.mockResolvedValue({ stored: true });
+  it("rebuilds quietly after a verification-only store and shows Updating for a found change", async () => {
+    m.syncLivingSources.mockResolvedValue({ stored: true, recordsChanged: false });
     render(<LivingMemoryBridge />);
     await flush();
     expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: true });
@@ -162,13 +162,25 @@ describe("LivingMemoryBridge", () => {
 
     // A routine wake whose sync stored nothing lets the freshness check decide.
     m.refreshMemoryDocument.mockClear();
-    m.syncLivingSources.mockResolvedValue({ stored: false });
+    m.syncLivingSources.mockResolvedValue({ stored: false, recordsChanged: false });
     act(() => window.dispatchEvent(new Event("focus")));
     await flush();
     expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: false });
     expect(m.markPending).not.toHaveBeenCalled();
 
-    // A committed owner change is the only wake that shows the mirror updating.
+    // A routine wake whose sync found a changed record marks the mirror
+    // pending before the forced rebuild, so its old values never read current.
+    m.refreshMemoryDocument.mockClear();
+    m.syncLivingSources.mockResolvedValue({ stored: true, recordsChanged: true });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: true });
+    expect(m.markPending.mock.invocationCallOrder[0])
+      .toBeLessThan(m.refreshMemoryDocument.mock.invocationCallOrder.at(-1)!);
+
+    // So does a committed owner change.
+    m.markPending.mockClear();
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } })));
     await flush();
     expect(m.markPending).toHaveBeenCalledWith("owner-a");
@@ -324,9 +336,13 @@ describe("LivingMemoryBridge", () => {
     render(<LivingMemoryBridge />);
     await flush();
     expect(m.refreshMemoryDocument).toHaveBeenCalledTimes(1);
+    expect(m.markPending).not.toHaveBeenCalled();
+    // A record change stored beside the failed source still shows Updating.
+    m.syncLivingSources.mockRejectedValueOnce(new m.LivingSourcesIncompleteError(["consent"], true));
     act(() => window.dispatchEvent(new Event("focus")));
     await flush();
     expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
   });
 
   it("wakes when the app becomes visible, never when it is hidden", async () => {

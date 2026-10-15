@@ -141,10 +141,13 @@ const SCAN_CACHES: Record<RetriedKind, Map<string, CompletedScan>> = {
  * is still unavailable or outside its freshness window. */
 export class LivingSourcesIncompleteError extends Error {
   readonly failedKinds: string[];
-  constructor(failedKinds: readonly string[]) {
+  /** Whether that stored write still changed a record or its history. */
+  readonly recordsChanged: boolean;
+  constructor(failedKinds: readonly string[], recordsChanged = false) {
     super("Source inventory incomplete; retry required");
     this.name = "LivingSourcesIncompleteError";
     this.failedKinds = [...failedKinds];
+    this.recordsChanged = recordsChanged;
   }
 }
 
@@ -256,6 +259,26 @@ function nextSourceHealth(
     };
   }
   return { version: 1, kinds };
+}
+
+/** Kinds whose records changed in this write (added, revised or tombstoned)
+ * or whose history gained an entry. Verification times, cursors, pending
+ * hints, health and provenance timestamps are bookkeeping, not changes. */
+function changedSourceKinds(
+  previous: LivingSourceInventory | null,
+  inventory: LivingSourceInventory,
+  history: LivingSourceHistory,
+  firstNewSequence: number,
+): Set<SourceKind> {
+  const revisions = new Map(
+    (previous?.records ?? []).map((record) => [`${record.kind}:${record.id}`, record.revision] as const),
+  );
+  const kinds = new Set<SourceKind>();
+  for (const record of inventory.records)
+    if (revisions.get(`${record.kind}:${record.id}`) !== record.revision) kinds.add(record.kind);
+  for (const change of history.changes)
+    if (change.sequence >= firstNewSequence) kinds.add(change.kind);
+  return kinds;
 }
 
 /** The owner-vault earnings API uses a stable (createdAt, requestId) keyset.
@@ -581,11 +604,14 @@ export async function syncLivingSources(params: {
   forceConnections?: boolean;
   forceConsent?: boolean;
   forceCuratedConnectors?: boolean;
-}): Promise<{ stored: boolean }> {
+}): Promise<{ stored: boolean; recordsChanged: boolean }> {
   const epoch = snapshotVaultSessionEpoch();
   // Whether the encrypted write changed anything. An unchanged sync still
   // verified its sources, which the session verification map records.
   let storedChange = false;
+  // Kinds whose records or history this write changed. The cached mirror
+  // still shows their old values, so this check cannot vouch for them.
+  let changedKinds = new Set<SourceKind>();
   const readStartedAt = new Date().toISOString();
   let storedSnapshotAt = readStartedAt;
   let incompleteKinds: string[] = [];
@@ -896,7 +922,7 @@ export async function syncLivingSources(params: {
     }
     return { inputs, successful, unavailable, failed };
   };
-  if (!isVaultSessionEpochCurrent(epoch)) return { stored: false };
+  if (!isVaultSessionEpochCurrent(epoch)) return { stored: false, recordsChanged: false };
   const result = await PkmWriteCoordinator.saveMergedDomain({
     ...params,
     domain: LIVING_SOURCE_DOMAIN,
@@ -1014,6 +1040,7 @@ export async function syncLivingSources(params: {
         verifiedKinds,
         storedSnapshotAt,
       );
+      changedKinds = changedSourceKinds(previous ?? null, inventory, history, priorHistory?.nextSequence ?? 1);
       // A cursor moves past a hint only in this same write, which either
       // verifies the hint's source or keeps that source pending.
       const journalPending: LivingJournalPending = { version: 1, kinds: {} };
@@ -1124,9 +1151,14 @@ export async function syncLivingSources(params: {
   });
   // An unchanged store skips its write, so the stored inventory time can lag
   // this verification. Profile reads the session time in this vault epoch.
+  // A kind whose records changed is vouched for only by the rebuilt mirror:
+  // stamping this time on the cached one would call its old values verified.
   if (isVaultSessionEpochCurrent(epoch))
-    recordLivingSourceSessionVerification(params.userId, epoch, verifiedKinds, storedSnapshotAt);
+    recordLivingSourceSessionVerification(
+      params.userId, epoch, verifiedKinds.filter((kind) => !changedKinds.has(kind)), storedSnapshotAt,
+    );
+  const recordsChanged = changedKinds.size > 0;
   if (incompleteKinds.length)
-    throw new LivingSourcesIncompleteError(incompleteKinds);
-  return { stored: storedChange };
+    throw new LivingSourcesIncompleteError(incompleteKinds, recordsChanged);
+  return { stored: storedChange, recordsChanged };
 }

@@ -130,6 +130,20 @@ it("marks committed changes this history did not capture, never the values in be
     .changes.at(-1)?.value).toMatchObject({ committedChanges: 3, verifiedChanges: null });
 });
 
+it("writes no gap for a hint that changed no mirrored record", () => {
+  // Journal triggers also fire for rows the mirror does not hold (a sent
+  // connection request, a consent audit row). The verified re-read then finds
+  // every record unchanged, and the history must not claim missed changes.
+  const before = reconcileLivingSources(null, [consent], ["consent"], [], T1);
+  const history = appendVerifiedLivingSourceChanges(null, null, before);
+  const after = reconcileLivingSources(before, [consent], ["consent"], [], T3);
+  const unchanged = appendVerifiedLivingSourceChanges(history, before, after);
+  expect(unchanged).toEqual(history);
+  for (const count of [1, null])
+    expect(appendJournalGapMarkers(unchanged, pendingConsent(count, unchanged.nextSequence), ["consent"], T3))
+      .toEqual(unchanged);
+});
+
 it("keeps gap markers inside the shared retention cap and renders them as counted, not truncated", () => {
   const grants = Array.from({ length: MAX_RETAINED_LIVING_SOURCE_CHANGES }, (_, i): LivingSourceInput => ({
     ...consent, id: `grant-${i}`,
@@ -155,6 +169,12 @@ it("keeps gap markers inside the shared retention cap and renders them as counte
   const gapRow = rendered.rows.find((row) => row.label.includes("consent:* · gap"));
   expect(gapRow?.value).toBe("3 changes committed; 1 recorded. Values in between were not seen.");
   expect(rendered.truncated).toBe(false);
+  // An unknown recorded count says so, never that values went unseen.
+  const unknown = render({ ...next, changes: next.changes.map((change) => change.operation === "gap"
+    ? { ...change, value: { ...change.value, verifiedChanges: null } } : change) });
+  expect(unknown.rows.find((row) => row.label.includes("consent:* · gap"))?.value)
+    .toBe("3 changes committed; recorded count unknown.");
+  expect(unknown.truncated).toBe(false);
   // Negative control: a malformed marker cannot vouch for the span it covers.
   const malformed = { ...next, changes: next.changes.map((change) => change.operation === "gap"
     ? { ...change, value: { ...change.value, committedChanges: "3" } } : change) };

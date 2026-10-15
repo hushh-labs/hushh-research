@@ -42,8 +42,8 @@ export function LivingMemoryBridge() {
     let running = false;
     let pending = false;
     let sourceDirty = true;
-    // Rebuild the mirror on the next build without marking it pending, so a
-    // routine re-verification never shows "Updating".
+    // Rebuild the mirror on the next build. A store that only renewed
+    // verification stays quiet; one that changed records shows "Updating".
     let rebuildDocument = false;
     let connectionHintVersion = 0;
     let scannedConnectionVersion = 0;
@@ -95,12 +95,16 @@ export function LivingMemoryBridge() {
                   forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
                   forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
                 });
+                // A discovered change shows "Updating" until the rebuild lands,
+                // so the cached mirror never reads current with old values.
+                if (sync?.recordsChanged) markMemoryRefreshPending(userId);
                 if (sync?.stored) rebuildDocument = true;
               } catch (error) {
                 if (!(error instanceof LivingSourcesIncompleteError)) throw error;
                 // The verified sources were stored. Each forced read got its
                 // attempt; a failed source stays pending and is retried on a
                 // later wake. Still refresh, so the mirror shows what was checked.
+                if (error.recordsChanged) markMemoryRefreshPending(userId);
                 sourceDirty = true;
                 rebuildDocument = true;
               }
@@ -148,7 +152,8 @@ export function LivingMemoryBridge() {
       running = false;
     };
     // A routine wake (timer, focus, online, visible tab) re-verifies sources
-    // quietly. Only a committed owner change marks the mirror as updating.
+    // quietly. A committed owner change, or a record change the sync finds,
+    // marks the mirror as updating.
     const refreshSources = (event?: Event) => {
       const owner = (event as CustomEvent<{ userId?: string }> | undefined)
         ?.detail?.userId;

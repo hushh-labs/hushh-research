@@ -184,6 +184,11 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
       "#130 consent gap (3 changes committed, 1 recorded)",
       "#129 Consent 129 upsert r1",
     ], ["#128", "HISTORY_VALUE"]],
+    ["a one-change gap whose recorded count is unknown", {
+      history: { ...view().history, entries: [
+        change(5, { ...gap, gap: { ...gap.gap, committedChanges: 1, verifiedChanges: null } }),
+      ] },
+    }, ["#5 consent gap (1 change committed, recorded count unknown)"], ["not all", "1 changes"]],
   ])("labels %s", (_label, patch, expected, forbidden) => {
     const { text } = build(view(patch));
     for (const fragment of expected) expect(text).toContain(fragment);

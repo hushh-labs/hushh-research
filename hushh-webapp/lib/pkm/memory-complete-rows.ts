@@ -121,8 +121,9 @@ function gapMarkerText(change: Record<string, unknown>): string | null {
   const committed = gap.committedChanges;
   if (committed === null) return "Some changes may be missing.";
   const changes = `${committed} ${committed === 1 ? "change" : "changes"} committed`;
+  // Retention removed part of the span, so it is unknown what was seen.
   return gap.verifiedChanges === null
-    ? `${changes}. Values in between were not seen.`
+    ? `${changes}; recorded count unknown.`
     : `${changes}; ${gap.verifiedChanges} recorded. Values in between were not seen.`;
 }
 
