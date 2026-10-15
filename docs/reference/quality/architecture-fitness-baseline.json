@@ -2295,6 +2295,806 @@
     "evidence_revision": "f1159af6d85e44fd36db84a7f3fc1d9221f1e3a5",
     "reviewer": "peer_fixture_review"
   },
+  "byoc_main858_calendar_wallet_review_20261015": {
+    "entries": [
+      {
+        "after": 1457,
+        "before": [
+          1257
+        ],
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|GoogleCalendarService|class exceeds the advisory operon budget",
+        "kind": "class_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "2cb926aed994c54898614c60894c565fd781ce16825bfc30c7be9c7a4248b1fa",
+            "values": [
+              1496
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c",
+            "values": [
+              1257
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e",
+        "symbol": "GoogleCalendarService"
+      },
+      {
+        "after": 795,
+        "before": [
+          709
+        ],
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "kind": "class_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526",
+            "values": [
+              795
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020",
+            "values": [
+              709
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526",
+        "symbol": "CalendarScheduleService"
+      },
+      {
+        "after": 190,
+        "before": [
+          178
+        ],
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_request_with_authority|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "2cb926aed994c54898614c60894c565fd781ce16825bfc30c7be9c7a4248b1fa",
+            "values": [
+              190
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c",
+            "values": [
+              178
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e",
+        "symbol": "_request_with_authority"
+      },
+      {
+        "after": 135,
+        "before": [
+          129
+        ],
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|execute|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "2cb926aed994c54898614c60894c565fd781ce16825bfc30c7be9c7a4248b1fa",
+            "values": [
+              159
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c",
+            "values": [
+              129
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e",
+        "symbol": "execute"
+      },
+      {
+        "after": 129,
+        "before": [
+          122
+        ],
+        "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|_propose|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "9f5e9a915c61fce2c630566e0172f162cd9c71f4ad45c43442f4abec2d493ae0",
+            "values": [
+              119
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "ceb0670462e8837cc1c9a7446df5cfbeb5065de4b139a7df081bf3911bb1a39d",
+            "values": [
+              122
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "59237a99bdbf7b72fde19935e10878425641e1c8c5bbcd0d583ba78464fa3cae",
+        "symbol": "_propose"
+      },
+      {
+        "after": 89,
+        "before": [],
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py|resolve_artwork|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "4e6061397c1fd5b1daa183ee24c57b7f638feeeaa7c0b75adf1956d7eb405316",
+            "values": [
+              89
+            ]
+          },
+          "a0fed3a1af": {
+            "present": false
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "4e6061397c1fd5b1daa183ee24c57b7f638feeeaa7c0b75adf1956d7eb405316",
+        "symbol": "resolve_artwork"
+      },
+      {
+        "after": 82,
+        "before": [],
+        "key": "function_size|consent-protocol/tests/services/test_calendar_shared_availability.py|journey|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "532dd8d2174a58451c8739c737b41ffcc6efa3e6827aa2b9e09cfe6027ea9180",
+            "values": []
+          },
+          "a0fed3a1af": {
+            "present": false
+          }
+        },
+        "path": "consent-protocol/tests/services/test_calendar_shared_availability.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "2a16e824f4221f9f81435fdf96ffefa89b150e1a362bbb3374a4cbaf12b358f3",
+        "symbol": "journey"
+      },
+      {
+        "after": 81,
+        "before": [],
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_merged_busy_intervals|function exceeds the advisory gene budget",
+        "kind": "function_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "2cb926aed994c54898614c60894c565fd781ce16825bfc30c7be9c7a4248b1fa",
+            "values": [
+              81
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c",
+            "values": []
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e",
+        "symbol": "_merged_busy_intervals"
+      },
+      {
+        "after": 11107,
+        "before": [
+          11081
+        ],
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "0bd9a58ea677692310d3bd3d63fadd4d44d8aaf9fa43bfdae9e8b490538bdf93",
+            "values": [
+              10419
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "61942a6c515422f782186350b4db9f80d3c75b0110b2e20db32b76a382e144e9",
+            "values": [
+              11081
+            ]
+          }
+        },
+        "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "6827759f1adc06861f6ab9ceba2870e6b308c6855e490f1eb4c3fbfcbd5737f3",
+        "symbol": null
+      },
+      {
+        "after": 4884,
+        "before": [
+          4875
+        ],
+        "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "3a94a6615c03501ee1bed178607f48e6e4fe946dc779d6f28b10d2eaa55cd827",
+            "values": [
+              4895
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "a3bfeab3dd5ddc0abf33ffcb67bf24d191793361190c359d8fe66fa16b045c9a",
+            "values": [
+              4875
+            ]
+          }
+        },
+        "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "e3e4059b2dd02f95b4d988da4d86f38f8c09f937525577f2df4432a001d30cb4",
+        "symbol": null
+      },
+      {
+        "after": 2195,
+        "before": [
+          1829
+        ],
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "928c44986a45dab6b9cd906ae7f5fc5beb92acbad2c66d6896b05cce22ee53e2",
+            "values": [
+              2155
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "fa78f691c59cbd5510e177bd63ffc5bdc6afd07db398015825a5fe60b94b9d3f",
+            "values": [
+              1781
+            ]
+          }
+        },
+        "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "176b7e638a1c3a48bc178a0bcf40ee1a7378aa953eaf2a30e489e4d5b7f97a55",
+        "symbol": null
+      },
+      {
+        "after": 1728,
+        "before": [
+          1570
+        ],
+        "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "ba8c00733b7155cb500ff74713c72dc3ed29e2043410751bce040cbd502759ab",
+            "values": [
+              1705
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "43ac54a0bdaf417511dd2d2e05f5cfb8d3b795fd0bee5241694ae911fb8951b6",
+            "values": [
+              1570
+            ]
+          }
+        },
+        "path": "consent-protocol/tests/services/test_google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "fe315cb6507506be64cf613ff15d1acb0c5eae4f95e14d3a7ef1329b4c8caed7",
+        "symbol": null
+      },
+      {
+        "after": 1638,
+        "before": [
+          1436
+        ],
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_calendar_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "2cb926aed994c54898614c60894c565fd781ce16825bfc30c7be9c7a4248b1fa",
+            "values": [
+              1659
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c",
+            "values": [
+              1436
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e",
+        "symbol": null
+      },
+      {
+        "after": 1486,
+        "before": [
+          1449
+        ],
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "dc6c7209e08455875f1409ac18972d9298bea8ebac67b9ef22dbfd2f90d3ce29",
+            "values": [
+              1486
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "d575021ec6a9c88f23e25334636b043030f75083e20e6076a60d995b4f58c4a8",
+            "values": [
+              1449
+            ]
+          }
+        },
+        "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "dc6c7209e08455875f1409ac18972d9298bea8ebac67b9ef22dbfd2f90d3ce29",
+        "symbol": null
+      },
+      {
+        "after": 1298,
+        "before": [
+          1293
+        ],
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "ca69c8ce14995036e21970d8969cd1d3d379ec9780ea68ddca73188d8477a001",
+            "values": [
+              1269
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "5ef4f7ee987de087177dfa13e604fcef75a9445308f48fe676e5ac5ee44f63c8",
+            "values": [
+              1293
+            ]
+          }
+        },
+        "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "d2218d09ea98669d0a9f94611a8c98686e8a3c7e8f5dffb34b929e25a6519dd0",
+        "symbol": null
+      },
+      {
+        "after": 1153,
+        "before": [
+          805
+        ],
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "4fe7370a927f8f3d35c28a47f12238fc5695d6bd40e1613b6e425688241fb622",
+            "values": [
+              1153
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "9b20595b49bd2ba4c198c10e1695f7b2603677c4f07904aba5a718d654495dbf",
+            "values": [
+              805
+            ]
+          }
+        },
+        "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "4fe7370a927f8f3d35c28a47f12238fc5695d6bd40e1613b6e425688241fb622",
+        "symbol": null
+      },
+      {
+        "after": 1149,
+        "before": [
+          1141
+        ],
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "03d3c3184d7d92b221934531f31e45df43f91681d694cdfed6ab5f1643166108",
+            "values": [
+              1094
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "4efaa527d9a3358423edef09690305f218d20884c4a73cf4100826a7dd1ab8ea",
+            "values": [
+              1141
+            ]
+          }
+        },
+        "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "99c3cdfbcc07d1d4afe601e5cda4be6574809e46bb5161584c2a14184fcf906d",
+        "symbol": null
+      },
+      {
+        "after": 961,
+        "before": [
+          945
+        ],
+        "key": "module_size|consent-protocol/hushh_mcp/agents/calendar/tools.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "9f5e9a915c61fce2c630566e0172f162cd9c71f4ad45c43442f4abec2d493ae0",
+            "values": [
+              856
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "ceb0670462e8837cc1c9a7446df5cfbeb5065de4b139a7df081bf3911bb1a39d",
+            "values": [
+              945
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "59237a99bdbf7b72fde19935e10878425641e1c8c5bbcd0d583ba78464fa3cae",
+        "symbol": null
+      },
+      {
+        "after": 959,
+        "before": [
+          832
+        ],
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526",
+            "values": [
+              959
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020",
+            "values": [
+              832
+            ]
+          }
+        },
+        "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526",
+        "symbol": null
+      },
+      {
+        "after": 913,
+        "before": [
+          871
+        ],
+        "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "c968e57ff476f37f92312a6fbd9b2c8046c48558a4e126127716d0ed9b005d94",
+            "values": [
+              913
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "2a239df74d4de27391ae4d8acf817f360cb92ad397d94accfbe9f14f016abd21",
+            "values": [
+              871
+            ]
+          }
+        },
+        "path": "consent-protocol/tests/services/test_calendar_schedule_service.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "c968e57ff476f37f92312a6fbd9b2c8046c48558a4e126127716d0ed9b005d94",
+        "symbol": null
+      },
+      {
+        "after": 872,
+        "before": [
+          871
+        ],
+        "key": "module_size|hushh-webapp/lib/personal-knowledge-model/manifest.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "ca6118f37eae2046450c2ec8eb01342f90df162cfe0a271690061de27241e4aa",
+            "values": [
+              868
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "c0bc648e0a34c781b59eb5f07476c39f8accbac23131ccf1206b33f50569c8d6",
+            "values": [
+              871
+            ]
+          }
+        },
+        "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "e11753849403a1ce223e3a2793783760aa81875282aff62103b58560098c8d96",
+        "symbol": null
+      },
+      {
+        "after": 758,
+        "before": [
+          756
+        ],
+        "key": "module_size|hushh-webapp/lib/pkm/pkm-memory-cards.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "9d0bad6078eb910e0eab7f2a26d558ed3903b26cf16eeeb782ce53a80fef69b5",
+            "values": [
+              758
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "7b2f2d0b0ddc75db8133a51db5b5eda65c439321d2130bfb326d4332a470d941",
+            "values": [
+              756
+            ]
+          }
+        },
+        "path": "hushh-webapp/lib/pkm/pkm-memory-cards.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "9d0bad6078eb910e0eab7f2a26d558ed3903b26cf16eeeb782ce53a80fef69b5",
+        "symbol": null
+      },
+      {
+        "after": 738,
+        "before": [],
+        "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_boundaries.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "33c954659ebd522b372ec4dcfba008146e99c74d20f09c90a3e8bfa80b601583",
+            "values": [
+              738
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "b204edf1265907115d3a56a20ba20fac32e75cabeb54664deb329030063976e4",
+            "values": [
+              379
+            ]
+          }
+        },
+        "path": "consent-protocol/tests/services/test_calendar_schedule_boundaries.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "33c954659ebd522b372ec4dcfba008146e99c74d20f09c90a3e8bfa80b601583",
+        "symbol": null
+      },
+      {
+        "after": 706,
+        "before": [
+          705
+        ],
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "ec1b75fcc9b259cf4d11931c82062749b83680857c8beb927fa93222d9670cfe",
+            "values": [
+              602
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "7907123c2274d6a4bf5216dd16c7a67689b28627af4f353baaf4592f107730a7",
+            "values": [
+              705
+            ]
+          }
+        },
+        "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "62caba3dd1e582226e66353a9d60d022a2ff6ddd23d12eb93cba576ac1cdbb45",
+        "symbol": null
+      },
+      {
+        "after": 690,
+        "before": [
+          686
+        ],
+        "key": "module_size|consent-protocol/tests/agents/test_calendar_agent_tools.py||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "c130dcd611f30284455d4ec4e737db666d81c69e02b6d61dc6a28259348aa513",
+            "values": [
+              690
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "bb6619d38b1817520349f5b9c8bb78cd296dc1c5e0009eb9c9bfd6c7ee499a7a",
+            "values": [
+              686
+            ]
+          }
+        },
+        "path": "consent-protocol/tests/agents/test_calendar_agent_tools.py",
+        "reviewer": "onboarding_merge_review",
+        "source_sha256": "c130dcd611f30284455d4ec4e737db666d81c69e02b6d61dc6a28259348aa513",
+        "symbol": null
+      },
+      {
+        "after": 687,
+        "before": [
+          676
+        ],
+        "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "composed",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": false,
+            "source_sha256": "0afd26265dd2ab3e58dc1993f5a87c3b7df6a32bff97400c25be9ccf288496f7",
+            "values": [
+              669
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "c98c8cad76d33b50efecb7657b22613966fa2b4674fc43103863434eb34b1f9b",
+            "values": [
+              676
+            ]
+          }
+        },
+        "path": "hushh-webapp/components/agent/drive-background-search.tsx",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "90d538b0a3441f10827acbebdc003de5f1f7f9833f283678e0cda716ab67a95b",
+        "symbol": null
+      },
+      {
+        "after": 578,
+        "before": [],
+        "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "c90f65f4af87d738618a9cba5171254eae59cd0ab1e70e087444a1b9644d34a3",
+            "values": [
+              578
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "71e5ba94195fbb764f68b4a90d410d542b40a95d2c39c733efbe2cd5543af15a",
+            "values": [
+              450
+            ]
+          }
+        },
+        "path": "hushh-webapp/lib/services/wallet-service.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "c90f65f4af87d738618a9cba5171254eae59cd0ab1e70e087444a1b9644d34a3",
+        "symbol": null
+      },
+      {
+        "after": 551,
+        "before": [
+          545
+        ],
+        "key": "module_size|hushh-webapp/lib/pkm/memory-document.ts||module exceeds the advisory operon budget",
+        "kind": "module_size",
+        "lineage": "byte_exact_main",
+        "parents": {
+          "85831a2595e66678ac45d1f2ee21428622c62c5e": {
+            "byte_equal": true,
+            "source_sha256": "1dc00b04cb8c63e6ec1797c235c93af8e00c2e4c98847e87c1351d9734920c95",
+            "values": [
+              551
+            ]
+          },
+          "a0fed3a1af": {
+            "byte_equal": false,
+            "source_sha256": "4d4b5c84ec4a4809c6fabd9bbd119d587ef7450b00b9b55df718ea157f48c950",
+            "values": [
+              545
+            ]
+          }
+        },
+        "path": "hushh-webapp/lib/pkm/memory-document.ts",
+        "reviewer": "peer_fixture_review",
+        "source_sha256": "1dc00b04cb8c63e6ec1797c235c93af8e00c2e4c98847e87c1351d9734920c95",
+        "symbol": null
+      }
+    ],
+    "evidence_revision": "69aba10aac9e0b37966bbf864b86b6609184fa78",
+    "parents": [
+      "a0fed3a1af",
+      "85831a2595e66678ac45d1f2ee21428622c62c5e"
+    ],
+    "scope": "Exactly28 independently reviewed source-bound ceilings:15 backend and13 frontend. Eleven entries are byte-exact incoming main; composed entries preserve private Calendar placement/proposal authority, typed grant recovery, one_memory privacy and main Wallet artwork/scanner semantics with route-bound Back. Focused348Calendar and96UI checks pass. Budgets500/250/80, scanner/exclusions and all unrelated findings unchanged; accepted integration debt does not establish runtime or production readiness."
+  },
   "byoc_main_pwm_drain_review_20261015": {
     "entries": [
       {
@@ -2438,7 +3238,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2663,
+  "finding_count": 2668,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3149,7 +3949,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "GoogleCalendarService",
-      "value": 1257
+      "value": 1457
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5543,7 +6343,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": "_propose",
-      "value": 122
+      "value": 129
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8882,7 +9682,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "_request_with_authority",
-      "value": 178
+      "value": 190
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8891,7 +9691,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "execute",
-      "value": 129
+      "value": 135
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16307,7 +17107,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": null,
-      "value": 945
+      "value": 961
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17207,7 +18007,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": null,
-      "value": 1436
+      "value": 1638
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18143,7 +18943,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/agents/test_calendar_agent_tools.py",
       "symbol": null,
-      "value": 686
+      "value": 690
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18800,7 +19600,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
-      "value": 1570
+      "value": 1728
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20744,7 +21544,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 705
+      "value": 706
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21113,7 +21913,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
       "symbol": null,
-      "value": 1449
+      "value": 1486
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21356,7 +22156,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11081
+      "value": 11107
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21419,7 +22219,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/drive-background-search.tsx",
       "symbol": null,
-      "value": 676
+      "value": 687
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22553,7 +23353,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1141
+      "value": 1149
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22607,7 +23407,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1829
+      "value": 2195
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22688,7 +23488,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1293
+      "value": 1298
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23255,7 +24055,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
       "symbol": null,
-      "value": 871
+      "value": 872
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23291,7 +24091,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/pkm-memory-cards.ts",
       "symbol": null,
-      "value": 756
+      "value": 758
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23597,7 +24397,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4875
+      "value": 4884
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24813,7 +25613,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/memory-document.ts",
       "symbol": null,
-      "value": 545
+      "value": 551
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25871,7 +26671,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "CalendarScheduleService",
-      "value": 709
+      "value": 795
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26276,7 +27076,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": null,
-      "value": 832
+      "value": 959
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26312,7 +27112,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_calendar_schedule_service.py",
       "symbol": null,
-      "value": 871
+      "value": 913
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26357,7 +27157,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
       "symbol": null,
-      "value": 805
+      "value": 1153
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26412,6 +27212,51 @@
       "path": "hushh-webapp/components/profile/personal-world-model-page.tsx",
       "symbol": null,
       "value": 740
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py|resolve_artwork|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py",
+      "symbol": "resolve_artwork",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_calendar_shared_availability.py|journey|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_calendar_shared_availability.py",
+      "symbol": "journey",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_merged_busy_intervals|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+      "symbol": "_merged_busy_intervals",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_boundaries.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_calendar_schedule_boundaries.py",
+      "symbol": null,
+      "value": 738
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/wallet-service.ts",
+      "symbol": null,
+      "value": 578
     }
   ],
   "inspected_files": 6625,
