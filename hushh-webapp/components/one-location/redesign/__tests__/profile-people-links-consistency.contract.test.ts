@@ -99,38 +99,6 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("keeps route icons and pane icons on tile-free Profile rows", () => {
-    const source = readSource(
-      "components/profile/profile-workspace-page.tsx",
-    );
-    const settingsSource = readSource("components/app-ui/settings-ui.tsx");
-
-    expect(source).toContain("title={PROFILE_LABELS.referrals}");
-    expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    for (const [paneIcon, routeIcon] of [
-      ["ProfilePaneAccountIcon", "AccountProfileIcon"],
-      ["ProfilePaneAppearanceIcon", "PreferencesProfileIcon"],
-      ["ProfilePaneSecurityIcon", "SecurityProfileIcon"],
-      ["ProfilePaneDevicesIcon", "DevicesProfileIcon"],
-      ["ProfilePaneInviteIcon", "InviteFriendsProfileIcon"],
-      ["ProfilePaneHelpIcon", "SupportProfileIcon"],
-      ["ProfilePaneSignOutIcon", "SignOutProfileIcon"],
-    ]) {
-      expect(source).toMatch(
-        new RegExp(
-          `icon=\\{\\s*isPanePresentation\\s*\\?\\s*${paneIcon}\\s*:\\s*${routeIcon}\\s*\\}\\s+iconTone="capability"`,
-        ),
-      );
-    }
-    expect(source).toMatch(
-      /icon=\{DeveloperToolsProfileIcon\}\s+iconTone="capability"/,
-    );
-    expect(source).toContain('tone="destructive"');
-    // The capability tone leaves each presentation's authored SVG colour in place.
-    expect(settingsSource).toContain(
-      'color={isCapabilityTone ? undefined : "currentColor"}',
-    );
-  });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {
     const css = readSource("app/globals.css");

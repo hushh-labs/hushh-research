@@ -400,7 +400,7 @@ describe("agent chat", () => {
 
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     expect(workspace).toMatch(
-      /type="submit"\s+rippleEffect="fill"[\s\S]{0,400}aria-label="Send message"/,
+      /type="submit"\s+data-agent-composer-action="send"\s+rippleEffect="fill"[\s\S]{0,500}aria-label="Send message"/,
     );
   });
 

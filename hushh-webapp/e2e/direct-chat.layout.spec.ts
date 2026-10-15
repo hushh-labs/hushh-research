@@ -126,7 +126,7 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
-    const dock = page.locator("[data-agent-bar-shell]");
+    const dock = page.locator("[data-agent-dock='one-agent-dock']");
     const assertTranscriptClear = async () => {
       const bounds = (await canvas.boundingBox())!;
       expect(bounds.y).toBe(minimumTop);
@@ -278,7 +278,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     await expect.poll(async () => (await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(height! - inset + 1);
     await expect.poll(() => page.evaluate(() => {
       const transcript = document.querySelector('[data-testid="direct-message-list"]')!;
-      const dock = document.querySelector('[data-agent-bar-shell]')!;
+      const dock = document.querySelector('[data-agent-dock="one-agent-dock"]')!;
       return transcript.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
     })).toBeLessThanOrEqual(1);
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
@@ -508,11 +508,11 @@ test("incoming messages covered by a modal or moving composer keep their unread 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(before);
   const afterModal = await page.evaluate(() => (window as any).directChatFixture.reads.length);
   // A moving native dock can occlude an otherwise intersecting bottom marker.
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
+  await page.locator('[data-agent-dock="one-agent-dock"]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
   await fixture(page, "fixture.incoming()");
   await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 82" })).toHaveCount(1);
   expect(await page.evaluate(() => (window as any).directChatFixture.reads.length)).toBe(afterModal);
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
+  await page.locator('[data-agent-dock="one-agent-dock"]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
   // Touch focus restoration can preserve an earlier transcript position.
   // A read requires returning to the actual latest message in that case.
   const latest = page.getByRole('button', { name: 'Go to latest messages' });

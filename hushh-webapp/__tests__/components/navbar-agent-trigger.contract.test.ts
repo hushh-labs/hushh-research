@@ -150,7 +150,7 @@ describe("Navbar bottom chrome contract", () => {
       "const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;",
     );
     expect(providers).toMatch(
-      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome\s*\|\|\s*nativeNavigationInstalled;/,
+      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome\s*\|\|\s*\(nativeNavigationInstalled && !nativeScrollFollowing\);/,
     );
     expect(providers).toMatch(
       /navigationHidden:\s*hideBottomNavigation,/,

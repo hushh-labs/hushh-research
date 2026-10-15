@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
@@ -69,10 +70,15 @@ describe("profile workspace duplication contract", () => {
   });
 
   it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
-    const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
+    const actions = profilePageSource.split('const menuActions: ProfileMenuActions = {')[1]?.split('const profileRootContent = (')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
-    expect(home).toMatch(/title="Payouts"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("payouts"\)\}/);
-    expect(home).toMatch(/title="Request pricing"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("request-pricing"\)\}/);
+    const entries = profileMenuGroups(false).flatMap(group => group.entries);
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "payouts", label: "Payouts" }),
+      expect.objectContaining({ id: "request-pricing", label: "Request pricing" }),
+    ]));
+    expect(actions).toContain('payouts: () => openVaultBackedPanel("payouts")');
+    expect(actions).toContain('"request-pricing": () => openVaultBackedPanel("request-pricing")');
     expect(memory).not.toContain("DocumentRequestPricingCard");
     expect(memory).not.toContain("DocumentPayoutAccountCard");
     expect(memory).not.toContain("DocumentBankPayoutStatusCard");
@@ -113,9 +119,10 @@ describe("profile workspace duplication contract", () => {
   it("opens Personal World Model inside the Profile pane, never redirecting to its route", () => {
     // proxy.ts presents /one/profile/world-model as the pane, so the pane must
     // render the model itself; leaving for the route loops back here.
-    const row = profilePageSource.split('voiceControlId="profile_world_model"')[1]?.split("/>")[0] ?? "";
-    expect(row).toContain('openVaultBackedPanel("world-model")');
-    expect(row).not.toContain("router.push");
+    expect(profileMenuGroups(false).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "world-model", voiceControlId: "profile_world_model" }),
+    ]));
+    expect(profilePageSource).toContain('"world-model": () => openVaultBackedPanel("world-model")');
     const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain("embedded");
@@ -140,9 +147,9 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
     expect(profilePageSource).not.toContain("const openVaultSettingsRow");
-    expect(profilePageSource).toContain('voiceControlId={entry.id === "security" ? "profile_security"');
+    expect(profilePageSource).toContain('entry.id === "security" ? "profile_security"');
     expect(profilePageSource).toContain(
-      'voiceActionId={entry.id === "security" ? "route.profile_security_panel"',
+      'entry.id === "security" ? "route.profile_security_panel"',
     );
     expect(profilePageSource).not.toContain(
       'voiceActionId="route.profile_security"',

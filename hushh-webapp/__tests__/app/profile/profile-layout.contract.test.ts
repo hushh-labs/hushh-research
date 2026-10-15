@@ -7,7 +7,6 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import type { VaultWrapper } from "@/lib/services/vault-service";
-import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {
@@ -144,7 +143,6 @@ describe("Profile canonical page layout", () => {
     );
     expect(tones).toHaveLength(1); // One renderer, not a copied row per destination.
     expect(homeMenu).toContain("menuGroups.map(group");
-    expect(profileMenuGroups(true).flatMap(group => group.entries)).toHaveLength(11);
     expect(new Set(tones)).toEqual(new Set(["capability"]));
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(

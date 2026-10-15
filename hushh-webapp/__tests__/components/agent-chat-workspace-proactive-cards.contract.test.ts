@@ -50,7 +50,9 @@ describe("Agent One chat workspace wiring contract", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
-    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
+    // Web sidebar and qualified native History page are mutually exclusive.
+    expect(sidebar).toContain('!isPuppySurface && !customNativePresentationEnabled()');
+    expect(source).toContain('customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing');
     // The parent owns the owner-scoped review signal; the actual opener's
     // accessible copy and native admission are covered in native-chrome.test.
     expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
@@ -96,7 +98,7 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).toContain("historyDrawerTriggerRef.current = trigger; openHistoryConnectors();");
     expect(source).not.toContain("connectionsAvailable");
     // The catalog is Connectors in the Profile pane, opened over the chat.
     expect(source).toContain("profileConnectorsLocation(");
