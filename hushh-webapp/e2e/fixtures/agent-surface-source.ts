@@ -442,14 +442,14 @@ export const AGENT_SURFACE_SOURCE = {
     centered: {
       artwork: header.includes("<OnePresenceAvatar")
         ? {
-            // The centered header's idle avatar is the HD portrait. Extract
-            // its actual default sizing rather than the active Rive overlay.
+            // This static header fixture measures the production avatar's
+            // outer geometry; native playback is mounted by Connections tests.
             kind: "image",
             containerClass: "",
             className: one(
               read("components/agent/one-presence-avatar.tsx"),
-              /if \(state === "connected"\)[\s\S]*?className=\{className \?\? "([^"]+)"\}/,
-              "One presence idle image",
+              /data-one-presence-state=\{state\}[\s\S]*?className \?\? "([^"]+)"/,
+              "One presence surface sizing",
               "components/agent/one-presence-avatar.tsx",
             )[1],
           }
