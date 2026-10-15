@@ -1,4 +1,4 @@
-"""No Cloud Build step arg may exceed 10,000 characters.
+"""Cloud Build step args and env mappings stay within submission limits.
 
 This is the regression guard for a real, repeated outage. Cloud Build caps a single
 build-step arg at 10,000 characters. The `deploy-backend` step's inline bash body is
@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,7 @@ CLOUD_BUILD_MAX_ENV = 100
 # Refuse to land a change that leaves less than this much room. Without a margin the
 # suite goes green at 9,999 and the very next secret ref breaks all three deploy lanes.
 REQUIRED_HEADROOM = 500
+REQUIRED_ENV_HEADROOM = 20
 
 CLOUDBUILD_CONFIGS = [
     "deploy/backend.cloudbuild.yaml",
@@ -206,6 +208,87 @@ def test_substituted_backend_deploy_body_fits_every_lane(workflow_path: str) -> 
         f"too close to ship: the next secret ref or env var breaks every deploy lane. "
         f"Move prose above the step, or extract the body into a script."
     )
+
+
+@pytest.mark.parametrize("config_path", CLOUDBUILD_CONFIGS)
+def test_substituted_cloud_build_steps_have_env_headroom(config_path: str) -> None:
+    """Cloud Build rejects a build if any step has more than 100 env entries."""
+    config = _load(config_path)
+    if config is None:
+        pytest.skip(f"{config_path} not present")
+    lanes = BACKEND_DEPLOY_WORKFLOWS if config_path == "deploy/backend.cloudbuild.yaml" else [None]
+    for lane in lanes:
+        values = {
+            key: "" if value is None else str(value)
+            for key, value in (config.get("substitutions") or {}).items()
+        }
+        if lane:
+            values.update(_workflow_substitutions(lane))
+        for index, step in enumerate(config.get("steps") or []):
+            env = [
+                _SUBSTITUTION.sub(
+                    lambda match, values=values: values.get(match.group(1), ""), entry
+                )
+                for entry in step.get("env") or []
+            ]
+            assert len(env) <= CLOUD_BUILD_MAX_ENV - REQUIRED_ENV_HEADROOM, (
+                f"{config_path} {lane or 'defaults'} step {index} ({step.get('id')}) "
+                f"has {len(env)} env entries after substitutions; Cloud Build allows "
+                f"{CLOUD_BUILD_MAX_ENV}, and this guard requires "
+                f"{REQUIRED_ENV_HEADROOM} spare entries."
+            )
+
+
+def test_optional_secret_bundle_is_counted_by_coverage_and_rejects_mapping_drift() -> None:
+    """Packed names must still count as bound secrets for all deploy lanes."""
+    text = (REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text(encoding="utf-8")
+    coverage = runpy.run_path(str(REPO_ROOT / "scripts/ci/check-deploy-secret-coverage.py"))
+    parsed = coverage["_bundled_optional_substitutions"](text)
+    assert "_STRIPE_SECRET_KEY_SECRET" in parsed
+    assert "_GOOGLE_PRIVATE_KEY_SECRET" in parsed
+    assert "_WALLET_API_KEY_SECRET" in parsed
+    defaults = coverage["_defaults"](text)
+    assert set(parsed) <= set(defaults)
+    assert {name for name in parsed if defaults.get(name) == ""} <= set(
+        coverage["bound_substitutions"]()
+    )
+
+    swapped = text.replace(
+        "WALLET_API_KEY=${_WALLET_API_KEY_SECRET}",
+        "WALLET_API_KEY=${_OPENAI_API_KEY_SECRET}",
+        1,
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        coverage["_bundled_optional_substitutions"](swapped)
+
+
+def test_optional_secret_bundle_fails_closed_on_extra_or_invalid_secret_names() -> None:
+    """Exercise the actual bash parser with data that could shift a secret binding."""
+    body = _backend_deploy_body()
+    start = body.index('IFS="|" read -r -a optional_secret_names')
+    end = body.index('for s in $(echo "${_CURATED_CONNECTOR_SECRETS}"', start)
+    snippet = body[start:end]
+    script = 'set -euo pipefail\nadd_secret() { printf "%s=%s\\n" "$2" "$1"; }\n' + snippet
+
+    def run(bindings: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - repository bash snippet, synthetic bindings only.
+            ["bash", "-c", script],
+            env={"OPTIONAL_SECRET_NAMES": "FIRST|SECOND", "OPTIONAL_SECRET_BINDINGS": bindings},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    valid = run("FIRST=alpha|SECOND=beta")
+    assert valid.returncode == 0, valid.stderr
+    assert valid.stdout.splitlines() == ["FIRST=alpha", "SECOND=beta"]
+    for invalid in (
+        "FIRST=first|INJECTED=other|SECOND=second",
+        "FIRST=first|SECOND=second|",
+        "FIRST=first|SECOND=bad secret",
+        "FIRST=first|SECOND=second\nINJECTED=other",
+    ):
+        assert run(invalid).returncode != 0
 
 
 _INDIRECT_LOOP = re.compile(

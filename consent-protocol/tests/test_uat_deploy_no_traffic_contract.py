@@ -365,9 +365,11 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
         'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
         in backend_build
     )
-    assert 'add_secret "${!v}" "${n}"' in backend_build
-    assert "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET" in backend_build
-    assert "STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY" in backend_build
+    assert 'add_secret "$secret_name" "${optional_secret_names[i]}"' in backend_build
+    assert "STRIPE_SECRET_KEY=${_STRIPE_SECRET_KEY_SECRET}" in backend_build
+    assert "STRIPE_WEBHOOK_SECRET=${_STRIPE_WEBHOOK_SECRET_SECRET}" in backend_build
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET=${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" in backend_build
+    assert "OPENAI_API_KEY=${_OPENAI_API_KEY_SECRET}" in backend_build
     assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_build
     assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_build
     assert '_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""' in backend_build
