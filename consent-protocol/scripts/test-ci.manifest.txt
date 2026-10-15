@@ -818,3 +818,7 @@ tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
 tests/test_calendar_schedule_routes.py
+
+# Live Memory replay: owner route contract and committed source journal on PostgreSQL.
+tests/test_source_journal_routes.py
+tests/test_live_memory_source_journal_postgres.py
