@@ -27,15 +27,23 @@ passed schema 355 but refused misplaced optional Cloud Build defaults; governed
 rollback retained the prior application. Files 959 is applied; history cleanup
 249 stays deferred. No owner image changed.
 
-**Candidate:** the configuration repair composes main `6baa14e0c1` and concurrent
-branch `d46a9327e6`, preserving placement, owner/vault fences and native navigation.
-The prior [exact `15d83d5bab` passed all 25 hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
-The replacement passes governance, all 461 Back cases, affected authority/UI
-checks and the production web build. Drive authority regressions fail their
-broken-code controls and pass after repair. A Mac restart interrupted the final
-backend run at 42% without a terminal result; that run is not a pass. Remaining
-canonical stages and new exact-head hosted validation are required. Earlier
-failed attempts remain recorded; unrelated root/ADK/PDF work is preserved.
+**Candidate:** the isolated integration includes frozen infrastructure `7058898726`,
+local ADK `2462c0bc6f` and the concurrent UI corrections through `67aacf0098`.
+Root edits, PDF work and existing browser/device connections remain preserved.
+The resumed core run passed 20,579 backend cases but exposed route-inventory
+merge duplicates, missing accounting for two already-bounded Azure connection
+consumers and a status extractor that misread a read-only receipt probe. Targeted
+repairs pass 26 route, 36 connection/status and 27 status/pool checks; the original
+extractor fails its new regression control. The global connection cap stays three.
+Six canonical native icons were regenerated at the merged generator's 28-point
+size. The remaining canonical stages pass: 1,336 serial PostgreSQL cases,
+all-test import collection, MCP packaging, integration and the PKM upgrade gate,
+web typecheck/lint and the production build. The concurrent UI delta passes 36
+focused cases and two Chromium geometry/interaction cases. These are resumed
+local receipts with targeted repairs, not a single clean full-suite invocation.
+Exact-head hosted CI and live acceptance remain required; this candidate has not
+been deployed. The prior [exact `15d83d5bab` passed all 25 hosted
+checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
 
 **Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
 adapter. Dev 20 therefore builds a new immutable dev image with **no supported
