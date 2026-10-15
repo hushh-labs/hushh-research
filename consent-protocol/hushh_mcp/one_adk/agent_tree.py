@@ -255,6 +255,21 @@ SPENDING_GROUNDING_RULE = (
     "for example spending in one category, say that only a partial sample of "
     "transactions is available here and do not present any sum as complete."
 )
+# The browser may append a bounded LIVE MIRROR FACTS block after Soul.md: the
+# owner's own verified app records, allowlisted fields only (reserved-branch
+# value owner_turn_allowlist). The rules live beside the data they govern, so
+# a turn without consented memory pays nothing for them and the composed
+# empty-state instruction stays inside its reviewed character budget.
+LIVE_MIRROR_FACTS_RULE = (
+    "\nLIVE MIRROR FACTS: when this packet includes that block, it lists the person's own "
+    "verified app records after Soul.md. When asked how you know one of them, name the "
+    "source, its revision and verified time. If a verified source lists none, say it is "
+    "not recorded; if a source cannot be verified now, say you can't verify it right now. "
+    "Never guess a missing value. Call a stale or update-pending fact possibly out of date. "
+    "When the Soul name and the verified name disagree, or records conflict, show both "
+    "claims with their sources and do not pick. Describe only the changes the block lists "
+    "and say earlier history is not retained."
+)
 # One selected, source-verified Gmail information-request message for this
 # turn. The relay keeps the value behind a request-secret reference and the
 # workflow id under ADK's temporary prefix, so neither becomes conversation
@@ -955,7 +970,9 @@ def _compose_one_runtime_instruction(context: Any) -> str:
             "do not treat it as exhaustive truth, and do not claim access beyond it. "
             "For an owner fact present in this packet, answer directly from the packet. "
             "Do not call read_my_pkm_domain_summary when this packet is present: that "
-            "tool is index-only metadata and cannot add private values." + SPENDING_GROUNDING_RULE
+            "tool is index-only metadata and cannot add private values."
+            + SPENDING_GROUNDING_RULE
+            + LIVE_MIRROR_FACTS_RULE
         )
     elif pkm_declared:
         reason = state_getter(STATE_GROUNDING_REASON) if callable(state_getter) else None

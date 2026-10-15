@@ -19,6 +19,8 @@ import {
   writer,
 } from "@/lib/pkm/reserved-branches";
 import { buildGmailWorkspaceRoute, gmailDeepLinkWorkspace } from "@/lib/navigation/routes";
+import { collectDomainRows } from "@/lib/pkm/memory-complete-rows";
+import { excludePrivatePkmDomains, isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
 /**
  * `contracts/pkm/reserved-branches.v1.json` decides which PKM branches belong to
@@ -252,6 +254,33 @@ describe("reserved-branch loader", () => {
   it("never refuses the upgrade gate, and ignores non-reserved paths", () => {
     expect(evaluateReservedWrite({ domain: "wallet", paths: ["summary"], writerId: "pkm_upgrade_orchestrator" })).toEqual([]);
     expect(evaluateReservedWrite({ domain: "financial", paths: ["agent_memory"], writerId: "agent_chat_owner_request" })).toEqual([]);
+  });
+
+  it("opens Live Memory sources only to the owner's own agent turn, never to a share or export", () => {
+    const entry = reservedEntryFor("one_living_sources", "x");
+    expect(entry?.sendToModel).toBe("owner_turn_allowlist");
+    expect(entry?.shareable).toBe("never");
+    // Not `full`, so the agent-audience export walk still withholds the domain.
+    const agent = collectDomainRows({
+      domain: "one_living_sources", domainData: { visible_if_full: "PROBE_VALUE" }, audience: "agent",
+    });
+    expect(agent.rows).toEqual([]);
+    expect(agent.withheld).toEqual(["one_living_sources"]);
+    expect(excludePrivatePkmDomains({ one_living_sources: { x: 1 }, food: { y: 2 } })).toEqual({ food: { y: 2 } });
+    expect(isPrivatePkmExportScope("attr.one_living_sources.x")).toBe(true);
+  });
+
+  it("restricts every send_to_model value other than full in agent exports", () => {
+    const probe = (domain: string, branch: string) =>
+      collectDomainRows({ domain, domainData: { [branch]: { probe: "PROBE_VALUE" } }, audience: "agent" })
+        .rows.some((row) => row.value === "PROBE_VALUE");
+    for (const raw of contract.entries as Array<{ domain: string; branch_prefix: string; send_to_model: string }>) {
+      if (raw.send_to_model === "full") continue;
+      const branch = raw.branch_prefix === "*" ? "items" : raw.branch_prefix;
+      expect(probe(raw.domain, branch), `${raw.domain}.${branch} (${raw.send_to_model})`).toBe(false);
+    }
+    // Positive control: a `full` branch renders, so the probe can see a leak.
+    expect(probe("location", "saved_places")).toBe(true);
   });
 });
 
