@@ -24,7 +24,7 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `e5240e4ab4`, preserving the compact shared header and native draft ports
+through `d8133e4d05`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
 the shared Live Memory preview and upstream referral/schema corrections. The
 four-state HD mascot assets and playback safeguards are integrated without
