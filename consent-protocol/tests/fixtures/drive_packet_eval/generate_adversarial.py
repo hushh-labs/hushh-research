@@ -323,7 +323,6 @@ def build():
             "(incident class: a recent edit read as a recent statement).",
             [trap],
             proposal(["doc-trap"], periods=[dict(trap["facts"]["periods"][0])]),
-            known_gap="P1 runtime Ready guard: period equal to file date without content citation",
         )
     )
     copy_a = statement("doc-copy-a", sha=SHA_A)
@@ -334,7 +333,6 @@ def build():
             "The same original selected twice in one Ready packet (incident class).",
             [copy_a, copy_b],
             proposal(["doc-copy-a", "doc-copy-b"], periods=september(copy_a)),
-            known_gap="P1 runtime Ready guard: duplicate content hash among members",
         )
     )
     wrong = statement("doc-wrong", month="10", last=31, account="9876", sha=SHA_B)

@@ -83,7 +83,7 @@
     }
   ],
   "id": "period-from-modified-date",
-  "known_gap": "P1 runtime Ready guard: period equal to file date without content citation",
+  "known_gap": null,
   "proposal": {
     "assessment_score": 90,
     "coverage_summary": "September 2026.",

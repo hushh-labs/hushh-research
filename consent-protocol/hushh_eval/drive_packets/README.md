@@ -31,8 +31,6 @@ Cases with `known_gap` are tracked runtime work and run as strict expected failu
 
 | Fixture | Runtime gap |
 | --- | --- |
-| `same-pdf-twice` | No runtime Ready guard for a duplicate content hash among members (P1). |
-| `period-from-modified-date` | No runtime Ready guard for a period equal to the file date without a content citation (P1). |
 | `wrong-account-member` | Account consistency is left to the model checker; no deterministic runtime guard. |
 
 ## Operator runbook (real Drive, read-only)

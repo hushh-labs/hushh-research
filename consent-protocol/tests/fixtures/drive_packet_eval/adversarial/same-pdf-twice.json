@@ -163,7 +163,7 @@
     }
   ],
   "id": "same-pdf-twice",
-  "known_gap": "P1 runtime Ready guard: duplicate content hash among members",
+  "known_gap": null,
   "proposal": {
     "assessment_score": 90,
     "coverage_summary": "September 2026.",
