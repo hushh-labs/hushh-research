@@ -223,7 +223,7 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
 @pytest.mark.parametrize(
     ("deploy_env", "expected_labels", "expected_project"),
     [
-        ("uat", {"environment": "uat", "component": "one_voice"}, "hussh-511311"),
+        ("uat", {"environment": "uat", "component": "one_voice"}, "hushh-vertex-personal54"),
         ("production", None, "hushh-vertex-personal54"),
     ],
 )
