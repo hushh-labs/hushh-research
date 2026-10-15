@@ -119,7 +119,7 @@ type OnboardingContactState =
 
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
-  /** Account-scoped checkpoint for the two-screen introduction. */
+  /** Account-scoped checkpoint for the introduction. */
   activeScreen?: OnboardingScreen;
   onScreenChange?: (screen: OnboardingScreen) => void;
   currentUserName: string;
@@ -147,6 +147,15 @@ type OneLocationOnboardingFlowProps = {
    */
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
+  /**
+   * Ask for device location and open the save-a-place surface, which the
+   * parent hosts over this flow. Resolves true once that surface is open, and
+   * false when it could not open (permission refused, no position, a place
+   * already saved this journey). False moves on to Ready: refusing location
+   * must never trap anyone on Features, and the Now tab keeps offering it.
+   * Omitted, the flow goes straight from Features to Ready.
+   */
+  onPreparePlace?: () => Promise<boolean>;
   contactsStepAvailable?: boolean;
   /** Account-backed web fallback versus the device address book. */
   contactsSource?: "device" | "google";
@@ -665,11 +674,13 @@ function FeaturesScreen({
   onBack,
   onSkip,
   leaving,
+  continueBusy = false,
   onContinue,
 }: {
   onBack: () => void;
   onSkip: () => void;
   leaving: boolean;
+  continueBusy?: boolean;
   onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -736,7 +747,11 @@ function FeaturesScreen({
         className="mx-auto w-full max-w-[244px] shrink-0 pt-5"
         data-one-feature-cta
       >
-        <PrimaryButton onClick={onContinue} disabled={leaving}>
+        <PrimaryButton
+          onClick={onContinue}
+          disabled={leaving}
+          busy={continueBusy}
+        >
           Continue
         </PrimaryButton>
       </div>
@@ -1315,7 +1330,7 @@ function ReadyScreen({
         <span className="rounded-[14px] bg-white/90 px-3 py-2 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
           <OnboardingStepper
             steps={ONE_LOCATION_ONBOARDING_STEPS}
-            currentIndex={1}
+            currentIndex={2}
             compact
             ariaLabel="One Location setup progress"
           />
@@ -1676,6 +1691,7 @@ export function OneLocationOnboardingFlow({
   mapPoint = null,
   contactsStepAvailable = true,
   contactsSource = "device",
+  onPreparePlace,
   onSyncOnboardingContacts,
   contactSyncResult,
   showGoogleAccountSwitcher = false,
@@ -1754,6 +1770,8 @@ export function OneLocationOnboardingFlow({
   const [joinAccepted, setJoinAccepted] = useState(false);
 
   const [leaving, setLeaving] = useState(false);
+  const [placePreparing, setPlacePreparing] = useState(false);
+  const placePreparingRef = useRef(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
@@ -2099,13 +2117,31 @@ export function OneLocationOnboardingFlow({
   };
 
   const continueFromFeatures = () => {
-    if (!leaving) setScreen("ready");
+    if (leaving || placePreparingRef.current) return;
+    if (!onPreparePlace) {
+      setScreen("ready");
+      return;
+    }
+    placePreparingRef.current = true;
+    setPlacePreparing(true);
+    void (async () => {
+      let opened = false;
+      try {
+        opened = (await onPreparePlace()) === true;
+      } catch {
+        opened = false;
+      } finally {
+        placePreparingRef.current = false;
+        setPlacePreparing(false);
+      }
+      setScreen(opened ? "place" : "ready");
+    })();
   };
 
   // All Back surfaces unwind the same local flow, including native Back and
   // legacy/controlled entries that start directly on the feature screen.
   const handleFlowBack = () => {
-    if (leaving || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
+    if (leaving || placePreparing || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
     if (screen === "features") {
       void runBack();
     } else if (screen === "ready" && activeReadyDisclosure) {
@@ -2142,6 +2178,7 @@ export function OneLocationOnboardingFlow({
             onBack={handleFlowBack}
             onSkip={() => void runSkip()}
             leaving={leaving}
+            continueBusy={placePreparing}
             onContinue={continueFromFeatures}
           />
         ) : null}

@@ -58,7 +58,8 @@ export function LocationOnboardingSetupClient() {
     return <LocationSetupReturn onReturn={coordinator.returnToSetup} />;
   }
 
-  // The two-screen introduction completes independently of device access.
+  // The introduction completes independently of device access; its optional
+  // Save a place step is skippable and a refused grant moves on to Ready.
   // Location is requested later through the workspace toggle or Save a place.
   const flowProps = {
     onSetupReadinessChange: setReady,
