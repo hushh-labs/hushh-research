@@ -22,6 +22,7 @@ export type ComputerUseSnapshot = Readonly<{
   review?: ComputerUseReview;
   approvedOrigins?: readonly string[];
   rememberedSessionsAvailable?: boolean;
+  viewport?: Readonly<{ width: number; height: number }>;
 }>;
 
 export type ComputerUseReview = Readonly<{
@@ -44,6 +45,7 @@ export type ComputerUseFrame = Readonly<{
 }>;
 
 export type ManualBrowserInput =
+  | { operation: "resize"; width: number; height: number }
   | { operation: "click"; x: number; y: number }
   | { operation: "drag"; x: number; y: number; destination_x: number; destination_y: number }
   | { operation: "type"; x: number; y: number; text: string; clear_before_typing: false; focus_existing?: true }

@@ -305,6 +305,50 @@ async def test_browser_task_owner_takeover_preview_resume_cancel_and_update_perm
     assert "selected page" not in serialized and "screen_processing" not in serialized
 
 
+async def test_owner_resize_fences_old_coordinates_and_enforces_new_geometry(monkeypatch):
+    fixture = task_runtime_fixture(monkeypatch)
+    snapshot = await approved_task(fixture)
+    task_id = snapshot.binding.task_id
+    taken = await fixture.runtime.control(
+        fixture.owner, task_id, "takeover", snapshot.control_epoch
+    )
+    resized = await fixture.runtime.input(
+        fixture.owner,
+        task_id,
+        BrowserAction(
+            operation="resize",
+            width=390,
+            height=700,
+            sequence=taken.next_sequence,
+            control_epoch=taken.control_epoch,
+        ),
+    )
+    assert resized.viewport.width == 390 and resized.viewport.height == 700
+    assert resized.control_owner == "owner" and resized.control_epoch > taken.control_epoch
+    old_coordinates = BrowserAction(
+        operation="click",
+        x=10,
+        y=10,
+        sequence=resized.next_sequence,
+        control_epoch=taken.control_epoch,
+    )
+    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
+        await fixture.runtime.input(fixture.owner, task_id, old_coordinates)
+    with pytest.raises(BrowserRefused, match="COORDINATES_INVALID"):
+        await fixture.runtime.input(
+            fixture.owner,
+            task_id,
+            BrowserAction(
+                operation="click",
+                x=500,
+                y=10,
+                sequence=resized.next_sequence,
+                control_epoch=resized.control_epoch,
+            ),
+        )
+    await fixture.runtime.control(fixture.owner, task_id, "cancel", resized.control_epoch)
+
+
 async def test_browser_task_uncertain_effect_and_recovery_never_redispatch(monkeypatch):
     fixture = task_runtime_fixture(monkeypatch)
     snapshot = await approved_task(fixture)
@@ -558,6 +602,11 @@ async def test_takeover_waits_for_current_dispatch_and_fences_old_actions_and_ob
     driver = Executor(release=asyncio.Event())
     runtime = control(driver=driver)
     await runtime.initialize()
+    with pytest.raises(BrowserRefused, match="OWNER_INPUT_REQUIRED"):
+        await runtime.execute(
+            BrowserAction(operation="resize", width=390, height=700, sequence=1, control_epoch=1)
+        )
+    assert driver.calls == ["initialize"]
     active = asyncio.create_task(
         runtime.execute(BrowserAction(operation="observe", sequence=1, control_epoch=1))
     )
@@ -682,17 +731,26 @@ async def test_navigation_rejects_non_network_protocols_before_driver(url):
     assert driver.calls == ["initialize"]
 
 
-async def test_worker_frame_mismatch_never_settles_effect_as_success():
+@pytest.mark.parametrize("resize", [False, True])
+async def test_worker_frame_mismatch_never_settles_effect_as_success(resize):
     class WrongFrame(Executor):
         async def execute(self, action):
-            return (await super().execute(action)).model_copy(update={"sequence": 99})
+            return (await super().execute(action)).model_copy(
+                update={"width": 1280} if resize else {"sequence": 99}
+            )
 
     auth = Authority(approved=True)
     runtime = control(auth=auth, driver=WrongFrame())
     await runtime.initialize()
+    epoch = await runtime.take_control() if resize else 1
     with pytest.raises(BrowserRefused, match="FRAME_MISMATCH"):
         await runtime.execute(
-            BrowserAction(operation="click", sequence=1, control_epoch=1, x=1, y=1)
+            BrowserAction(
+                operation="resize", sequence=1, control_epoch=epoch, width=390, height=700
+            )
+            if resize
+            else BrowserAction(operation="click", sequence=1, control_epoch=epoch, x=1, y=1),
+            actor="owner" if resize else "agent",
         )
     assert auth.journal == [(1, "dispatch"), (1, "uncertain")]
 

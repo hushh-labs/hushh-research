@@ -25,14 +25,15 @@ class PodComputer(BaseComputer):
         *,
         processing_check: Callable[[], Awaitable[dict]],
         allowed_origins: frozenset[str],
-        width: int = 1280,
-        height: int = 720,
+        width: int | None = None,
+        height: int | None = None,
         close_control: bool = True,
     ) -> None:
-        if (width, height) != (1280, 720):
+        current_size = (control.viewport.width, control.viewport.height)
+        if (width is not None or height is not None) and (width, height) != current_size:
             raise BrowserRefused("BROWSER_VIEWPORT_UNSUPPORTED")
         self._control = control
-        self._size = (width, height)
+        self._size = current_size
         self._processing_check = processing_check
         self._close_control = close_control
         if not 1 <= len(allowed_origins) <= 20 or any(

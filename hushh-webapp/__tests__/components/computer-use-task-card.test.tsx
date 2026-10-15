@@ -4,7 +4,8 @@ import { ComputerUseTaskCard } from "@/components/computer-use/computer-use-task
 import { type ComputerUseBinding, type ComputerUseSnapshot, type ComputerUseTransport } from "@/lib/computer-use/contracts";
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { parseComputerUseSnapshot } from "@/lib/computer-use/direct-transport";
-import { createComputerUseCanvas } from "@/lib/computer-use/preview-canvas";
+import { computerUsePoint, createComputerUseCanvas, fitComputerUseViewport } from "@/lib/computer-use/preview-canvas";
+import { ComputerUsePreview } from "@/components/computer-use/computer-use-preview";
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import { PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
@@ -146,6 +147,88 @@ describe("private browser control", () => {
       await expect(controller.control("resume")).rejects.toThrow("BROWSER_CONTROL_REFUSED");
       controller.dispose();
     } finally { vi.useRealTimers(); }
+  });
+
+  it("refuses changed geometry without a new control epoch", async () => {
+    const api = transport();
+    const controller = new ComputerUseTaskController(binding, api);
+    vi.mocked(api.read).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      viewport: { width: 1280, height: 720 } }));
+    await controller.refresh();
+    vi.mocked(api.read).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      revision: 3, viewport: { width: 390, height: 700 } }));
+    await expect(controller.refresh()).rejects.toThrow("BROWSER_TASK_UNAVAILABLE");
+    await expect(controller.input({ operation: "click", x: 10, y: 20 }))
+      .rejects.toThrow("BROWSER_OWNER_CONTROL_REQUIRED");
+    expect(api.input).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  it("fences old coordinates and frames until a viewport change is acknowledged", async () => {
+    const api = transport();
+    const controller = new ComputerUseTaskController(binding, api);
+    vi.mocked(api.read).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      viewport: { width: 1280, height: 720 } }));
+    await controller.refresh();
+    let finish!: (value: ComputerUseSnapshot) => void;
+    vi.mocked(api.input).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const resize = controller.input({ operation: "resize", width: 390, height: 700 });
+    expect(controller.acceptsFrame({ binding, controlEpoch: 2, sequence: 0, width: 1280, height: 720, png })).toBe(false);
+    await expect(controller.input({ operation: "click", x: 10, y: 10 })).rejects.toThrow("OWNER_CONTROL_REQUIRED");
+    finish(snapshot({ controlOwner: "owner", controlEpoch: 3, nextSequence: 2, revision: 2,
+      viewport: { width: 390, height: 700 } }));
+    await resize;
+    expect(controller.acceptsFrame({ binding, controlEpoch: 2, sequence: 1, width: 390, height: 700, png })).toBe(false);
+    expect(controller.acceptsFrame({ binding, controlEpoch: 3, sequence: 1, width: 1280, height: 720, png })).toBe(false);
+    expect(controller.acceptsFrame({ binding, controlEpoch: 3, sequence: 1, width: 390, height: 700, png })).toBe(true);
+    expect(api.input).toHaveBeenCalledOnce();
+    controller.dispose();
+  });
+
+  it.each(["mouse", "touch"])("waits for a painted current frame before mapping scaled %s input", async (pointerType) => {
+    const api = transport();
+    const controller = new ComputerUseTaskController(binding, api);
+    vi.mocked(api.read).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      viewport: { width: 390, height: 700 } }));
+    await controller.refresh();
+    let decode!: (image: ImageBitmap) => void;
+    vi.stubGlobal("createImageBitmap", vi.fn(() => new Promise((resolve) => { decode = resolve; })));
+    const view = render(<ComputerUsePreview controller={controller} />);
+    const canvas = view.container.querySelector("canvas")!;
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({ left: 10, top: 20, right: 205, bottom: 370, width: 195, height: 350 } as DOMRect);
+    const click = () => {
+      for (const type of ["pointerdown", "pointerup"]) {
+        const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: 107.5, clientY: 195 });
+        Object.defineProperty(event, "pointerType", { value: pointerType });
+        fireEvent(canvas, event);
+      }
+    };
+    click();
+    expect(api.input).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Next field" })).toBeDisabled();
+    const receive = vi.mocked(api.watchFrames).mock.calls[0][2];
+    receive({ binding, controlEpoch: 2, sequence: 0, width: 390, height: 700, png });
+    expect(screen.getByRole("button", { name: "Next field" })).toBeDisabled();
+    await act(async () => { decode({ width: 390, height: 700, close: vi.fn() } as unknown as ImageBitmap); });
+    expect(screen.getByRole("button", { name: "Next field" })).toBeEnabled();
+    vi.mocked(api.input).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      nextSequence: 2, revision: 2, viewport: { width: 390, height: 700 } }));
+    click();
+    await waitFor(() => expect(api.input).toHaveBeenCalledWith(binding, {
+      operation: "click", x: 195, y: 350, sequence: 1, control_epoch: 2,
+    }, expect.any(AbortSignal)));
+    expect(computerUsePoint(canvas, 107.5, 195)).toEqual({ x: 195, y: 350 });
+    expect(computerUsePoint(canvas, 9, 20)).toBeNull();
+    expect(fitComputerUseViewport(834, 1194)).toEqual({ width: 834, height: 1080 });
+    expect(fitComputerUseViewport(200, 150)).toEqual({ width: 320, height: 240 });
+    await waitFor(() => expect(controller.getSnapshot().pending).toBe(false));
+    vi.mocked(api.read).mockRejectedValueOnce(new Error("synthetic offline"));
+    await act(async () => { await expect(controller.refresh()).rejects.toThrow(); });
+    vi.mocked(api.read).mockResolvedValue(snapshot({ controlOwner: "owner", controlEpoch: 2,
+      nextSequence: 2, revision: 2, viewport: { width: 390, height: 700 } }));
+    await act(async () => { await controller.refresh(); });
+    expect(screen.getByRole("button", { name: "Next field" })).toBeDisabled();
+    view.unmount(); controller.dispose();
   });
 
   it("confirms only the review that the owner saw and can stop before browser allocation", async () => {

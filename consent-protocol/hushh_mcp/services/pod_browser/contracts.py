@@ -72,8 +72,23 @@ class BrowserReadiness(StrictContract):
 
 
 Operation = Literal[
-    "observe", "navigate", "click", "hover", "type", "scroll", "back", "forward", "keys", "drag"
+    "observe",
+    "navigate",
+    "click",
+    "hover",
+    "type",
+    "scroll",
+    "back",
+    "forward",
+    "keys",
+    "drag",
+    "resize",
 ]
+
+
+class BrowserViewport(StrictContract):
+    width: int = Field(default=1280, ge=320, le=1920)
+    height: int = Field(default=720, ge=240, le=1080)
 
 
 class BrowserAction(StrictContract):
@@ -92,6 +107,8 @@ class BrowserAction(StrictContract):
     direction: Literal["up", "down", "left", "right"] | None = None
     magnitude: int | None = Field(default=None, ge=1, le=2000)
     keys: tuple[str, ...] = ()
+    width: int | None = Field(default=None, ge=320, le=1920)
+    height: int | None = Field(default=None, ge=240, le=1080)
 
     @model_validator(mode="after")
     def validate_arguments(self) -> BrowserAction:
@@ -103,6 +120,7 @@ class BrowserAction(StrictContract):
             "scroll": {"direction", "magnitude"},
             "keys": {"keys"},
             "drag": {"x", "y", "destination_x", "destination_y"},
+            "resize": {"width", "height"},
         }.get(self.operation, set())
         optional = (
             {"press_enter", "clear_before_typing", "focus_existing"}

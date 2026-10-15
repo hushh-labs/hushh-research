@@ -84,9 +84,10 @@ class NativeAPI:
             return httpx.Response(200, json=value)
         if request.method == "POST":
             assert path.endswith("/executeShellCommand")
+            assert request.url.params["containerName"] == probe._CONTAINER_NAME
             assert json.loads(request.content) == {
                 "command": probe._COMMAND,
-                "containerName": probe._CONTAINER_NAME,
+                "user": "10002:10002",
             }
             self.exec_started.set()
             if self.hold_exec:

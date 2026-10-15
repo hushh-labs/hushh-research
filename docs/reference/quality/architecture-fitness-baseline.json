@@ -20671,7 +20671,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_browser_boundary.py",
       "symbol": null,
-      "value": 910
+      "value": 968
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -52248,6 +52248,19 @@
             ]
           }
         }
+      }
+    ]
+  },
+  "browser_viewport_review_20261015": {
+    "evidence_revision": "48e6323266fabbc79ba7bb2d47e9f44b22d20960",
+    "review": "Independent browser_viewport_review: exact core regression coverage for epoch/geometry/uncertain effects; production control remains at prior252-line ceiling after pure geometry extraction. No budget changes or live cloud acceptance.",
+    "entries": [
+      {
+        "after": 968,
+        "before": 910,
+        "key": "module_size|consent-protocol/tests/test_pod_browser_boundary.py||module exceeds the advisory operon budget",
+        "reviewer": "browser_viewport_review",
+        "source_sha256": "24f5b4ca24f175ae4d58518ef3d24b5241187cef77f0612dd93731f750ff939d"
       }
     ]
   }

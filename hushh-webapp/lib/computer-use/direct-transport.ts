@@ -101,7 +101,12 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
   }
   const remembered = record(wire.capability).remembered_sessions_available;
   if (remembered !== undefined && typeof remembered !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  const viewport = wire.viewport == null ? undefined : record(wire.viewport);
+  if (viewport && (integer(viewport.width, 320) > 1920 || integer(viewport.height, 240) > 1080)) {
+    throw new Error("BROWSER_RESPONSE_REFUSED");
+  }
   return {
+    ...(viewport ? { viewport: { width: viewport.width as number, height: viewport.height as number } } : {}),
     binding, phase: wire.phase as ComputerUsePhase,
     capability: available ? "ready" : "unavailable",
     controlOwner: wire.control_owner as ComputerUseSnapshot["controlOwner"],
@@ -224,7 +229,7 @@ export function createDirectComputerUseTransport(request: AdmittedRequest): Comp
         const png = await boundedBody(response, 4 * 1024 * 1024);
         const width = header("X-Browser-Width", 320);
         const height = header("X-Browser-Height", 240);
-        if (width !== 1280 || height !== 720) throw new Error("BROWSER_FRAME_REFUSED");
+        if (width > 1920 || height > 1080) throw new Error("BROWSER_FRAME_REFUSED");
         if (!signal.aborted) receive({ binding, controlEpoch, sequence, width, height, png });
         await delay(signal);
       }

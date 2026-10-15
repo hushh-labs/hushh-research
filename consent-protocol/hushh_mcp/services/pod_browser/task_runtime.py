@@ -192,6 +192,7 @@ class BrowserTaskRuntime:
             summary=task.summary,
             review=task.review,
             approved_origins=task.request.allowed_origins if task.processing_approved else (),
+            viewport=control.viewport if control else None,
         )
 
     async def _checkpoint(self, task: _Task) -> None:
@@ -514,6 +515,8 @@ class BrowserTaskRuntime:
         async with task.operation:
             if task.closed or task.control is None:
                 raise BrowserRefused("BROWSER_CONTROL_UNAVAILABLE")
+            if action.operation == "resize" and task.review is not None:
+                raise BrowserRefused("BROWSER_REVIEW_PENDING")
             try:
                 await task.control.execute(action, actor="owner")
             except BaseException:

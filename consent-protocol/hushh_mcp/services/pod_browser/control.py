@@ -15,7 +15,9 @@ from .contracts import (
     BrowserFrame,
     BrowserReadiness,
     BrowserRefused,
+    BrowserViewport,
 )
+from .geometry import require_frame_geometry, viewport_for_action
 from .network import public_origin
 from .session_state import RememberedState
 
@@ -49,6 +51,11 @@ class BrowserControl:
         self._frame: BrowserFrame | None = None
         self._revision = 1
         self._outcome_uncertain = False
+        self._viewport = BrowserViewport()
+
+    @property
+    def viewport(self) -> BrowserViewport:
+        return self._viewport
 
     @property
     def outcome_uncertain(self) -> bool:
@@ -99,18 +106,9 @@ class BrowserControl:
             await self._check()
             if actor != self._mode or action.control_epoch != self._epoch:
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
-            if actor != "owner" and action.focus_existing:
+            if actor != "owner" and (action.focus_existing or action.operation == "resize"):
                 raise BrowserRefused("BROWSER_OWNER_INPUT_REQUIRED")
-            if any(
-                value is not None and value >= bound
-                for value, bound in (
-                    (action.x, 1280),
-                    (action.y, 720),
-                    (action.destination_x, 1280),
-                    (action.destination_y, 720),
-                )
-            ):
-                raise BrowserRefused("BROWSER_COORDINATES_INVALID")
+            expected = viewport_for_action(self.viewport, action)
             if action.sequence != self.next_sequence:
                 raise BrowserRefused("BROWSER_ACTION_REPLAY")
             if not self._initialized:
@@ -132,6 +130,11 @@ class BrowserControl:
             if effect:
                 await self._authority.journal_dispatch(self.binding, action)
                 await self._check()
+            if action.operation == "resize":
+                # Fence old coordinates and decoded frames before any layout effect.
+                self._epoch += 1
+                self._frame = None
+                self._revision += 1
             # Consume sequence BEFORE dispatch. A lost result cannot be replayed.
             self._sequence = action.sequence
             if actor == "agent":
@@ -139,11 +142,11 @@ class BrowserControl:
             try:
                 async with asyncio.timeout(30):
                     frame = await self._executor.execute(action)
-                if frame.sequence != action.sequence or (frame.width, frame.height) != (1280, 720):
-                    raise BrowserRefused("BROWSER_FRAME_MISMATCH")
+                require_frame_geometry(frame, action, expected)
                 await self._check()
                 if effect:
                     await self._authority.settle_dispatch(self.binding, action, uncertain=False)
+                self._viewport = expected
                 self._frame = frame
                 self._revision += 1
                 return frame
@@ -237,8 +240,7 @@ class BrowserControl:
             await self._authority.authorize_action(self.binding, action)
             async with asyncio.timeout(30):
                 frame = await self._executor.execute(action)
-            if frame.sequence != action.sequence or (frame.width, frame.height) != (1280, 720):
-                raise BrowserRefused("BROWSER_FRAME_MISMATCH")
+            require_frame_geometry(frame, action, self.viewport)
             await self._check()
             self._sequence = action.sequence
             self._frame = frame

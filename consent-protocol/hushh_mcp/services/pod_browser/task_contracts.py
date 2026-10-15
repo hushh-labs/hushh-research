@@ -14,6 +14,7 @@ from .contracts import (
     BrowserBinding,
     BrowserExecutionPort,
     BrowserReadiness,
+    BrowserViewport,
     StrictContract,
 )
 from .control import BrowserControl
@@ -72,6 +73,7 @@ class BrowserTaskSnapshot(StrictContract):
     summary: str | None = Field(default=None, max_length=2000, repr=False)
     review: BrowserReviewOffer | None = Field(default=None, repr=False)
     approved_origins: tuple[str, ...] = Field(default=(), max_length=20, repr=False)
+    viewport: BrowserViewport | None = None
 
 
 class BrowserTaskReceipt(StrictContract):

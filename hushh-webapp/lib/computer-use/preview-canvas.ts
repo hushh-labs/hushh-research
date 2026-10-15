@@ -1,9 +1,19 @@
 import type { ComputerUseFrame } from "./contracts";
 
+/** CSS pixels, bounded to the qualified screenshot and worker envelope. */
+export function fitComputerUseViewport(width: number, height: number): { width: number; height: number } {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error("BROWSER_VIEWPORT_UNAVAILABLE");
+  }
+  return { width: Math.max(320, Math.min(1920, Math.floor(width))),
+    height: Math.max(240, Math.min(1080, Math.floor(height))) };
+}
+
 /** One decoded frame at a time; no URLs, React frame state, persistence or telemetry. */
 export function createComputerUseCanvas(
   canvas: HTMLCanvasElement,
   accepts: (frame: ComputerUseFrame) => boolean,
+  onPaint?: (frame: ComputerUseFrame) => void,
 ): { paint: (frame: ComputerUseFrame) => Promise<void>; clear: () => void; close: () => void } {
   let generation = 0;
   let decoding = false;
@@ -40,9 +50,12 @@ export function createComputerUseCanvas(
           if (image.width !== pending.width || image.height !== pending.height) continue;
           canvas.width = pending.width;
           canvas.height = pending.height;
-          canvas.getContext("2d")?.drawImage(image, 0, 0);
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("BROWSER_CANVAS_UNAVAILABLE");
+          context.drawImage(image, 0, 0);
           sequence = pending.sequence;
           epoch = pending.controlEpoch;
+          onPaint?.(pending);
         } finally {
           image.close();
         }
