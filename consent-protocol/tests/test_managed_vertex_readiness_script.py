@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -181,6 +182,133 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     assert report["advisory"] is (not hard_failure)
     assert len(report["probes"]) == 6
     assert cancelled == ["live"]
+
+
+@pytest.mark.asyncio
+async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-10-15 UAT: Location's first ADK run imports ~2,400 modules on the loop
+    every probe shares. On the 1-vCPU candidate job that synchronous burst outlasted
+    the deadlines already armed for text, ADK, One chat and audio, so all of them
+    timed out while Vertex served their requests in under 5 s."""
+    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
+    spec = importlib.util.spec_from_file_location("readiness_first_use_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from hushh_mcp.operons.location import capabilities, plan
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import action_gateway
+
+    first_use_paid: list[bool] = []
+
+    async def provider_reply(**kwargs):
+        await asyncio.sleep(0.01)
+        return SimpleNamespace(
+            error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="OK")])
+        )
+
+    class AdkModel:
+        async def generate_content_async(self, *args, **kwargs):
+            yield await provider_reply()
+
+    async def transcribe(self, *args):
+        await provider_reply()
+        return "Open the Location screen."
+
+    async def assess(self, **kwargs):
+        if not first_use_paid:
+            first_use_paid.append(True)
+            time.sleep(0.5)  # cold imports are synchronous: they hold the shared loop
+        if self.adk_model is None:
+            await provider_reply()
+        return SimpleNamespace(unsupported=False)
+
+    @asynccontextmanager
+    async def connect(**kwargs):
+        await provider_reply()
+        yield None
+
+    monkeypatch.setattr(module, "PROBE_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(module, "_managed_manifest_models", lambda: ("gemini-3.6-flash",))
+    binding = module.ManagedGeminiRuntimeBinding(
+        project="synthetic", locations=("global",), auth_mode="vertex_adc"
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "from_environment", lambda **kwargs: binding
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_direct_client",
+        lambda self: SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=provider_reply))
+        ),
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "build_adk_model", lambda self, model: AdkModel()
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_regional_adk_model",
+        lambda self, model: AdkModel(),
+    )
+    monkeypatch.setattr(LocationCommandBrain, "transcribe", transcribe)
+    monkeypatch.setattr(LocationCommandBrain, "assess", assess)
+    monkeypatch.setattr(action_gateway, "list_action_gateway_actions", lambda: [])
+    monkeypatch.setattr(
+        capabilities, "compile_location_capabilities", lambda actions: ("synthetic", {})
+    )
+    monkeypatch.setattr(
+        plan, "validate_assessment", lambda *args, **kwargs: SimpleNamespace(steps=[object()])
+    )
+    monkeypatch.setattr(
+        OneVoiceLiveConfig,
+        "from_environment",
+        lambda: SimpleNamespace(
+            enabled=True, model_id="synthetic", location="us-central1", vertex_project=None
+        ),
+    )
+    monkeypatch.setattr(
+        factory,
+        "build_managed_live_client",
+        lambda **kwargs: SimpleNamespace(
+            aio=SimpleNamespace(live=SimpleNamespace(connect=connect))
+        ),
+    )
+
+    report = await asyncio.wait_for(module.main(), timeout=5)
+
+    assert first_use_paid
+    assert [p["probe"] for p in report["probes"] if not p["ok"]] == []
+    assert report["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_command_rehearsal_runs_the_real_location_flow_without_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = importlib.util.spec_from_file_location("readiness_rehearsal_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from google.genai import models as genai_models
+
+    async def no_provider(*args, **kwargs):
+        raise AssertionError("The readiness rehearsal must never call a provider")
+
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content", no_provider)
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content_stream", no_provider)
+
+    # Real Location manifest, gateway, ADK runner and flow; only the model is local.
+    # A swallowed failure returns None, so this proves the whole flow ran offline.
+    assessment = await module._rehearse_command_flow()
+
+    assert assessment is not None
+    assert assessment.unsupported is True
 
 
 @pytest.mark.asyncio
