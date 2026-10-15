@@ -1286,6 +1286,35 @@ async def test_successful_scheduled_sync_keeps_cooldown(
 # -- update_display_name: provider commit vs shadow sync ----------------------
 
 
+async def test_update_display_name_never_reports_cached_old_name_after_provider_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    uid = "firebase-user-123456789012"
+    calls = _firebase_update_ok(monkeypatch)
+    monkeypatch.setattr(
+        service,
+        "get_many",
+        AsyncMock(
+            return_value={
+                uid: {"user_id": uid, "display_name": "Previous Name"},
+            }
+        ),
+    )
+
+    def unavailable_read(*args, **kwargs):
+        raise ConnectionError("synthetic provider read unavailable")
+
+    # Exercise the actual sync/get-user fallback, not a mock of the method
+    # whose non-strict cached return caused the regression.
+    monkeypatch.setattr(
+        sys.modules["firebase_admin"].auth, "get_user", unavailable_read, raising=False
+    )
+    result = await service.update_display_name(uid, "Confirmed Name")
+    assert calls == [{"uid": uid, "display_name": "Confirmed Name"}]
+    assert result == {"user_id": uid, "display_name": "Confirmed Name", "shadow_sync": "pending"}
+
+
 def _firebase_update_ok(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """Stub the provider so ``update_user`` succeeds and records the call."""
     import sys
@@ -1312,7 +1341,8 @@ async def test_update_display_name_reports_synced_when_shadow_write_succeeds(
     uid = "firebase-user-123456789012"
     calls = _firebase_update_ok(monkeypatch)
 
-    async def fake_sync(user_id, *, force=False):
+    async def fake_sync(user_id, *, force=False, require_success=False):
+        assert force and require_success
         return {"user_id": user_id, "display_name": "Ayesha S", "email": "a@example.com"}
 
     monkeypatch.setattr(service, "sync_from_firebase", fake_sync)
@@ -1335,7 +1365,8 @@ async def test_update_display_name_reports_pending_when_shadow_sync_raises(
     uid = "firebase-user-123456789012"
     calls = _firebase_update_ok(monkeypatch)
 
-    async def failing_sync(user_id, *, force=False):
+    async def failing_sync(user_id, *, force=False, require_success=False):
+        assert force and require_success
         raise ConnectionError("shadow db unreachable")
 
     monkeypatch.setattr(service, "sync_from_firebase", failing_sync)
@@ -1355,7 +1386,8 @@ async def test_update_display_name_reports_pending_when_fallback_upsert_raises(
     uid = "firebase-user-123456789012"
     _firebase_update_ok(monkeypatch)
 
-    async def sync_returns_nothing(user_id, *, force=False):
+    async def sync_returns_nothing(user_id, *, force=False, require_success=False):
+        assert force and require_success
         return None
 
     async def failing_upsert(**kwargs):

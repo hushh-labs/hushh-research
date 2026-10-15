@@ -2089,6 +2089,14 @@ this forces current provider/persistence success and returns 503 on failure
 instead of falling back to a prior identity. Background refresh keeps its
 existing cache fallback.
 
+Display-name writes also require a strict post-write shadow sync. After Firebase
+accepts the name, a failed read or shadow write returns the confirmed name with
+`shadow_sync: "pending"`; it must not return an older cached name as synced or
+claim that the provider write failed. The PATCH response binds `user_id` to the
+authenticated caller and omits the partial shadow (`identity: null`) while
+pending. Clients may display the confirmed name, but cannot cache a contradictory
+shadow or automatically repeat the completed write.
+
 If a native OTP links the provider phone but persistence is unavailable, retry
 reads the native provider directly (without substituting the cached Firebase JS
 user) and reruns only strict identity synchronization for the same owner and
