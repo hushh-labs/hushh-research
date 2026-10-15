@@ -116,6 +116,14 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     live_provenance = content.split(
         "      - name: Verify frontend deployment provenance", 1
     )[1].split("      - name: Verify protected list secrets were not wiped", 1)[0]
+    backend_provenance = content.split(
+        "      - name: Verify backend deployment provenance", 1
+    )[1].split("      - name: Verify frontend deployment provenance", 1)[0]
+    assert (
+        "if: steps.scope.outputs.deploy_backend == 'true' && "
+        "(steps.scope.outputs.deploy_frontend != 'true' || "
+        "steps.verify-analytics-uat.outcome == 'success')"
+    ) in backend_provenance
     assert (
         "if: steps.scope.outputs.deploy_frontend == 'true' && "
         "steps.verify-analytics-uat.outcome == 'success'"
@@ -123,6 +131,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     classification = content.split("      - name: Classify UAT release outcome", 1)[1].split(
         "      - name: Roll back backend revision", 1
     )[0]
+    assert "not backend_provenance_required" in classification
     assert 'and os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"' in classification
     assert "not frontend_provenance_required" in classification
     assert 'append_unique(blocking, ["analytics_transport_failed"])' in classification

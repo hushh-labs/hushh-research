@@ -1718,7 +1718,7 @@ jobs:
 
       - name: Verify backend deployment provenance
         id: verify-backend-provenance
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -2022,12 +2022,19 @@ jobs:
           semantic_report_present = bool(semantic_report)
 
           parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
+          # Failed paired analytics smoke withholds promotion, so live traffic
+          # still serves the prior release. Its provenance is not a candidate check.
+          backend_provenance_required = (
+              os.environ.get("DEPLOY_BACKEND") == "true"
+              and (
+                  os.environ.get("DEPLOY_FRONTEND") != "true"
+                  or os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
+              )
+          )
           backend_provenance_success = (
-              os.environ.get("DEPLOY_BACKEND") != "true"
+              not backend_provenance_required
               or os.environ.get("BACKEND_PROVENANCE_OUTCOME") == "success"
           )
-          # Failed analytics smoke withholds promotion, so live traffic still
-          # serves the prior release. Its provenance is not a candidate check.
           frontend_provenance_required = (
               os.environ.get("DEPLOY_FRONTEND") == "true"
               and os.environ.get("ANALYTICS_SMOKE_OUTCOME") == "success"
