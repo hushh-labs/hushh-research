@@ -162,7 +162,7 @@ def test_production_tripwire_matches_committed_policy() -> None:
     )
 
 
-def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main") -> subprocess.CompletedProcess[str]:
+def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "") -> subprocess.CompletedProcess[str]:
     """Execute the actual shell authority gate, including the real actor policy."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance.yml").read_text()
@@ -176,7 +176,8 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
         env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
              "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
-             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", "")},
+             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
+             "CLOCK_EVENT_TYPE": action},
         capture_output=True, text=True, check=False,
     )
 
@@ -206,6 +207,69 @@ def test_capacity_cleanup_rejects_deployment_events_and_non_main() -> None:
         assert result.returncode != 0, "Non-main cleanup was accepted"
 
 
+def test_capacity_clock_tick_carries_only_scheduled_authority() -> None:
+    tick = "capacity-maintenance-tick"
+    for actor in ("github-actions[bot]", "kushaltrivedi5"):
+        accepted = _validate_capacity_trigger("repository_dispatch", {}, actor=actor, action=tick)
+        assert accepted.returncode == 0, accepted.stderr
+    # A tick wakes both environments, so a human needs both cohorts; azfx is
+    # in the UAT cohort only.
+    for actor in ("unapproved-contributor", "azfx"):
+        denied = _validate_capacity_trigger("repository_dispatch", {}, actor=actor, action=tick)
+        assert denied.returncode != 0, f"Ungoverned clock tick from {actor} was accepted"
+    for action in ("", "deploy", tick + "\napply=true"):
+        wrong = _validate_capacity_trigger("repository_dispatch", {}, actor="github-actions[bot]", action=action)
+        assert wrong.returncode != 0, f"Unexpected dispatch type {action!r} can wake cleanup"
+    branch = _validate_capacity_trigger("repository_dispatch", {}, actor="github-actions[bot]", ref="contributor-branch", action=tick)
+    assert branch.returncode != 0, "Non-main clock tick was accepted"
+
+
+def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the real `next-pass` step with a fake gh that records dispatches."""
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance.yml").read_text()
+    match = re.search(
+        r"      - name: Queue the next pass after the clock's wait\n.*?"
+        r"        run: \|\n(.*?)(?=\n\S|\n      - name:|\Z)", source, re.DOTALL,
+    )
+    assert match is not None, "Capacity clock step is missing"
+    import tempfile
+    from datetime import datetime, timedelta, timezone
+
+    with tempfile.TemporaryDirectory() as temporary:
+        bin_dir = Path(temporary)
+        calls = bin_dir / "calls"
+        started = (datetime.now(timezone.utc) - timedelta(seconds=started_seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(
+            "#!/bin/sh\n"
+            f"echo \"$*\" >> '{calls}'\n"
+            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *) echo '{started}' ;; esac\n"
+        )
+        fake_gh.chmod(0o755)
+        result = subprocess.run(
+            ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                 "GITHUB_REPOSITORY": "org/repo", "GITHUB_RUN_ID": "77",
+                 "CLOCK_MIN_ELAPSED_SECONDS": "3300", "GITHUB_STEP_SUMMARY": "/dev/null"},
+            capture_output=True, text=True, check=False,
+        )
+        recorded = calls.read_text().splitlines() if calls.exists() else []
+    return result, [call for call in recorded if "--method POST" in call]
+
+
+def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
+    # Without the environment's wait timer the job starts at once; queuing then
+    # would spin a pass every few minutes on the shared runner pool.
+    early, early_posts = _run_clock_step(started_seconds_ago=90)
+    assert early.returncode != 0, "Clock queued a pass without waiting"
+    assert early_posts == [], early_posts
+    assert "must hold a 60-minute wait timer" in early.stdout
+    late, late_posts = _run_clock_step(started_seconds_ago=3700)
+    assert late.returncode == 0, late.stderr
+    assert late_posts == ["api --method POST repos/org/repo/dispatches -f event_type=capacity-maintenance-tick"], late_posts
+
+
 def main() -> int:
     tests = [
         test_required_environment_variables_are_enforced,
@@ -214,6 +278,8 @@ def main() -> int:
         test_production_tripwire_matches_committed_policy,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
+        test_capacity_clock_tick_carries_only_scheduled_authority,
+        test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
     for test in tests:
         test()

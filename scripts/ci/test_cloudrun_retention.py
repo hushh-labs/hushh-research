@@ -2051,6 +2051,19 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         with mock.patch.object(MAINTENANCE, "api", side_effect=[latest, prior]):
             self.assertFalse(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", {"created_at": "2026-10-14T22:00:00Z"}))
 
+    def test_clock_pass_checkpoint_is_trusted_like_a_scheduled_pass(self):
+        # A clock pass whose `next-pass` job fails still concluded its cleanup;
+        # dropping that checkpoint would restart every drain clock.
+        artifact = {"created_at": "2026-10-14T20:00:00Z"}
+        names = ("Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+                 "Authenticate to production", "Save production cleanup checkpoint")
+        jobs = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed", "steps": [
+            {"name": name, "conclusion": "success", "started_at": "2026-10-14T19:59:59Z", "completed_at": "2026-10-14T20:00:01Z"} for name in names]}]}
+        for event, trusted in (("schedule", True), ("repository_dispatch", True), ("pull_request", False), ("push", False)):
+            run = {**self.trusted_source(123, "capacity-maintenance.yml"), "event": event, "conclusion": "failure"}
+            with self.subTest(event=event), mock.patch.object(MAINTENANCE, "api", return_value=jobs):
+                self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact), trusted)
+
     def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
         self,
     ):
@@ -2116,11 +2129,22 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertIn("cancel-in-progress: false", concurrency)
             self.assertIn("github.run_id", concurrency)
             self.assertNotIn("queue: max", concurrency)
+            # The clock that makes hourly real: ticks coalesce with the cron,
+            # and the next tick waits in an environment, never on a runner.
+            self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-tick]\n", triggers)
+            self.assertIn("github.event_name == 'repository_dispatch') && 'scheduled'", concurrency)
+            clock = text.split("\n  next-pass:\n", 1)[1]
+            self.assertIn("      name: capacity-maintenance-clock\n", clock)
+            self.assertIn("needs.select-release.outputs.clock == 'true'", clock)
+            self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", clock)
+            self.assertNotIn("sleep", clock)
 
         check_policy(source)
         for broken in (
             source.replace("  schedule:", "  workflow_run:\n  schedule:"),
             source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n',
+            source.replace("      name: capacity-maintenance-clock\n", ""),
+            source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"),
         ):
             with self.assertRaises(AssertionError):
                 check_policy(broken)
