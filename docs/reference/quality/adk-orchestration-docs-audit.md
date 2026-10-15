@@ -47,7 +47,9 @@ Shared Files owner acceptance remains unperformed.
 **Lifecycle correction — local, not deployed:** setup, updates and rebuilds
 retain exact admitted requests and join actual workers before release. Connector
 revocation requires validated historical coverage; legacy zero counters cannot
-qualify cleanup. Unknown cloud responses remain unresolved and are never replayed.
+qualify cleanup. Unknown cloud responses remain unresolved and are never replayed. A signed,
+non-destructive compatibility preflight refuses old pod images before key erasure;
+owner approval and complete cleanup composition remain required.
 
 | Cleanup boundary | Local evidence | Remaining release condition |
 | --- | --- | --- |

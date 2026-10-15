@@ -462,7 +462,19 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
             "inconsistent_provider": {"providerUnavailable": 1},
         }[tamper]
     )
-    session = _Recorder(body=reply)
+
+    class CurrentRecorder(_Recorder):
+        def post(self, url, **kwargs):
+            response = super().post(url, **kwargs)
+            if url.endswith("/preflight"):
+                response.json = lambda: {
+                    "status": "ready",
+                    "providerCoverage": "connector_history_v1",
+                    **payload,
+                }
+            return response
+
+    session = CurrentRecorder(body=reply)
     pod = "https://ca-hussh-one-pod.happyfield.eastus2.azurecontainerapps.io"
     if tamper in (None, "legacy", "provider_pending", "provider_unknown", "qualified"):
         acknowledged = transport.crypto_erase_for_erasure(
@@ -472,5 +484,36 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
     else:
         with pytest.raises(PodMigrationTransportError):
             transport.crypto_erase_for_erasure(pod_url=pod, payload=payload, session=session)
-    assert session.calls[0]["url"] == f"{pod}/pod/migration/erasure/crypto-erase"
-    assert minted == [pod, erasure_proof_audience(payload, purpose="crypto-erase")]
+    assert [call["url"] for call in session.calls] == [
+        f"{pod}/pod/migration/erasure/crypto-erase/preflight",
+        f"{pod}/pod/migration/erasure/crypto-erase",
+    ]
+    assert minted == [
+        pod,
+        erasure_proof_audience(payload, purpose="crypto-erase-preflight"),
+        pod,
+        erasure_proof_audience(payload, purpose="crypto-erase"),
+    ]
+
+
+@pytest.mark.parametrize("case", ["old_image", "wrong_incarnation", "unknown_coverage"])
+def test_incompatible_pod_is_never_asked_to_destroy_keys(minted, case):
+    payload = {
+        "hushhId": "ha1_owner",
+        "attemptId": "erase-1",
+        "service": "pod",
+        "serviceUid": "uid",
+        "revision": "r1",
+    }
+    body = {"status": "ready", "providerCoverage": "connector_history_v1", **payload}
+    if case == "wrong_incarnation":
+        body["serviceUid"] = "foreign"
+    elif case == "unknown_coverage":
+        body["providerCoverage"] = "current_logins_only"
+    session = _Recorder(status=404 if case == "old_image" else 200, body=body)
+    with pytest.raises(PodMigrationTransportError) as refused:
+        transport.crypto_erase_for_erasure(
+            pod_url="https://one-pod.a.run.app", payload=payload, session=session
+        )
+    assert len(session.calls) == 1 and session.calls[0]["url"].endswith("/preflight")
+    assert refused.value.code == "POD_ERASURE_COMPATIBILITY_REQUIRED"

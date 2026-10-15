@@ -37,6 +37,14 @@ registry against new reservations and refuses existing Azure reservations or
 new retained outcomes. Other erasure schema rollback requires its own fenced,
 drained release procedure; an application rollback does not recover deleted keys.
 
+Before requesting key destruction, the hub now makes an authenticated, read-only
+`crypto-erase/preflight` call bound to the exact owner, service and revision.
+Its proof cannot authorize deletion. Missing or incompatible old-image support
+returns `POD_ERASURE_COMPATIBILITY_REQUIRED` before any destructive POST; update
+or repair that image first. The pod still independently checks schema acceptance
+and provider revocation before destroying keys. Inspection of cleanup terms must
+never call the destructive owner-access preparation port.
+
 Dev-only 961 records the original Azure setup nonce and coordinates in the
 existing job before its first write. Same-cloud retries preserve prior bindings
 in that job; stale bound workers require reconciliation, and protected history

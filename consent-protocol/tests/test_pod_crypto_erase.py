@@ -321,7 +321,7 @@ def _payload() -> dict:
     )
 
 
-@pytest.mark.parametrize("purpose", ["fence", "memory-binding"])
+@pytest.mark.parametrize("purpose", ["fence", "memory-binding", "crypto-erase-preflight"])
 async def test_only_a_crypto_erase_proof_reaches_the_storage(azure_pod, monkeypatch, purpose):
     from hushh_mcp.services import scheduler_identity
 
@@ -691,3 +691,37 @@ async def test_provider_tombstone_receipts_are_strictly_bounded_metadata(store, 
             open_fenced_log=_never,
         )
     assert await store.get(WRAPPED) == b"existing-key"
+
+
+@pytest.mark.parametrize("purpose", ["crypto-erase-preflight", "crypto-erase"])
+async def test_erasure_preflight_is_authenticated_and_never_opens_the_vault(
+    azure_pod, monkeypatch, purpose
+):
+    from hushh_mcp.services import scheduler_identity
+
+    pod_migration, store = azure_pod
+    await _agent(store)
+    expected = pod_migration.erasure_proof_audience(_payload(), purpose=purpose)
+
+    def verify(**kwargs):
+        if kwargs["audience"] != expected:
+            raise scheduler_identity.SchedulerIdentityError("refused")
+
+    monkeypatch.setattr(scheduler_identity, "verify_scheduler_request", verify)
+
+    def forbidden():
+        raise AssertionError("preflight must not open or fence private state")
+
+    monkeypatch.setattr(pod_migration, "_commit_log", forbidden)
+    body = pod_migration.ErasureFenceRequest(**_payload())
+    if purpose == "crypto-erase":
+        with pytest.raises(HTTPException) as error:
+            await pod_migration.crypto_erase_preflight(body, "Bearer proof")
+        assert error.value.status_code == 403
+    else:
+        assert await pod_migration.crypto_erase_preflight(body, "Bearer proof") == {
+            "status": "ready",
+            "providerCoverage": "connector_history_v1",
+            **_payload(),
+        }
+    assert await store.get(WRAPPED) == b"wrapped-dek"

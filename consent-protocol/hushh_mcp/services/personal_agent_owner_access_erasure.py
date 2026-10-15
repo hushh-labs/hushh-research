@@ -228,15 +228,14 @@ async def _revoked(
     )
 
 
-async def erase_reserved_owner_access(
+async def prepare_reserved_owner_access(
     service: Any, *, user_id: str, reservation: dict[str, Any]
 ) -> bool:
-    """False when the reserved backend lacks the capability; True once the guard passes.
+    """Irreversibly crypto-erase the pod and revoke access after owner deletion approval.
 
-    Idempotent per attempt: a receipt already retained is never re-requested, and a
-    retained checkpoint resumes revocation without the pod, so a retry always reaches
-    the account guard, which still refuses while anything remains. Any refusal raises
-    and the caller keeps the account fail-closed.
+    Never call from inspection or a cleanup preview. This does not remove cloud
+    resources or finalize the account; separate owner approvals and gates do that.
+    Existing checkpoint recovery and exact owner/incarnation authority still apply.
     """
     row = reservation.get("registrySnapshot") if isinstance(reservation, dict) else None
     resolved = owner_access_backend(service, row)
@@ -253,6 +252,16 @@ async def erase_reserved_owner_access(
             "personal_agent.owner_access_erased remaining=%d",
             len(receipt.get("remainingResources") or []),
         )
+
+    return True
+
+
+async def erase_reserved_owner_access(
+    service: Any, *, user_id: str, reservation: dict[str, Any]
+) -> bool:
+    """Prepare once, then require the existing account-completion guard."""
+    if not await prepare_reserved_owner_access(service, user_id=user_id, reservation=reservation):
+        return False
     from hushh_mcp.services.account_service import AccountService  # noqa: PLC0415
 
     await asyncio.to_thread(
@@ -265,5 +274,6 @@ __all__ = [
     "CHECKPOINT_FIELD",
     "RECEIPT_FIELD",
     "erase_reserved_owner_access",
+    "prepare_reserved_owner_access",
     "owner_access_backend",
 ]

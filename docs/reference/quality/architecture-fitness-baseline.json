@@ -20707,7 +20707,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_crypto_erase.py",
       "symbol": null,
-      "value": 693
+      "value": 727
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27410,6 +27410,15 @@
       "path": "consent-protocol/tests/test_azure_resource_teardown.py",
       "symbol": null,
       "value": 528
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_migration_transport.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_migration_transport.py",
+      "symbol": null,
+      "value": 519
     }
   ],
   "inspected_files": 6625,
@@ -29504,7 +29513,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -36647,7 +36656,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -48934,7 +48943,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -52419,7 +52428,7 @@
   },
   "azure_setup_retry_history_review_20261015": {
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication.",
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication.",
     "entries": [
       {
         "key": "module_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py||module exceeds the advisory operon budget",
@@ -52723,6 +52732,25 @@
         "after": 528,
         "source_sha256": "575a8200b00e10a855ca2003387c1eb2d994c3db576948c73f842ad79aba4851",
         "review": "Independent owner_lifecycle_cleanup_review: nearest core suites prove exact canonical inventory, verified model-child dispatch/recovery, original history retention/archive and bounded provider readbacks. Shared provider fixture; no new oversized function or global budget/scanner changes."
+      }
+    ]
+  },
+  "pod_erasure_preflight_review_20261015": {
+    "reviewer": "adk_authority_review",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "before": 693,
+        "after": 727,
+        "source_sha256": "7de09dc8c55e6984cb8c7dde5059b531e16d69e85dcecfbd4db0047cb8f008e4",
+        "review": "Read-only authority review: nearest destructive-admission and distinct-proof-purpose regressions, including old-image refusal before any destructive POST. Cohesive existing test owner; source modules remain below budget. Other ceilings and 500/250/80 budgets unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_migration_transport.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 519,
+        "source_sha256": "a020486ee4b345ebf9310376204987d3fa71d1215bdf4ec32c8cc8189dc7c7c2",
+        "review": "Read-only authority review: nearest destructive-admission and distinct-proof-purpose regressions, including old-image refusal before any destructive POST. Cohesive existing test owner; source modules remain below budget. Other ceilings and 500/250/80 budgets unchanged."
       }
     ]
   }

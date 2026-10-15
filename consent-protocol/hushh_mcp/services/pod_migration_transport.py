@@ -243,6 +243,36 @@ def _valid_erase_counts(result: dict[str, Any]) -> tuple[str, ...] | None:
     return (*_ERASE_COUNTS, *_PROVIDER_ERASE_COUNTS, *(("providerCoverage",) if coverage else ()))
 
 
+def _require_current_erasure(
+    *, pod_url: str, payload: dict[str, Any], session: Any, token_minter: Any
+) -> None:
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    try:
+        observed = _post(
+            pod_url,
+            "/pod/migration/erasure/crypto-erase/preflight",
+            payload["hushhId"],
+            payload,
+            timeout=30,
+            session=session,
+            minter=token_minter,
+            proof_audience=erasure_proof_audience(payload, purpose="crypto-erase-preflight"),
+        )
+    except PodMigrationTransportError as exc:
+        if exc.code == "POD_REFUSED_404":
+            raise PodMigrationTransportError(
+                "POD_ERASURE_COMPATIBILITY_REQUIRED",
+                "Update or repair your private agent before account deletion.",
+            ) from None
+        raise
+    if observed != {"status": "ready", "providerCoverage": "connector_history_v1", **payload}:
+        raise PodMigrationTransportError(
+            "POD_ERASURE_COMPATIBILITY_REQUIRED",
+            "The private agent's deletion compatibility could not be verified.",
+        )
+
+
 def crypto_erase_for_erasure(
     *, pod_url: str, payload: dict[str, Any], session: Any = None, token_minter: Any = None
 ) -> dict[str, Any]:
@@ -253,6 +283,9 @@ def crypto_erase_for_erasure(
     """
     from api.routes.one.pod_migration import erasure_proof_audience
 
+    _require_current_erasure(
+        pod_url=pod_url, payload=payload, session=session, token_minter=token_minter
+    )
     result = _post(
         pod_url,
         "/pod/migration/erasure/crypto-erase",
