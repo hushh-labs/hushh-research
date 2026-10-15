@@ -688,3 +688,86 @@ def test_calendar_events_searches_within_a_bound_and_reports_truncation(monkeypa
     assert seen["query"] == "dentist"
     assert seen["max_results"] == 250
     assert result["truncated"] is True
+
+
+def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound(monkeypatch):
+    from hushh_mcp.agents.calendar.read_offer import STATE_INVITATION_OFFER
+    from hushh_mcp.services import calendar_schedule_service
+
+    calendar = _Calendar()
+    event = {
+        "id": "instance-id",
+        "calendar_id": "selected-calendar",
+        "title": "Client Sync",
+        "response_status": "needsAction",
+        "conflicts": [],
+    }
+
+    class Schedule:
+        async def invitations(self, **kwargs):
+            return {
+                "events": [event],
+                "account_email": "owner@example.com",
+                "pending_count": 1,
+                "complete": True,
+                "start_at": "2030-10-14T00:00:00Z",
+                "end_at": "2030-10-15T00:00:00Z",
+            }
+
+    schedule = Schedule()
+    schedule.calendar = calendar
+    monkeypatch.setattr(
+        calendar_schedule_service, "get_calendar_schedule_service", lambda: schedule
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    ctx = _context()
+    ctx.state["hussh:conversation_id"] = "same-conversation"
+    result = asyncio.run(tools.calendar_invitations(ctx))
+    assert result["events"][0]["ordinal"] == 1
+    assert result["directive"]["payload"]["type"] == "calendar.invitations"
+    opened = asyncio.run(tools.open_calendar_invitation(ctx, 1, "accepted"))
+    assert opened["status"] == "review_required"
+    assert opened["directive"]["payload"] == {
+        "type": "calendar.invitations",
+        "filter": "all",
+        "calendarId": "selected-calendar",
+        "eventId": "instance-id",
+        "decision": "accepted",
+        "accountEmail": "owner@example.com",
+        "timeZone": "Asia/Kolkata",
+        "startAt": "2030-10-14T00:00:00Z",
+        "endAt": "2030-10-15T00:00:00Z",
+    }
+    assert calendar.proposal_payload is None
+    ctx.state["hussh:conversation_id"] = "another-conversation"
+    assert (
+        asyncio.run(tools.open_calendar_invitation(ctx, 1, "declined"))["status"]
+        == "input_required"
+    )
+    ctx.state["hussh:conversation_id"] = "same-conversation"
+    terms = asyncio.run(
+        tools.open_calendar_invitation(
+            ctx,
+            1,
+            "offer_times",
+            alternative_date="2030-10-18",
+            alternative_start_time="15:00",
+            alternative_end_time="18:00",
+            alternative_duration_minutes=45,
+            organizer_message="Could we meet Friday after 3 PM?",
+        )
+    )
+    assert terms["directive"]["payload"]["terms"] == {
+        "date": "2030-10-18",
+        "startTime": "15:00",
+        "endTime": "18:00",
+        "durationMinutes": 45,
+        "message": "Could we meet Friday after 3 PM?",
+    }
+    ctx.state[STATE_INVITATION_OFFER]["created_at_ms"] = 1
+    assert asyncio.run(tools.open_calendar_invitation(ctx, 1))["status"] == "input_required"
+    changed = asyncio.run(
+        tools.calendar_invitations(ctx, expected_account_email="changed@example.com")
+    )
+    assert changed["status"] == "connection_changed"
+    assert ctx.state[STATE_INVITATION_OFFER] is None

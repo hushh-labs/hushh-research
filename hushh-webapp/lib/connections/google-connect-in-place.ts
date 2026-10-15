@@ -252,17 +252,20 @@ export function connectCalendarInPlace(
   input: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   },
 ): InPlaceConnectStart {
-  const { owner, accessLevel } = input;
+  const { owner, accessLevel, includeCalendarList } = input;
   const granted = (status: {
     connected?: boolean;
     status?: string;
     access_level?: string | null;
+    calendar_list_access?: boolean;
   }) =>
     status.connected === true &&
     status.status !== "needs_reauth" &&
-    (accessLevel !== "manage" || status.access_level === "manage");
+    (accessLevel !== "manage" || status.access_level === "manage") &&
+    (!includeCalendarList || status.calendar_list_access === true);
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -272,11 +275,13 @@ export function connectCalendarInPlace(
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
+          ...(includeCalendarList ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
         const result = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
+          ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({

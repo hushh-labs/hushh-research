@@ -31,9 +31,16 @@ Cases with `known_gap` are tracked runtime work and run as strict expected failu
 refuses one original selected twice and an undated or wrongly dated Ready
 month, and closes a packet whose sources name different accounts. The runtime
 also closes a Ready packet whose account record names someone other than the
-owner's name on file (`tests/services/test_drive_packet_owner_guard.py`). The
-replay and this suite pass no owner name, so neither exercises that fence, and a
-real-Drive batch does not yet measure it.
+owner's name on file (`tests/services/test_drive_packet_owner_guard.py`).
+`run-batch` hands that name to the replay, from the live owner's identity on file
+or `--owner-name`, in memory only: it never enters a prompt, a batch file or a
+report, and the run prints only where it came from (`owner_check`). Fixture runs
+and this suite pass none, so they do not exercise that fence. The runtime also
+refuses a Ready period dated only by a due, print, transaction, event or snapshot
+date its facts give the same line, refuses Ready copy claiming complete coverage
+of months no dated period covers, and closes a Ready packet holding two originals
+of one statement (same issuer, type, account and period, own document date or,
+for undated files, creation day).
 
 ## Operator runbook (real Drive, read-only)
 

@@ -786,6 +786,63 @@
     },
     {
       "circle_args": [],
+      "description": "For pending invitations, accept, decline, or ask an organizer for another time: continue the owner's original request in existing One Chat. No RSVP or Mail is executed. Use event_ordinal only for an explicitly selected offered event. The browser owns exact confirmation.",
+      "firebase_plane": false,
+      "gateway_action_id": "calendar.invitation.review",
+      "name": "continue_calendar_in_chat",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "default": "view",
+            "enum": [
+              "view",
+              "accepted",
+              "declined",
+              "offer_times"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "event_ordinal": {
+            "anyOf": [
+              {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only an explicitly selected position in the current Calendar event offer.",
+            "title": "Event Ordinal"
+          },
+          "request": {
+            "description": "The owner's original invitation request, preserving their meeting and decision context.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "chat_review_pending",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Send a confirmed connection a one-hour check-in with your position and an optional note. Creates the check-in; the device then publishes your position (client_step). Needs a canonical person id, never a name.",
       "firebase_plane": false,
       "gateway_action_id": "location.send_check_in",

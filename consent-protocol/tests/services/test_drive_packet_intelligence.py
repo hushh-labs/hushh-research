@@ -1426,12 +1426,14 @@ async def test_members_sharing_only_boilerplate_facts_remain_ready_together():
     assert checked.state == "ready"
 
 
-async def test_final_checker_keeps_two_sparse_extractions_that_compact_alike_ready():
+async def test_final_checker_reads_two_sparse_extractions_that_compact_alike_as_two_files():
     from hushh_mcp.services.drive_packet_worker import compact_evidence
 
     # Two originals whose facts compact to the same summary (the same header
-    # facts, quoted from different pages) are two sources, not one copy. The
-    # final checker compares the digest of the full facts the worker carries.
+    # facts, quoted from different pages) are two files, not one copy: the
+    # final checker compares the digest of the full facts the worker carries
+    # and asks for no regeneration. Naming one bank, account and period, they
+    # are one statement twice, so the packet closes with that reason instead.
     first, second = statement_member("first"), statement_member("second")
     second["facts"]["facts"][0]["citations"] = [{"page": 2, "quote": "Ending balance $1,000.00"}]
     documents = [compact_evidence(first), compact_evidence(second)]
@@ -1440,15 +1442,18 @@ async def test_final_checker_keeps_two_sparse_extractions_that_compact_alike_rea
         for item in documents
     ]
     assert summaries[0] == summaries[1]
+    checker = AsyncMock(return_value=ready_verdict())
     checked = await verify_packet(
         user_id="owner",
         complete=True,
         batch_scope={"mode": "complete_compact_summary"},
         packet=statement_packet(["first", "second"], [statement_facts()["periods"][0]]),
         documents=documents,
-        interpret=AsyncMock(return_value=ready_verdict()),
+        interpret=checker,
     )
-    assert checked.state == "ready"
+    assert checker.await_count == 1
+    assert checked.state == "incomplete"
+    assert checked.issues == ["Two documents look like the same statement"]
 
 
 @pytest.mark.parametrize(
@@ -1584,3 +1589,424 @@ async def test_final_checker_cannot_verify_an_undated_period_as_ready():
         interpret=AsyncMock(return_value=ready_verdict()),
     )
     assert checked.state == "ready"
+
+
+# Ready guards v2, from the real-Drive eval re-run. Two Ready packets passed
+# every #8054 gate: one whose headline month was dated only by the snapshot
+# date its own facts recorded for the same line, and copy claiming complete
+# coverage. The shapes below are synthetic replicas; no private text is copied.
+
+PERIOD_ROLE = "Period is dated only by a due, print, transaction, event or snapshot date"
+UNSUPPORTED_COMPLETE = "Copy claims complete coverage the periods do not show"
+
+
+def dated(role, day, quote, *, end=None):
+    return {
+        "role": role,
+        "start": day,
+        "end": end or day,
+        "meaning": f"Synthetic {role} date",
+        "citations": [{"page": 1, "quote": quote}],
+    }
+
+
+def window(start, end, *quotes):
+    return {
+        "start": start,
+        "end": end,
+        "citations": [{"page": 1, "quote": quote} for quote in quotes],
+    }
+
+
+BENCHMARK = "Fund highlights (September 2026 benchmark)\nSeptember 2026 highlights"
+YEAR_TO_DATE = "Year-to-date 2026 results (Jan 1 - Sep 30)"
+
+
+def benchmark_summary():
+    # The eval's shape: a summary whose headline month is its benchmark
+    # snapshot. The facts date that line as_of the month end and also claim
+    # it as a coverage month beside a year-to-date window stating its endpoints.
+    facts = statement_facts()
+    snapshot = dated("as_of", "2026-09-30", BENCHMARK)
+    snapshot["citations"].append({"page": 1, "quote": YEAR_TO_DATE})
+    facts.update(
+        document_type={
+            "value": "Performance summary",
+            "citations": [{"page": 1, "quote": "Performance summary"}],
+        },
+        issuer={"value": "Example Fund", "citations": [{"page": 1, "quote": "Example Fund"}]},
+        account=None,
+        periods=[
+            window("2026-09-01", "2026-09-30", BENCHMARK),
+            window("2026-01-01", "2026-09-30", YEAR_TO_DATE),
+        ],
+        date_evidence=[snapshot],
+    )
+    return statement_member("summary", facts)
+
+
+async def test_ready_period_cannot_be_dated_only_by_its_snapshot_date():
+    source = benchmark_summary()
+    periods = source["facts"]["periods"]
+    arguments = dict(user_id="owner", key="fund-summaries", complete=True, documents=[source])
+    interpreter = AsyncMock(return_value=statement_packet(["summary"], periods))
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments, interpret=interpreter)
+    assert interpreter.await_count == 2
+    assert info.value.code == "model_period_invalid"
+    assert info.value.issues == [{"field": "periods", "item": 0, "date_role": "as_of"}]
+    feedback = json.loads(interpreter.await_args.kwargs["prompt"])["validation_feedback"]
+    assert feedback["issues"] == info.value.issues
+
+    # The year-to-date window states its own endpoints, so it alone is Ready.
+    answer = await construct_packet(
+        **arguments, interpret=AsyncMock(return_value=statement_packet(["summary"], periods[1:]))
+    )
+    assert answer.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("role", "quote", "day"),
+    [
+        ("planned_action", "Payment due October 25, 2026", "2026-10-25"),
+        ("publication", "Printed on October 3, 2026", "2026-10-03"),
+        ("transaction", "Purchase posted 10/14/2026", "2026-10-14"),
+    ],
+    ids=["due_date", "print_date", "transaction_date"],
+)
+async def test_ready_statement_month_cannot_come_from_another_kind_of_date(role, quote, day):
+    facts = statement_facts(quote)
+    facts["periods"] = [window("2026-10-01", "2026-10-31", quote)]
+    facts["date_evidence"] = [dated(role, day, quote)]
+    source = statement_member("statement", facts)
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(
+            user_id="owner",
+            key="statements",
+            complete=True,
+            documents=[source],
+            interpret=AsyncMock(return_value=statement_packet(["statement"], facts["periods"])),
+        )
+    assert info.value.code == "model_period_invalid"
+    assert info.value.issues == [{"field": "periods", "item": 0, "date_role": role}]
+
+
+ACTIVITY = "Activity 09/01/2026 to 09/30/2026. Payment received 09/30/2026"
+OPENING, CLOSING = "BalanceonAug 17,2026 $250.00", "BalanceonSep 16,2026 $1,480.75"
+DUE_LINE = "September 2026 statement. Payment due September 25, 2026"
+PAY_LINE = "Period start 11/15/2026 Period end 11/15/2026 Pay date 11/15/2026"
+
+
+@pytest.mark.parametrize(
+    ("period", "date_evidence"),
+    [
+        # The activity line states both endpoints; the closing-day payment
+        # quotes the same line.
+        (
+            window("2026-09-01", "2026-09-30", ACTIVITY),
+            [dated("transaction", "2026-09-30", ACTIVITY)],
+        ),
+        # Opening and closing balances dated on the window's two endpoints,
+        # in text whose run-together words hide the month names.
+        (
+            window("2026-08-17", "2026-09-16", OPENING, CLOSING),
+            [dated("as_of", "2026-08-17", OPENING), dated("as_of", "2026-09-16", CLOSING)],
+        ),
+        # The statement month is stated apart from the due date on its line.
+        (
+            window("2026-09-01", "2026-09-30", DUE_LINE),
+            [dated("planned_action", "2026-09-25", DUE_LINE)],
+        ),
+        # The tax year is also recorded as a dated event of the same window.
+        (
+            window("2026-01-01", "2026-12-31", "Tax year 2026"),
+            [dated("event", "2026-01-01", "Tax year 2026", end="2026-12-31")],
+        ),
+        # A snapshot dated by another line does not date the statement month.
+        (
+            window("2026-09-01", "2026-09-30", "Statement for September 2026"),
+            [dated("as_of", "2026-09-30", "Ending balance as of September 30, 2026")],
+        ),
+        # A one-day pay period that its pay date restates.
+        (
+            window("2026-11-15", "2026-11-15", PAY_LINE),
+            [dated("transaction", "2026-11-15", PAY_LINE)],
+        ),
+    ],
+    ids=[
+        "endpoints_beside_a_payment",
+        "balances_on_both_endpoints",
+        "month_beside_a_due_date",
+        "tax_year_recorded_twice",
+        "snapshot_on_another_line",
+        "one_day_pay_period",
+    ],
+)
+async def test_statement_periods_quoted_beside_other_dates_stay_ready(period, date_evidence):
+    facts = statement_facts()
+    facts.update(periods=[period], date_evidence=date_evidence)
+    source = statement_member("statement", facts)
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=statement_packet(["statement"], [period])),
+    )
+    assert answer.state == "ready"
+
+
+async def test_member_checker_cannot_certify_a_period_dated_only_by_a_snapshot():
+    source = benchmark_summary()
+    checked = await verify_packet(
+        user_id="owner",
+        packet=statement_packet(["summary"], source["facts"]["periods"]),
+        documents=[source],
+        complete=True,
+        batch_scope={"mode": "member_batch"},
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "incomplete" and checked.correct_coverage is False
+    assert PERIOD_ROLE in checked.issues
+
+
+def month_member(document_id, month):
+    facts = statement_facts(f"Statement period {month:02d}/2026")
+    facts["periods"][0].update(start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-28")
+    facts["facts"][0] = {
+        "value": f"Ending balance ${month},000.00",
+        "citations": [{"page": 1, "quote": f"Ending balance ${month},000.00"}],
+    }
+    return statement_member(document_id, facts)
+
+
+def months_packet(members, **copy):
+    result = statement_packet(
+        [item["document_id"] for item in members],
+        [item["facts"]["periods"][0] for item in members],
+    )
+    for field, text in copy.items():
+        if field == "pricing":
+            result["pricing"]["rationale"] = text
+        else:
+            result[field] = text
+    return result
+
+
+async def build_months(members, **copy):
+    return await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=members,
+        interpret=AsyncMock(return_value=months_packet(members, **copy)),
+    )
+
+
+async def test_ready_copy_cannot_claim_complete_coverage_over_a_missing_month():
+    members = [month_member("sep", 9), month_member("nov", 11)]
+    arguments = dict(user_id="owner", key="statements", complete=True, documents=members)
+    claimed = months_packet(members, coverage_summary="Complete September-November 2026 statements")
+    interpreter = AsyncMock(return_value=claimed)
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments, interpret=interpreter)
+    assert interpreter.await_count == 2
+    assert info.value.code == "model_readiness_invalid"
+    assert info.value.issues == [{"field": "coverage_summary", "unsupported": "complete_coverage"}]
+    feedback = json.loads(interpreter.await_args.kwargs["prompt"])["validation_feedback"]
+    assert feedback["issues"] == info.value.issues
+
+    # Copy that states exactly what is covered stays Ready.
+    exact = months_packet(
+        members, coverage_summary="September and November 2026 statements; October is not included"
+    )
+    answer = await construct_packet(**arguments, interpret=AsyncMock(return_value=exact))
+    assert answer.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("field", "claim", "months"),
+    [
+        ("title", "Full year 2026 statements", [9]),
+        ("description", "All months of 2026 for one account", [9, 10]),
+        ("pricing", "Continuous monthly coverage for one account", [9, 11]),
+        ("utility_rationale", "Every month in the span is present", [9, 11]),
+    ],
+    ids=["full_year", "all_months_of_a_year", "continuous_over_a_gap", "every_month_over_a_gap"],
+)
+async def test_ready_copy_cannot_claim_more_months_than_its_dated_periods(field, claim, months):
+    members = [month_member(f"m{month}", month) for month in months]
+    with pytest.raises(EvidenceValidationError) as info:
+        await build_months(members, **{field: claim})
+    assert info.value.code == "model_readiness_invalid"
+    expected = "pricing.rationale" if field == "pricing" else field
+    assert info.value.issues == [{"field": expected, "unsupported": "complete_coverage"}]
+
+
+def tax_year_member():
+    facts = statement_facts("Tax year 2026")
+    facts["periods"][0].update(start="2026-01-01", end="2026-12-31")
+    return statement_member("tax-year", facts)
+
+
+@pytest.mark.parametrize(
+    ("members", "copy"),
+    [
+        ([month_member("sep", 9)], {"title": "Complete September 2026 statement"}),
+        ([tax_year_member()], {"coverage_summary": "Covers the full calendar year 2026"}),
+        (
+            [month_member("sep", 9), month_member("oct", 10), month_member("nov", 11)],
+            {"utility_rationale": "Complete monthly statements for one account"},
+        ),
+        (
+            [month_member("sep", 9), month_member("nov", 11)],
+            {"coverage_summary": "Does not claim complete September-November 2026 coverage"},
+        ),
+    ],
+    ids=["one_complete_month", "full_dated_year", "every_month_present", "negated_claim"],
+)
+async def test_ready_copy_claiming_only_its_dated_months_stays_ready(members, copy):
+    answer = await build_months(members, **copy)
+    assert answer.state == "ready"
+
+
+def undated_draft():
+    facts = statement_facts()
+    facts.update(
+        document_type={"value": "Draft plan", "citations": [{"page": 1, "quote": "Draft plan"}]},
+        account=None,
+        periods=[],
+    )
+    return statement_member("draft", facts)
+
+
+@pytest.mark.parametrize(
+    ("summary", "ready"),
+    [
+        ("Complete 2026 coverage of the draft plan", False),
+        ("Full monthly history of the plan", False),
+        ("Contains the complete 9-page draft plan", True),
+        ("No continuous reporting window is claimed", True),
+    ],
+    ids=["dated_claim", "monthly_claim", "complete_bounded_document", "negated_window"],
+)
+async def test_undated_packet_cannot_claim_complete_temporal_coverage(summary, ready):
+    result = packet([], ["draft"])
+    result["coverage_summary"] = summary
+    arguments = dict(
+        user_id="owner",
+        key="plans",
+        complete=True,
+        documents=[undated_draft()],
+        interpret=AsyncMock(return_value=result),
+    )
+    if ready:
+        assert (await construct_packet(**arguments)).state == "ready"
+        return
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments)
+    assert info.value.issues == [{"field": "coverage_summary", "unsupported": "complete_coverage"}]
+
+
+async def test_final_checker_cannot_certify_complete_coverage_over_a_missing_month():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    members = [month_member("sep", 9), month_member("nov", 11)]
+    arguments = dict(
+        user_id="owner",
+        documents=[compact_evidence(item) for item in members],
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+    )
+    claimed = months_packet(members, title="Complete September-November 2026 statements")
+    checked = await verify_packet(
+        **arguments, packet=claimed, interpret=AsyncMock(return_value=ready_verdict())
+    )
+    assert checked.state == "incomplete" and checked.correct_coverage is False
+    assert UNSUPPORTED_COMPLETE in checked.issues
+
+    exact = months_packet(members, title="September and November 2026 statements")
+    checked = await verify_packet(
+        **arguments, packet=exact, interpret=AsyncMock(return_value=ready_verdict())
+    )
+    assert checked.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "quote", "ready"),
+    [
+        (
+            "2026-07-01",
+            "2026-09-30",
+            "For the quarter ended September 30, 2026, account value as of September 30, 2026",
+            True,
+        ),
+        (
+            "2025-01-01",
+            "2025-12-31",
+            "Annual statement for the year ended 12/31/2025; balance as of 12/31/2025",
+            True,
+        ),
+        # The stated unit must match the window: one month is not a quarter.
+        (
+            "2026-07-01",
+            "2026-09-30",
+            "For the month ended September 30, 2026, account value as of September 30, 2026",
+            False,
+        ),
+    ],
+    ids=["quarter_ended", "year_ended", "month_unit_for_a_quarter"],
+)
+async def test_window_stated_by_its_unit_and_end_date_stands_beside_a_snapshot(
+    start, end, quote, ready
+):
+    facts = statement_facts()
+    period = window(start, end, quote)
+    facts.update(periods=[period], date_evidence=[dated("as_of", end, quote)])
+    arguments = dict(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[statement_member("statement", facts)],
+        interpret=AsyncMock(return_value=statement_packet(["statement"], [period])),
+    )
+    if ready:
+        assert (await construct_packet(**arguments)).state == "ready"
+        return
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments)
+    assert info.value.issues == [{"field": "periods", "item": 0, "date_role": "as_of"}]
+
+
+@pytest.mark.parametrize(
+    ("months", "copy", "ready"),
+    [
+        # A quarter names its three months, not its whole year.
+        ([7, 8, 9], {"title": "Complete Q3 2026 statements"}, True),
+        ([7, 8, 9], {"title": "Complete third-quarter 2026 statements"}, True),
+        ([7, 8, 9], {"title": "Complete Q2 and Q3 2026 statements"}, False),
+        # Year-to-date runs from January through the packet's last month.
+        ([1, 2, 3], {"coverage_summary": "Complete year-to-date 2026 statements"}, True),
+        ([2, 3], {"coverage_summary": "Complete YTD 2026 statements"}, False),
+        # The modal verb is not the month May.
+        ([9, 11], {"utility_rationale": "All statements may help a lender"}, True),
+        ([9], {"title": "Complete May 2026 statement"}, False),
+    ],
+    ids=[
+        "one_quarter",
+        "ordinal_quarter",
+        "missing_quarter",
+        "year_to_date",
+        "year_to_date_gap",
+        "modal_may",
+        "month_may",
+    ],
+)
+async def test_completeness_claims_name_quarters_year_to_date_and_may(months, copy, ready):
+    members = [month_member(f"m{month}", month) for month in months]
+    if ready:
+        assert (await build_months(members, **copy)).state == "ready"
+        return
+    with pytest.raises(EvidenceValidationError) as info:
+        await build_months(members, **copy)
+    assert info.value.code == "model_readiness_invalid"

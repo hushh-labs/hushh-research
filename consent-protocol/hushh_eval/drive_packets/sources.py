@@ -382,6 +382,28 @@ class UatReadOnlySource:
                 after = str(rows[-1]["document_id"])
         return {"generation": generation, "documents": documents}
 
+    def owner_identity(self) -> dict:
+        """The owner's name on file, read-only, as DrivePacketStore.owner_identity
+        reads it for the wrong-person fence. Memory only; never written."""
+        from sqlalchemy import text
+
+        with self.engine.connect() as db:
+            assert_read_only(db)
+            if not db.execute(
+                text("SELECT to_regclass('actor_identity_cache') IS NOT NULL")
+            ).scalar_one():
+                return {"names": []}
+            row = (
+                db.execute(
+                    text("SELECT display_name FROM actor_identity_cache WHERE user_id=:owner"),
+                    {"owner": self.owner},
+                )
+                .mappings()
+                .first()
+            )
+        name = row["display_name"] if row else None
+        return {"names": [name.strip()] if isinstance(name, str) and name.strip() else []}
+
     def served_pages(self, document: dict) -> list[dict]:
         """Decrypt one document's current extraction pages in memory."""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM

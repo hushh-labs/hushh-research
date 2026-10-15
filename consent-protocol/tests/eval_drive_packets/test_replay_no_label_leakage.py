@@ -156,3 +156,51 @@ async def test_runtime_validation_retries_are_counted_as_codes_only():
         ":1"
     )
     assert count == 1
+
+
+class NamedHolder(replay.FakeInterpret):
+    """The fixture model, reading every document as an account record of one
+    synthetic holder, and a checker that never certifies a nonready proposal."""
+
+    def _document_facts(self, request):
+        answer = super()._document_facts(request)
+        refs = [item["ref"] for item in request["citation_evidence"]][:1]
+        if refs:
+            answer["subject"] = {"value": "Jordan Sample", "citation_refs": refs}
+            answer["account"] = {"value": "Account ending 4417", "citation_refs": refs}
+        return answer
+
+    def _verdict(self, request):
+        answer = super()._verdict(request)
+        if request["proposed_packet"].get("state") != "ready":
+            answer.update(state="incomplete", issues=["Fixture proposal is not Ready."])
+        return answer
+
+
+async def test_owner_name_runs_the_wrong_person_fence_in_replay():
+    def run(owner):
+        runner = ReplayRunner(
+            interpret=NamedHolder(), model="fixture-interpret", budget=Budget(max_usd=50)
+        )
+        return runner.run_owner_path(batch_id="B", cases=cases(1), runtime=RUNTIME, owner=owner)
+
+    checked = await run({"names": ["Avery Quill"]})
+    [packet] = checked.packets
+    assert packet.state == "incomplete"
+    assert packet.visible["assessment"]["gaps"] == ["Document names a different person"]
+    # Without a name the replay is not checked by that fence, as before.
+    assert [item.state for item in (await run(None)).packets] == ["ready"]
+
+
+def test_run_batch_owner_listing_prefers_an_explicit_name():
+    class Source:
+        def owner_identity(self):
+            return {"names": ["Name On File"]}
+
+    explicit = cli.parser().parse_args(
+        ["run-batch", "--workdir", "w", "--batch-id", "B", "--owner-name", " Avery Quill "]
+    )
+    plain = cli.parser().parse_args(["run-batch", "--workdir", "w", "--batch-id", "B"])
+    assert cli._owner_listing(explicit, Source()) == ({"names": ["Avery Quill"]}, "explicit_name")
+    assert cli._owner_listing(plain, Source()) == ({"names": ["Name On File"]}, "name_on_file")
+    assert cli._owner_listing(plain, object()) == (None, "none")

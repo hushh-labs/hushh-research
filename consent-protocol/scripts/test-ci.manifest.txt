@@ -849,6 +849,7 @@ tests/test_workos_enterprise_sso_flow.py
 tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
 tests/services/test_calendar_attendance_service.py
+tests/services/test_calendar_invitations.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.

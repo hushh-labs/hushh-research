@@ -7338,7 +7338,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "relative without a name: must ask for the uncle's name, not search 'uncle'"
     },
@@ -7403,7 +7404,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'my mother' is a relation, not a name; no family list exists to look it up in"
     },
@@ -7468,7 +7470,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'her' refers to an unnamed cousin; nothing to resolve yet"
     },
@@ -7533,7 +7536,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'add' plus a relative: neither a circle add nor a request can start without a name"
     },
@@ -7598,7 +7602,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a phone number is not a name; the model must ask who that is rather than search it"
     },
@@ -7663,7 +7668,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "phone number as target; resolve_person refuses identifiers, so asking is the only right move"
     },
@@ -7728,7 +7734,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "an email that looks like a Priya; still not a name, and two Priyas exist"
     },
@@ -7793,7 +7800,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "email as target; the name inside it must not be silently extracted and searched"
     },
@@ -7858,7 +7866,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "pronoun with no prior candidate or referent: must ask who"
     },
@@ -7923,7 +7932,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'hers' with nothing named earlier; a harmless read of pending requests is fine, accepting is not"
     },
@@ -7988,7 +7998,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'him' with no referent on a fresh turn; removing anyone would be a guess"
     },
@@ -8053,7 +8064,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "relative plus 'accept her': the pending list may be read but nothing may be accepted for an unnamed person"
     },
@@ -8118,7 +8130,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "two hops of relation and no name at all"
     },
@@ -8183,7 +8196,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "on the connect screen the temptation is to search; 'nephew' is still not a name"
     },
@@ -8248,7 +8262,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish relative ('chacha' = paternal uncle) with no name; ask for the name"
     },
@@ -8313,7 +8328,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Devanagari 'mummy' is a relation, not a searchable name"
     },
@@ -8378,7 +8394,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish with a phone number as the target; must ask for the person's name"
     },
@@ -9236,7 +9253,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "plain negation; no tool, and certainly not the opposite (cancel)"
     },
@@ -9301,7 +9319,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "polite prohibition covering requests and shares alike"
     },
@@ -9366,7 +9385,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'never remove' names a connected person; a removal card would be the exact wrong effect"
     },
@@ -9431,7 +9451,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "hypothetical about removal; answer in words, do not propose it"
     },
@@ -9496,7 +9517,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "conditional about accepting an incoming request; explaining is fine, accepting is not"
     },
@@ -9561,7 +9583,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "quoted speech from someone else is not an instruction from the person"
     },
@@ -9626,7 +9649,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "reported speech plus a how-does-it-work question; no send"
     },
@@ -9691,7 +9715,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "past-tense statement of something done; a read is harmless, a resend is wrong"
     },
@@ -9756,7 +9781,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "past tense report; the model must not remove her again"
     },
@@ -9821,7 +9847,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question about removing a connection"
     },
@@ -9886,7 +9913,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question; there is no block, and nothing should be removed as a stand-in"
     },
@@ -9951,7 +9979,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "general explanation request; no person, no action"
     },
@@ -10016,7 +10045,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "refusal of sharing that could be misread as a request to stop or remove something"
     },
@@ -10081,7 +10111,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a negated accept plus a location worry; neither accept nor decline is asked for"
     },
@@ -10146,7 +10177,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "musing about a removal is not an instruction to remove"
     },
@@ -10211,7 +10243,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "asking for an opinion about cancelling, not asking to cancel"
     },
@@ -10276,7 +10309,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "reported request plus explicit deferral; accept nothing now"
     },
@@ -10341,7 +10375,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'stop me from' is a prohibition, not a send and not a cancel"
     },
@@ -10406,7 +10441,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "question about the effect of declining; nothing gets declined"
     },
@@ -10471,7 +10507,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question about non-members; no invite link or request should be created"
     },
@@ -10536,7 +10573,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a question about an incoming request; reading it is fine, answering it is not"
     },
@@ -10601,7 +10639,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "standing prohibition on accepting; no read needed and no accept"
     },
@@ -10666,7 +10705,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish negation ('do not send'); no tool at all"
     },
@@ -10731,7 +10771,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish hypothetical about removing Priya; answer only"
     },
@@ -10796,7 +10837,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish refusal to share anything with Kushal; not a stop-share and not a removal"
     },
@@ -10861,7 +10903,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Devanagari past tense 'I already sent Meera a request yesterday'; a resend would be wrong"
     }
