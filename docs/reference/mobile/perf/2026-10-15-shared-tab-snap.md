@@ -53,8 +53,17 @@ CI=1 npx playwright test e2e/wallet-workspace.layout.spec.ts --project=chromium 
 npm run verify:render-performance
 ```
 
-The real-Embla browser cases enforce sustained arrival below 400ms and at most
-3px overshoot on 390px and 1024px layouts. Additional trusted-pointer fixture
+The real-Embla browser cases compose `TopShellTabs` and `SwipeViews` around
+three simple panes, isolating spring behavior from Wallet form rendering. They
+enforce sustained arrival below 400ms and at most 3px overshoot on 390px and
+1024px layouts. Full Wallet Add/scroll/swipe cases retain workspace coverage.
+A temporary fixture transform removing the programmatic spring override made
+both 1024px cases fail: sustained arrival took 544ms in Chromium and 539ms in
+WebKit. The transform was removed after this negative control.
+Under concurrent local browser load, the full Wallet recorded 400–416ms WebKit
+arrival with 129–132ms before its first frame and 145–150ms frame gaps; isolated
+spring timing does not establish that this rendering overhead is fixed.
+Additional trusted-pointer fixture
 checks cover a rapid Rewards-to-Ranking retarget, a short fast swipe and reduced
 motion in both engines. The unit contract covers destination echoes, rapid
 retargeting and restoration of drag physics.
