@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-14.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-15.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,23 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+### Main integration and Profile escape control — 2026-10-15
+
+Merge `a2d1a7fff2` incorporates main `57a2c39744`, preserving native presentation
+and owner/revision fences. Profile's native Account stack attaches Close to its
+root and destination content, not outside `NavigationStack`. Generated Profile
+artwork now uses the shared outline registry. Typecheck, 459 Back cases, the
+focused Profile/icon/bridge checks, design-system and native-static checks pass.
+The advisory text-based merge heuristic exceeded its budget; its outcome is
+inconclusive, not a fidelity pass. Conflict resolutions were reviewed directly.
+
+The installed escape-control candidate reaches Account and the native Name form.
+Its follow-up test incorrectly counted an accessibility-hidden WebView as a lost
+host; the check now requires isolation while covered and one web workspace after
+Close. The corrected combined candidate still needs device execution. Other
+Profile destinations retain their documented handoffs; this does not qualify
+those transitions, accessibility or Release frame pacing.
 
 ### Retained native Profile Account stack candidate — 2026-10-14
 
