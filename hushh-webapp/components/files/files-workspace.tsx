@@ -272,7 +272,7 @@ export function FilesWorkspace() {
                       onClick={() =>
                         void act(
                           () => hosting === "shared" ? load() : ApiService.reconnectOwnerPod(),
-                          hosting === "shared" ? "Files refreshed" : "Pod connected",
+                          hosting === "shared" ? "Files refreshed" : "Pod connected", hosting !== "shared",
                         )
                       }
                     >

@@ -60,7 +60,7 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
     } catch {
       if (!controller.signal.aborted)
         toast.error(
-          "Organization history is unavailable. Reconnect your pod and try again.",
+          "Organization history is unavailable. Try refreshing.",
         );
     } finally {
       if (!controller.signal.aborted) setBusy(false);
