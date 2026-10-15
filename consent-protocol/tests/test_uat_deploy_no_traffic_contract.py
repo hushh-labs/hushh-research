@@ -675,6 +675,114 @@ gcloud() {
         assert probe.index(required) < advisory
 
 
+def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    assert dispatch["inputs"]["skip_managed_vertex_probe_once"]["default"] is False
+    steps = workflow["jobs"]["select-target"]["steps"]
+    validation = next(
+        step for step in steps if step["name"] == "Validate one-time Vertex probe exception"
+    )
+    assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
+    for required in (
+        "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        '"$REQUESTED_SCOPE" != "all"',
+        '"$LIVE_CHECKS" != "false"',
+        '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
+    ):
+        assert required in validation["run"]
+    allowed_dispatch = {
+        "REQUESTED_SHA": "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        "REQUESTED_SCOPE": "all",
+        "LIVE_CHECKS": "false",
+        "GITHUB_ACTOR": "ankitkumarsingh1702",
+    }
+
+    def validate_dispatch(date: str = "2026-10-16", **overrides: str) -> int:
+        script = f"date() {{ printf '%s\\n' '{date}'; }}\n" + validation["run"]
+        result = subprocess.run(  # noqa: S603 - production workflow guard with synthetic inputs only.
+            ["/bin/bash", "-c", script],
+            env={**os.environ, **allowed_dispatch, **overrides},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode
+
+    assert validate_dispatch() == 0
+    assert validate_dispatch(REQUESTED_SHA="b" * 40) != 0
+    assert validate_dispatch(REQUESTED_SCOPE="backend") != 0
+    assert validate_dispatch(LIVE_CHECKS="true") != 0
+    assert validate_dispatch(GITHUB_ACTOR="another-admin") != 0
+    assert validate_dispatch(date="2026-10-18") != 0
+    deploy = workflow["jobs"]["deploy"]["steps"]
+    preserve = next(step for step in deploy if step["name"] == "Preserve current release tooling")
+    checkout = next(step for step in deploy if step["name"] == "Checkout deployment SHA")
+    assert "release-tools/backend.cloudbuild.yaml" in preserve["run"]
+    assert "release-tools/backend.cloudbuild.yaml" in checkout["run"]
+    for step in (preserve, checkout):
+        assert '"${{ inputs.skip_managed_vertex_probe_once }}" == "true"' in step["run"]
+    backend = next(step for step in deploy if step.get("id") == "deploy-backend")
+    assert (
+        "##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
+        in backend["run"]
+    )
+
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    assert build["substitutions"]["_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE"] == "false"
+    probe = next(
+        step["args"][-1]
+        for step in build["steps"]
+        if step.get("id") == "verify-managed-vertex-runtime"
+    )
+    assert "one-time UAT Vertex probe skip" in probe
+    assert probe.index("one-time UAT Vertex probe skip") < probe.index(
+        'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in'
+    )
+    preflight = next(
+        step["args"][-1] for step in build["steps"] if step.get("id") == "verify-runtime-iam"
+    )
+    guard = preflight[: preflight.index('if [[ -z "${_RUNTIME_SERVICE_ACCOUNT}" ]]')]
+    valid = {
+        "PROJECT_ID": "hushh-pda-uat",
+        "_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE": "true",
+        "_DEPLOY_ENV": "uat",
+        "_DEPLOY_SOURCE": "deploy-uat",
+        "_DEPLOY_SHA": "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+        "_CLOUD_RUN_NO_TRAFFIC": "true",
+        "_VERIFY_MANAGED_VERTEX_RUNTIME": "true",
+        "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
+        "_GITHUB_RUN_ID": "123456789",
+        "_CLOUD_RUN_TAG": "account-deletion-123456789",
+    }
+
+    def run_case(**overrides: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - production guard with synthetic environment only.
+            ["/bin/bash", "-c", guard],
+            env={**os.environ, **valid, **overrides},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    approved = run_case()
+    assert approved.returncode == 0, approved.stderr
+    for key, value in (
+        ("PROJECT_ID", "another-project"),
+        ("_DEPLOY_ENV", "production"),
+        ("_DEPLOY_SOURCE", "manual"),
+        ("_DEPLOY_SHA", "b" * 40),
+        ("_CLOUD_RUN_NO_TRAFFIC", "false"),
+        ("_VERIFY_MANAGED_VERTEX_RUNTIME", "false"),
+        ("_IMAGE_REFERENCE", "gcr.io/hushh-pda-uat/consent-protocol:latest"),
+        ("_GITHUB_RUN_ID", "not-a-run"),
+        ("_CLOUD_RUN_TAG", "another-tag"),
+        ("_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE", "unexpected"),
+    ):
+        rejected = run_case(**{key: value})
+        assert rejected.returncode != 0, (key, rejected.stdout, rejected.stderr)
+
+
 def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     probe = next(

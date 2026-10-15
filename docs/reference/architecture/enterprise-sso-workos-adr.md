@@ -58,8 +58,11 @@ Proposed. Two decisions are explicitly open (see [Open decisions](#open-decision
 | WorkOS org id, WorkOS user id | Custom claims `workosOrgId`, `workosUserId` on the Firebase user |
 | How the account came to exist | Claim `workosOrigin`: `created` (SSO made it) or `linked` (it already existed) |
 | Deprovisioned | Claim `workosDeprovisionedAt`; plus Firebase `disabled` for `created` accounts |
+| The person's name | Firebase `displayName`, the same place a Google or Apple sign-in puts it; the identity shadow syncs from there |
 
 Claims are merged into the existing claim object, never written over it (`set_custom_user_claims` replaces the whole object, and `hushhWelcomeMailAt` already lives there).
+
+**What we keep from the IdP profile.** The WorkOS profile id, its organization, the email, and the name (first and last, or a full name when the IdP sends no split). Groups, roles, raw attributes and the WorkOS access token are not read. The name is written to Firebase `displayName` only when the account has none, so a name the person chose, or one a Google or Apple sign-in already gave the account, is never replaced, and later changes at the IdP do not follow. It passes the same rules as the name editor in the app (2-60 characters, no links or handles); a name that fails them is dropped. Failing to save a name never blocks sign-in.
 
 **Resolving the account on exchange**
 

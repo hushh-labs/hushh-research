@@ -3,6 +3,7 @@ import type { OneLocationMyRecipientKey } from "@/lib/one-location/types";
 import { decryptExport, encryptForExport, generateExportKey } from "@/lib/vault/export-encrypt";
 import { DIRECT_MESSAGE_MAX_LENGTH } from "@/lib/services/direct-messages-service";
 import { projectSharedPaymentCard, type SharedPaymentCard } from "./shared-payment-card";
+import { cardRequestReference } from "./card-request";
 export { projectSharedPaymentCard, type SharedPaymentCard } from "./shared-payment-card";
 
 const PREFIX = "hushh-wallet-card:v1:";
@@ -25,6 +26,7 @@ function keyValid(key: RecipientPayloadEnvelope) {
 }
 export function isWalletCardShare(content: string): boolean { return content.startsWith(PREFIX); }
 export function walletMessagePreview(content: string): string {
+  if (cardRequestReference(content)) return "Card request";
   return isWalletCardShare(content) || /^\[wallet-access:[a-f0-9-]{36}\]$/i.test(content) ? "Shared payment card" : content;
 }
 export function parseWalletCardShare(content: string): WalletCardShareEnvelope {

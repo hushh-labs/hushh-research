@@ -1823,7 +1823,7 @@
       "id": "trusted_connections_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight."
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00e2\u2020\u2019inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight."
     },
     {
       "data_class": "audit_regulated",
@@ -1880,6 +1880,16 @@
       "lifecycle_status": "current",
       "owner": "security-audit",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "wallet_card_requests"
+      ],
+      "id": "wallet_incoming_card_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "A connected requester explicitly sends a metadata-only ask. The target opens its recipient-bound Feed notification and chooses a card and duration; the existing grant transaction atomically sends the encrypted response and fulfills the request. A marker or request never authorizes card access."
     },
     {
       "data_class": "personal_encrypted",
@@ -5749,6 +5759,7 @@
           "people.profile.connect",
           "people.profile.manage_consent",
           "people.profile.remove_connection",
+          "people.profile.request_card",
           "people.profile.request_scope",
           "people.profile.review_information_request",
           "route.person_profile"
@@ -6445,21 +6456,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "ffaac2627ca9d2e1984ffec5bd25e87fefddb390d7d9f61c43b46d76c2864f24",
+    "action_gateway": "3ebadf9d425e6d87184f91367be12fa064fb55e861dbf9a4b6de5b0930de5e47",
     "agent_registry": "1ad6cdf5e07bc7bd9410c288d616ab3a773ab5d627b3e801fc6ee363dbe86b3e",
     "cache_manifest": "b7c68de201b0771ca45d2c377796bba4669e52b61e67482d056df76a3c2a7019",
-    "data_plane": "96c52feb774903409872bc86209af09935f534f1bb0d66ca3a517871d766d257",
+    "data_plane": "90f35580cdee4d77d166532d3dbf2dd159a96473878978a59d07a0c98df54c7e",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "09cd47d384d720e3b98fd277a3ae509aaec613f106a74d5bb4ea3bb1f8911897",
-    "route_layout": "d3faea270501258311c28e53837e83e6d2d36c9d61ffb754e0c27c3de809a078",
-    "surface_map": "685df2ed30d04da272f39d99e61174f830ab1b56073eb7f1a405a94e6d74e2fb",
+    "route_index": "3615ecf85e99eb2ba1a649994a04611623cc4e9167e21aa26ce53876741902ef",
+    "route_layout": "cc3a74d27e324628dbc224ee06505deb36273e4bace5a8c9caadf936608f4b50",
+    "surface_map": "194524b4be85c89ccb05db6dde0e17633913b9bd9b480720ed5c2129541ebfd2",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 257,
+    "actions": 258,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6467,6 +6478,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 154,
     "semantic_routes": 14,
-    "table_families": 108
+    "table_families": 109
   }
 }

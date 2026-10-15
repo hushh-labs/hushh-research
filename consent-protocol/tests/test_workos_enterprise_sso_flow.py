@@ -280,6 +280,40 @@ def test_a_rejected_code_exchange_tells_a_misconfiguration_from_a_bad_attempt(
     assert (refused.value.code, refused.value.status_code) == (expected_code, expected_status)
 
 
+def test_the_adapter_keeps_the_name_and_nothing_more_from_the_workos_profile():
+    # Built from the real SDK model so a renamed field fails here instead of silently losing names.
+    from workos.sso.models.profile import Profile
+
+    sdk_profile = Profile(
+        object="profile",
+        id="prof_1",
+        organization_id="org_01",
+        connection_id="conn_1",
+        connection_type=None,
+        idp_id="idp_1",
+        email="ada@acme.example",
+        first_name=" Ada ",
+        last_name="Lovelace",
+        name=None,
+        raw_attributes={"department": "analytical engines"},
+        groups=["admins"],
+    )
+    adapter = WorkOSSdkAdapter(
+        WorkOSConfig(api_key="sk_test_x", client_id="client_x", redirect_uri="https://a.example/b")
+    )
+    adapter._client = SimpleNamespace(
+        sso=SimpleNamespace(get_profile_and_token=lambda **_: SimpleNamespace(profile=sdk_profile))
+    )
+
+    assert adapter.exchange_code("a-code") == SsoProfile(
+        id="prof_1",
+        organization_id="org_01",
+        email="ada@acme.example",
+        first_name="Ada",
+        last_name="Lovelace",
+    )
+
+
 # ── Fakes ──
 
 
@@ -332,12 +366,13 @@ class FakeFirebase:
         self.sessions_revoked = []
         self.quarantine_ok = True
 
-    def add(self, uid, email, *, verified=True, disabled=False, **claims):
+    def add(self, uid, email, *, verified=True, disabled=False, display_name=None, **claims):
         self.users[uid] = {
             "email": email,
             "verified": verified,
             "disabled": disabled,
             "claims": dict(claims),
+            "display_name": display_name,
         }
 
     def _info(self, uid):
@@ -347,6 +382,7 @@ class FakeFirebase:
             email_verified=user["verified"],
             disabled=user["disabled"],
             claims=dict(user["claims"]),
+            display_name=user["display_name"],
         )
 
     async def get_user(self, uid):
@@ -355,12 +391,15 @@ class FakeFirebase:
     async def find_by_email(self, email):
         return next((self._info(uid) for uid, u in self.users.items() if u["email"] == email), None)
 
-    async def create_user(self, uid, email):
+    async def create_user(self, uid, email, display_name=None):
         if uid in self.users:
             return  # idempotent, like the real adapter
         if any(u["email"] == email for u in self.users.values()):
             raise EnterpriseSsoError("sso_email_conflict", 409)
-        self.add(uid, email)
+        self.add(uid, email, display_name=display_name)
+
+    async def set_display_name(self, uid, display_name):
+        self.users[uid]["display_name"] = display_name
 
     async def merge_claims(self, uid, updates):
         self.users[uid]["claims"] = {**self.users[uid]["claims"], **updates}
@@ -479,6 +518,60 @@ async def test_simultaneous_first_sign_ins_make_one_account(world):
     first, second = await asyncio.gather(_sign_in(world), _sign_in(world))
     assert first["user_id"] == second["user_id"]
     assert len(world.firebase.users) == 1
+
+
+NEW_ACCOUNT = object()
+
+
+@pytest.mark.parametrize(
+    ("existing_name", "first", "last", "full", "expected"),
+    [
+        (NEW_ACCOUNT, "Ada", "Lovelace", None, "Ada Lovelace"),
+        (NEW_ACCOUNT, "Ada", None, None, "Ada"),
+        (NEW_ACCOUNT, None, None, "Ada King", "Ada King"),  # an IdP that sends only a full name
+        (None, "Ada", "Lovelace", None, "Ada Lovelace"),  # a linked account with no name yet
+        ("Countess A.", "Ada", "Lovelace", None, "Countess A."),  # the name already there wins
+        (NEW_ACCOUNT, "ada@acme.example", None, None, None),  # an address is not a name
+        (NEW_ACCOUNT, None, None, None, None),  # the IdP sent no name at all
+    ],
+)
+async def test_the_idps_name_fills_an_empty_profile_and_never_replaces_one(
+    world, existing_name, first, last, full, expected
+):
+    world.workos.profile = replace(
+        world.workos.profile, first_name=first, last_name=last, name=full
+    )
+    if existing_name is not NEW_ACCOUNT:
+        world.firebase.add("uid-existing", "ada@acme.example", display_name=existing_name)
+
+    result = await _sign_in(world)
+
+    assert world.firebase.users[result["user_id"]]["display_name"] == expected
+    assert world.firebase.minted  # a name never stands between a person and signing in
+
+
+async def test_a_returning_sso_account_gets_its_name_on_the_next_sign_in(world):
+    first = await _sign_in(world)  # the IdP sent no name this time
+    world.workos.profile = replace(world.workos.profile, first_name="Ada", last_name="Lovelace")
+
+    again = await _sign_in(world)
+
+    assert again["user_id"] == first["user_id"]
+    assert world.firebase.users[first["user_id"]]["display_name"] == "Ada Lovelace"
+
+
+async def test_a_name_that_cannot_be_saved_does_not_stop_sign_in(world):
+    async def provider_down(uid, display_name):
+        raise RuntimeError("identity provider down")
+
+    world.firebase.add("uid-existing", "ada@acme.example")
+    world.firebase.set_display_name = provider_down
+    world.workos.profile = replace(world.workos.profile, first_name="Ada", last_name="Lovelace")
+
+    result = await _sign_in(world)
+
+    assert result["user_id"] == "uid-existing" and world.firebase.minted
+    assert world.firebase.users["uid-existing"]["display_name"] is None
 
 
 async def test_a_changed_work_email_still_reaches_the_same_account(world):
