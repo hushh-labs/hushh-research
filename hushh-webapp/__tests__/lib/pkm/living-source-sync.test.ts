@@ -1339,6 +1339,36 @@ it("reports one bucketed check per source it read, once per build, and nothing o
   }
 });
 
+it("reports nothing when the vault locks or changes owner while the encrypted write is in flight", async () => {
+  vi.useFakeTimers();
+  // A vault epoch of its own: retry state left by earlier tests cannot leak in.
+  m.epoch = 3030;
+  const verifiedEvents = () => m.track.mock.calls.filter(([name]) => name === "live_memory_source_verified");
+  try {
+    const T0 = Date.parse("2026-10-21T00:00:00.000Z");
+    vi.setSystemTime(T0);
+    m.save.mockImplementationOnce(async (p) => {
+      await p.beforeEffect();
+      const plan = await p.build({ currentDomainData: stored });
+      await p.beforeEffect();
+      stored = plan.domainData;
+      // The write has landed; the vault locks before the sync resumes.
+      m.epoch++;
+      return { success: true };
+    });
+    expect(await syncLivingSources(params)).toEqual({ stored: true, recordsChanged: true });
+    expect(verifiedEvents()).toEqual([]);
+    // The same fence the session's verification stamp already has.
+    expect(getLivingSourceSessionVerification(OWNER, 3030)).toEqual({});
+    // Positive control: the next build, in the session now current, reports every check.
+    vi.setSystemTime(T0 + 60_000);
+    await syncLivingSources(params);
+    expect(verifiedEvents()).toHaveLength(7);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("reports a failed read with its retry band, a bound as capped, and a waiting source not at all", async () => {
   vi.useFakeTimers();
   m.epoch = 2020;

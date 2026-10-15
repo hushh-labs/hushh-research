@@ -1222,8 +1222,10 @@ export async function syncLivingSources(params: {
       params.userId, epoch, verifiedKinds.filter((kind) => !changedKinds.has(kind)), storedSnapshotAt,
     );
   // The store succeeded, so the checks are real. Buckets leave; numbers do not.
-  // A quiet wake that wrote nothing and only re-read the profile reports nothing.
-  emitLiveMemorySourceTelemetry(sourceChecks, { stored: storedChange });
+  // A quiet wake that wrote nothing and only re-read the profile reports nothing,
+  // and neither does a session locked or switched during the awaited write.
+  if (isVaultSessionEpochCurrent(epoch))
+    emitLiveMemorySourceTelemetry(sourceChecks, { stored: storedChange });
   const recordsChanged = changedKinds.size > 0;
   if (incompleteKinds.length)
     throw new LivingSourcesIncompleteError(incompleteKinds, recordsChanged);
