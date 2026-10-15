@@ -159,6 +159,8 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
     private var transitioning = false
     private var applyingProjection = false
     private var retired = false
+    private weak var lastVisiblePage: UIViewController?
+    private var outgoingUserPop: NativeDrawerProjection?
 
     init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
         self.model = model
@@ -168,7 +170,11 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         delegate = self
         model.profileNavigationController = self
         for page in [rootPage, accountPage] {
-            let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak model] _ in model?.close?() })
+            let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in
+                guard let self, !self.retired, self.model.profileNavigationController === self,
+                      self.model.interactionEnabled, self.model.allowsPageInteraction, !self.model.choicePending else { return }
+                self.model.close?()
+            })
             close.accessibilityLabel = "Close Profile"
             close.accessibilityIdentifier = "native-profile-drawer-close"
             page.navigationItem.rightBarButtonItem = close
@@ -195,6 +201,7 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         guard !retired, model.profileNavigationController === self else { return }
+        outgoingUserPop = !applyingProjection && lastVisiblePage === accountPage && viewController === rootPage ? model.projection : nil
         transitioning = true
         model.navigationTransitioning = true
         reconcileInteraction()
@@ -202,21 +209,27 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
         guard !retired, model.profileNavigationController === self else { return }
         let projected = applyingProjection
+        let outgoing = outgoingUserPop
+        outgoingUserPop = nil
         applyingProjection = false
         transitioning = false
         model.navigationTransitioning = false
+        lastVisiblePage = viewController
         #if DEBUG
         model.profileAccountAppeared = viewController === accountPage
         #endif
         // An interrupted edge swipe returns to Account and emits no Back.
         // Programmatic projection changes are never echoed as user operations.
-        if !projected, viewController === rootPage, !model.navigationPath.isEmpty {
-            model.requestPath([], from: model.projection)
+        if !projected, let outgoing, viewController === rootPage,
+           !viewControllers.contains(where: { $0 === accountPage }), !model.navigationPath.isEmpty {
+            model.requestPath([], from: outgoing)
         }
         reconcile()
     }
     private func reconcileInteraction() {
         let admitted = model.interactionEnabled && model.allowsPageInteraction
+        navigationBar.isUserInteractionEnabled = admitted && !model.choicePending
+        navigationBar.accessibilityElementsHidden = !admitted || model.choicePending
         for page in [rootPage, accountPage] {
             page.viewIfLoaded?.isUserInteractionEnabled = admitted
             page.viewIfLoaded?.accessibilityElementsHidden = !admitted
@@ -226,6 +239,7 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         guard !retired else { return }
         retired = true
         delegate = nil
+        outgoingUserPop = nil
         if model.profileNavigationController === self {
             model.profileNavigationController = nil
             model.navigationTransitioning = false
@@ -244,7 +258,7 @@ private struct NativeProfilePageBody: View {
 }
 
 private struct NativeProfileNavigation: UIViewControllerRepresentable {
-    let model: NativeDrawerModel
+    @ObservedObject var model: NativeDrawerModel
     var observer: ((String, CGRect, Bool) -> Void)?
     func makeUIViewController(context: Context) -> NativeProfileNavigationController {
         NativeProfileNavigationController(model: model, observer: observer)
@@ -580,6 +594,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         retirementCompletions.append(completion)
         guard !motion.retired else { return }
         motion.retire()
+        model.profileNavigationController?.retire()
         intentTimeout?.cancel(); intentTimeout = nil
         animator?.stopAnimation(true); animator = nil
         view.endEditing(true)

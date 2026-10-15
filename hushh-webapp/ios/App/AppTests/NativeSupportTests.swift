@@ -957,10 +957,19 @@ final class NativeSupportTests: XCTestCase {
         let navigation = try XCTUnwrap(controller.model.profileNavigationController)
         navigation.popViewController(animated: true)
         XCTAssertEqual(backs, 2, "A native pop cannot commit React Back before UIKit completes")
+        var replacement = privateDrawerState(update: 6, backEnabled: true)
+        replacement.surfaceOpen = true; replacement.profileDestinationId = "account-replacement"
+        replacement.profileStack = account.profileStack
+        controller.update(replacement)
+        await requireRow("edit-name")
+        XCTAssertEqual(backs, 2, "The old pop cannot commit Back against a newer Account incarnation")
+        navigation.popViewController(animated: true)
+        XCTAssertEqual(backs, 2)
         await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 3 }, object: nil)], timeout: 3)
         XCTAssertEqual(controller.model.navigationPath, [])
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"])
         controller.retire()
+        navigation.navigationController(navigation, didShow: navigation.viewControllers[0], animated: true)
         requestBack()
         XCTAssertEqual(backs, 3, "A retained retired callback cannot invoke a route operation")
     }
