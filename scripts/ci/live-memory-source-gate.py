@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 
@@ -14,6 +15,31 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = Path("docs/reference/architecture/live-memory-source-contract.md")
 RECORDS = Path("hushh-webapp/lib/pkm/living-source-records.ts")
 SYNC = Path("hushh-webapp/lib/pkm/living-source-sync.ts")
+JOURNAL_SERVICE = Path("hushh-webapp/lib/services/source-journal-service.ts")
+MIGRATIONS = Path("consent-protocol/db/migrations")
+MIGRATION_NAME = re.compile(r"(\d+)_[a-z0-9_]+\.sql")
+# The newest migration that declares live_memory_source_events.source_kind owns
+# the SQL journal kinds. Only a static IN list is accepted, so a rewritten
+# constraint fails here instead of silently skipping the parity check.
+JOURNAL_TABLE_STATEMENT = re.compile(
+    r"\b(?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE(?:\s+IF\s+EXISTS)?(?:\s+ONLY)?)\s+"
+    r"(?:public\.)?live_memory_source_events\b[^;]*",
+    re.IGNORECASE,
+)
+JOURNAL_KIND_CHECK = re.compile(r"\bCHECK\s*\(\s*source_kind\b", re.IGNORECASE)
+JOURNAL_KIND_IN_LIST = re.compile(r"\bCHECK\s*\(\s*source_kind\s+IN\s*\(([^()]*)\)\s*\)", re.IGNORECASE)
+SQL_KIND_LIST = re.compile(r"\s*'[a-z][a-z0-9_]*'(?:\s*,\s*'[a-z][a-z0-9_]*')*\s*")
+WEB_JOURNAL_KINDS = re.compile(r"\bexport\s+const\s+SOURCE_JOURNAL_KINDS\b[^=]*=\s*\[([^\]]*)\]")
+WEB_KIND_LIST = re.compile(r'\s*"[a-z][a-z0-9_]*"(?:\s*,\s*"[a-z][a-z0-9_]*")*\s*,?\s*')
+# Paid exact-scope answers read authoritative domains and Soul only. The owner
+# inventory, its history, fact index, every Live Mirror module and the
+# memory-refresh cache that serves peekLiveMirror stay out.
+PAID_RETRIEVAL_FILES = (
+    "hushh-webapp/lib/pkm/memory-scope-retrieval.ts",
+    "hushh-webapp/lib/answers/answer-scope-availability.ts",
+)
+LIVE_MEMORY_MODEL_MODULE = re.compile(r"(?:(?:use-)?(?:living-source|live-mirror)-[a-z0-9-]+|memory-refresh)")
+MODULE_SPECIFIER = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"'\n]+)["']""")
 START = "<!-- live-memory-source-contract:v1 -->"
 END = "<!-- /live-memory-source-contract:v1 -->"
 PR_IMPACT_START = "- Live Memory source impact (every feature):"
@@ -214,6 +240,74 @@ def validate_writer_call_sites(sources: dict[str, str]) -> None:
             raise ValueError(f"owner projection mutation call sites changed: {path} has {count}, expected {expected}")
 
 
+def migrations_newest_first(root: Path) -> Iterator[tuple[str, str]]:
+    numbered = [
+        (int(match.group(1)), path)
+        for path in (root / MIGRATIONS).glob("*.sql")
+        if (match := MIGRATION_NAME.fullmatch(path.name))
+    ]
+    for _, path in sorted(numbered, reverse=True):
+        yield path.name, path.read_text(encoding="utf-8")
+
+
+def sql_journal_kinds(migrations: Iterable[tuple[str, str]]) -> tuple[str, list[str]]:
+    """Return the newest live_memory_source_events.source_kind CHECK; input is newest first."""
+    for name, sql in migrations:
+        sql = re.sub(r"--[^\n]*", " ", re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL))
+        lists: list[list[str]] = []
+        touched = False
+        for statement in JOURNAL_TABLE_STATEMENT.finditer(sql):
+            text = statement.group(0)
+            touched = touched or "source_kind" in text.lower()
+            bodies = JOURNAL_KIND_IN_LIST.findall(text)
+            if len(bodies) != len(JOURNAL_KIND_CHECK.findall(text)) or not all(map(SQL_KIND_LIST.fullmatch, bodies)):
+                raise ValueError(f"{name}: live_memory_source_events.source_kind CHECK must be a static IN list")
+            lists.extend(re.findall(r"'([a-z][a-z0-9_]*)'", body) for body in bodies)
+        if lists:
+            return name, lists[-1]
+        if touched:
+            # A dropped or rewritten constraint must not fall back to an older list.
+            raise ValueError(f"{name}: live_memory_source_events.source_kind CHECK must be a static IN list")
+    raise ValueError("cannot locate the live_memory_source_events.source_kind CHECK")
+
+
+def web_journal_kinds(code: str) -> list[str]:
+    match = WEB_JOURNAL_KINDS.search(code)
+    if not match or not WEB_KIND_LIST.fullmatch(match.group(1)):
+        raise ValueError(f"SOURCE_JOURNAL_KINDS in {JOURNAL_SERVICE} must remain a static literal array")
+    return re.findall(r'"([a-z][a-z0-9_]*)"', match.group(1))
+
+
+def compare_journal_kinds(sql_kinds: list[str], web_kinds: list[str], declared: set[str], migration: str) -> None:
+    if len(set(sql_kinds)) != len(sql_kinds) or len(set(web_kinds)) != len(web_kinds):
+        raise ValueError("journal kinds must not repeat")
+    if set(sql_kinds) != set(web_kinds):
+        raise ValueError(
+            f"journal kinds differ: {migration}={sorted(sql_kinds)}, {JOURNAL_SERVICE.name}={sorted(web_kinds)}"
+        )
+    if not set(sql_kinds) <= declared:
+        raise ValueError(f"journal kinds are not declared sources: {sorted(set(sql_kinds) - declared)}")
+
+
+def validate_journal_kinds(root: Path, sources: list[dict], code: dict[str, str]) -> None:
+    if JOURNAL_SERVICE.as_posix() not in code:
+        raise ValueError(f"journal client is missing: {JOURNAL_SERVICE}")
+    migration, sql_kinds = sql_journal_kinds(migrations_newest_first(root))
+    web_kinds = web_journal_kinds(code[JOURNAL_SERVICE.as_posix()])
+    compare_journal_kinds(sql_kinds, web_kinds, {source["kind"] for source in sources}, migration)
+
+
+def validate_paid_retrieval_imports(code: dict[str, str]) -> None:
+    for path in PAID_RETRIEVAL_FILES:
+        if path not in code:
+            raise ValueError(f"paid retrieval file is missing: {path}")
+        for specifier in MODULE_SPECIFIER.findall(code[path]):
+            parts = specifier.split("/")
+            parts[-1] = re.sub(r"\.[cm]?[jt]sx?$", "", parts[-1])
+            if any(LIVE_MEMORY_MODEL_MODULE.fullmatch(part) for part in parts):
+                raise ValueError(f"paid retrieval imports the Live Memory model: {path} -> {specifier}")
+
+
 def validate(root: Path, sources: list[dict], records_code: str, sync_code: str) -> None:
     typed, _ = registered_kinds(records_code, sync_code)
     kinds: list[str] = []
@@ -384,6 +478,97 @@ def self_test(root: Path, sources: list[dict], records_code: str, sync_code: str
         assert "mutation call sites changed" in str(error)
     else:
         raise AssertionError("new owner projection write under existing source kind passed")
+    self_test_journal_kinds(root, sources, code)
+    self_test_paid_retrieval_imports(code)
+
+
+def self_test_journal_kinds(root: Path, sources: list[dict], code: dict[str, str]) -> None:
+    validate_journal_kinds(root, sources, code)
+    migration, sql_kinds = sql_journal_kinds(migrations_newest_first(root))
+    web_kinds = web_journal_kinds(code[JOURNAL_SERVICE.as_posix()])
+    declared = {source["kind"] for source in sources}
+    for drifted_sql, drifted_web in ((sql_kinds, [*web_kinds, "location"]),
+                                     ([kind for kind in sql_kinds if kind != "profile"], web_kinds)):
+        try:
+            compare_journal_kinds(drifted_sql, drifted_web, declared, migration)
+        except ValueError as error:
+            assert "journal kinds differ" in str(error)
+        else:
+            raise AssertionError("journal kind drift passed")
+    try:
+        compare_journal_kinds([*sql_kinds, "location"], [*web_kinds, "location"], declared, migration)
+    except ValueError as error:
+        assert "not declared sources" in str(error)
+    else:
+        raise AssertionError("undeclared journal kind passed")
+    # A newer migration owns the list, so narrowing it there must be caught.
+    current = (migration, (root / MIGRATIONS / migration).read_text(encoding="utf-8"))
+    newer = ("999_journal_kinds.sql", "-- newer\nALTER TABLE public.live_memory_source_events "
+             "ADD CONSTRAINT live_memory_source_kind CHECK (source_kind IN ('consent'));")
+    assert sql_journal_kinds([current]) == (migration, sql_kinds)
+    narrowed = sql_journal_kinds([newer, current])
+    assert narrowed == ("999_journal_kinds.sql", ["consent"])
+    try:
+        compare_journal_kinds(narrowed[1], web_kinds, declared, narrowed[0])
+    except ValueError as error:
+        assert "journal kinds differ" in str(error)
+    else:
+        raise AssertionError("narrowed newer journal CHECK passed")
+    for unreadable in ("ADD CONSTRAINT k CHECK (source_kind = ANY (ARRAY['profile'::text]))",
+                       "ADD CONSTRAINT k CHECK (source_kind IN (SELECT kind FROM k))",
+                       "ADD CONSTRAINT k CHECK (source_kind IN ('consent')), "
+                       "ADD CONSTRAINT j CHECK (source_kind = ANY (ARRAY['profile'::text]))",
+                       "DROP CONSTRAINT live_memory_source_events_source_kind_check"):
+        try:
+            sql_journal_kinds([("999_journal_kinds.sql", f"ALTER TABLE live_memory_source_events {unreadable};"),
+                               current])
+        except ValueError as error:
+            assert "static IN list" in str(error)
+        else:
+            raise AssertionError("unparsed or dropped journal CHECK passed")
+    service = code[JOURNAL_SERVICE.as_posix()]
+    start = WEB_JOURNAL_KINDS.search(service).start(1)
+    dynamic = f"{service[:start]}...BASE_JOURNAL_KINDS, {service[start:]}"
+    try:
+        web_journal_kinds(dynamic)
+    except ValueError as error:
+        assert "static literal array" in str(error)
+    else:
+        raise AssertionError("dynamic web journal kinds passed")
+
+
+def self_test_paid_retrieval_imports(code: dict[str, str]) -> None:
+    validate_paid_retrieval_imports(code)
+    retrieval, availability = PAID_RETRIEVAL_FILES
+    for path, injected in (
+        (retrieval, 'import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";'),
+        (retrieval, 'import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";'),
+        (retrieval, 'import {\n  buildLiveMirrorProjection,\n} from "./live-mirror-projection.ts";'),
+        (availability, 'export type { LiveMirrorView } from "../pkm/live-mirror-contract";'),
+        (availability, 'const facts = await import("@/lib/pkm/live-mirror-agent-facts");'),
+        (availability, 'import { peekLiveMirror } from "@/lib/pkm/memory-refresh";'),
+        (retrieval, 'import type { MemoryView } from "./memory-refresh.ts";'),
+    ):
+        changed = dict(code)
+        changed[path] = f"{injected}\n{changed[path]}"
+        try:
+            validate_paid_retrieval_imports(changed)
+        except ValueError as error:
+            assert "paid retrieval imports the Live Memory model" in str(error)
+        else:
+            raise AssertionError("Live Memory model import into paid retrieval passed")
+    # The authoritative slice store and Soul reader remain the only memory path.
+    allowed = dict(code)
+    store = 'import { readMemoryDocumentProjection } from "@/lib/pkm/memory-document-store";'
+    allowed[retrieval] = f"{store}\n{allowed[retrieval]}"
+    validate_paid_retrieval_imports(allowed)
+    renamed = {path: text for path, text in code.items() if path != availability}
+    try:
+        validate_paid_retrieval_imports(renamed)
+    except ValueError as error:
+        assert "paid retrieval file is missing" in str(error)
+    else:
+        raise AssertionError("missing paid retrieval file passed")
 
 
 def main() -> None:
@@ -400,6 +585,8 @@ def main() -> None:
     else:
         validate(ROOT, sources, records_code, sync_code)
         validate_writer_call_sites(code)
+        validate_journal_kinds(ROOT, sources, code)
+        validate_paid_retrieval_imports(code)
         validate_pr_event({source["kind"] for source in sources})
         print(f"Live Memory source gate passed ({len(sources)} registered source kinds)")
 

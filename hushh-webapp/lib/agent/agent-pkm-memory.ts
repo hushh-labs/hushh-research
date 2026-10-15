@@ -42,6 +42,13 @@ import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
+import { peekLiveMirror } from "@/lib/pkm/memory-refresh";
+import {
+  appendLiveMirrorPacket,
+  buildLiveMirrorFactsPacket,
+  liveMirrorPacketBudget,
+  type LiveMirrorFactsPacket,
+} from "@/lib/pkm/live-mirror-agent-facts";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -146,6 +153,8 @@ export type AgentPkmContext = {
   coverage?: AgentPkmContextCoverage;
   /** Settings style choices for the separate `communicationPreferences` field. */
   communicationPreferences?: OwnerStyleSettings;
+  /** Live Mirror packet counts for debug and telemetry. Never its text. */
+  liveMirror?: { shownFacts: number; omittedFacts: number };
 };
 
 export type AgentPkmSaveResult = {
@@ -983,6 +992,32 @@ export function buildAgentPkmContextFromMetadata(
   };
 }
 
+/**
+ * Soul.md first and never shortened, then the owner's bounded Live Mirror
+ * facts for the same owner and vault epoch. The packet is omitted, never
+ * clipped, when Soul leaves too little room, and a mirror fault only omits
+ * the packet: it never costs the turn its Soul.
+ */
+function withLiveMirrorFacts(userId: string, vaultEpoch: number, context: AgentPkmContext): AgentPkmContext {
+  let packet: LiveMirrorFactsPacket;
+  try {
+    packet = buildLiveMirrorFactsPacket({
+      expectedOwnerId: userId,
+      currentVaultEpoch: vaultEpoch,
+      view: peekLiveMirror(userId),
+      budgetChars: liveMirrorPacketBudget(context.text.length),
+      now: Date.now(),
+    });
+  } catch {
+    return context;
+  }
+  return {
+    ...context,
+    text: appendLiveMirrorPacket(context.text, packet.text),
+    liveMirror: { shownFacts: packet.shownFacts, omittedFacts: packet.omittedFacts },
+  };
+}
+
 export async function loadAgentPkmContext(params: {
   userId: string;
   vaultOwnerToken: string;
@@ -1026,7 +1061,15 @@ export async function loadAgentPkmContext(params: {
         await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken });
         if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
           return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
-        return markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory);
+        const context = withLiveMirrorFacts(
+          params.userId,
+          vaultEpoch,
+          markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
+        );
+        // The packet never outlives the vault session it was read in.
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        return context;
       }
 
       if (params.requireDecrypted) {
@@ -1080,8 +1123,10 @@ export function peekAgentPkmContext(params: {
   maxChars?: number;
 }): AgentPkmContext | null {
   const markdownMemory = peekMarkdownMemory(params.userId);
-  if (markdownMemory) return markdownMemoryToAgentContext(markdownMemory);
-  return null;
+  if (!markdownMemory) return null;
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const context = withLiveMirrorFacts(params.userId, vaultEpoch, markdownMemoryToAgentContext(markdownMemory));
+  return isVaultSessionEpochCurrent(vaultEpoch) ? context : null;
 }
 
 export function warmAgentPkmContext(params: {
