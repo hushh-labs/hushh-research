@@ -91,14 +91,15 @@ retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
 Maintenance runs hourly or by explicit governed manual request; no deployment
 event starts it. GitHub delivered only 3-6 of the 24 daily runs of the minute-17
-cron on 2026-10-12..14, so the cron only starts an hourly clock: each scheduled
-or clock pass ends in `next-pass`, which waits 60 minutes in the
-`capacity-maintenance-clock` environment (a wait timer, so no runner is held) and
-then sends one `capacity-maintenance-tick` repository dispatch. A tick has exactly
-the scheduled pass's authority. Scheduled requests and ticks coalesce without
-cancelling active work, so a second chain collapses into the first, and manual
-requests keep independent identities. Cancelling the waiting run stops the clock
-until the next delivered cron. Each mutation pass verifies
+cron on 2026-10-12..14, so **Capacity Maintenance Clock** keeps the hourly cadence:
+each clock run checks both environments without cloud credentials, sends one
+`capacity-maintenance-tick` repository dispatch only when maintenance is due, and
+re-arms itself after a 60-minute wait in the `capacity-maintenance-clock`
+environment (a wait timer, so no runner is held). A tick has exactly the scheduled
+pass's authority, and quiet hours add no maintenance run. Scheduled requests and
+ticks coalesce without cancelling active work, and manual requests keep independent
+identities. Cancelling the clock's waiting run stops it until its next delivered
+cron. Each mutation pass verifies
 its source against live traffic, removes unused tags, and saves drain evidence in
 `uat-retention-state` or `production-retention-state`. A later hourly pass deletes
 only eligible revisions after the maximum request timeout plus 60 seconds. A backend

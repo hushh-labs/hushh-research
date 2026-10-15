@@ -3,12 +3,12 @@ name: Capacity Maintenance
 on:
   schedule:
     - cron: "17 * * * *"
-  # The hourly clock. GitHub delivered only 3-6 of the 24 daily runs of this
-  # cron (and of verify-protected-lists.yml's identical one) on 2026-10-12..14,
-  # with median gaps of 5-6 h and up to 10.6 h. Each scheduled or clock pass
-  # therefore queues its successor through `next-pass` below; the cron stays
-  # as the bootstrap and backstop. A tick carries no inputs and grants exactly
-  # the scheduled pass's authority.
+  # GitHub delivered only 3-6 of the 24 daily runs of this cron (and of
+  # verify-protected-lists.yml's identical one) on 2026-10-12..14, with median
+  # gaps of 5-6 h and up to 10.6 h. capacity-maintenance-clock.yml checks every
+  # hour, without cloud credentials, and sends this tick only when maintenance
+  # is due, so quiet hours add no run here. A tick carries no inputs and
+  # grants exactly the scheduled pass's authority.
   repository_dispatch:
     types: [capacity-maintenance-tick]
   workflow_dispatch:
@@ -30,8 +30,7 @@ on:
 
 # Coalesce only scheduled work (cron and clock ticks); manual requests have
 # independent identities. Keep the default one-pending queue here, never
-# cancel an active mutation. Because every clock pass joins this group, any
-# second chain collapses into the first.
+# cancel an active mutation.
 concurrency:
   group: capacity-maintenance-${{ (github.event_name == 'schedule' || github.event_name == 'repository_dispatch') && 'scheduled' || github.run_id }}
   cancel-in-progress: false
@@ -54,7 +53,6 @@ jobs:
     outputs:
       uat_ready: ${{ steps.uat.outputs.cleanup_ready }}
       production_ready: ${{ steps.production.outputs.cleanup_ready }}
-      clock: ${{ steps.authority.outputs.clock }}
     steps:
       - name: Checkout authority tooling
         uses: actions/checkout@v6
@@ -75,8 +73,8 @@ jobs:
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
             repository_dispatch)
-              # A tick is the scheduled pass, sent by the previous pass's
-              # GITHUB_TOKEN; a governed operator may send one to restart it.
+              # A tick is the scheduled pass, sent by the clock workflow's
+              # GITHUB_TOKEN; a governed operator may also send one.
               [[ "$CLOCK_EVENT_TYPE" = capacity-maintenance-tick ]] || exit 1
               if [[ "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
                 python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
@@ -90,10 +88,6 @@ jobs:
               ;;
             *) echo "Unsupported maintenance trigger" >&2; exit 1 ;;
           esac
-          # Only an authorized scheduled or clock pass queues the next one.
-          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch ]]; then
-            echo "clock=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          fi
 
       - name: Verify due uat source
         id: uat
@@ -279,39 +273,3 @@ jobs:
             echo "Provider outcome requires operator reconciliation." >&2
             exit 1
           fi
-
-  # The hourly clock (see `repository_dispatch` above). GitHub holds this job
-  # in the capacity-maintenance-clock environment's 60-minute wait timer
-  # before sending it to any runner, so nothing sleeps on the shared pool. It
-  # then queues one tick, which waits in the scheduled concurrency group until
-  # this run completes. Cancel the waiting run to stop the clock; the next
-  # delivered cron starts it again.
-  next-pass:
-    name: Queue the next hourly pass
-    needs: [select-release, uat-maintenance, cleanup]
-    if: ${{ !cancelled() && needs.select-release.outputs.clock == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment:
-      name: capacity-maintenance-clock
-    permissions:
-      actions: read
-      contents: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CLOCK_MIN_ELAPSED_SECONDS: "3300"
-    steps:
-      - name: Queue the next pass after the clock's wait
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Without the wait timer this job would start at once and the clock
-          # would spin a pass every few minutes. Refuse to queue early.
-          started="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
-          elapsed="$(python3 -c 'import sys, datetime as d; s = d.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00")); print(int((d.datetime.now(d.timezone.utc) - s).total_seconds()))' "$started")"
-          if (( elapsed < CLOCK_MIN_ELAPSED_SECONDS )); then
-            echo "::error title=Capacity clock::This pass started ${elapsed}s ago; the capacity-maintenance-clock environment must hold a 60-minute wait timer. Not queuing the next pass."
-            exit 1
-          fi
-          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=capacity-maintenance-tick
-          echo "Queued the next capacity maintenance pass ${elapsed}s after this one started." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
