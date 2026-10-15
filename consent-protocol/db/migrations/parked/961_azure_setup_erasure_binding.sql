@@ -119,6 +119,22 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
     +(SELECT n*512 FROM active)<=1048576;
 $$;
 
+-- Shared transport receipt contract; neither setup nor cleanup invents its own.
+CREATE OR REPLACE FUNCTION public.valid_azure_arm_acknowledgement(receipt jsonb,target text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+ SELECT receipt ?& ARRAY['status','operationUrl','operationUrlSha256']
+    AND jsonb_typeof(receipt->'status')='number' AND (receipt->>'status' ~ '^[2-5][0-9]{2}$') IS TRUE
+    AND (receipt->'operationUrlSha256'='null'::jsonb OR (
+      jsonb_typeof(receipt->'operationUrlSha256')='string'
+      AND receipt->>'operationUrlSha256' ~ '^[0-9a-f]{64}$'))
+    AND ((receipt->'operationUrl'='null'::jsonb) OR (
+      jsonb_typeof(receipt->'operationUrl')='string'
+      AND starts_with(receipt->>'operationUrl','https://management.azure.com/subscriptions/'||
+        split_part(target,'/',3)||'/')
+      AND receipt->>'operationUrl' ~ '^https://management\.azure\.com/[A-Za-z0-9_./():-]+(\?(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true)(&(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true))?)?$'
+      AND receipt->>'operationUrlSha256'=encode(sha256(convert_to(receipt->>'operationUrl','UTF8')),'hex')));
+$$;
+
 CREATE OR REPLACE FUNCTION public.valid_byoc_azure_worker_event(
  owner_id text, expected_job text, event jsonb, history jsonb, target text, hushh_id text
 ) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
@@ -196,17 +212,7 @@ BEGIN
  IF kind='azure_provider_ack' THEN
    RETURN acknowledgement IS NULL
     AND event-ARRAY['stage','jobId','executionId','requestId','status','operationUrl','operationUrlSha256']='{}'::jsonb
-    AND event ?& ARRAY['status','operationUrl','operationUrlSha256']
-    AND jsonb_typeof(event->'status')='number' AND (event->>'status' ~ '^[2-5][0-9]{2}$') IS TRUE
-    AND (event->'operationUrlSha256'='null'::jsonb OR (
-      jsonb_typeof(event->'operationUrlSha256')='string'
-      AND event->>'operationUrlSha256' ~ '^[0-9a-f]{64}$'))
-    AND ((event->'operationUrl'='null'::jsonb) OR (
-      jsonb_typeof(event->'operationUrl')='string'
-      AND starts_with(event->>'operationUrl','https://management.azure.com/subscriptions/'||
-        split_part(target,'/',3)||'/')
-      AND event->>'operationUrl' ~ '^https://management\.azure\.com/[A-Za-z0-9_./():-]+(\?(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true)(&(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true))?)?$'
-      AND event->>'operationUrlSha256'=encode(sha256(convert_to(event->>'operationUrl','UTF8')),'hex')));
+    AND public.valid_azure_arm_acknowledgement(event,target) IS TRUE;
  END IF;
  IF kind='azure_provider_terminal' THEN
    RETURN event-ARRAY['stage','jobId','executionId','requestId','outcome']='{}'::jsonb

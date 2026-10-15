@@ -1008,6 +1008,8 @@ tests/test_azure_openai_turn_doors.py
 # Azure lane hub-azure (2026-10-02)
 tests/test_azure_arm_client.py
 tests/test_azure_setup_authority_postgres.py
+tests/test_azure_resource_teardown.py
+tests/test_azure_resource_teardown_postgres.py
 tests/test_azure_federation.py
 tests/test_azure_entra_authorizer.py
 tests/test_azure_home_directory.py

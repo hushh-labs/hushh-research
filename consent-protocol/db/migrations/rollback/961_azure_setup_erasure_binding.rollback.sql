@@ -21,6 +21,7 @@ DROP FUNCTION public.retain_byoc_azure_setup_intent(text,text,jsonb);
 DROP FUNCTION public.begin_byoc_azure_worker(text,text,text);
 DROP FUNCTION public.retain_byoc_azure_worker_event(text,text,jsonb);
 DROP FUNCTION public.valid_byoc_azure_worker_event(text,text,jsonb,jsonb,text,text);
+DROP FUNCTION public.valid_azure_arm_acknowledgement(jsonb,text);
 DROP FUNCTION public.byoc_azure_worker_session_held(text);
 DROP FUNCTION public.byoc_azure_worker_history_has_capacity(jsonb);
 DROP FUNCTION public.byoc_azure_setup_guards_ready();
