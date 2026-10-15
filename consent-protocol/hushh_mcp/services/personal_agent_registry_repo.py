@@ -318,7 +318,8 @@ class PersonalAgentRegistryRepo:
         try:
             result = await asyncio.to_thread(
                 self._db().execute_raw,
-                "SELECT public.notification_checkpoint_admission_ready() AS ready",
+                "SELECT public.notification_checkpoint_admission_ready() "
+                "AND public.operator_notification_custody_ready() AS ready",
                 {},
             )
             return bool(result.data and result.data[0].get("ready") is True)

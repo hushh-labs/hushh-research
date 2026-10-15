@@ -78,7 +78,7 @@ def test_bootstrap_plan_is_least_privilege_and_keyless():
 def test_bootstrap_plan_includes_metadata_only_mail_trigger(monkeypatch):
     monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
     plan = _backend().render_bootstrap_plan(_spec())
-    # The whole mail-event trigger lives inside the user's project (BYOC).
+    # Gmail's topic is in the OAuth developer project; delivery stays owner-local.
     kinds = {r["type"] for r in plan["resources"]}
     assert {"pubsub_topic", "pubsub_subscription", "cloud_scheduler_job"} <= kinds
     members = {(b["member"], b["role"]) for b in plan["gmailNotifications"]["operatorIam"]}
@@ -92,6 +92,7 @@ def test_bootstrap_plan_includes_metadata_only_mail_trigger(monkeypatch):
     ]
     assert "push to your agent's own URL" in sub["delivery"]
     assert sub["on"].startswith("projects/oauth-developer-project/topics/")
+    assert any(r["id"] == sub["on"] and r["type"] == "pubsub_topic" for r in plan["resources"])
     legacy = [r for r in plan["resources"] if r.get("legacyOnly")]
     assert {r["type"] for r in legacy} == {"pubsub_topic", "pubsub_subscription"}
     # It is a doorbell: metadata only, body opened by the pod, Hushh out of the path.
@@ -539,3 +540,98 @@ def test_image_update_preserves_recovery_probe_and_refuses_tcp_readiness(honest_
     assert updated["startupProbe"] == container["startupProbe"]
     assert updated["livenessProbe"] == container["livenessProbe"]
     assert existing == observed
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "deleted",
+        "wrong_adc",
+        "user_adc",
+        "foreign_owner",
+        "adopted",
+        "shared_policy",
+        "conditional",
+        "subscribed",
+        "uncertain",
+    ],
+)
+async def test_operator_topic_cleanup_uses_only_attached_authority_and_exclusive_receipts(
+    monkeypatch, case
+):
+    import google.auth
+    import requests
+    from google.auth.compute_engine import Credentials
+    from google.oauth2.credentials import Credentials as UserCredentials
+
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+    from hushh_mcp.services.gcp_attached_operator import AttachedOperatorRefused
+    from tests.fixtures.operator_mail import operator_cleanup_session as _operator_cleanup_session
+
+    bootstrap = "one-bootstrap@owner-project.iam.gserviceaccount.com"
+    operator = "consent-plane@operator-project.iam.gserviceaccount.com"
+    topic = "projects/oauth-project/topics/one-mail-owner"
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-project")
+    credentials = (
+        UserCredentials(token="synthetic")  # noqa: S106 -- scripted non-owner ADC
+        if case == "user_adc"
+        else Credentials(
+            service_account_email="wrong@operator-project.iam.gserviceaccount.com"
+            if case == "wrong_adc"
+            else operator
+        )
+    )
+    credentials.token = "synthetic-operator-token"
+    monkeypatch.setattr(google.auth, "default", lambda **kw: (credentials, "operator-project"))
+
+    def no_owner_token(**kw):
+        raise AssertionError("owner credentials must never reach the OAuth project")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.user_gcp_bootstrap.mint_bootstrap_token", no_owner_token
+    )
+    session, grants = _operator_cleanup_session(topic, bootstrap, case)
+    monkeypatch.setattr(requests, "get", session.get)
+    monkeypatch.setattr(requests, "delete", session.delete)
+    backend = UserGcpBackend(
+        user_project="owner-project",
+        live=True,
+        bootstrap_sa=bootstrap,
+        hushh_id="foreign" if case == "foreign_owner" else "owner",
+        hushh_invoker_sa=operator,
+    )
+    observation = {
+        "type": "pubsub_topic",
+        "id": topic,
+        "disposition": "created",
+        "identity": {"name": topic},
+    }
+    state, retained = {}, []
+
+    async def invoke():
+        await backend.erase_mail_resource(
+            observation=observation,
+            state=state,
+            operator_bindings=grants,
+            retain_receipt=lambda stage, receipt: retained.append(stage) is None,
+        )
+
+    if case == "deleted":
+        await invoke()
+        assert retained == ["admission", "acknowledgement", "deletion"]
+    else:
+        with pytest.raises((AttachedOperatorRefused, SubstrateDeleteError)):
+            await invoke()
+        if case == "uncertain":
+            before = len(session.calls)
+            with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
+                await invoke()
+            assert len(session.calls) == before
+    assert sum(method == "DELETE" for method, _, _ in session.calls) == (
+        case in {"deleted", "uncertain"}
+    )
+    assert all(
+        options["headers"]["Authorization"] == "Bearer synthetic-operator-token"
+        and options["allow_redirects"] is False
+        for _, _, options in session.calls
+    )

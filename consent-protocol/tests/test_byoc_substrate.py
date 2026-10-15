@@ -504,6 +504,15 @@ def test_substrate_receipt_retains_intended_iam_obligations_after_partial_failur
         "on": "project:user-proj",
     }
     plan = {**_PLAN, "iam": [{**binding, "note": "synthetic-private-note"}]}
+    operator = {
+        "step": "iam_gmail_publisher_on_topic",
+        "policyResource": "https://pubsub.googleapis.com/v1/projects/oauth-project/topics/one-mail-owner:getIamPolicy",
+        "role": "roles/pubsub.publisher",
+        "member": "serviceAccount:gmail-api-push@system.gserviceaccount.com",
+        "disposition": "added",
+        "beforeEtag": "v1",
+        "afterEtag": "v2",
+    }
 
     def mint(**kwargs):
         if state == "grant_unavailable":
@@ -519,7 +528,13 @@ def test_substrate_receipt_retains_intended_iam_obligations_after_partial_failur
                 "dryRun": dry_run,
                 "ok": state == "applied",
                 "project": "user-proj",
-                "steps": [{"step": "grant", "ok": state == "applied"}],
+                "steps": [
+                    {
+                        "step": "grant",
+                        "ok": state == "applied",
+                        "operatorBindingObservations": [] if dry_run else [operator],
+                    }
+                ],
             }
 
     receipt = asyncio.run(
@@ -539,6 +554,9 @@ def test_substrate_receipt_retains_intended_iam_obligations_after_partial_failur
     ]
     assert "synthetic-private" not in json.dumps(record)
     assert "resourceObservations" not in record
+    assert record.get("operatorBindingObservations", []) == (
+        [operator] if state in {"applied", "partial"} else []
+    )
 
 
 @pytest.mark.parametrize("bindings", [None, {}, [None], [{"role": "roles/aiplatform.user"}]])
@@ -557,3 +575,39 @@ def test_invalid_iam_inventory_refuses_before_provider_credentials(bindings):
     assert receipt.applied is False
     assert receipt.detail == "bootstrap IAM inventory invalid"
     mint.assert_not_called()
+
+
+def test_final_core_receipt_preserves_historical_operator_custody_and_refuses_replaced_topic():
+    from copy import deepcopy
+
+    from hushh_mcp.services.byoc_substrate_inventory import merge_substrate_inventory
+    from tests.fixtures.operator_mail import operator_grants
+
+    topic = "projects/oauth-project/topics/one-mail-owner"
+    grants = operator_grants(topic, "one-bootstrap@owner-project.iam.gserviceaccount.com")
+    observation = {
+        "type": "pubsub_topic",
+        "id": topic,
+        "disposition": "created",
+        "identity": {"name": topic},
+    }
+    historical = {
+        "resourceIds": [topic],
+        "plannedResources": [{"type": "pubsub_topic", "id": topic}],
+        "resourceObservations": [observation],
+        "operatorBindingObservations": grants,
+    }
+    core = {
+        "applied": True,
+        "plannedResources": [],
+        "operatorBindingObservations": [{**g, "disposition": "already_present"} for g in grants],
+    }
+    original = deepcopy(core)
+    merged = merge_substrate_inventory(core, historical)
+    assert merged["applied"] is True and merged["resourceObservations"] == [observation]
+    assert all(g in merged["operatorBindingObservations"] for g in grants)
+    assert core == original
+    with pytest.raises(ValueError, match="identity changed"):
+        merge_substrate_inventory(
+            {"resourceObservations": [{**observation, "identity": {"name": "foreign"}}]}, historical
+        )

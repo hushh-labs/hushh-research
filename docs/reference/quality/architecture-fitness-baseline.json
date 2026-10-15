@@ -3454,7 +3454,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": "HushhFederatedSubstrate",
-      "value": 268
+      "value": 274
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4273,7 +4273,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "PersonalAgentProvisioningService",
-      "value": 3335
+      "value": 3338
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4642,7 +4642,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "UserGcpBackend",
-      "value": 1974
+      "value": 1990
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7837,7 +7837,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": "as_record",
-      "value": 89
+      "value": 93
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7846,7 +7846,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": "ensure",
-      "value": 225
+      "value": 231
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7936,7 +7936,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate_teardown.py",
       "symbol": "reconcile_mail_resource",
-      "value": 81
+      "value": 91
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10897,7 +10897,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "_erase_reserved_mail_resources",
-      "value": 125
+      "value": 130
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11689,7 +11689,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_notification_checkpoint.py",
       "symbol": "bind_notification_checkpoint",
-      "value": 138
+      "value": 139
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12427,7 +12427,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "render_bootstrap_plan",
-      "value": 317
+      "value": 325
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15280,7 +15280,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_personal_agent_notification_checkpoint.py",
       "symbol": "test_two_subscriptions_need_independent_qualified_deletions_and_archive",
-      "value": 251
+      "value": 281
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17539,7 +17539,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": null,
-      "value": 834
+      "value": 845
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17548,7 +17548,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate_teardown.py",
       "symbol": null,
-      "value": 1546
+      "value": 1556
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18277,7 +18277,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 3873
+      "value": 3876
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18610,7 +18610,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": null,
-      "value": 2245
+      "value": 2261
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19924,7 +19924,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_bootstrap_and_custody.py",
       "symbol": null,
-      "value": 2083
+      "value": 2100
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_substrate.py",
       "symbol": null,
-      "value": 559
+      "value": 613
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20554,7 +20554,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_notification_checkpoint.py",
       "symbol": null,
-      "value": 977
+      "value": 1161
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21076,7 +21076,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_user_gcp_backend.py",
       "symbol": null,
-      "value": 541
+      "value": 637
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29486,7 +29486,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -36629,7 +36629,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -48916,7 +48916,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -52401,7 +52401,7 @@
   },
   "azure_setup_retry_history_review_20261015": {
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication.",
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication.",
     "entries": [
       {
         "key": "module_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py||module exceeds the advisory operon budget",
@@ -52555,6 +52555,137 @@
         "previous": 691,
         "reviewed": 693,
         "source_sha256": "7bbf3fed476ed1252f420c062f5b68c1dcc2cc0827480cd16b9d06d7671d280a"
+      }
+    ]
+  },
+  "operator_mail_custody_review_20261015": {
+    "reviewer": "adk_authority_review",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|PersonalAgentProvisioningService|class exceeds the advisory operon budget",
+        "before": 3335,
+        "after": 3338,
+        "source_sha256": "222ce8c1a655a0b5c218cfbaaecef3efa4e844b9e3258d2cd12c7efe2c5ecb7d",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|UserGcpBackend|class exceeds the advisory operon budget",
+        "before": 1974,
+        "after": 1990,
+        "source_sha256": "7981b0ec6df4ec77b7f64a497544318e4a33174fa4c811af6f9a3c4c9710dd45",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/byoc_substrate.py|HushhFederatedSubstrate|class exceeds the advisory operon budget",
+        "before": 268,
+        "after": 274,
+        "source_sha256": "c1f06047a8fdcf72096e74011ece5997b0e7086ce02fbb3e3499df7362c7206b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|render_bootstrap_plan|function exceeds the advisory gene budget",
+        "before": 317,
+        "after": 325,
+        "source_sha256": "7981b0ec6df4ec77b7f64a497544318e4a33174fa4c811af6f9a3c4c9710dd45",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_personal_agent_notification_checkpoint.py|test_two_subscriptions_need_independent_qualified_deletions_and_archive|function exceeds the advisory gene budget",
+        "before": 251,
+        "after": 281,
+        "source_sha256": "ce6a8a98b88f8767a230c56a1b6f188fa6fe48f1e024fa2a2e5df260ebd1767e",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/byoc_substrate.py|ensure|function exceeds the advisory gene budget",
+        "before": 225,
+        "after": 231,
+        "source_sha256": "c1f06047a8fdcf72096e74011ece5997b0e7086ce02fbb3e3499df7362c7206b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_notification_checkpoint.py|bind_notification_checkpoint|function exceeds the advisory gene budget",
+        "before": 138,
+        "after": 139,
+        "source_sha256": "f5a6c3a467a438bc18fd9f3eb75bc14fb714e1e6e9deb45d690154ff007bd63b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|_erase_reserved_mail_resources|function exceeds the advisory gene budget",
+        "before": 125,
+        "after": 130,
+        "source_sha256": "222ce8c1a655a0b5c218cfbaaecef3efa4e844b9e3258d2cd12c7efe2c5ecb7d",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/byoc_substrate.py|as_record|function exceeds the advisory gene budget",
+        "before": 89,
+        "after": 93,
+        "source_sha256": "c1f06047a8fdcf72096e74011ece5997b0e7086ce02fbb3e3499df7362c7206b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/byoc_substrate_teardown.py|reconcile_mail_resource|function exceeds the advisory gene budget",
+        "before": 81,
+        "after": 91,
+        "source_sha256": "54affbda5cc6e6033b1e47feeedb9c4befdb29e536ea79a68bddf2d7b4bfcc29",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 3873,
+        "after": 3876,
+        "source_sha256": "222ce8c1a655a0b5c218cfbaaecef3efa4e844b9e3258d2cd12c7efe2c5ecb7d",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 2245,
+        "after": 2261,
+        "source_sha256": "7981b0ec6df4ec77b7f64a497544318e4a33174fa4c811af6f9a3c4c9710dd45",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_byoc_bootstrap_and_custody.py||module exceeds the advisory operon budget",
+        "before": 2083,
+        "after": 2100,
+        "source_sha256": "a596f5f18818397603a1d76f7d5be3feb70094d252733f96013e33b1f444bbd3",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/byoc_substrate_teardown.py||module exceeds the advisory operon budget",
+        "before": 1546,
+        "after": 1556,
+        "source_sha256": "54affbda5cc6e6033b1e47feeedb9c4befdb29e536ea79a68bddf2d7b4bfcc29",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_notification_checkpoint.py||module exceeds the advisory operon budget",
+        "before": 977,
+        "after": 1161,
+        "source_sha256": "ce6a8a98b88f8767a230c56a1b6f188fa6fe48f1e024fa2a2e5df260ebd1767e",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/byoc_substrate.py||module exceeds the advisory operon budget",
+        "before": 834,
+        "after": 845,
+        "source_sha256": "c1f06047a8fdcf72096e74011ece5997b0e7086ce02fbb3e3499df7362c7206b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_user_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 541,
+        "after": 637,
+        "source_sha256": "31db790a5e55d26702a5e13e747039eea11a4978cc534fa9d969874d80aa3c85",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_byoc_substrate.py||module exceeds the advisory operon budget",
+        "before": 559,
+        "after": 613,
+        "source_sha256": "9458e89cb0b667ae9c32190bfa2802a873fdce3407415a934ffafb731a9eaa5b",
+        "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
       }
     ]
   }

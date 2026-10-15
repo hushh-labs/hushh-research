@@ -361,6 +361,7 @@ class SubstrateReceipt:
     resource_observations: list[dict[str, Any]] = field(default_factory=list)
     planned_bindings: list[dict[str, str]] | None = None
     binding_observations: list[dict[str, Any]] = field(default_factory=list)
+    operator_binding_observations: list[dict[str, Any]] = field(default_factory=list)
     capabilities: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -406,7 +407,9 @@ class SubstrateReceipt:
                 value, f"projects/{project}/locations/{region}/repositories/{rid}"
             ),
             "pubsub_topic": lambda value, rid: _mail_creation_identity(
-                value, "pubsub_topic", f"projects/{project}/topics/{rid}"
+                value,
+                "pubsub_topic",
+                rid if rid.startswith("projects/") else f"projects/{project}/topics/{rid}",
             ),
             "pubsub_subscription": lambda value, rid: _mail_creation_identity(
                 value, "pubsub_subscription", f"projects/{project}/subscriptions/{rid}"
@@ -449,13 +452,15 @@ class SubstrateReceipt:
                 )
         if observations:
             record["resourceObservations"] = observations
-        bindings = [
-            item
-            for raw in self.binding_observations
-            if (item := _binding_observation(raw)) is not None
-        ]
-        if bindings:
-            record["bindingObservations"] = bindings
+        for name, raw_values in (
+            ("bindingObservations", self.binding_observations),
+            ("operatorBindingObservations", self.operator_binding_observations),
+        ):
+            bindings = [
+                item for raw in raw_values if (item := _binding_observation(raw)) is not None
+            ]
+            if bindings:
+                record[name] = bindings
         return record
 
 
@@ -759,6 +764,12 @@ class HushhFederatedSubstrate:
                 item
                 for step in steps
                 for item in (step.get("bindingObservations") or [])
+                if isinstance(item, dict)
+            ],
+            operator_binding_observations=[
+                item
+                for step in steps
+                for item in (step.get("operatorBindingObservations") or [])
                 if isinstance(item, dict)
             ],
             detail="" if applied else "bootstrap completion unconfirmed",

@@ -465,6 +465,7 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
         user_project=spec.user_cloud_project,
         user_region=spec.user_cloud_region or None,
         bootstrap_sa=spec.user_cloud_bootstrap_sa or None,
+        hushh_id=spec.hushh_id,
     )
     return tenant
 

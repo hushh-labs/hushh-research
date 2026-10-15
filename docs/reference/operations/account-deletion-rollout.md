@@ -53,6 +53,24 @@ resources. Full teardown needs fresh owner authorization, qualified inventory
 and final absence receipts through the existing erasure operation. Until those
 exist, account deletion stays pending. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
+## OAuth-project Gmail cleanup
+
+Dev-only963 preserves the owner-specific full topic name, creation observation
+and original operator IAM grants through notification retries, final provisioning,
+host publication and erasure archival. Apply the schema before enabling the new
+five-resource notification plan; old schemas refuse that plan before topic writes.
+Legacy four-resource checkpoints remain readable. Rollback refuses retained
+operator custody and requires forward recovery.
+
+Cleanup uses verified attached consent-plane credentials for the OAuth developer
+project; owner-project impersonation never supplies that authority. Delete only
+the exactly bound, created topic after independently qualified subscription
+cleanup, both original added grants, exclusive current IAM and a complete empty
+subscription listing. Adopted/shared/conditional topics and unknown DELETE
+outcomes remain pending. Pub/Sub exposes no immutable incarnation or conditional
+DELETE token; the existing owner lifecycle fence remains mandatory. This is local
+source evidence, not live operator-project cleanup acceptance.
+
 ## Private Azure setup and cleanup
 
 Dev-only 961 records original setup bindings and bounded provider receipts in

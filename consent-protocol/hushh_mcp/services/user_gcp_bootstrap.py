@@ -502,36 +502,22 @@ class UserGcpBootstrap:
 
     def _oauth_headers(self, plan: dict[str, Any]) -> dict[str, str]:
         """Attached consent-plane ADC for only the operator-owned topic; no key fallback."""
+        from hushh_mcp.services.gcp_attached_operator import (
+            AttachedOperatorRefused,
+            attached_operator_headers,
+        )
+
         self._notification_prerequisite(plan)
         expected = str(
             ((plan.get("federation") or {}).get("impersonation") or {}).get("granted_to") or ""
         )
-        if not expected or expected.startswith("<"):
-            raise BootstrapError(
-                "Gmail OAuth-project topic requires the exact consent-plane identity"
+        try:
+            headers, self._oauth_credentials = attached_operator_headers(
+                expected_service_account=expected, credentials=self._oauth_credentials
             )
-        from google.auth.transport.requests import Request
-
-        credentials = self._oauth_credentials
-        if credentials is None:
-            import google.auth
-            from google.auth.compute_engine import Credentials
-
-            credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            if not isinstance(credentials, Credentials):
-                raise BootstrapError("Gmail OAuth-project setup requires attached managed ADC")
-            self._oauth_credentials = credentials
-        if not getattr(credentials, "valid", False):
-            credentials.refresh(Request())
-        if getattr(credentials, "service_account_email", None) != expected or not getattr(
-            credentials, "token", None
-        ):
-            raise BootstrapError(
-                "Gmail OAuth-project ADC identity differs from the configured consent plane"
-            )
-        return {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
+        except AttachedOperatorRefused as exc:
+            raise BootstrapError(str(exc)) from None
+        return headers
 
     def configure_notification_delivery(
         self,

@@ -80,7 +80,8 @@ def _mail(call: dict, body: dict, kind: str) -> dict:
         )
     ):
         return {}
-    return _created(kind, name.rsplit("/", 1)[-1], identity)
+    resource_id = name if call["step"] == "oauth_mail_topic" else name.rsplit("/", 1)[-1]
+    return _created(kind, resource_id, identity)
 
 
 def qualify_created_resource(
@@ -111,6 +112,7 @@ def qualify_created_resource(
             "secret", secret_id, _secret_creation_identity(candidate, secret_id, project)
         )
     kind = {
+        "oauth_mail_topic": "pubsub_topic",
         "mail_topic": "pubsub_topic",
         "mail_subscription": "pubsub_subscription",
         "mail_dead_letter_topic": "pubsub_topic",

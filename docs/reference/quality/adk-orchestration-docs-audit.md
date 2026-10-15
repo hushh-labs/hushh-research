@@ -44,40 +44,20 @@ predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
 
-**Lifecycle correction — local, not deployed:** **326 affected Azure lifecycle
-checks pass**, including real PostgreSQL. Setup, updates and rebuilds share the
-existing job journal; dispatch binds the owner, original pod identity, approved
-image and exact permitted resources. Files writes require their current approved
-checkpoint. Stale authority and self-granted custody writes are refused; the
-paired broken-code controls fail. Exact revision recovery settles the original
-cloud request; unknown outcomes remain unresolved. Optional image pruning stays
-off on this path until its receipts are qualified. Cancellation joins the real
-update thread and fences new writes. Full cleanup preserves encrypted
-credentials until provider revocation succeeds; version-4 tombstones cover
-cleared/superseded grants. Legacy repair requires the original key, exact fenced
-inventory and conditional metadata replacement. Broken-code controls fail.
+**Lifecycle correction — local, not deployed:** setup, updates and rebuilds
+retain exact admitted requests and join actual workers before release. Connector
+revocation requires validated historical coverage; legacy zero counters cannot
+qualify cleanup. Unknown cloud responses remain unresolved and are never replayed.
 
-Deletion recovery additionally passes **126 affected checks**: a new real SQL
-worker polls the original typed provider operation without another DELETE.
-Changed subscriptions, path escapes and unknown legacy operation kinds refuse;
-absence cannot replace settlement. These checks do not prove live full cleanup.
+| Cleanup boundary | Local evidence | Remaining release condition |
+| --- | --- | --- |
+| GCP operator-project Gmail | 476 affected checks pass, including real PostgreSQL full-topic admission/acknowledgement/deletion, retained creation/IAM history and attached-identity separation. Missing-proof and dropped-history negative controls fail | Dev-only963 schema and hub must serve before new notification plans; live disposable owner cleanup still required |
+| Azure | Durable exact-plan approval, authenticated worker admission, original-operation reconciliation, cancellation, final active-resource readback and joined exit have focused and PostgreSQL evidence | Complete setup-history archival, canonical inventory closure, provider retention, JIT callback and account finalization; public full cleanup remains refused |
 
-The pod-to-hub deletion receipt now preserves validated historical connector
-coverage. Legacy zero-counter receipts remain readable but cannot admit cloud
-cleanup. The schema preflight checks the actual producer shape before key
-destruction; hub/schema support must precede installing the emitting pod image.
-Focused pod/transport suites and real-SQL admission checks pass locally.
-Final active-resource readback and actual worker exit now have separate durable
-receipts. Repeated cancellation joins both the real thread and exit persistence;
-executor/journal checks share the stop fence. The broken-guard control fails.
-Final account completion must match current hashes to the same execution's
-readback and exit; these local prerequisites do not enable the public callback.
-
-Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
-JIT deletion/finalization and operator-project mail-topic
-cleanup before release freeze. Account deletion stays refused while obligations
-are unresolved; provider retention is not immediate physical erasure. Existing
-GCP receipts keep historical obligations without inventing uncreated resources.
+Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
+are candidate migrations, and962 remains unselected. Provider retention is not
+immediate physical erasure. Existing owners keep resources and hosting choices.
+See the [deletion runbook](../operations/account-deletion-rollout.md).
 
 **Browser correction — local, disabled:** 22 UI cases and headless checks of the
 actual component with optimized CSS at 390/820/1440 px pass, including mouse/touch;

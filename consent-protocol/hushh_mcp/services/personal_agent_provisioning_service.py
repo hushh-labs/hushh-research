@@ -969,12 +969,8 @@ class PersonalAgentProvisioningService:
             notification_ready = getattr(
                 self._registry, "notification_checkpoint_admission_ready", None
             )
-            if (
-                callable(renderer)
-                and callable(target_for)
-                and notification_ready is not None
-                and await notification_ready()
-            ):
+            schema_ready = notification_ready is not None and await notification_ready()
+            if callable(renderer) and callable(target_for) and schema_ready:
                 from hushh_mcp.services.pod_notification_checkpoint import (
                     bind_notification_checkpoint,
                 )
@@ -1001,7 +997,11 @@ class PersonalAgentProvisioningService:
                     ),
                 )
             receipt = await substrate.ensure(spec)
-            substrate_receipt = receipt.as_record() if receipt.resource_ids else None
+            from hushh_mcp.services.byoc_substrate_inventory import merge_substrate_inventory
+
+            substrate_receipt = merge_substrate_inventory(
+                receipt.as_record() if receipt.resource_ids else None, substrate_receipt
+            )
             await _record("provisioning", next_phase="substrate")
             if not receipt.applied and substrate.ensurer_id != "none":
                 # Stop rather than provision onto infrastructure that is not there. The
@@ -3082,7 +3082,12 @@ class PersonalAgentProvisioningService:
                     for key, value in receipt.items()
                     if key not in {"ownerId", "attemptId"}
                 }
-            await erase(observation=observation, state=states, retain_receipt=checkpoint)
+            extra = (
+                {"operator_bindings": inventory.get("operatorBindingObservations")}
+                if resource_id.startswith("projects/")
+                else {}
+            )
+            await erase(observation=observation, state=states, retain_receipt=checkpoint, **extra)
 
     async def _erase_reserved_kms_material(self, *, user_id: str) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
