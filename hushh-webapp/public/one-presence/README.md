@@ -32,6 +32,10 @@ pauses offscreen, when the document is hidden or the native app is inactive.
 These image-backed loops use Rive's default changed-frame drawing so a held
 idle pose does not repaint continuously. The runtime owns the timeline and
 render loop; visibility and lifecycle pauses still stop it entirely.
+Playback and resizing wait for Rive's post-load paused-state initialization.
+The public `play` method owns rendering startup; a separate early render can
+consume the first pose's invalidation before the state machine is ready.
+Only the SDK resizes the bitmap, so resizing also invalidates its next draw.
 Backing buffers are capped at the embedded images' 128px resolution while CSS
 geometry remains 44/72px in the header and 192px in the panel. This avoids
 20.25 times the backing-pixel count of a 576px Retina profile buffer without

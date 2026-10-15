@@ -149,9 +149,12 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       if (!instance || !ready) return;
       const { width, height } = canvas.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      const ratio = Math.min(window.devicePixelRatio || 1, nativeFrameSize / Math.max(width, height));
-      const pixelWidth = Math.min(nativeFrameSize, Math.round(width * ratio));
-      const pixelHeight = Math.min(nativeFrameSize, Math.round(height * ratio));
+      // Rive truncates its canvas dimensions. A 0.01px backing-pixel bias
+      // absorbs fractional square bounds while both axes still truncate to
+      // at most 128px (the largest scaled dimension is only 128.01px).
+      const ratio = Math.min(window.devicePixelRatio || 1, (nativeFrameSize + 0.01) / Math.max(width, height));
+      const pixelWidth = Math.min(nativeFrameSize, Math.floor(width * ratio));
+      const pixelHeight = Math.min(nativeFrameSize, Math.floor(height * ratio));
       // Rive can resize itself at device DPR after a hidden surface returns.
       // Actual pixel bounds own this image-backed surface; changing CSS size
       // with the same target buffer must not clear an already-painted frame.
@@ -159,13 +162,8 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       if (firstFrame !== null) window.cancelAnimationFrame(firstFrame);
       firstFrame = null;
       instance.resizeDrawingSurfaceToCanvas(ratio);
-      // WebKit's fractional bounds can make the runtime truncate 128 to 127.
-      // Keep the backing surface on the intended integer pixel grid.
-      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-        canvas.width = pixelWidth;
-        canvas.height = pixelHeight;
-        instance.resizeToCanvas();
-      }
+      // Only the SDK resizes the bitmap: direct width/height writes can erase
+      // its synchronous draw without invalidating changed-frame rendering.
       presented = false;
       showPoster();
     };
@@ -185,7 +183,6 @@ function OnePresencePlayback({ request, presentation, onReady }: {
         resizePlayback();
         fallback = false;
         instance.play(stateMachine);
-        instance.startRendering();
         if (presented) {
           canvas.dataset.onePresencePlayback = "playing";
           canvas.style.visibility = "visible";
@@ -240,10 +237,15 @@ function OnePresencePlayback({ request, presentation, onReady }: {
             autoplay: false,
             layout: new runtime.Layout({ fit: runtime.Fit.Contain, alignment: runtime.Alignment.Center }),
             onLoad: () => {
-              if (disposed || !instance) return;
-              ready = true;
-              instance.resizeToCanvas();
-              sync();
+              // Rive initializes paused state machines after firing onLoad.
+              // Resize/play only after that setup; an early draw can consume
+              // the first pose's invalidation and leave an idle loop blank.
+              queueMicrotask(() => {
+                if (disposed || !instance) return;
+                ready = true;
+                instance.resizeToCanvas();
+                sync();
+              });
             },
             onLoadError: () => {
               if (disposed) return;

@@ -2,11 +2,10 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 
-const runtime = vi.hoisted(() => ({ instances: [] as Array<{ options: { enableRiveAssetCDN: boolean; onLoad: () => void; onLoadError: () => void; src: string }; play: ReturnType<typeof vi.fn>; pause: ReturnType<typeof vi.fn>; cleanup: ReturnType<typeof vi.fn>; stopRendering: ReturnType<typeof vi.fn> }> }));
+const runtime = vi.hoisted(() => ({ instances: [] as Array<{ options: { enableRiveAssetCDN: boolean; onLoad: () => void; onLoadError: () => void; src: string }; play: ReturnType<typeof vi.fn>; pause: ReturnType<typeof vi.fn>; cleanup: ReturnType<typeof vi.fn>; stopRendering: ReturnType<typeof vi.fn>; startRendering: ReturnType<typeof vi.fn>; resizeDrawingSurfaceToCanvas: ReturnType<typeof vi.fn> }> }));
 vi.mock("@rive-app/canvas", () => ({
   RuntimeLoader: { setWasmUrl: vi.fn(), setWasmFallbackUrl: vi.fn() },
   Fit: { Contain: "contain" }, Alignment: { Center: "center" },
-  DrawOptimizationOptions: { AlwaysDraw: "alwaysDraw" },
   Layout: class {},
   Rive: class {
     play = vi.fn(); pause = vi.fn(); cleanup = vi.fn(); stopRendering = vi.fn();
@@ -56,6 +55,23 @@ async function loadVisibleAvatar(view: ReturnType<typeof render>) {
 }
 
 describe("OnePresenceAvatar playback lifecycle", () => {
+  it("waits for the SDK load callback to return before resizing or starting playback", async () => {
+    // At DPR1 the compact canvas must resize, which can synchronously draw.
+    // Rive prepares its paused state machine after invoking the load callback.
+    vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 44, height: 44 } as DOMRect);
+    render(<OnePresenceAvatar state="connected" />);
+    act(() => enterViewport([{ isIntersecting: true }]));
+    await waitFor(() => expect(runtime.instances).toHaveLength(1));
+    const instance = runtime.instances[0];
+    act(() => {
+      instance.options.onLoad();
+      expect(instance.resizeDrawingSurfaceToCanvas).not.toHaveBeenCalled();
+      expect(instance.startRendering).not.toHaveBeenCalled();
+    });
+    await waitFor(() => expect(instance.play).toHaveBeenCalledWith("State Machine 1"));
+    expect(instance.resizeDrawingSurfaceToCanvas).toHaveBeenCalled();
+  });
+
   it("animates connected using its native asset and pauses playback while the app is backgrounded", async () => {
     const view = render(<OnePresenceAvatar state="connected" presentation="profile" className="size-48" />);
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/one-presence/profile-hd.png");
@@ -146,7 +162,7 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     const view = render(<OnePresenceAvatar state="answering" />);
     act(() => enterViewport([{ isIntersecting: true }]));
     await waitFor(() => expect(runtime.instances).toHaveLength(1));
-    act(() => runtime.instances[0].options.onLoad());
+    await act(async () => runtime.instances[0].options.onLoad());
     expect(frames.size).toBe(1);
     const unpainted = [...frames.values()]; frames.clear();
     act(() => unpainted.forEach(callback => callback(performance.now())));
