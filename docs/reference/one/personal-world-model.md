@@ -65,6 +65,8 @@ All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-r
 | UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
 | Production | `hushh-vertex-personal54` | same | same | same |
 
+UAT sharing production's project is a stopgap while `hussh-511311` is suspended for billing: UAT traffic draws on production's Vertex quota, so move UAT back to its own project once that billing is restored.
+
 Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 
 Change the checked-in environment profile and deploy its revision. The compiler and runtime share validation and a normalized configuration hash. Candidate readiness compares the image's hash and exercises the configured text and enabled Live targets. The runtime config CI contract rejects managed environment reads outside the canonical settings boundary. Local development retains explicit overrides; hosted runtimes use the packaged profile and ignore retired per-surface project overrides.
