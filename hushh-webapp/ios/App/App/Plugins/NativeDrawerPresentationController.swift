@@ -31,6 +31,19 @@ final class NativeDrawerModel: ObservableObject {
     @Published var choicePending = false
     @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     @Published var panelCornerRadius: CGFloat = 0
+    @Published private(set) var navigationPath: [String] = []
+    private var backPending = false
+    private var navigationPages = [String: NativeProfilePage]()
+    func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
+    func requestPath(_ path: [String], from state: NativeDrawerProjection) {
+        // SwiftUI owns presentation/pop motion. The authored React Back owner
+        // commits the route; an arbitrary path cannot dispatch an operation.
+        guard interactionEnabled, !choicePending, !backPending, projection.identity == state.identity,
+              projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
+              projection.profileDestinationId == state.profileDestinationId, path.count + 1 == navigationPath.count,
+              Array(navigationPath.prefix(path.count)) == path else { return }
+        backPending = choice("back")
+    }
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
@@ -59,9 +72,24 @@ final class NativeDrawerModel: ObservableObject {
             }
         }
     }
-    init(_ projection: NativeDrawerProjection) { self.projection = projection }
-    func update(_ projection: NativeDrawerProjection) {
+    init(_ projection: NativeDrawerProjection) {
         self.projection = projection
+        navigationPath = projection.profileStack?.map(\.id) ?? []
+        projection.profileStack?.forEach { navigationPages[$0.id] = $0 }
+    }
+    func update(_ projection: NativeDrawerProjection) {
+        if projection.profileDestinationId != self.projection.profileDestinationId ||
+            projection.open != self.projection.open || projection.privacyGeneration != self.projection.privacyGeneration || !projection.enabled {
+            backPending = false
+        }
+        self.projection = projection
+        if let pages = projection.profileStack {
+            pages.forEach { navigationPages[$0.id] = $0 }
+            let next = pages.map(\.id)
+            if next != navigationPath { withAnimation { navigationPath = next } }
+        } else {
+            navigationPath = []; navigationPages.removeAll()
+        }
         if !projection.open || !projection.enabled || detailRow.map({ id in !projection.sections.contains { $0.rows.contains { $0.id == id } } }) == true {
             dismissMenus()
             clearDetails()
@@ -71,9 +99,15 @@ final class NativeDrawerModel: ObservableObject {
     func clearDetails() { detailRow = nil; renameDraft = ""; detailMode = "actions"; pendingSequence = nil; choicePending = false }
     func settle(sequence: Int, success: Bool) {
         guard pendingSequence == sequence else { return }
+        if backPending {
+            pendingSequence = nil
+            if !success { rejectBack() }
+            return
+        }
         pendingSequence = nil; choicePending = false
         if success { clearDetails() }
     }
+    private func rejectBack() { backPending = false }
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
         detailRow = row.id; detailMode = "actions"; renameDraft = row.label
@@ -92,6 +126,7 @@ final class NativeDrawerModel: ObservableObject {
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
+        guard action != "row" || !backPending else { return false }
         guard action == "open" || action == "close" || interactionEnabled else { return false }
         guard (action != "row" || !choicePending), choose?(action, row, text) == true else { return false }
         if action == "row" { choicePending = true }
@@ -113,6 +148,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var intentPending = false
     private var dragging = false
     private var awaitingReadmission = false
+    private var formCovered = false
     private var intentTimeout: DispatchWorkItem?
     private var retirementCompletions = [() -> Void]()
     private var detached = false
@@ -137,6 +173,12 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     #endif
     var leadingHeaderFrame: (() -> CGRect?)?
+    func setFormCoverage(_ covered: Bool) {
+        guard formCovered != covered else { return }
+        formCovered = covered
+        if covered { invalidateInteractions?() }
+        reconcileIsolation()
+    }
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
     // Keep the last committed layout's travel while reconstructing a drag
     // during resize. Reading the new viewport against the old frame would
@@ -292,6 +334,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
+        // A nested native page owns its system edge-pop. The outer drawer's
+        // drag-to-close must not steal that gesture or dismiss the whole stack.
+        if !model.navigationPath.isEmpty { return false }
         return abs(velocity.x) > abs(velocity.y)
     }
     func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -384,14 +429,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         let covered = covered
         scrim.isUserInteractionEnabled = covered
         view.accessibilityViewIsModal = covered
-        host.view.accessibilityElementsHidden = !covered
-        let interactive = covered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
+        host.view.accessibilityElementsHidden = !covered || formCovered
+        let interactive = covered && !formCovered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
         host.view.isUserInteractionEnabled = interactive
         if model.interactionEnabled != interactive { model.interactionEnabled = interactive }
         isolation?(covered)
     }
     func allowsInteraction(_ action: String, row: String?, text: String? = nil) -> Bool {
-        guard !motion.retired, !awaitingReadmission, !dragging, animator == nil,
+        guard !motion.retired, !formCovered, !awaitingReadmission, !dragging, animator == nil,
               model.projection.allows(action: action, row: row, text: text) else { return false }
         return !intentPending || action == "open" || action == "close"
     }
@@ -500,6 +545,36 @@ struct NativeDrawerContent: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var renameFocused: String?
     var body: some View {
+        if model.projection.family == "profile", model.projection.profileStack != nil {
+            profileNavigation
+        } else {
+            legacyContent
+        }
+    }
+    private var profileNavigation: some View {
+        let state = model.projection
+        return NavigationStack(path: Binding(get: { model.navigationPath }, set: { model.requestPath($0, from: state) })) {
+            profileContent(model.projection.sections)
+                .navigationTitle(model.projection.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(for: String.self) { id in
+                    if let page = model.page(id) {
+                        profileContent(page.sections)
+                            .navigationTitle(page.title)
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                }
+        }.toolbar { profileClose }
+            .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
+            .allowsHitTesting(model.interactionEnabled)
+            .accessibilityHidden(!model.interactionEnabled)
+    }
+    @ToolbarContentBuilder private var profileClose: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            control("xmark", "Close Profile", identifier: "native-profile-drawer-close") { model.close?() }
+        }
+    }
+    private var legacyContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if model.projection.family == "history" {
@@ -516,7 +591,7 @@ struct NativeDrawerContent: View {
             }.padding(model.projection.family == "history" ? model.headerInsets :
                 EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             if model.projection.family != "history" {
-                profileContent
+                profileContent(model.projection.sections)
             } else {
                 ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
                     ForEach(section.rows) { historyRow($0) }
@@ -628,10 +703,10 @@ struct NativeDrawerContent: View {
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
     /// scroll/presentation. Dynamic Type may grow rows beyond the 56pt minimum.
-    private var profileContent: some View {
+    private func profileContent(_ sections: [NativeDrawerSection]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                ForEach(model.projection.sections) { section in
+                ForEach(sections) { section in
                     if section.id == "identity-section" {
                         ForEach(section.rows) { row in
                             Button { model.choice("row", row: row.id) } label: {
@@ -675,15 +750,27 @@ struct NativeDrawerContent: View {
                     }
                 }
             }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
-        }.accessibilityIdentifier("native-profile-menu-scroll")
+        }.background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .accessibilityIdentifier("native-profile-menu-scroll")
     }
     private func profileInitials(_ name: String) -> String {
         name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
     }
-    private func profileRow(_ row: NativeDrawerRow) -> some View {
-        Button { model.choice("row", row: row.id) } label: {
+    @ViewBuilder private func profileRow(_ row: NativeDrawerRow) -> some View {
+        if row.readOnly == true {
+            profileRowLabel(row).accessibilityElement(children: .combine)
+        } else {
+            Button { model.choice("row", row: row.id) } label: { profileRowLabel(row) }
+                .buttonStyle(.plain)
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+                .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
+                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
+                .accessibilityIdentifier("native-profile-row-\(row.id)")
+        }
+    }
+    private func profileRowLabel(_ row: NativeDrawerRow) -> some View {
             HStack(spacing: 12) {
-                if let artwork = NativeProfileArtwork.resolve(row.id) {
+                if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
                     ZStack {
                         Image(uiImage: artwork.base).resizable()
                             .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
@@ -697,9 +784,15 @@ struct NativeDrawerContent: View {
                         .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
                         .frame(width: 32, height: 28).accessibilityHidden(true)
                 }
-                Text(row.label).font(.system(size: profileRowFont, weight: .medium))
-                    .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.label).font(.system(size: profileRowFont, weight: .medium))
+                        .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail = row.detail {
+                        Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Spacer(minLength: 8)
                 if let trailing = row.trailing {
                     Text(trailing).font(.caption).foregroundStyle(.secondary)
@@ -711,12 +804,7 @@ struct NativeDrawerContent: View {
                         .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
-                .padding(.horizontal, 16).contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
-            .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
-            .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
-            .accessibilityIdentifier("native-profile-row-\(row.id)")
+                .padding(.horizontal, 16).padding(.vertical, row.detail == nil ? 0 : 8).contentShape(Rectangle())
     }
     private var searchContent: some View {
         HStack(spacing: 8) {

@@ -34,10 +34,12 @@ export class NativeDrawerPresentation {
   private readmissionHandle: PluginListenerHandle | null = null;
   private readmissionGeneration = 0;
   private listening = false;
+  private backSettlements = false;
   private disposed = false;
   private applied = 0;
   private latestReceipt: NativeDrawerReceipt | null = null;
   private highestUpdate = 0;
+  private readonly destinations = new Map<number, string | undefined>();
   private seenChoice = 0;
   private withdrawal: Promise<boolean> | null = null;
   private phase: NativeDrawerPresentationPhase = "preparing";
@@ -63,6 +65,7 @@ export class NativeDrawerPresentation {
         return false; // No native body has been prepared; established web fallback is safe.
       }
       if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
+      this.backSettlements = capability.profileNavigationStack === true && this.identity.family === "profile";
       // Listener installation creates no view. If it arrives after retirement,
       // remove that exact handle rather than leaking a callback into next owner.
       const handle = await this.plugin.addListener("choice", event => { void this.choose(event); });
@@ -94,16 +97,20 @@ export class NativeDrawerPresentation {
   publish(state: NativeDrawerProjection, actions: NativeDrawerActions): boolean {
     if (this.disposed || this.phase === "quarantined" || !this.handle || !this.isolationHandle) return false;
     if (!this.ownerIsCurrent() || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
-        state.sections.some(section => section.rows.some(row => [row.id, row.renameActionId, row.deleteActionId]
+        [...state.sections, ...(state.profileStack?.flatMap(page => page.sections) ?? [])].some(section => section.rows.some(row => !row.readOnly && [row.id, row.renameActionId, row.deleteActionId]
           .some(id => id !== undefined && !actions.rows.has(id)))) ||
         state.backEnabled && !actions.back) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,
-      sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })) };
+      sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })),
+      ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
+        sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;
     this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };
     this.highestUpdate = snapshot.updateSequence;
+    this.destinations.set(snapshot.updateSequence, snapshot.profileDestinationId);
+    while (this.destinations.size > 128) this.destinations.delete(this.destinations.keys().next().value!);
     this.pending = snapshot;
     this.pump();
     return true;
@@ -162,7 +169,7 @@ export class NativeDrawerPresentation {
     const terminal = event.action === "close" || event.action === "open";
     if (!this.fence.allows(event)) {
       // Cancel the exact unconfirmed intent, never replay it against new rows.
-      if (event.action === "row" && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
+      if ((event.action === "row" || event.action === "back" && this.backSettlements) && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
         this.seenChoice = event.sequence;
         await this.settle(event, false);
       }
@@ -176,7 +183,7 @@ export class NativeDrawerPresentation {
     const current = this.current;
     if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
         !this.fence.allows(event)) {
-      if (!this.disposed && current && event.action === "row" && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      if (!this.disposed && current && (event.action === "row" || event.action === "back" && this.backSettlements) && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
       else if (!this.disposed && this.fence.terminalIsCurrent(event)) this.quarantine();
       return;
     }
@@ -193,7 +200,7 @@ export class NativeDrawerPresentation {
           invoked = true; return latest(event);
         });
       if (invoked) await this.settle(event, true);
-      else if (!accepted && event.action === "row") await this.settle(event, false);
+      else if (!accepted && (event.action === "row" || event.action === "back" && this.backSettlements)) await this.settle(event, false);
       if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
     } catch {
       if (invoked) await this.settle(event, false);
@@ -204,15 +211,20 @@ export class NativeDrawerPresentation {
   }
 
   private async settle(event: NativeDrawerChoice, success: boolean): Promise<void> {
-    if (event.action !== "row" || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
+    if (event.action !== "row" && !(event.action === "back" && this.backSettlements && this.current?.state.profileStack) || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
     try {
       const result = await acknowledged(this.plugin.settleChoice({ ...this.identity,
         sequence: event.sequence, privacyGeneration: event.privacyGeneration, success }));
-      if (!result.valid && !this.disposed && this.ownerIsCurrent()) this.quarantine();
+      if (!result.valid && !this.disposed && this.ownerIsCurrent() && !this.destinationWasSuperseded(event)) this.quarantine();
     } catch {
       // An uncertain completion retires the presentation; it never repeats the operation.
-      if (!this.disposed && this.ownerIsCurrent()) this.quarantine();
+      if (!this.disposed && this.ownerIsCurrent() && !this.destinationWasSuperseded(event)) this.quarantine();
     }
+  }
+
+  private destinationWasSuperseded(event: NativeDrawerChoice): boolean {
+    return this.current?.state.profileStack !== undefined && this.destinations.has(event.updateSequence) &&
+      this.destinations.get(event.updateSequence) !== this.current.state.profileDestinationId;
   }
 
   private setPhase(phase: NativeDrawerPresentationPhase) {
@@ -238,6 +250,7 @@ export class NativeDrawerPresentation {
   private async withdraw(): Promise<boolean> {
     this.disposed = true;
     this.fence.retire();
+    this.destinations.clear();
     this.pending = null;
     const highestUpdate = this.highestUpdate;
     this.current = null; // Clear private bodies and feature callbacks immediately.

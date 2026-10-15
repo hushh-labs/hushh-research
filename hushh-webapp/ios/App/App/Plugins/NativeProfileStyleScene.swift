@@ -31,7 +31,7 @@ struct NativeProfileStyleProjection: Decodable {
     var error: String?
     let appearance: String, accentHex: String, foregroundHex: String
     static let fields: Set<String> = ["preferred_name", "tone", "length", "language", "avoid_em_dashes", "owner_style_note"]
-    static let keys: Set<String> = NativeProfileNameProjection.keys.union(["choices", "unavailable", "suggested"])
+    static let keys: Set<String> = NativeProfileNameProjection.keys.subtracting(["destinationId"]).union(["choices", "unavailable", "suggested"])
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }

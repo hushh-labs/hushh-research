@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection } from "./native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
 import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
@@ -14,7 +14,7 @@ export type NativeDrawerPort = {
   profileMenuRows?: boolean;
   surfaceOpen?: boolean;
   onPresented?: () => void;
-  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; actions: NativeDrawerActions };
+  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; actions: NativeDrawerActions };
 };
 
 /** Both drawer families share one owner/privacy admission path. Only authored
@@ -47,7 +47,8 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
       title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
-      searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections };
+      searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
+      ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId } : {}) };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
     if (!force && fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return true; }
     if (!live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) return false;

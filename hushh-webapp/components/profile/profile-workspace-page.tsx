@@ -43,6 +43,7 @@ import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.modu
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
 import { NativeProfilePresentation } from "./native-profile-menu";
+import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -590,6 +591,8 @@ function ProfilePageContent({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
+  const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -745,6 +748,14 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  useEffect(() => {
+    if (activePanel !== "account" || activeDetail) {
+      setNativeAccountException(null); setEditingDisplayName(false);
+    }
+  }, [activePanel, activeDetail, user?.uid]);
+  useEffect(() => {
+    if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
+  }, [editingDisplayName, nativeAccountException]);
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
   const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
   const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
@@ -3490,7 +3501,8 @@ function ProfilePageContent({
         isPanePresentation && accountStyles.paneAccountContent,
       )}
     >
-      {presentation === "native-page" ? <ProfileAvatarEditor /> : null}
+      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"}
+        onPresentationClose={() => setNativeAccountException(null)} /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={AccountProfileIcon}
@@ -3512,11 +3524,7 @@ function ProfilePageContent({
             )}
             data-testid="profile-account-display-name-editor"
           >
-            {presentation === "native-page" ? <NativeDisplayNameEditor
-              user={user}
-              onSaved={() => setEditingDisplayName(false)}
-              onCancel={() => setEditingDisplayName(false)}
-            /> : <DisplayNameEditor
+            {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
@@ -4790,7 +4798,35 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
+  const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
+    { id: "account-identity", title: "Identity", rows: [
+      { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
+      { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: true, artworkId: "account-phone", trailing: phoneNumber ? "Change" : "Add", chevron: true },
+      { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
+      ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
+        detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
+    ] },
+    { id: "account-operations", title: "Account actions", rows: [
+      { id: "account-reset", label: "Reset account", detail: resetRowDescription, enabled: !isResetting, artworkId: "account-reset", chevron: true },
+      { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
+    ] },
+  ] };
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException &&
+      !showDeleteConfirm && !showResetConfirm && !showVaultUnlock,
+      page: nativeAccountPage, rows: new Map([
+        ["account-photo", () => setNativeAccountException("photo")],
+        ["account-name", () => setEditingDisplayName(true)],
+        ["account-phone", () => updateProfileView({ panel: "account", detail: "phone" }, "push")],
+        ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["account-reset", () => { void handleResetClick(); }],
+        ["account-delete", () => { void handleDeleteClick(); }],
+      ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
+        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+          onWebFallback={() => setNativeAccountException("name")}
+          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       name: user.displayName || "Your account", email: user.email, onClose: () => onNativeMenuClose?.(),
       groups: menuGroups, actions: menuActions }}

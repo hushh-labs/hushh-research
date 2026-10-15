@@ -3781,7 +3781,10 @@ final class AppUITests: XCTestCase {
         let opener = app.buttons["Open Profile"].firstMatch
         let root = app.buttons["native-profile-row-account"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let back = app.buttons["Back in Profile"].firstMatch
+        var back: XCUIElement {
+            let native = app.navigationBars["Your account"].buttons["Profile"].firstMatch
+            return native.exists ? native : app.buttons["Back in Profile"].firstMatch
+        }
         let cancel = app.buttons["native-profile-name-cancel"].firstMatch
         let field = app.textFields["native-profile-name-editor"].firstMatch
         defer {
@@ -3798,10 +3801,11 @@ final class AppUITests: XCTestCase {
         }
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_NAME_ACCOUNT_UNAVAILABLE"); return }
         root.tap()
-        let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Display name")).firstMatch
+        let row = app.buttons["native-profile-row-account-name"].firstMatch
         guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_EDIT_UNAVAILABLE"); return }
         var originalName: String? // Private equality only; no screenshots or value diagnostics.
         for cycle in 0..<10 {
+            if cycle > 0 { root.tap() }
             guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_RETURN_UNAVAILABLE"); return }
             row.tap()
             guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
@@ -3826,9 +3830,14 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(hosts.count, 1, "The ordinary form must not introduce another WebView")
             XCTAssertFalse(web.textFields.matching(NSPredicate(format: "label == %@", "Display name")).firstMatch.exists,
                            "The native form cannot reveal an interactive DOM duplicate")
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_BACK_UNAVAILABLE"); return }
+            back.tap()
+            guard waitForAdmittedControl(root), waitForAdmittedControl(close) else {
+                XCTFail("PROFILE_NAME_NATIVE_STACK_RETURN_UNAVAILABLE"); return
+            }
+            XCTAssertTrue(app.otherElements["native-profile-drawer-body"].firstMatch.exists,
+                          "A nested pop must retain the encompassing native drawer")
         }
-        guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_BACK_UNAVAILABLE"); return }
-        back.tap()
         guard waitForAdmittedControl(close) else { XCTFail("PROFILE_NAME_CLOSE_UNAVAILABLE"); return }
         close.tap()
         guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_RETURN_UNAVAILABLE"); return }

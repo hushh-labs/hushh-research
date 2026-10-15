@@ -420,6 +420,38 @@ describe("private native drawer action boundary", () => {
     expect(validNativeDrawerProjection({ ...menu, open: false, surfaceOpen: false })).toBe(true);
   });
 
+  it("admits only the active native Profile destination and fences an Account round trip", async () => {
+    const root = { ...state(), family: "profile" as const, surfaceOpen: true, backEnabled: true };
+    const account: NativeDrawerProjection = { ...root, profileDestinationId: "account-first", profileStack: [
+      { id: "account", title: "Your account", sections: [{ id: "account-details", rows: [
+        { id: "edit-name", label: "Display name", enabled: true },
+        { id: "mail", label: "Mail", enabled: true, readOnly: true },
+      ] }] },
+    ] };
+    expect(validNativeDrawerProjection(account)).toBe(true);
+    const event = { ...choice(), family: "profile" as const, rowId: "edit-name" };
+    expect(nativeDrawerChoiceAllowed(event, account)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...event, rowId: "mail" }, account)).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileDestinationId: undefined })).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileStack: [{ ...account.profileStack![0], id: "arbitrary-route" }] } as never)).toBe(false);
+    const fence = new NativeDrawerChoiceFence(root);
+    fence.update(account);
+    const reply = deferred<{ valid: boolean }>();
+    const stale = fence.consume(event, () => reply.promise, () => true);
+    fence.update({ ...root, profileStack: [], updateSequence: 2 });
+    fence.update({ ...account, profileDestinationId: "account-returned", updateSequence: 3 });
+    reply.resolve({ valid: true });
+    expect(await stale).toBe(false);
+    expect(fence.allows({ ...event, sequence: 2, updateSequence: 3 })).toBe(true);
+
+    const name = { ...publicNameScene(), destinationId: "account-first" };
+    const nameFence = new NativeProfileNameFence(name);
+    expect(nameFence.update(name)).toBe(true);
+    expect(nameFence.update({ ...name, updateSequence: 2, destinationId: "account-returned" })).toBe(false);
+    expect(nameFence.allows({ ...name, sequence: 1, editRevision: 0, action: "save", destinationId: "account-returned" })).toBe(false);
+  });
+
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
     publishValidatedAuthSessionOwner("synthetic-first-owner");
     const history = createNativeDrawerIdentity("history")!;
@@ -533,6 +565,34 @@ describe("private native drawer action boundary", () => {
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
+
+  it.each([false, true])("quarantines an uncertain Back unless its destination was superseded=%s", async superseded => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockImplementationOnce(() => confirmation.promise);
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: false }));
+    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
+      profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] };
+    const phases = vi.fn(), back = vi.fn();
+    const presentation = new NativeDrawerPresentation(account, bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back };
+    await presentation.listen();
+    presentation.publish(account, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit({ ...choice(), family: "profile", action: "back", rowId: undefined });
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    presentation.publish({ ...account, updateSequence: 2, appearance: "dark",
+      profileDestinationId: superseded ? "account-returned" : "account-first" }, actions);
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    confirmation.resolve({ valid: false });
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(phases.mock.calls.some(([phase]) => phase === "quarantined")).toBe(!superseded);
+    expect(back).not.toHaveBeenCalled();
+    await presentation.retire();
+  });
 
   it("refreshes a timed-out drawer presentation once without repeating any operation", async () => {
     const bridge = presentationBridge();
@@ -2995,6 +3055,47 @@ describe("native chrome presentation lease", () => {
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });
+  it("keeps Account navigation inside one native Profile presentation without a DOM detail handoff", async () => {
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileNameScene: true,
+      generation: 0, isolated: false });
+    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
+      updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
+    const scene = (account: boolean) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account}
+      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
+      page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
+      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
+        { id: "edit-name", label: "Display name", enabled: true },
+      ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
+      <p>React account exception</p>
+    </NativeProfilePresentation>;
+    const view = render(scene(false));
+    try {
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
+      const identity = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
+      const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(firstVisit.revision).toBe(identity.revision);
+      expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);
+      view.rerender(scene(false));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileDestinationId).not.toBe(firstVisit.profileDestinationId));
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+    } finally {
+      view.unmount(); await act(async () => { await Promise.resolve(); }); publishValidatedAuthSessionOwner(null);
+    }
+  });
+
   it("keeps the outgoing Profile detail painted until the returning native menu is acknowledged", async () => {
     measureSlot();
     vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });

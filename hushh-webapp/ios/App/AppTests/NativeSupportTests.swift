@@ -301,13 +301,13 @@ final class NativeSupportTests: XCTestCase {
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
                                    appearance: String = "light", privacy: Int = 0, enabled: Bool = true,
-                                   sampleRow: NativeDrawerRow? = nil) -> NativeDrawerProjection {
+                                   sampleRow: NativeDrawerRow? = nil, backEnabled: Bool = false) -> NativeDrawerProjection {
         NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
             updateSequence: update, privacyGeneration: privacy, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
             title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
                 rows: [sampleRow ?? NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
                     enabled: true, destructive: nil, selected: nil, pending: nil)])],
-            open: open, enabled: enabled, backEnabled: false)
+            open: open, enabled: enabled, backEnabled: backEnabled)
     }
 
     @MainActor
@@ -826,6 +826,77 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(controller.view.hitTest(CGPoint(x: 100, y: 100), with: nil))
         XCTAssertGreaterThanOrEqual(controller.host.view.frame.minX, controller.view.bounds.maxX,
             "A closed inset Profile must travel past its outer gutter, not leave a visible sliver")
+        controller.retire()
+    }
+
+    @MainActor
+    func testNativeProfileAccountStackRetainsItsHostAndRejectsStalePopBindings() async {
+        var root = privateDrawerState(backEnabled: true)
+        root.surfaceOpen = true; root.profileStack = []
+        var account = privateDrawerState(update: 2, backEnabled: true)
+        account.surfaceOpen = true; account.profileDestinationId = "account-first"
+        account.profileStack = [NativeProfilePage(id: "account", title: "Your account", sections: [
+            NativeDrawerSection(id: "identity-details", title: "Identity", rows: [
+                NativeDrawerRow(id: "edit-name", label: "Display name", detail: "Public sample", symbol: "person",
+                    enabled: true, destructive: nil, selected: nil, pending: nil),
+                NativeDrawerRow(id: "read-only-mail", label: "Mail", detail: "Public sample", symbol: nil,
+                    enabled: true, destructive: nil, selected: nil, pending: nil, readOnly: true),
+            ]),
+        ])]
+        XCTAssertTrue(account.valid)
+        XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
+        XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
+        XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
+        let controller = NativeDrawerPresentationController(root)
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.activateInitialPresentation()
+        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
+        await fulfillment(of: [admitted], timeout: 2)
+        let host = controller.host
+        controller.update(account)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
+        XCTAssertEqual(controller.model.navigationPath, ["account"])
+        var backs = 0
+        controller.model.choose = { [weak controller] action, _, _ in
+            if action == "back" { backs += 1; controller?.model.pendingSequence = backs }
+            return true
+        }
+        controller.model.requestPath([], from: account)
+        controller.model.requestPath([], from: account)
+        XCTAssertEqual(backs, 1)
+        XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "Pending Back quarantines competing operations")
+        var refreshed = privateDrawerState(update: 3, backEnabled: true)
+        refreshed.surfaceOpen = true; refreshed.profileStack = account.profileStack; refreshed.profileDestinationId = account.profileDestinationId
+        controller.update(refreshed)
+        controller.model.requestPath([], from: refreshed)
+        XCTAssertEqual(backs, 1, "A compatible refresh must not release pending Back")
+        XCTAssertEqual(controller.model.navigationPath, ["account"], "React still commits the authored parent")
+        var returned = privateDrawerState(update: 4, backEnabled: true)
+        returned.surfaceOpen = true; returned.profileStack = []
+        controller.update(returned)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(controller.motion.progress, 1)
+        account = privateDrawerState(update: 5, backEnabled: true)
+        account.surfaceOpen = true; account.profileDestinationId = "account-returned"
+        account.profileStack = [controller.model.page("account")!]
+        controller.update(account)
+        controller.model.requestPath([], from: returned)
+        XCTAssertEqual(backs, 1, "A retained old setter cannot dispatch a fresh Back")
+        controller.model.requestPath([], from: account)
+        XCTAssertEqual(backs, 2)
+        controller.model.settle(sequence: 1, success: false)
+        XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "An old refusal cannot release a newer Back")
+        controller.model.requestPath([], from: account)
+        XCTAssertEqual(backs, 2)
+        controller.model.settle(sequence: 2, success: false)
+        XCTAssertTrue(controller.model.choice("row", row: "edit-name"))
+        controller.setFormCoverage(true)
+        XCTAssertFalse(controller.model.interactionEnabled)
+        XCTAssertFalse(controller.allowsInteraction("back", row: nil))
+        XCTAssertFalse(controller.allowsInteraction("close", row: nil))
+        controller.setFormCoverage(false)
+        XCTAssertTrue(controller.allowsInteraction("back", row: nil))
         controller.retire()
     }
 

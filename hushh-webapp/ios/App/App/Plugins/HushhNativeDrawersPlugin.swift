@@ -104,6 +104,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
                 "profileContentHandoff": self?.supported == true,
+                "profileNavigationStack": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileStyleScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
@@ -151,7 +152,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.detach(next.family)
                 guard self.retiringControllers.isEmpty else { call.reject("NATIVE_DRAWER_RETIRING"); return }
             }
-            if let previous = self.controllers[next.family] { previous.update(next) }
+            if let previous = self.controllers[next.family] {
+                if next.family == "profile", previous.model.projection.profileDestinationId != next.profileDestinationId,
+                   self.form != nil { self.retireProfileForm() }
+                previous.update(next)
+            }
             else {
                 let controller = NativeDrawerPresentationController(next)
                 if next.family == "history" {
@@ -193,7 +198,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @MainActor private func emit(_ family: String, action: String, row: String?, text: String?) -> Bool {
-        guard let controller = controllers[family], var lease = leases[family],
+        guard form == nil, retiringForms.isEmpty, let controller = controllers[family], var lease = leases[family],
               controller.allowsInteraction(action, row: row, text: text) else { return false }
         let state = controller.model.projection
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
@@ -203,7 +208,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         #if DEBUG
         if action == "close" { controller.observeClose(sequence: sequence) }
         #endif
-        if action == "row" { controller.model.pendingSequence = sequence }
+        if action == "row" || action == "back" { controller.model.pendingSequence = sequence }
         var event = receipt(state, phase: "active")
         event.removeValue(forKey: "phase")
         event["sequence"] = sequence; event["action"] = action
@@ -222,7 +227,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             let row = call.getString("rowId")
             let text = call.getString("text")
             let state = controller.model.projection
-            let allowed = self.supported && self.sessionFence.contains(identity) && privacy.appIsActive && !privacy.shielded &&
+            let allowed = self.supported && self.form == nil && self.retiringForms.isEmpty && self.sessionFence.contains(identity) && privacy.appIsActive && !privacy.shielded &&
                 state.privacyGeneration == privacy.generation && controller.allowsInteraction(action, row: row, text: text)
             let valid = lease.confirm(identity: identity, update: call.getInt("updateSequence") ?? -1,
                 privacy: call.getInt("privacyGeneration") ?? -1, sequence: call.getInt("sequence") ?? -1,
@@ -336,19 +341,24 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func reconcileIsolation() {
+        let formCovered = form?.coversPresentation == true || !retiringForms.isEmpty
+        for controller in controllers.values { controller.setFormCoverage(formCovered) }
         let covered = controllers.values.contains { $0.coversUnderlyingPresentation } ||
             retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered)
     }
-    @MainActor private func profileFormOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int) -> Bool {
+    @MainActor private func profileFormOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int, scene: String = "account-name", destinationId: String? = nil) -> Bool {
         let shield = HushhSessionPrivacyShield.shared
         let state = shield.snapshot()
         guard supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
               sessionFence.contains(identity), state.appIsActive, !state.shielded, state.generation == privacy,
               shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
+        let nativeAccount = scene == "account-name" && profile.open && profile.profileStack?.last?.id == "account" &&
+            destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
-            profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true && !profile.open && profile.enabled
+            profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
+            (!profile.open && destinationId == nil || nativeAccount) && profile.enabled
     }
     private func profileFormOwnerKey(_ identity: NativeDrawerIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
@@ -359,7 +369,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                   let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileNameProjection.keys),
                   JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
                   bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileNameProjection.self, from: bytes),
-                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration), self.retiringForms.isEmpty else {
+                  next.valid, self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, destinationId: next.destinationId), self.retiringForms.isEmpty else {
                 call.reject("NATIVE_PROFILE_NAME_UNAVAILABLE"); return
             }
             if let scene = self.nameScene {
@@ -381,7 +391,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.edit = { [weak self, weak scene] text, composing, revision in
                 guard let self, let scene, self.nameScene === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, destinationId: state.destinationId) else { return false }
                 var event = state.receipt(phase: "active")
                 event.removeValue(forKey: "phase")
                 event["text"] = text; event["composing"] = composing; event["editRevision"] = revision
@@ -391,7 +401,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             scene.model.choose = { [weak self, weak scene] action in
                 guard let self, let scene, self.nameScene === scene else { return false }
                 let state = scene.model.projection
-                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, destinationId: state.destinationId) else { return false }
                 var event = state.receipt(phase: "active")
                 event.removeValue(forKey: "phase")
                 event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
@@ -401,7 +411,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
                 guard let self, let scene else { call.reject("NATIVE_PROFILE_NAME_RETIRED"); return }
                 guard presented, self.nameScene === scene,
-                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration) else {
+                      self.profileFormOwnerIsCurrent(next.identity, privacy: next.privacyGeneration, destinationId: next.destinationId) else {
                     if self.nameScene === scene { self.retireProfileForm() }
                     call.reject("NATIVE_PROFILE_NAME_RETIRED"); return
                 }
@@ -415,7 +425,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private func nameAction(_ call: CAPPluginCall, scene: String = "account-name", settlement: Bool = false) -> NativeProfileNameAction? {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene",
             "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]
-        let allowed = settlement ? keys.union(["saved"]) : keys
+        let allowed = (settlement ? keys.union(["saved"]) : keys).union(scene == "account-name" ? ["destinationId"] : [])
         guard Set(call.options.keys).isSubset(of: allowed), call.getString("scene") == scene,
               let update = call.getInt("updateSequence"), update > 0,
               let edit = call.getInt("editRevision"), edit >= 0,
@@ -427,7 +437,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func confirmProfileNameAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy), let scene = self.nameScene,
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, destinationId: call.getString("destinationId")), let scene = self.nameScene,
+                  scene.model.projection.destinationId == call.getString("destinationId"),
                   scene.model.projection.identity == identity, let action = self.nameAction(call) else {
                 call.resolve(["valid": false]); return
             }
@@ -437,7 +448,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func settleProfileNameAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
-                  self.profileFormOwnerIsCurrent(identity, privacy: privacy), let scene = self.nameScene,
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, destinationId: call.getString("destinationId")), let scene = self.nameScene,
+                  scene.model.projection.destinationId == call.getString("destinationId"),
                   scene.model.projection.identity == identity, let action = self.nameAction(call) else {
                 call.resolve(["valid": false]); return
             }
@@ -461,6 +473,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             self.formRevision = max(self.formRevision, identity.revision)
             var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease())
             receipt["scene"] = "account-name"
+            if let id = call.getString("destinationId") { receipt["destinationId"] = id }
             call.resolve(receipt)
         }
     }

@@ -13,6 +13,28 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Retained native Profile Account stack candidate — 2026-10-14
+
+The iPhone qualification path now projects the ordinary Account destination
+into one retained SwiftUI `NavigationStack` inside the existing Profile drawer.
+The drawer does not close or hand its Account body to React during that push/pop.
+The existing native Display name sheet retains its React validator and account
+writer. Read-only identity rows cannot emit actions. Account icons are generated
+from the same React icon exports. Photo, phone, wallet and destructive operations
+keep their existing owners; rich/protected React presentations remain explicit
+exceptions, not native-stack conversions.
+
+Native path changes are bounded presentation intents delegated to authored Back.
+Account incarnation identities fence form edits/actions across leave/return.
+Active and retiring forms quarantine underlying drawer touch, accessibility and
+queued choices until actual dismissal. Native nested Back excludes the outer
+drawer pan. No second WebView, application router or credential store is added.
+
+This is source implementation, not physical visual, accessibility or performance
+qualification. The preceding native-menu/React-detail readiness changes did not
+resolve the user's observed route flash. Do not transfer their receipts to this
+new composition or claim that the remaining React exceptions are fixed.
+
 ### Menu tap acknowledgement stability — 2026-10-14
 
 Profile and One-profile roster rows no longer apply SwiftUI `disabled` to
@@ -3199,8 +3221,13 @@ never convert selecting a row into an unreviewed provider write or information s
    The pilot uses `Button.buttonStyle(.glass)`, not imitation glass. Bounded,
    stationary, nonsecret segmented/date/duration selections are later candidates;
    their existing value validators remain authoritative. Scrolling, collapsing,
-   dragged or swipe-coupled chrome stays React. No `TabView`, `NavigationStack`,
-   second WebView or second router is introduced. Minimum iOS remains 17.0.
+   dragged or swipe-coupled chrome stays React. A bounded Profile presentation
+   `NavigationStack` is permitted only when it owns complete native destinations
+   inside the retained drawer, projects the existing React route state, and
+   delegates Back/operations through the existing fenced callbacks. It must not
+   wrap or reparent the existing WebView to imply native transition ownership.
+   No `TabView`, second WebView or second application router is introduced.
+   Minimum iOS remains 17.0.
 4. Each adapter needs capability detection and a DOM fallback. Keep web/Android
    unchanged, preserve unsupported iOS behavior and remove duplicate accessibility
    controls and layout reservation when native presentation is active.

@@ -98,7 +98,7 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
       try {
         const receipt = await acknowledged(this.port.apply(state));
         if (this.disposed) return;
-        if (!receipt || !sameNativeDrawer(receipt, state) || receipt.scene !== state.scene ||
+        if (!receipt || !sameNativeDrawer(receipt, state) || receipt.scene !== state.scene || receipt.destinationId !== state.destinationId ||
             receipt.phase !== "active" || receipt.updateSequence !== state.updateSequence ||
             receipt.privacyGeneration !== state.privacyGeneration || !this.ownerIsCurrent()) { await this.fail(); return; }
         if (this.current?.state.updateSequence === state.updateSequence) this.onPhase("active");
@@ -160,7 +160,7 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
     let retired = false;
     try {
       const receipt = await acknowledged(this.port.retire(this.identity));
-      retired = !!receipt && sameNativeDrawer(receipt, this.identity) && receipt.scene === this.identity.scene &&
+      retired = !!receipt && sameNativeDrawer(receipt, this.identity) && receipt.scene === this.identity.scene && receipt.destinationId === this.identity.destinationId &&
         receipt.phase === "retired" && Number.isSafeInteger(receipt.updateSequence) &&
         receipt.updateSequence >= 0 && receipt.updateSequence <= this.highestUpdate;
       if (retired) await acknowledged(reconcileNativeDrawerIsolation(this.port.source));

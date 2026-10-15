@@ -1,12 +1,13 @@
 "use client";
 
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
-import type { NativeDrawerRow } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, type NativeDrawerRow, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model";
-import { useLayoutEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 
 export function projectNativeProfileMenu(name: string, email: string | null, ready: boolean,
   groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: () => void) {
@@ -26,18 +27,24 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email, groups, actions, onClose, onPresented }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email, groups, actions, onClose, onPresented, stack }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: () => void;
   onPresented?: () => void;
+  stack?: { pages: readonly NativeProfilePage[]; destinationId?: string; rows: NativeDrawerActions["rows"]; back: () => void };
 }) {
   const renderer = useNativeDrawerPresentation({ family: "profile", owner, vaultEpoch: snapshotVaultSessionEpoch(), ready, open,
     title: "Profile", profileMenuRows: true, surfaceOpen, onPresented: () => {
       window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
       onPresented?.();
     },
-    project: () => projectNativeProfileMenu(name, email, ready, groups, actions, onClose) });
+    project: () => {
+      const projected = projectNativeProfileMenu(name, email, ready, groups, actions, onClose);
+      if (!stack) return projected;
+      return { ...projected, profileStack: stack.pages, profileDestinationId: stack.destinationId, actions: { ...projected.actions,
+        rows: new Map([...projected.actions.rows, ...stack.rows]), ...(stack.pages.length ? { back: stack.back } : {}) } };
+    } });
   // Confirmed absence is not a silent successful Open. Keep failures in a
   // bounded app-owned page; an uncertain native retirement remains isolated.
   // Do not paint a full-height React drawer over retained native chrome.
@@ -50,34 +57,54 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, name, email
 /** Two-way presentation handoff. The outgoing surface stays painted until the
  * incoming owner acknowledges admission. Query changes never dismiss Profile
  * onto the underlying route while a bridge command is still in flight. */
-export function NativeProfilePresentation({ lifetime, detail, menu, page, children }: {
+export function NativeProfilePresentation({ lifetime, detail, menu, page, children, account }: {
   lifetime: string;
   detail: boolean;
   menu: Omit<ComponentProps<typeof NativeProfileMenu>, "onPresented">;
   page: Omit<ComponentProps<typeof NativeFeaturePage>, "open" | "onReady" | "children">;
   children: ReactNode;
+  account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
 }) {
+  const [stackSupported, setStackSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!account) return;
+    let current = true;
+    void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
+      if (current) setStackSupported(capability.contractVersion === 1 && capability.supported &&
+        capability.profileNavigationStack === true && capability.profileNameScene === true);
+    }).catch(() => { if (current) setStackSupported(false); });
+    return () => { current = false; };
+  }, [!!account]);
+  const nativeAccount = stackSupported === true && account?.active === true;
+  const destinationId = useMemo(() => nativeAccount ? crypto.randomUUID() : undefined, [nativeAccount, lifetime]);
+  const webDetail = detail && !nativeAccount;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (!menu.surfaceOpen || !menu.ready) {
       setPrepared(null); setRestored(null);
-    } else if (detail) {
+    } else if (webDetail) {
       setRestored(null);
     }
-  }, [menu.surfaceOpen, menu.ready, detail, lifetime]);
-  const holdingDetail = !detail && prepared === lifetime && restored !== lifetime;
+  }, [menu.surfaceOpen, menu.ready, webDetail, lifetime]);
+  const holdingDetail = !webDetail && prepared === lifetime && restored !== lifetime;
   const active = menu.surfaceOpen === true && menu.ready;
+  // Decide the composition before the first visible native menu. Do not first
+  // display a legacy menu and replace it with a stack after capability discovery.
+  if (account && stackSupported === null) return null;
   return <>
-    <NativeProfileMenu {...menu} open={active && (!detail || prepared !== lifetime)} onPresented={() => {
-      if (active && !detail) { setRestored(lifetime); setPrepared(null); }
+    <NativeProfileMenu {...menu} open={active && (!webDetail || prepared !== lifetime)}
+      stack={stackSupported && account ? { pages: nativeAccount ? [account.page] : [], destinationId, rows: account.rows, back: page.onBack } : undefined}
+      onPresented={() => {
+      if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
-    <NativeFeaturePage {...page} open={active && (detail || holdingDetail)} onReady={() => {
-      if (active && detail) setPrepared(lifetime);
+    <NativeFeaturePage {...page} open={active && (webDetail || holdingDetail)} onReady={() => {
+      if (active && webDetail) setPrepared(lifetime);
     }}>
       <div inert={holdingDetail || undefined}>
         {children}
       </div>
     </NativeFeaturePage>
+    {account?.editor(destinationId)}
   </>;
 }

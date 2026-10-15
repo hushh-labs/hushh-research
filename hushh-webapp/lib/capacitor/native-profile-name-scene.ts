@@ -8,6 +8,7 @@ import { NativeProfileSceneFence } from "./native-profile-scene-fence";
 export type NativeProfileNameIdentity = NativeDrawerIdentity & {
   family: "profile";
   scene: "account-name";
+  destinationId?: string;
 };
 export type NativeProfileNameProjection = NativeProfileNameIdentity & NativeControlAppearance & {
   updateSequence: number;
@@ -53,14 +54,15 @@ function count(value: unknown, minimum = 0): value is number {
 function closed(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).every(key => keys.includes(key));
 }
-const identityKeys = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene"];
+const identityKeys = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"];
 function validIdentity(value: NativeProfileNameIdentity): boolean {
   return !!value && value.family === "profile" && value.scene === "account-name" &&
     [value.documentId, value.ownerEpoch].every(id => typeof id === "string" && id.length > 0 && id.length <= 128) &&
-    count(value.ownerGeneration, 1) && count(value.revision, 1);
+    count(value.ownerGeneration, 1) && count(value.revision, 1) &&
+    (value.destinationId === undefined || typeof value.destinationId === "string" && value.destinationId.length > 0 && value.destinationId.length <= 128);
 }
 function sameScene(a: NativeProfileNameIdentity, b: NativeProfileNameIdentity): boolean {
-  return validIdentity(a) && sameNativeDrawer(a, b) && a.scene === b.scene;
+  return validIdentity(a) && sameNativeDrawer(a, b) && a.scene === b.scene && a.destinationId === b.destinationId;
 }
 export function validNativeProfileNameProjection(value: NativeProfileNameProjection): boolean {
   return validIdentity(value) && closed(value, [...identityKeys, "appearance", "accentHex", "foregroundHex",
@@ -78,7 +80,7 @@ export function validNativeProfileNameProjection(value: NativeProfileNameProject
 export class NativeProfileNameFence extends NativeProfileSceneFence<NativeProfileNameProjection, NativeProfileNameEdit, NativeProfileNameAction> {
   constructor(identity: NativeProfileNameIdentity) {
     super(identity, {
-      state: validNativeProfileNameProjection,
+      state: state => validNativeProfileNameProjection(state) && sameScene(state, identity),
       edit: edit => !!edit && sameScene(edit, identity) &&
         closed(edit, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "text", "composing"]) &&
         typeof edit.text === "string" && edit.text.length <= 4096 && typeof edit.composing === "boolean",

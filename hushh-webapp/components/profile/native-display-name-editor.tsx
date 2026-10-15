@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
+import { createPortal } from "react-dom";
 import type { AccountIdentity } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged } from "@/lib/capacitor/native-drawers";
@@ -17,7 +18,12 @@ import { DisplayNameEditorForm, useDisplayNameEditor, type DisplayNameEditorProp
 /** Complete optional form scene, not a native replacement for each DOM field.
  * Only iPhone qualification binaries advertise it. Other renderers keep the
  * same feature controller and established web form from its first reveal. */
-export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
+export function NativeDisplayNameEditor(props: DisplayNameEditorProps & {
+  destinationId?: string;
+  portalFallback?: boolean;
+  webHost?: HTMLElement | null;
+  onWebFallback?: () => void;
+}) {
   // Native completion closes only after UIKit proves dismissal. The same
   // feature still validates and performs the one authenticated account write.
   const webCompletion = useRef(false);
@@ -36,6 +42,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
     webCompletion.current = renderer === "web";
     live.current = { model, props, appearance, privacy, edit };
   });
+  useEffect(() => { if (renderer === "web") live.current.props.onWebFallback?.(); }, [renderer]);
   const replica = useRef<{ owner: string; epoch: number; identity: NativeProfileNameIdentity;
     presentation: NativeProfileNamePresentation<AccountIdentity>; sequence: number; fingerprint: string | null } | null>(null);
   const closing = useRef(false);
@@ -90,12 +97,14 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
         !hasNativeProfileNameScene(nativeDrawers)) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
-    const identity: NativeProfileNameIdentity = { ...base, family: "profile", scene: "account-name" };
+    const identity: NativeProfileNameIdentity = { ...base, family: "profile", scene: "account-name",
+      ...(props.destinationId ? { destinationId: props.destinationId } : {}) };
     const owner = model.uid;
     const generation = privacyGeneration;
     let active = true;
     const isCurrent = () => active && live.current.model.ready && live.current.model.uid === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
+      live.current.props.destinationId === identity.destinationId &&
       live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
     const presentation = new NativeProfileNamePresentation<AccountIdentity>(identity, nativeDrawers, isCurrent, phase => {
       if (!active) return;
@@ -115,7 +124,7 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
       if (replica.current === instance) replica.current = null;
       void presentation.retire();
     };
-  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, privacyShielded, privacyActive, publish]);
+  }, [admitted, model.uid, model.ready, epoch, privacyGeneration, privacyShielded, privacyActive, props.destinationId, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, renderer === "web" ? 0 : 100, () => {
     if (live.current.model.saving || closing.current) return true;
@@ -128,5 +137,6 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
     return true;
   });
   if (renderer !== "web") return <div aria-busy={renderer === "checking"} data-native-profile-name-state={renderer} />;
-  return <DisplayNameEditorForm model={model} className={props.className} onCancel={props.onCancel} />;
+  const form = <DisplayNameEditorForm model={model} className={props.className} onCancel={props.onCancel} />;
+  return props.portalFallback ? props.webHost ? createPortal(form, props.webHost) : null : form;
 }

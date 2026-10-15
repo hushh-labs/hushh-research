@@ -464,12 +464,18 @@ const profileLoader = await createServer({
 try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
   const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
+  const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
   const formIcons = [
     { id: "style-name", icon: rows.PreferredNameRowIcon },
     { id: "style-tone", icon: rows.ToneRowIcon },
     { id: "style-length", icon: rows.ReplyLengthRowIcon },
     { id: "style-language", icon: rows.LanguageRowIcon },
     { id: "style-punctuation", icon: rows.PunctuationRowIcon },
+    { id: "account-mail", icon: accountIcons.GmailAgentIcon },
+    { id: "account-phone", icon: accountIcons.PhoneRowIcon },
+    { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
+    { id: "account-reset", icon: accountIcons.ResetRowIcon },
+    { id: "account-delete", icon: accountIcons.DeleteRowIcon },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {
     if (!/^[a-z][a-z-]*$/.test(entry.id)) throw new Error("Invalid authored Profile asset id");

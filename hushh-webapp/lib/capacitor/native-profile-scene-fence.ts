@@ -3,7 +3,7 @@ import { sameNativeDrawer, type NativeDrawerIdentity } from "./native-drawers";
 /** Shared metadata ordering only. Each authored private scene supplies its
  * closed payload validators; this class never interprets fields or performs
  * an account, preference, support, or routing operation. */
-export type NativeProfileSceneIdentity = NativeDrawerIdentity & { scene: string };
+export type NativeProfileSceneIdentity = NativeDrawerIdentity & { scene: string; destinationId?: string };
 export type NativeProfileSceneState = NativeProfileSceneIdentity & {
   updateSequence: number;
   privacyGeneration: number;
@@ -29,7 +29,7 @@ function count(value: unknown, minimum = 0): value is number {
   return Number.isSafeInteger(value) && (value as number) >= minimum;
 }
 function sameScene(a: NativeProfileSceneIdentity, b: NativeProfileSceneIdentity): boolean {
-  return sameNativeDrawer(a, b) && a.scene === b.scene;
+  return sameNativeDrawer(a, b) && a.scene === b.scene && a.destinationId === b.destinationId;
 }
 
 export class NativeProfileSceneFence<

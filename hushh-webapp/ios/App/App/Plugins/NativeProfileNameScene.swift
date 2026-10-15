@@ -21,6 +21,7 @@ struct NativeProfileNameProjection: Decodable {
     let appearance: String
     let accentHex: String
     let foregroundHex: String
+    var destinationId: String? = nil
 
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch,
@@ -28,25 +29,28 @@ struct NativeProfileNameProjection: Decodable {
     }
     static let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene",
         "updateSequence", "privacyGeneration", "draftRevision", "acknowledgedEditRevision", "draft", "canSave", "busy",
-        "error", "appearance", "accentHex", "foregroundHex"]
+        "error", "appearance", "accentHex", "foregroundHex", "destinationId"]
     var valid: Bool {
         let maximum = HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
         return identity.valid && family == "profile" && scene == "account-name" &&
+            (destinationId == nil || NativeDrawerIdentity.identifier(destinationId!)) &&
             updateSequence > 0 && updateSequence <= maximum &&
             [privacyGeneration, draftRevision, acknowledgedEditRevision].allSatisfy { $0 >= 0 && $0 <= maximum } &&
             draft.utf16.count <= 4096 && (error?.utf16.count ?? 0) <= 1024 &&
             HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil
     }
     func receipt(phase: String) -> [String: Any] {
-        ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision,
+        var receipt: [String: Any] = ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision,
          "family": family, "scene": scene, "updateSequence": updateSequence,
          "privacyGeneration": privacyGeneration, "phase": phase]
+        if let destinationId { receipt["destinationId"] = destinationId }
+        return receipt
     }
     var cleared: NativeProfileNameProjection {
         NativeProfileNameProjection(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration,
             revision: revision, family: family, scene: scene, updateSequence: updateSequence, privacyGeneration: privacyGeneration,
             draftRevision: draftRevision, acknowledgedEditRevision: acknowledgedEditRevision, draft: "", canSave: false,
-            busy: false, error: nil, appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex)
+            busy: false, error: nil, appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex, destinationId: destinationId)
     }
 }
 
@@ -81,6 +85,7 @@ final class NativeProfileNameModel: ObservableObject {
     }
     func update(_ next: NativeProfileNameProjection) -> Bool {
         guard !retired, next.valid, next.identity == projection.identity,
+              next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration,
               next.updateSequence > projection.updateSequence, next.draftRevision >= projection.draftRevision,
               next.acknowledgedEditRevision >= projection.acknowledgedEditRevision,

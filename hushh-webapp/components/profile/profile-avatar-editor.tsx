@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   CameraIcon as CameraIcon,
@@ -44,11 +44,18 @@ function initialsOf(name?: string | null): string | null {
  * sheet to upload a new one (native camera/library or web file picker) or
  * revert to the default. Write-through updates every avatar surface at once.
  */
-export function ProfileAvatarEditor() {
+export function ProfileAvatarEditor({ openOnMount = false, onPresentationClose }: {
+  openOnMount?: boolean; onPresentationClose?: () => void;
+} = {}) {
   const { user } = useAuth();
   const photo = useEffectiveAvatarUrl();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [photoOpen, setPhotoOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(openOnMount && !photo);
+  const [photoOpen, setPhotoOpen] = useState(openOnMount && !!photo);
+  const wasPresented = useRef(openOnMount);
+  useEffect(() => {
+    if (sheetOpen || photoOpen) { wasPresented.current = true; return; }
+    if (wasPresented.current) { wasPresented.current = false; onPresentationClose?.(); }
+  }, [sheetOpen, photoOpen, onPresentationClose]);
   const [busy, setBusy] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
