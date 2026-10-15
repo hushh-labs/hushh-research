@@ -142,6 +142,14 @@ Individual interaction and performance assertions keep their own deadlines.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
+Flake budget: in CI each Playwright test gets one retry (`retries` in
+`hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
+browser shard; the macOS `Web Editor Performance` lane uses the same config
+and budget. Each browser shard's `Install Playwright browsers` step, which
+also runs the web dependency install, is bounded at 8 minutes and retries a
+failed browser install once, so a stalled apt mirror or browser download
+fails the shard early instead of holding a runner to the job limit.
+
 Fail-fast contract:
 
 1. Cheap authority checks run before expensive web/protocol/integration lanes:
