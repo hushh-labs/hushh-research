@@ -141,7 +141,8 @@ export function ProfileStackNavigator({
     ? "root"
     : renderedEntries[activeIndex - 1]?.key || "root";
   const activeEntry = activeIndex > 0 ? renderedEntries[activeIndex - 1] : undefined;
-  const activeTitle = entries.find(entry => entry.key === activeEntry?.key)?.title ?? activeEntry?.title;
+  const liveActiveEntry = activeEntry ? entries.find(entry => entry.key === activeEntry.key) ?? activeEntry : undefined;
+  const activeTitle = liveActiveEntry?.title;
   // Displayed metadata follows this committed body, not the requested route.
   // Route/Back authority still updates immediately in its existing owner.
   useLayoutEffect(() => {
