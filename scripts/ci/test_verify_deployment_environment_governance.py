@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -167,21 +168,26 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance.yml").read_text()
     match = re.search(
-        r"      - name: Require main and governed manual actor\n.*?"
+        r"      - name: Require main and governed maintenance wake\n.*?"
         r"        run: \|\n(.*?)(?=\n      - name:|\Z)", source, re.DOTALL,
     )
     assert match is not None, "Capacity cleanup authority gate is missing"
     inputs = event.get("inputs") or {}
-    return subprocess.run(
-        ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
-             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", "")},
-        capture_output=True, text=True, check=False,
-    )
+    with tempfile.TemporaryDirectory() as temporary:
+        event_path = Path(temporary) / "event.json"
+        event_path.write_text(json.dumps(event), encoding="utf-8")
+        return subprocess.run(
+            ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+            env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+                 "GITHUB_ACTOR": actor, "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+                 "GITHUB_EVENT_PATH": str(event_path),
+                 "RELEASE_ENV": inputs.get("environment", ""),
+                 "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", "")},
+            capture_output=True, text=True, check=False,
+        )
 
 
-def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> None:
+def test_capacity_cleanup_accepts_schedule_and_governed_manual_modes() -> None:
     scheduled = _validate_capacity_trigger("schedule", {})
     assert scheduled.returncode == 0, scheduled.stderr
     for environment, apply in (("uat", "true"), ("production", "false")):
@@ -197,12 +203,64 @@ def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> N
     assert result.returncode != 0
 
 
-def test_capacity_cleanup_rejects_deployment_events_and_non_main() -> None:
-    for event_name in ("workflow_run", "pull_request", "push"):
+def _uat_wake(name: str = "Deploy to UAT", conclusion: str = "success") -> dict:
+    paths = {
+        "Deploy to UAT": ".github/workflows/deploy-uat.yml",
+        "Deploy UAT One Chat Backend Only": ".github/workflows/deploy-uat-one-chat.yml",
+    }
+    return {
+        "action": "completed",
+        "repository": {"full_name": "hushh-labs/hushh-research"},
+        "workflow_run": {
+            "id": 43, "name": name, "path": paths[name],
+            "event": "workflow_dispatch", "status": "completed",
+            "conclusion": conclusion, "head_branch": "main",
+            "repository": {"full_name": "hushh-labs/hushh-research"},
+            "head_repository": {"full_name": "hushh-labs/hushh-research"},
+            "actor": {"login": "kushaltrivedi5"},
+        },
+    }
+
+
+def test_capacity_cleanup_accepts_only_trusted_uat_wakes() -> None:
+    for name in ("Deploy to UAT", "Deploy UAT One Chat Backend Only"):
+        for conclusion in ("success", "failure"):
+            result = _validate_capacity_trigger("workflow_run", _uat_wake(name, conclusion))
+            assert result.returncode == 0, result.stderr
+    invalid = []
+    for field, value in (
+        ("path", ".github/workflows/deploy-production.yml"),
+        ("event", "pull_request"),
+        ("status", "queued"),
+        ("conclusion", "cancelled"),
+        ("head_branch", "contributor-branch"),
+        ("head_repository", {"full_name": "untrusted/fork"}),
+        ("actor", {"login": "unapproved-contributor"}),
+    ):
+        wake = _uat_wake()
+        wake["workflow_run"][field] = value
+        invalid.append(wake)
+    wrong_repository = _uat_wake()
+    wrong_repository["repository"]["full_name"] = "untrusted/fork"
+    invalid.append(wrong_repository)
+    requested = _uat_wake()
+    requested["action"] = "requested"
+    invalid.append(requested)
+    for wake in invalid:
+        result = _validate_capacity_trigger("workflow_run", wake)
+        assert result.returncode != 0, f"Untrusted UAT wake accepted: {wake}"
+
+
+def test_capacity_cleanup_rejects_other_events_and_non_main() -> None:
+    for event_name in ("pull_request", "push"):
         result = _validate_capacity_trigger(event_name, {})
         assert result.returncode != 0, f"Unexpected {event_name} can wake cleanup"
-    for event_name in ("schedule", "workflow_dispatch"):
-        result = _validate_capacity_trigger(event_name, {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}, ref="contributor-branch")
+    for event_name, event in (
+        ("schedule", {}),
+        ("workflow_dispatch", {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}),
+        ("workflow_run", _uat_wake()),
+    ):
+        result = _validate_capacity_trigger(event_name, event, ref="contributor-branch")
         assert result.returncode != 0, "Non-main cleanup was accepted"
 
 
@@ -212,8 +270,9 @@ def main() -> int:
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
         test_production_tripwire_matches_committed_policy,
-        test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
-        test_capacity_cleanup_rejects_deployment_events_and_non_main,
+        test_capacity_cleanup_accepts_schedule_and_governed_manual_modes,
+        test_capacity_cleanup_accepts_only_trusted_uat_wakes,
+        test_capacity_cleanup_rejects_other_events_and_non_main,
     ]
     for test in tests:
         test()

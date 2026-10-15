@@ -523,15 +523,20 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 8. publish release artifacts with revisions, reports, and final status
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
-scheduled hourly at minute 17 UTC. Releases never trigger it. An authorized operator
-can explicitly inspect or apply cleanup; manual requests are not coalesced with cron.
+scheduled hourly at minute 17 UTC. A completed, governed UAT deploy also wakes a
+UAT-only inspection, including a failed deploy that never passed capacity admission.
+The failed run is an observation, never cleanup authority: maintenance selects a
+separate healthy release and rechecks live traffic before mutation. Production
+remains hourly or explicitly manual. An authorized operator can inspect or apply
+cleanup; manual and UAT event requests are not coalesced with cron.
 Scheduled work keeps one active and one pending request without cancelling active
 mutations. Each environment still shares its deployment/rollback lock.
 
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
 with teardown/checkpoint time reserved. No runner waits for request drainage: existing
-artifacts retain the deadline and partial progress for the next hourly pass. Drainage
+artifacts retain the deadline and partial progress for a later hourly pass or UAT
+event wake. Drainage
 still covers the longest applicable request timeout plus 60 seconds. Unknown provider
 outcomes retain mutation intent and block conflicting deployments until reconciliation;
 a timeout does not prove that Google stopped the operation. No completion is claimed

@@ -378,7 +378,8 @@ def _wait_for_capacity(
             )
         if not warned_about_maintenance:
             print(
-                "Capacity Maintenance runs hourly or by governed manual request. "
+                "Capacity Maintenance runs after completed UAT deploys, hourly, "
+                "or by governed manual request. "
                 "This observer never dispatches maintenance or authorizes deletion; "
                 "retry the original SHA and scope after verified cleanup.",
                 flush=True,

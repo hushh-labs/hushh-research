@@ -279,7 +279,9 @@ class PendingUatStateTests(unittest.TestCase):
 
     def test_newer_empty_successful_pass_supersedes_preseeded_state(self) -> None:
         run, artifact, _jobs = fixture()
-        run.update(status='completed', conclusion='success')
+        # This legacy completion test covers the scheduled-run path. Event
+        # completions require an authority-job proof and an ID-bound download.
+        run.update(status='completed', conclusion='success', event='schedule')
 
         def api(_repository: str, endpoint: str) -> dict:
             return {'artifacts': [artifact]} if endpoint.startswith('artifacts?') else run

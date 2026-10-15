@@ -2051,6 +2051,107 @@ class MaintenanceAuthorityTest(unittest.TestCase):
         with mock.patch.object(MAINTENANCE, "api", side_effect=[latest, prior]):
             self.assertFalse(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", {"created_at": "2026-10-14T22:00:00Z"}))
 
+    def test_uat_event_checkpoint_requires_verified_authority_job(self):
+        run = {
+            **self.trusted_source(123, "capacity-maintenance.yml"),
+            "event": "workflow_run",
+            "run_attempt": 1,
+        }
+        artifact = {"created_at": "2026-10-14T20:00:00Z"}
+        authority_names = (
+            "Checkout authority tooling",
+            "Require main and governed maintenance wake",
+            "Verify due uat source",
+        )
+        mutation_names = (
+            "Checkout mutation tooling and rollback history",
+            "Recheck due source under the deployment lock",
+            "Authenticate to uat",
+            "Save uat cleanup checkpoint",
+        )
+
+        def step(name):
+            return {
+                "name": name,
+                "status": "completed",
+                "conclusion": "success",
+                "started_at": "2026-10-14T19:59:59Z",
+                "completed_at": "2026-10-14T20:00:01Z",
+            }
+
+        jobs = {
+            "total_count": 2,
+            "jobs": [
+                {
+                    "name": "Verify due cleanup without cloud credentials",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "run_attempt": 1,
+                    "steps": [step(name) for name in authority_names],
+                },
+                {
+                    "name": "UAT bounded revision cleanup",
+                    "status": "completed",
+                    "steps": [step(name) for name in mutation_names],
+                },
+            ],
+        }
+        with mock.patch.object(MAINTENANCE, "api", return_value=jobs):
+            self.assertTrue(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", artifact))
+            self.assertFalse(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact))
+        for defect in ("missing_authority", "failed_wake", "wrong_attempt", "missing_source"):
+            broken = copy.deepcopy(jobs)
+            if defect == "missing_authority":
+                broken["jobs"].pop(0)
+                broken["total_count"] = 1
+            elif defect == "failed_wake":
+                broken["jobs"][0]["steps"][1]["conclusion"] = "failure"
+            elif defect == "wrong_attempt":
+                broken["jobs"][0]["run_attempt"] = 2
+            else:
+                broken["jobs"][0]["steps"].pop()
+            with self.subTest(defect=defect), mock.patch.object(
+                MAINTENANCE, "api", return_value=broken
+            ):
+                self.assertFalse(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "uat", artifact))
+
+    def test_completed_uat_event_checkpoint_needs_attempt_proof(self):
+        run = {
+            **self.trusted_source(123, "capacity-maintenance.yml"),
+            "event": "workflow_run",
+            "run_attempt": 1,
+        }
+        artifact = {
+            "name": MAINTENANCE.STATE_ARTIFACT,
+            "expired": False,
+            "created_at": "2026-10-14T20:00:00Z",
+            "workflow_run": {"id": 123},
+        }
+
+        def api(_repository, endpoint):
+            if endpoint.startswith("artifacts?"):
+                return {"artifacts": [artifact]}
+            self.assertEqual(endpoint, "runs/123")
+            return run
+
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = pathlib.Path(temporary)
+
+            def download(_repository, _artifact, directory, **_kwargs):
+                (directory / "README.txt").write_text("event checkpoint")
+                (directory / "completed.json").write_text('{"schema_version": 1}')
+
+            with (
+                mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True) as proof,
+                mock.patch.object(MAINTENANCE, "download_pending_uat_state", side_effect=download) as fetch,
+                mock.patch.object(MAINTENANCE, "download", side_effect=AssertionError("unbound download")),
+            ):
+                MAINTENANCE.restore_state("org/repo", destination)
+                proof.assert_called_once_with("org/repo", run, "uat", artifact)
+                fetch.assert_called_once()
+            self.assertTrue((destination / "completed.json").exists())
+
     def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
         self,
     ):
@@ -2095,7 +2196,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     with self.assertRaises(MAINTENANCE.retention.UnsafeState):
                         MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
 
-    def test_maintenance_is_hourly_and_independent_of_deployments(self):
+    def test_maintenance_has_bounded_uat_wake_and_hourly_fallback(self):
         source = (
             pathlib.Path(__file__).resolve().parents[2]
             / ".github/workflows/capacity-maintenance.yml"
@@ -2105,7 +2206,15 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             triggers = text.split("\npermissions:", 1)[0]
             self.assertIn('cron: "17 * * * *"', triggers)
             self.assertIn("  workflow_dispatch:", triggers)
-            self.assertNotIn("workflow_run:", triggers)
+            self.assertIn("  workflow_run:", triggers)
+            self.assertIn("workflows: [Deploy to UAT, Deploy UAT One Chat Backend Only]", triggers)
+            self.assertIn("types: [completed]", triggers)
+            self.assertIn("branches: [main]", triggers)
+            self.assertNotIn("Deploy to Production]", triggers)
+            self.assertIn("github.event_name == 'workflow_run' || inputs.environment == 'uat'", text)
+            self.assertNotIn("github.event_name == 'workflow_run' || inputs.environment == 'production'", text)
+            self.assertIn("APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || inputs.apply }}", text)
+            self.assertIn("RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}", text)
             self.assertNotIn("uat-drain-wait:", text)
             self.assertNotIn("uat-drain-recheck:", text)
             self.assertNotIn('sleep "$wait_seconds"', text)
@@ -2119,7 +2228,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
         check_policy(source)
         for broken in (
-            source.replace("  schedule:", "  workflow_run:\n  schedule:"),
+            source.replace("  workflow_run:\n", "  absent_wake:\n", 1),
+            source.replace("types: [completed]", "types: [requested]", 1),
+            source.replace("github.event_name == 'workflow_run' || inputs.apply", "inputs.apply", 1),
             source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n',
         ):
             with self.assertRaises(AssertionError):
