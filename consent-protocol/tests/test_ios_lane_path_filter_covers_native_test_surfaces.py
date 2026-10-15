@@ -115,6 +115,9 @@ GLOB_CHARS = set("*?[")
 IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']"""
 )
+EDITOR_TYPE_DECLARATION_RE = re.compile(
+    r"""\b(?:import\s+type\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)|export\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?))\s+from\s*["'][^"']+["']\s*;?"""
+)
 CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
 RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json")
 
@@ -413,7 +416,9 @@ def _editor_lane_closure() -> frozenset[str]:
         seen.add(path)
         if path.suffix in CODE_SUFFIXES:
             text = path.read_text(encoding="utf-8")
-            found = [_resolve_import(path, specifier) for specifier in IMPORT_RE.findall(text)]
+            found = [
+                _resolve_import(path, specifier) for specifier in _editor_runtime_imports(text)
+            ]
             # Read, not imported: a joined path that names a webapp file. The
             # lockfile pins node_modules, and a directory is a base, not a read.
             for arguments in PATH_JOIN_RE.findall(text):
@@ -430,6 +435,29 @@ def _editor_lane_closure() -> frozenset[str]:
             continue
         pending.extend(found_path for found_path in found if found_path is not None)
     return frozenset(path.relative_to(ROOT.resolve()).as_posix() for path in seen)
+
+
+def _editor_runtime_imports(text: str) -> list[str]:
+    # Vite/Oxc erases explicit type declarations before resolving dependencies.
+    # Keep mixed declarations conservatively, and leave the iOS graph unchanged.
+    return IMPORT_RE.findall(EDITOR_TYPE_DECLARATION_RE.sub("", text))
+
+
+def test_editor_dependency_graph_excludes_only_erased_type_declarations() -> None:
+    imports = _editor_runtime_imports("""
+        import type { Settings } from "./type-only";
+        import type Default from "./default-type";
+        export type { Settings } from "./export-type";
+        export type * from "./export-all-types";
+        import { Settings } from "./runtime";
+        import { type Settings, create } from "./mixed";
+        import "./side-effect";
+        const lazy = import("./dynamic");
+        const legacy = require("./required");
+    """)
+    assert imports == ["./runtime", "./mixed", "./side-effect", "./dynamic", "./required"]
+    # Negative control: the same edge must become required when it is a value.
+    assert _editor_runtime_imports('import { Settings } from "./type-only";') == ["./type-only"]
 
 
 def _editor_uncovered(patterns: list[str]) -> list[str]:
