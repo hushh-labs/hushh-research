@@ -34,6 +34,9 @@
 .form > fieldset > p { font-size: 12px; line-height: 1.5; }
 .number input { font-variant-numeric: tabular-nums; letter-spacing: .06em; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--app-form-section-gap); }
+.pairedRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pairedRow label { flex: 1; align-items: flex-start; }
+.pairedRow .selectTrigger { gap: 4px; padding-inline: 8px; }
 .errors { display: flex; flex-direction: column; gap: var(--app-form-field-gap); font-size: 13px; color: var(--destructive); }
 @container wallet-form (min-width: 460px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 640px) { .form { padding: 28px; } }
