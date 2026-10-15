@@ -167,7 +167,7 @@ export interface LiveMirrorClaim {
   origin?: "named" | "record";
 }
 
-/** Two sources disagree about one predicate. Both claims are shown; none is chosen. */
+/** The sides disagree about one predicate. Every claim is shown; none is chosen. */
 export interface LiveMirrorConflict {
   predicate: string;
   label: string;

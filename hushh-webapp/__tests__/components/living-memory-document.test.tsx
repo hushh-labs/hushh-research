@@ -262,8 +262,9 @@ describe("Profile Live Mirror", () => {
     expect(container.querySelector("h1")).toBeNull();
     expect(preview.querySelector("h2, h3, h4")?.textContent).toBe("Profile");
     expect(preview.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
-    // Word joiners keep URL-like owner text from autolinking; they are invisible.
-    expect(preview.textContent!.replace(/\u2060/g, ""))
+    // Owner text renders as written, with no invisible characters that would ride along on a copy.
+    expect(preview.textContent).not.toContain("\u2060");
+    expect(preview.textContent)
       .toContain("Name: # Hi ![t](https://x.test/p.png) <script>alert(1)</script> [l](javascript:alert(1))");
     // The only links are the generated source links inside the app.
     for (const anchor of preview.querySelectorAll("a")) {
@@ -440,7 +441,8 @@ describe("Profile Live Mirror", () => {
     const table = preview.querySelector("table");
     expect(table).not.toBeNull();
     expect(within(table!).getByText(euros(1_234)).tagName).toBe("TD");
-    const text = preview.textContent!.replace(/\u2060/g, "");
+    const text = preview.textContent!;
+    expect(text).not.toContain("\u2060");
     expect(text).toContain("Name: www.example.test https://x.test/p");
     expect(text).toContain("Email: owner@example.test");
     // Owner URLs and emails never become links; only in-app routes do.
