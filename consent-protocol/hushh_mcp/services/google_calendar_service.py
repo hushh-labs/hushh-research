@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 
 from db.db_client import get_db
+from hushh_mcp.consent.audit_logger import get_trace_id
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
@@ -42,6 +43,7 @@ CALENDAR_READ_DEADLINE_SECONDS = 12.0
 _CALENDAR_READ_ATTEMPT_TIMEOUT = 5.0
 _CALENDAR_READ_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
+_MISSING = object()
 # Attendee fields an events.patch may carry back. Read-only fields (id, self,
 # organizer) are recomputed by Google and never echoed.
 _WRITABLE_ATTENDEE_FIELDS = frozenset(
@@ -373,10 +375,16 @@ class GoogleCalendarService:
                         reason_code="calendar_reauthorization_required",
                     )
                 if response.status_code == 403:
+                    if error_reason == "insufficientPermissions":
+                        raise GoogleConnectionError(
+                            "Google Calendar permission is insufficient",
+                            status_code=403,
+                            reason_code="calendar_permission_required",
+                        )
                     raise GoogleConnectionError(
-                        "Google Calendar permission is insufficient",
-                        status_code=403,
-                        reason_code="calendar_permission_required",
+                        "Google Calendar could not read the requested calendar",
+                        status_code=502,
+                        reason_code="calendar_unreadable",
                     )
                 if response.status_code in {404, 410}:
                     raise GoogleConnectionError(
@@ -400,14 +408,20 @@ class GoogleCalendarService:
                     )
                 if response.status_code == 204:
                     if access == "read":
-                        raise self._invalid_response()
+                        raise self._invalid_response(
+                            "provider_empty_response", received=_MISSING, reason="missing_read_body"
+                        )
                     return {}
                 try:
                     parsed = response.json()
                 except ValueError as exc:
-                    raise self._invalid_response() from exc
+                    raise self._invalid_response(
+                        "provider_json", expected="JSON_object", received="", reason="invalid_json"
+                    ) from exc
                 if not isinstance(parsed, dict):
-                    raise self._invalid_response()
+                    raise self._invalid_response(
+                        "provider_envelope", expected="object", received=parsed, reason="wrong_type"
+                    )
                 return parsed
         raise self._invalid_response()
 
@@ -430,11 +444,11 @@ class GoogleCalendarService:
         ) as response:
             declared = response.headers.get("Content-Length", "")
             if declared.isdigit() and int(declared) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
-                raise self._invalid_response()
+                raise self._invalid_response("provider_body_size", reason="response_too_large")
             body = bytearray()
             async for chunk in response.aiter_bytes(chunk_size=65536):
                 if len(body) + len(chunk) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
-                    raise self._invalid_response()
+                    raise self._invalid_response("provider_body_size", reason="response_too_large")
                 body.extend(chunk)
             # aiter_bytes has already decoded Content-Encoding. Rebuilding a
             # bounded response must not decode compressed content a second time.
@@ -495,11 +509,107 @@ class GoogleCalendarService:
         return 0.1 + secrets.randbelow(150) / 1000
 
     @staticmethod
-    def _invalid_response() -> GoogleConnectionError:
+    def _invalid_response(
+        stage: str = "provider_response",
+        *,
+        field_path: str = "$",
+        expected: str = "valid_response",
+        received: object = _MISSING,
+        reason: str = "invalid_response",
+    ) -> GoogleConnectionError:
+        # Only code-authored paths/types/reasons: never payload values or IDs.
+        received_type = (
+            "missing"
+            if received is _MISSING
+            else "null"
+            if received is None
+            else "object"
+            if isinstance(received, dict)
+            else "array"
+            if isinstance(received, list)
+            else "string"
+            if isinstance(received, str)
+            else "boolean"
+            if isinstance(received, bool)
+            else "number"
+            if isinstance(received, (int, float))
+            else "unknown"
+        )
+        logger.warning(
+            "calendar.response.invalid request_id=%s stage=%s field_path=%s expected=%s received=%s reason=%s",
+            get_trace_id(),
+            stage,
+            field_path,
+            expected,
+            received_type,
+            reason,
+        )
         return GoogleConnectionError(
             "Calendar availability could not be checked",
             status_code=502,
             reason_code="calendar_invalid_response",
+        )
+
+    @classmethod
+    def _freebusy_errors(cls, errors: object, *, field_path: str = "$.calendars.*.errors") -> None:
+        """Preserve safe provider reasons without logging calendar IDs or payloads."""
+        if errors is None or errors == []:
+            return
+        if not isinstance(errors, list):
+            raise cls._invalid_response(
+                "freebusy_errors_shape",
+                field_path=field_path,
+                expected="array",
+                received=errors,
+                reason="wrong_type",
+            )
+        for item in errors:
+            if not isinstance(item, dict):
+                raise cls._invalid_response(
+                    "freebusy_errors_shape",
+                    field_path=f"{field_path}[]",
+                    expected="object",
+                    received=item,
+                    reason="wrong_type",
+                )
+            if not isinstance(item.get("reason"), str):
+                raise cls._invalid_response(
+                    "freebusy_errors_shape",
+                    field_path=f"{field_path}[].reason",
+                    expected="string",
+                    received=item.get("reason", _MISSING),
+                    reason="wrong_type",
+                )
+        known = {
+            "notFound",
+            "forbidden",
+            "internalError",
+            "groupTooBig",
+            "tooManyCalendarsRequested",
+            *_RATE_LIMIT_REASONS,
+        }
+        reasons = {
+            item.get("reason")
+            if isinstance(item.get("reason"), str) and item.get("reason") in known
+            else "unknown"
+            for item in errors
+        }
+        logger.warning(
+            "calendar.freebusy.partial_failure request_id=%s reasons=%s",
+            get_trace_id(),
+            ",".join(sorted(reasons)),
+        )
+        if reasons and reasons <= (_RATE_LIMIT_REASONS | {"internalError"}):
+            raise GoogleConnectionError(
+                "Google could not check every calendar. Try again shortly.",
+                status_code=503,
+                reason_code="calendar_provider_unavailable",
+            )
+        raise GoogleConnectionError(
+            "Availability could not be checked because Google cannot read an included calendar. "
+            "Check access to your calendars in Google Calendar, then retry.",
+            status_code=502,
+            reason_code="calendar_unreadable",
         )
 
     @classmethod
@@ -779,20 +889,45 @@ class GoogleCalendarService:
             payload={"timeMin": start, "timeMax": end, "items": [{"id": value} for value in ids]},
             **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
-        calendars = response.get("calendars")
+        calendars = response.get("calendars", _MISSING)
         groups = response.get("groups", {})
-        if not isinstance(calendars, dict) or not isinstance(groups, dict):
-            raise self._invalid_response()
+        for path, value in (("$.calendars", calendars), ("$.groups", groups)):
+            if not isinstance(value, dict):
+                raise self._invalid_response(
+                    "freebusy_envelope",
+                    field_path=path,
+                    expected="object",
+                    received=value,
+                    reason="wrong_type",
+                )
         for group in groups.values():
-            if not isinstance(group, dict) or group.get("errors"):
-                raise self._invalid_response()
-            members = group.get("calendars")
+            if not isinstance(group, dict):
+                raise self._invalid_response(
+                    "freebusy_group_shape",
+                    field_path="$.groups.*",
+                    expected="object",
+                    received=group,
+                    reason="wrong_type",
+                )
+            self._freebusy_errors(group.get("errors"), field_path="$.groups.*.errors")
+            members = group.get("calendars", _MISSING)
             if not isinstance(members, list) or any(
                 not isinstance(member, str) or member not in calendars for member in members
             ):
-                raise self._invalid_response()
+                raise self._invalid_response(
+                    "freebusy_group_members",
+                    field_path="$.groups.*.calendars",
+                    expected="array_of_returned_calendar_ids",
+                    received=members,
+                    reason="invalid_members",
+                )
         if any(value not in calendars and value not in groups for value in ids):
-            raise self._invalid_response()
+            raise self._invalid_response(
+                "freebusy_missing_calendar",
+                field_path="$.calendars.*",
+                expected="requested_calendar",
+                reason="missing_requested_calendar",
+            )
         # HTTP 200 can contain partial errors or malformed intervals. Neither
         # may be interpreted as a free slot, even when other calendars succeeded.
         self._merged_busy_intervals(
@@ -893,25 +1028,67 @@ class GoogleCalendarService:
     ) -> list[tuple[datetime, datetime]]:
         intervals: list[tuple[datetime, datetime]] = []
         if not isinstance(calendars, dict):
-            raise cls._invalid_response()
+            raise cls._invalid_response(
+                "freebusy_calendars_shape",
+                field_path="$.calendars",
+                expected="object",
+                received=calendars,
+                reason="wrong_type",
+            )
         for calendar in calendars.values():
-            if not isinstance(calendar, dict) or calendar.get("errors"):
-                raise cls._invalid_response()
-            busy = calendar.get("busy")
+            if not isinstance(calendar, dict):
+                raise cls._invalid_response(
+                    "freebusy_calendar_shape",
+                    field_path="$.calendars.*",
+                    expected="object",
+                    received=calendar,
+                    reason="wrong_type",
+                )
+            cls._freebusy_errors(calendar.get("errors"))
+            busy = calendar.get("busy", _MISSING)
             if not isinstance(busy, list):
-                raise cls._invalid_response()
+                raise cls._invalid_response(
+                    "freebusy_busy_shape",
+                    field_path="$.calendars.*.busy",
+                    expected="array",
+                    received=busy,
+                    reason="wrong_type",
+                )
             for item in busy:
                 if not isinstance(item, dict):
-                    raise cls._invalid_response()
-                try:
-                    start = datetime.fromisoformat(
-                        cls._iso(str(item["start"])).replace("Z", "+00:00")
+                    raise cls._invalid_response(
+                        "freebusy_interval_shape",
+                        field_path="$.calendars.*.busy[]",
+                        expected="object",
+                        received=item,
+                        reason="wrong_type",
                     )
-                    end = datetime.fromisoformat(cls._iso(str(item["end"])).replace("Z", "+00:00"))
-                except (KeyError, TypeError, ValueError, GoogleConnectionError) as exc:
-                    raise cls._invalid_response() from exc
+                parsed = []
+                for field in ("start", "end"):
+                    value = item.get(field, _MISSING)
+                    try:
+                        if not isinstance(value, str):
+                            raise ValueError()
+                        parsed.append(
+                            datetime.fromisoformat(cls._iso(value).replace("Z", "+00:00"))
+                        )
+                    except (ValueError, GoogleConnectionError) as exc:
+                        raise cls._invalid_response(
+                            "freebusy_interval_timestamp",
+                            field_path=f"$.calendars.*.busy[].{field}",
+                            expected="RFC3339_string",
+                            received=value,
+                            reason="invalid_timestamp",
+                        ) from exc
+                start, end = parsed
                 if end <= start:
-                    raise cls._invalid_response()
+                    raise cls._invalid_response(
+                        "freebusy_interval_order",
+                        field_path="$.calendars.*.busy[]",
+                        expected="start_before_end",
+                        received=item,
+                        reason="invalid_order",
+                    )
                 start, end = max(start, range_start), min(end, range_end)
                 if start < end:
                     intervals.append((start, end))
@@ -1232,14 +1409,33 @@ class GoogleCalendarService:
         from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
         schedule = CalendarScheduleService(calendar=self)
-        calendars = await schedule._included_calendars(user_id, binding=binding)
+        inventory = await schedule._included_calendars(user_id, binding=binding)
+        calendars, _ = schedule._availability_selection(inventory)
+        selected_ids = plan.get("availability_calendar_ids")
+        if selected_ids is None:
+            selected_ids = [item["id"] for item in calendars]
+            # Existing short-lived proposal JSON owns the reviewed selection;
+            # no new persistent preference or schema is needed.
+            plan["availability_calendar_ids"] = selected_ids
+        elif (
+            not isinstance(selected_ids, list)
+            or not selected_ids
+            or any(not isinstance(value, str) for value in selected_ids)
+            or len(set(selected_ids)) != len(selected_ids)
+            or set(selected_ids) != {item["id"] for item in calendars}
+        ):
+            raise GoogleConnectionError(
+                "Calendar selection changed; review the meeting again",
+                status_code=409,
+                reason_code="calendar_selection_changed",
+            )
         start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00"))
         busy = await schedule._busy_intervals(
             user_id=user_id,
             start=start,
             end=end,
-            calendar_ids=[item["id"] for item in calendars],
+            calendar_ids=selected_ids,
             binding=binding,
         )
         return [
@@ -1277,6 +1473,12 @@ class GoogleCalendarService:
                 await self._check_read_binding(user_id, binding)
             action = proposal["action"]
             if action == "create" and "included_conflicts" in plan:
+                if "availability_calendar_ids" not in plan:
+                    raise GoogleConnectionError(
+                        "Calendar selection needs a new meeting review",
+                        status_code=409,
+                        reason_code="calendar_selection_changed",
+                    )
                 self._reject_new_conflicts(
                     planned=plan["included_conflicts"],
                     current=await self._creation_conflicts(
