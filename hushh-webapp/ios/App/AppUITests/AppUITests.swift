@@ -2014,6 +2014,10 @@ final class AppUITests: XCTestCase {
             XCTFail("NATIVE_BOTTOM_SCROLL_REQUIRES_RUNNING_SESSION"); return
         }
         app.activate(); dismissRehearsalChatKeyboard(app)
+        for label in ["Close Profile", "Close chat history", "Close search"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
         perfTapNav(app, label: "Chat")
         let editor = app.textViews["native-dock-editor"].firstMatch
         guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_ADMITTED"); return }
@@ -2021,6 +2025,9 @@ final class AppUITests: XCTestCase {
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let webFrame = web.frame
         perfTapNav(app, label: "One")
+        if app.buttons["native-test-status"].exists && !waitForNativeRoute(app, route: "/one", timeout: 15) {
+            XCTFail("NATIVE_BOTTOM_SCROLL_ONE_ROUTE_NOT_ADMITTED"); return
+        }
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         // Observe the rendered dock child, not an optional AX container.
         let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
@@ -2028,6 +2035,11 @@ final class AppUITests: XCTestCase {
         let list = web.buttons["Show agent list view"].firstMatch
         guard waitForAdmittedControl(bar), waitForAdmittedControl(dock),
               waitForAdmittedControl(grid), waitForAdmittedControl(list) else {
+            reportNativeDockAdmission(app)
+            for (name, control) in [("grid", grid), ("list", list), ("dock", dock)] {
+                let present = control.exists
+                print("NATIVE_ROSTER_ADMISSION name=\(name) present=\(present) hittable=\(present && control.isHittable) enabled=\(present && control.isEnabled)")
+            }
             XCTFail("NATIVE_BOTTOM_SCROLL_HOME_NOT_ADMITTED"); return
         }
         func selected(_ element: XCUIElement) -> Bool {
@@ -2520,7 +2532,8 @@ final class AppUITests: XCTestCase {
     private func reportNativeDockAdmission(_ app: XCUIApplication) {
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         for title in ["Chat", "One"] {
-            let authored = app.buttons["one-native-tab-\(title.lowercased())"].firstMatch
+            let key = title == "One" ? "dashboard" : title.lowercased()
+            let authored = app.buttons["one-native-tab-\(key)"].firstMatch
             let scoped = bar.buttons[title].firstMatch
             for (kind, target) in [("identifier", authored), ("native_label", scoped)] {
                 let present = target.exists
@@ -7553,7 +7566,8 @@ final class AppUITests: XCTestCase {
         // UITabBarItem labels are system-owned and need not be bare titles.
         // Prefer the authored item identifier already used for admission;
         // finding an item must not then tap a different DOM/label match.
-        let authoredTab = app.buttons["one-native-tab-\(label.lowercased())"].firstMatch
+        let tabKey = label == "One" ? "dashboard" : label.lowercased()
+        let authoredTab = app.buttons["one-native-tab-\(tabKey)"].firstMatch
         let nativeTab = app.descendants(matching: .any)
             .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
         func admittedNativeTarget() -> XCUIElement? {
