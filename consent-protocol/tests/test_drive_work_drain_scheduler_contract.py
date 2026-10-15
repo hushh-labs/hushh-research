@@ -290,7 +290,8 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     scheduler_rollback_clause = workflow.split(
         'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n', 1
     )[1].split('if [ "${{ steps.classify-uat-release.outputs.release_failed }}"', 1)[0]
-    assert 'steps.deploy-drive-worker.outcome }}" != "success"' in scheduler_rollback_clause
+    assert '"$DRIVE_WORKER_GATE_SUCCESS" != true' in scheduler_rollback_clause
+    assert 'inputs.preserve_paused_drive_worker }}" != "true"' in scheduler_rollback_clause
     assert "DRIVE_WORKER_ROLLBACK_COMPLETE=false" in scheduler_rollback_clause
     assert 'steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success"' in (
         scheduler_rollback_clause
