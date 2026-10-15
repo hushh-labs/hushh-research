@@ -31,6 +31,7 @@ import logging
 import math
 import os
 import re
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -40,6 +41,10 @@ from db.db_client import get_db
 from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
+)
+from hushh_mcp.services.feed_drive_fold import (
+    DRIVE_OUTCOME_EVENT,
+    drive_rows_revealed_by_removal,
 )
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -113,6 +118,51 @@ _GROUPED_FEED_COUNT_SELECT = """
 """
 _GROUPED_FEED_PAGE_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_PAGE_SELECT
 _GROUPED_FEED_COUNT_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_COUNT_SELECT
+# The owner's live rows of the Drive request the target row belongs to. The
+# event list is feed_drive_fold.DRIVE_LIFECYCLE_EVENTS.
+_DRIVE_REQUEST_ROWS_SQL = """
+SELECT item.id, item.source_domain, item.event_type, item.metadata
+  FROM feed_events AS item
+  JOIN feed_events AS target
+    ON target.user_id = item.user_id
+   AND target.id = :item_id
+   AND target.dismissed_at IS NULL
+   AND target.source_domain = 'connected_systems'
+   AND target.event_type IN ('document_share_decided', 'document_share_outcome',
+     'document_share_payment_ready', 'document_share_payment_confirmed',
+     'document_share_payment_refunded')
+   AND NULLIF(target.metadata->>'request_id', '') IS NOT NULL
+ WHERE item.user_id = :user_id
+   AND item.dismissed_at IS NULL
+   AND item.source_domain = 'connected_systems'
+   AND item.event_type IN ('document_share_decided', 'document_share_outcome',
+     'document_share_payment_ready', 'document_share_payment_confirmed',
+     'document_share_payment_refunded')
+   AND item.metadata->>'request_id' = target.metadata->>'request_id'
+"""
+# The owner's live rows of each Drive request that has a row above a Clear
+# watermark; normally none.
+_DRIVE_ROWS_ABOVE_CLEAR_SQL = """
+SELECT item.id, item.source_domain, item.event_type, item.metadata
+  FROM feed_events AS item
+ WHERE item.user_id = :user_id
+   AND item.dismissed_at IS NULL
+   AND item.source_domain = 'connected_systems'
+   AND item.event_type IN ('document_share_decided', 'document_share_outcome',
+     'document_share_payment_ready', 'document_share_payment_confirmed',
+     'document_share_payment_refunded')
+   AND item.metadata->>'request_id' IN (
+     SELECT newer.metadata->>'request_id'
+       FROM feed_events AS newer
+      WHERE newer.user_id = :user_id
+        AND newer.id > :up_to_id
+        AND newer.dismissed_at IS NULL
+        AND newer.source_domain = 'connected_systems'
+        AND newer.event_type IN ('document_share_decided', 'document_share_outcome',
+          'document_share_payment_ready', 'document_share_payment_confirmed',
+          'document_share_payment_refunded')
+   )
+"""
 _WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
     "    WHEN f.source_domain = 'connections'",
     "    WHEN wg.id IS NOT NULL THEN 'wallet-access:' || wg.id::text\n    WHEN f.source_domain = 'connections'",
@@ -1203,9 +1253,56 @@ class FeedService:
         query.execute()
         return {"status": "ok"}
 
-    def dismiss(self, user_id: str, *, item_id: int) -> dict[str, str | None]:
-        """Hide the owner's displayed row and older members of its visual group."""
+    def _drive_rows_surfaced(
+        self,
+        user_id: str,
+        rows: list[dict[str, Any]],
+        removed: Callable[[dict[str, Any]], bool],
+    ) -> list[int]:
+        """Folded Drive rows that would show once the ``removed`` rows are hidden.
+
+        The fold runs on the same read-time payment status the Feed list sends,
+        so the server and the web Feed agree on what is hidden.
+        """
+        if not rows:
+            return []
+        items = [
+            self._to_item(row, user_id) for row in self._with_drive_payment_status(user_id, rows)
+        ]
+        removed_ids = {item["id"] for item in items if removed(item)}
+        return sorted(int(row_id) for row_id in drive_rows_revealed_by_removal(items, removed_ids))
+
+    def _drive_rows_surfaced_by_dismissal(self, user_id: str, item_id: int) -> list[int]:
+        rows = (
+            self._get_db()
+            .execute_raw(_DRIVE_REQUEST_ROWS_SQL, {"user_id": user_id, "item_id": item_id})
+            .data
+            or []
+        )
+        target = next((row for row in rows if int(row["id"]) == item_id), None)
+        if target is None:
+            return []
+        removes_outcomes = target.get("event_type") == DRIVE_OUTCOME_EVENT
+
+        def removed(item: dict[str, Any]) -> bool:
+            # Mirrors the dismissal SQL: the row and, for an outcome, older outcomes.
+            return int(item["id"]) == item_id or (
+                removes_outcomes
+                and item["event_type"] == DRIVE_OUTCOME_EVENT
+                and int(item["id"]) <= item_id
+            )
+
+        return self._drive_rows_surfaced(user_id, rows, removed)
+
+    def dismiss(self, user_id: str, *, item_id: int) -> dict[str, Any]:
+        """Hide the owner's displayed row and older members of its visual group.
+
+        A Drive request row also takes the rows of that request the Feed was
+        folding behind it, so an older row cannot surface in its place on this
+        or any other device. ``dismissed_ids`` lists every row hidden.
+        """
         token = str(uuid4())
+        surfacing_ids = self._drive_rows_surfaced_by_dismissal(user_id, item_id)
         rows = (
             self._get_db()
             .execute_raw(
@@ -1241,29 +1338,38 @@ class FeedService:
                  AND item.event_type = 'document_share_outcome'
                  AND item.metadata->>'request_id' = target.request_id
                  AND item.id <= :item_id
-               ))
+               ) OR item.id = ANY(CAST(:surfacing_ids AS BIGINT[])))
             RETURNING id, dismissal_token
             """,
-                {"user_id": user_id, "item_id": item_id, "dismissal_token": token},
+                {
+                    "user_id": user_id,
+                    "item_id": item_id,
+                    "dismissal_token": token,
+                    "surfacing_ids": surfacing_ids,
+                },
             )
             .data
             or []
         )
+        dismissed = any(row.get("id") == item_id for row in rows)
         return {
             "status": "ok",
-            "dismissal_token": token if any(row.get("id") == item_id for row in rows) else None,
+            "dismissal_token": token if dismissed else None,
+            "dismissed_ids": (
+                [str(row_id) for row_id in sorted(int(row["id"]) for row in rows)]
+                if dismissed
+                else []
+            ),
         }
 
     def restore(self, user_id: str, *, item_id: int, dismissal_token: str) -> dict[str, Any]:
-        """Undo only the exact dismissal; a later Clear supersedes its token."""
+        """Undo exactly the rows one dismissal hid; a later Clear supersedes its token."""
         rows = (
             self._get_db()
             .execute_raw(
                 """
             WITH target AS (
-              SELECT source_domain, event_type,
-                     NULLIF(metadata->>'bundle_id', '') AS bundle_id,
-                     NULLIF(metadata->>'request_id', '') AS request_id
+              SELECT 1 AS found
                 FROM feed_events
                WHERE user_id = :user_id AND id = :item_id
                  AND dismissal_token = :dismissal_token
@@ -1275,23 +1381,6 @@ class FeedService:
              WHERE item.user_id = :user_id
                AND item.dismissal_token = :dismissal_token
                AND item.dismissed_at IS NOT NULL
-               AND (item.id = :item_id OR (
-                 target.source_domain = 'consent'
-                 AND target.event_type IN ('consent_requested', 'consent_granted', 'consent_revoked')
-                 AND target.bundle_id IS NOT NULL
-                 AND item.source_domain = 'consent'
-                 AND item.event_type = target.event_type
-                 AND item.metadata->>'bundle_id' = target.bundle_id
-                 AND item.id <= :item_id
-               ) OR (
-                 target.source_domain = 'connected_systems'
-                 AND target.event_type = 'document_share_outcome'
-                 AND target.request_id IS NOT NULL
-                 AND item.source_domain = 'connected_systems'
-                 AND item.event_type = 'document_share_outcome'
-                 AND item.metadata->>'request_id' = target.request_id
-                 AND item.id <= :item_id
-               ))
             RETURNING id
             """,
                 {"user_id": user_id, "item_id": item_id, "dismissal_token": dismissal_token},
@@ -1302,16 +1391,36 @@ class FeedService:
         return {"status": "ok", "restored": any(row.get("id") == item_id for row in rows)}
 
     def clear(self, user_id: str, *, up_to_id: int) -> dict[str, str]:
-        """Dismiss only the owner's current snapshot, leaving later events live."""
+        """Dismiss only the owner's current snapshot, leaving later events live.
+
+        A Drive row stored above the watermark that the Feed was folding behind
+        a cleared row is part of that snapshot; it is hidden too, so it cannot
+        surface once the row hiding it is cleared.
+        """
+        newer_drive_rows = (
+            self._get_db()
+            .execute_raw(_DRIVE_ROWS_ABOVE_CLEAR_SQL, {"user_id": user_id, "up_to_id": up_to_id})
+            .data
+            or []
+        )
+        surfacing_ids = self._drive_rows_surfaced(
+            user_id, newer_drive_rows, lambda item: int(item["id"]) <= up_to_id
+        )
         self._get_db().execute_raw(
             """
             UPDATE feed_events
                SET dismissed_at = now(),
                    dismissal_token = :dismissal_token,
                    read_at = COALESCE(read_at, now())
-             WHERE user_id = :user_id AND id <= :up_to_id
+             WHERE user_id = :user_id AND (id <= :up_to_id
+               OR id = ANY(CAST(:surfacing_ids AS BIGINT[])))
             """,
-            {"user_id": user_id, "up_to_id": up_to_id, "dismissal_token": str(uuid4())},
+            {
+                "user_id": user_id,
+                "up_to_id": up_to_id,
+                "dismissal_token": str(uuid4()),
+                "surfacing_ids": surfacing_ids,
+            },
         )
         return {"status": "ok"}
 

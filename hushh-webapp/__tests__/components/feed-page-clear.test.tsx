@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => {
   };
   return {
     user,
+    // Who useAuth reports; a test switches it to sign out or change account.
+    currentUser: user as typeof user | null,
     listRequests: vi.fn(),
     acceptRequest: vi.fn(),
     rejectRequest: vi.fn(),
@@ -40,7 +42,7 @@ const mocks = vi.hoisted(() => {
     clearSmsEmergencies: vi.fn(),
     markRead: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
-    dismiss: vi.fn().mockResolvedValue("dismissal-token"),
+    dismiss: vi.fn().mockResolvedValue({ token: "dismissal-token", itemIds: null }),
     restore: vi.fn().mockResolvedValue(true),
     readStarted: vi.fn(),
     readSettled: vi.fn(),
@@ -49,6 +51,7 @@ const mocks = vi.hoisted(() => {
     routerPush: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
+    toastDismiss: vi.fn(),
     feedRowRender: vi.fn(),
     useRealFeedRow: false,
     useActionTestRow: false,
@@ -66,11 +69,15 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: mocks.toastSuccess, error: mocks.toastError },
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+    dismiss: mocks.toastDismiss,
+  },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user, loading: false }),
+  useAuth: () => ({ user: mocks.currentUser, loading: false }),
 }));
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
@@ -298,10 +305,12 @@ describe("Feed history interactions", () => {
     vi.clearAllMocks();
     mocks.useRealFeedRow = false;
     mocks.useActionTestRow = false;
+    mocks.currentUser = mocks.user;
     mocks.user.getIdToken.mockResolvedValue("firebase-token");
     mocks.markRead.mockResolvedValue(undefined);
     mocks.clear.mockResolvedValue(undefined);
-    mocks.dismiss.mockResolvedValue("dismissal-token");
+    mocks.clearSmsEmergencies.mockResolvedValue(undefined);
+    mocks.dismiss.mockResolvedValue({ token: "dismissal-token", itemIds: null });
     mocks.restore.mockResolvedValue(true);
     mocks.data = {
       items: [
@@ -483,8 +492,8 @@ describe("Feed history interactions", () => {
   it("removes only after server acknowledgement and restores through Undo", async () => {
     mocks.useActionTestRow = true;
     let confirmDismiss: (() => void) | undefined;
-    mocks.dismiss.mockImplementationOnce(() => new Promise<string>((resolve) => {
-      confirmDismiss = () => resolve("dismissal-token");
+    mocks.dismiss.mockImplementationOnce(() => new Promise((resolve) => {
+      confirmDismiss = () => resolve({ token: "dismissal-token", itemIds: ["5"] });
     }));
     await renderAfterAutomaticRead();
 
@@ -590,6 +599,88 @@ describe("Feed history interactions", () => {
     }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-6" })).toBeNull());
     expect(screen.queryByRole("button", { name: "row-5" })).toBeNull();
+  });
+
+  it("does not show the older Drive decision after removing 'No files were shared'", async () => {
+    mocks.useActionTestRow = true;
+    mocks.data.items = [
+      { ...mocks.data.items[0], id: "11", source_domain: "connected_systems", event_type: "document_share_outcome", metadata: { request_id: "request-x", user_facing_status: "no_files_shared" } },
+      { ...mocks.data.items[0], id: "10", source_domain: "connected_systems", event_type: "document_share_decided", metadata: { request_id: "request-x", user_facing_status: "pending" } },
+    ];
+    // The server hides the decision it was folding behind the outcome.
+    mocks.dismiss.mockResolvedValueOnce({ token: "dismissal-token", itemIds: ["10", "11"] });
+    await renderAfterAutomaticRead();
+    expect(screen.getByRole("button", { name: "row-11" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "row-10" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-11" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-11" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "row-10" })).toBeNull();
+  });
+
+  it("does not show the old Pay row after removing the payment confirmation", async () => {
+    mocks.useActionTestRow = true;
+    mocks.data.items = [
+      { ...mocks.data.items[0], id: "31", source_domain: "connected_systems", event_type: "document_share_payment_confirmed", metadata: { request_id: "request-y" } },
+      { ...mocks.data.items[0], id: "30", source_domain: "connected_systems", event_type: "document_share_payment_ready", metadata: { request_id: "request-y", user_facing_status: "pending" } },
+    ];
+    mocks.dismiss.mockResolvedValueOnce({ token: "dismissal-token", itemIds: ["30", "31"] });
+    await renderAfterAutomaticRead();
+    expect(screen.queryByRole("button", { name: "row-30" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-31" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-31" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "row-30" })).toBeNull();
+  });
+
+  it("retires a pending Undo when the account signs out", async () => {
+    mocks.useActionTestRow = true;
+    mocks.toastSuccess.mockReturnValueOnce("undo-toast");
+    const view = await renderAfterAutomaticRead();
+    fireEvent.click(screen.getByRole("button", { name: "row-5" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "row-5" })).toBeNull());
+    const undo = mocks.toastSuccess.mock.calls.find((call) => call[0] === "Removed from Feed")?.[1] as
+      | { action?: { onClick?: () => void } }
+      | undefined;
+
+    try {
+      mocks.currentUser = null;
+      await act(async () => view.rerender(<FeedPage />));
+      expect(mocks.toastDismiss).toHaveBeenCalledWith("undo-toast");
+      mocks.currentUser = { uid: "next-user", getIdToken: vi.fn().mockResolvedValue("next-token") };
+      await act(async () => view.rerender(<FeedPage />));
+      await act(async () => { undo?.action?.onClick?.(); });
+
+      expect(undo?.action?.onClick).toBeTypeOf("function");
+      expect(mocks.restore).not.toHaveBeenCalled();
+    } finally {
+      mocks.currentUser = mocks.user;
+    }
+  });
+
+  it("saves the SOS clear even when only SOS cards are showing", async () => {
+    mocks.data.items = [];
+    render(<FeedPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear feed notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm clear feed notifications" }));
+
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Feed cleared"));
+    expect(mocks.clearSmsEmergencies).toHaveBeenCalledTimes(1);
+    expect(mocks.clear).not.toHaveBeenCalled();
+  });
+
+  it("says the Feed was not cleared when the server SOS clear fails", async () => {
+    await renderAfterAutomaticRead();
+    mocks.clearSmsEmergencies.mockRejectedValueOnce(new Error("backend unavailable"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear feed notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm clear feed notifications" }));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Couldn't clear your feed."));
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith("Feed cleared");
   });
 
   it("keeps the clear action compact on phone and desktop layouts", async () => {

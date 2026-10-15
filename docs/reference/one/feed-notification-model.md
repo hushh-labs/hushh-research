@@ -161,17 +161,32 @@ mutation and retains that existing atomic policy.
   clears the badge" convention), not per item.
 - `POST /api/one/feed/{item_id}/dismiss` and `/restore` — owner-scoped,
   idempotent presentation-only hide and versioned Undo; neither changes source
-  activity. A dismissal returns a server token, and Undo succeeds only while
-  that exact token is current. Clear replaces tokens to supersede stale Undo.
+  activity. A dismissal returns a server token and `dismissed_ids`, every row it
+  hid; the page hides exactly those. Undo restores exactly that set, and only
+  while the token is current. Clear replaces tokens to supersede stale Undo.
   Older members of a displayed Consent bundle are hidden with the selected row.
-  Removing a Drive outcome also hides earlier outcomes for that exact request,
-  so a suppressed outcome cannot reappear after refresh. Drive decisions,
-  progress, and payment events remain independent history entries. Later
-  activity remains visible.
+  Removing a Drive outcome also hides earlier outcomes for that exact request.
+  Removing any Drive request row also hides the rows of that request the Feed
+  was folding behind it: the "Files are available" decision behind "No files
+  were shared", or the Pay row behind a payment or outcome. So nothing older
+  surfaces in its place after a refresh, on another device or after signing in
+  again. The server runs the same fold as the page
+  (`consent-protocol/hushh_mcp/services/feed_drive_fold.py`), and both test
+  suites read `consent-protocol/tests/fixtures/feed_drive_fold_cases.json`.
+  Drive rows the Feed shows remain independent history entries. Later activity
+  remains visible.
 - `POST /api/one/feed/clear` — marks the owner's current rows through
-  `up_to_id` hidden and read in one server update. Newer rows remain visible.
+  `up_to_id` hidden and read in one server update, plus any newer Drive row the
+  Feed was folding behind a cleared row. Newer visible rows remain visible.
   Hidden state survives sign-out and other devices, and disappears with the
   Feed rows on account deletion.
+- `POST /api/one/feed/sos-cards/clear` — Clear also clears ended (revoked or
+  expired) SOS cards. The clear is saved on the recipient's own received grant
+  (`recipient_cleared_at`, migration 346) by the Location service, behind the
+  vault owner token, so it holds on every device. The server never clears a
+  live share and never touches another person's grant, and the sender's view of
+  the grant does not include it. A clear an older release kept on one device is
+  copied to the server once, then removed from that device.
 
 The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its
@@ -383,7 +398,13 @@ only read as seen on the next open, matching Instagram's "opening clears the
 badge, the items you're looking at stay highlighted" behavior. `FEED_LIST`,
 `FEED_UNREAD_COUNT`, and `CONNECTIONS_INCOMING` (the actionable zone's
 connection-requests read) are all covered by `CacheService.invalidateUser`, so
-sign-out and account deletion purge them with the rest of the session.
+sign-out and account deletion purge them with the rest of the session. The page
+keeps no Feed rows in browser storage. Its only device keys are per account:
+the sound choice, and older releases' device-only clears that wait for their
+one-time server copy. Account delete and reset remove all of them
+(`forgetFeedDeviceState`); sign-out keeps them. An Undo toast belongs to the
+session that removed the row: sign-out or an account switch retires it, so a
+late tap restores nothing.
 
 ## Device system chat notifications
 

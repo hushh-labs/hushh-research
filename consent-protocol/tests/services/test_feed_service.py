@@ -1,5 +1,8 @@
 import base64
+import itertools
+import json
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -7,6 +10,10 @@ import pytest
 
 import hushh_mcp.services.feed_service as feed_service_module
 from hushh_mcp.services.direct_messages_service import DirectMessagesError
+from hushh_mcp.services.feed_drive_fold import (
+    drive_rows_revealed_by_removal,
+    hidden_drive_item_ids,
+)
 from hushh_mcp.services.feed_service import (
     POSTGRES_BIGINT_MAX,
     FeedService,
@@ -199,7 +206,11 @@ def test_feed_mutations_only_touch_the_owner_and_snapshot() -> None:
     service = FeedService()
     service._db = db
 
-    assert service.dismiss("owner-a", item_id=42) == {"status": "ok", "dismissal_token": None}
+    assert service.dismiss("owner-a", item_id=42) == {
+        "status": "ok",
+        "dismissal_token": None,
+        "dismissed_ids": [],
+    }
     expected_token = "11111111-1111-4111-8111-111111111111"
     assert service.restore("owner-a", item_id=42, dismissal_token=expected_token) == {
         "status": "ok",
@@ -207,25 +218,28 @@ def test_feed_mutations_only_touch_the_owner_and_snapshot() -> None:
     }
     assert service.clear("owner-a", up_to_id=99) == {"status": "ok"}
 
+    # Every read and write is bound to the owner and the requested row/snapshot.
     params = [values for _, values in db.raw_calls]
     assert [
         {key: value for key, value in entry.items() if key != "dismissal_token"} for entry in params
     ] == [
         {"user_id": "owner-a", "item_id": 42},
+        {"user_id": "owner-a", "item_id": 42, "surfacing_ids": []},
         {"user_id": "owner-a", "item_id": 42},
         {"user_id": "owner-a", "up_to_id": 99},
+        {"user_id": "owner-a", "up_to_id": 99, "surfacing_ids": []},
     ]
-    assert str(UUID(params[0]["dismissal_token"])) == params[0]["dismissal_token"]
-    assert params[1]["dismissal_token"] == expected_token
-    assert str(UUID(params[2]["dismissal_token"])) == params[2]["dismissal_token"]
-    dismiss_sql, restore_sql, clear_sql = [sql for sql, _ in db.raw_calls]
+    assert str(UUID(params[1]["dismissal_token"])) == params[1]["dismissal_token"]
+    assert params[2]["dismissal_token"] == expected_token
+    assert str(UUID(params[4]["dismissal_token"])) == params[4]["dismissal_token"]
+    _, dismiss_sql, restore_sql, _, clear_sql = [sql for sql, _ in db.raw_calls]
     assert "WHERE user_id = :user_id AND id = :item_id" in dismiss_sql
     assert "WHERE user_id = :user_id AND id = :item_id" in restore_sql
     assert "item.user_id = :user_id" in dismiss_sql
     assert "item.user_id = :user_id" in restore_sql
     assert "item.metadata->>'bundle_id' = target.bundle_id" in dismiss_sql
     assert "item.id <= :item_id" in dismiss_sql
-    assert "WHERE user_id = :user_id AND id <= :up_to_id" in clear_sql
+    assert "WHERE user_id = :user_id AND (id <= :up_to_id" in clear_sql
     assert "read_at = COALESCE(item.read_at, now())" in dismiss_sql
     assert "RETURNING id, dismissal_token" in dismiss_sql
     assert "item.dismissal_token = :dismissal_token" in restore_sql
@@ -241,9 +255,49 @@ def test_grouped_feed_hides_latest_dismissed_thread_until_new_activity() -> None
     assert "last_dismissed_id IS NULL OR id > last_dismissed_id" in sql
 
 
-def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
+class _SqliteFeedDb:
+    """Runs FeedService's own mutation SQL on sqlite, as psycopg2 runs it on Postgres.
+
+    sqlite has no array type, so only the ``= ANY(CAST(:ids AS BIGINT[]))``
+    membership test is mapped to ``json_each``; everything else in each
+    statement runs verbatim. JSON metadata is decoded on read, as psycopg2
+    decodes JSONB. tests/test_feed_account_session_postgres.py runs the same
+    statements on PostgreSQL.
+    """
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def execute_raw(self, sql: str, params: dict):
+        params = dict(params)
+        for name, value in list(params.items()):
+            marker = f"= ANY(CAST(:{name} AS BIGINT[]))"
+            if marker in sql:
+                sql = sql.replace(marker, f"IN (SELECT value FROM json_each(:{name}))")
+                params[name] = json.dumps(value)
+        cursor = self.connection.execute(sql, params)
+        data = (
+            [
+                dict(zip([column[0] for column in cursor.description], row, strict=True))
+                for row in cursor.fetchall()
+            ]
+            if cursor.description
+            else []
+        )
+        for row in data:
+            if isinstance(row.get("metadata"), str):
+                row["metadata"] = json.loads(row["metadata"])
+        self.connection.commit()
+        return SimpleNamespace(data=data)
+
+
+def _sqlite_feed(
+    rows: list[tuple[int, str, str, str, dict]],
+    *,
+    stamp: list[str],
+    payment_status: dict[str, str] | None = None,
+) -> tuple[sqlite3.Connection, FeedService]:
     connection = sqlite3.connect(":memory:")
-    stamp = ["first-dismiss"]
     connection.create_function("now", 0, lambda: stamp[0])
     connection.execute(
         "CREATE TABLE feed_events(id INTEGER PRIMARY KEY,user_id TEXT,source_domain TEXT,"
@@ -251,37 +305,70 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
     )
     connection.executemany(
         "INSERT INTO feed_events(id,user_id,source_domain,event_type,metadata) VALUES(?,?,?,?,?)",
-        [
-            (1, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
-            (2, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
-            (3, "other", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
-            (4, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-b"}'),
-            (5, "owner", "connected_systems", "document_share_decided", '{"request_id":"req-a"}'),
-            (6, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
-            (7, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
-            (8, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-b"}'),
-            (9, "owner", "kai", "kai_analysis_completed", "{}"),
-            (10, "owner", "consent", "consent_requested", '{"bundle_id":"bundle-a"}'),
-            (11, "owner", "connected_systems", "document_share_outcome", '{"request_id":"req-a"}'),
-        ],
+        [(*row[:4], json.dumps(row[4])) for row in rows],
     )
-
-    class Db:
-        def execute_raw(self, sql, params):
-            cursor = connection.execute(sql, params)
-            data = (
-                [
-                    dict(zip([column[0] for column in cursor.description], row, strict=True))
-                    for row in cursor.fetchall()
-                ]
-                if cursor.description
-                else []
-            )
-            connection.commit()
-            return SimpleNamespace(data=data)
-
     service = FeedService()
-    service._db = Db()
+    service._db = _SqliteFeedDb(connection)
+    statuses = payment_status or {}
+
+    def current_payment_status(_user_id: str, feed_rows: list[dict]) -> list[dict]:
+        # Stands in for the read-time order status the Feed list puts on Pay rows.
+        return [
+            {
+                **row,
+                "metadata": {
+                    **row["metadata"],
+                    "current_payment_status": statuses.get(
+                        row["metadata"].get("request_id"), "unavailable"
+                    ),
+                },
+            }
+            if row.get("event_type") == "document_share_payment_ready"
+            else row
+            for row in feed_rows
+        ]
+
+    service._with_drive_payment_status = current_payment_status  # type: ignore[method-assign]
+    return connection, service
+
+
+def _dismissed_with(connection: sqlite3.Connection, stamp: str) -> list[int]:
+    return [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM feed_events WHERE dismissed_at = ? ORDER BY id", (stamp,)
+        )
+    ]
+
+
+def _live_ids(connection: sqlite3.Connection, user_id: str) -> list[int]:
+    return [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM feed_events WHERE user_id = ? AND dismissed_at IS NULL ORDER BY id",
+            (user_id,),
+        )
+    ]
+
+
+def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
+    stamp = ["first-dismiss"]
+    connection, service = _sqlite_feed(
+        [
+            (1, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
+            (2, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
+            (3, "other", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
+            (4, "owner", "consent", "consent_requested", {"bundle_id": "bundle-b"}),
+            (5, "owner", "connected_systems", "document_share_decided", {"request_id": "req-a"}),
+            (6, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
+            (7, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
+            (8, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-b"}),
+            (9, "owner", "kai", "kai_analysis_completed", {}),
+            (10, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
+            (11, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
+        ],
+        stamp=stamp,
+    )
     first_token = service.dismiss("owner", item_id=2)["dismissal_token"]
     assert first_token is not None
     assert [
@@ -347,6 +434,298 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=3").fetchone()[0] is None
     )
+
+
+_DRIVE_FOLD_CASES = json.loads(
+    (Path(__file__).resolve().parents[1] / "fixtures" / "feed_drive_fold_cases.json").read_text(
+        encoding="utf-8"
+    )
+)["cases"]
+
+
+def _drive_item(
+    row_id: str, event_type: str, request_id: str, status: str, payment: str | None = None
+) -> dict:
+    metadata = {"request_id": request_id, "user_facing_status": status}
+    if payment is not None:
+        metadata["current_payment_status"] = payment
+    return {
+        "id": row_id,
+        "source_domain": "connected_systems",
+        "event_type": event_type,
+        "metadata": metadata,
+    }
+
+
+@pytest.mark.parametrize("case", _DRIVE_FOLD_CASES, ids=lambda case: case["name"])
+def test_server_drive_fold_matches_the_web_fold(case: dict) -> None:
+    items = [
+        _drive_item(
+            row["id"],
+            row["event_type"],
+            row["request_id"],
+            row["status"],
+            row.get("current_payment_status"),
+        )
+        for row in case["rows"]
+    ]
+    hidden = hidden_drive_item_ids(items)
+    assert [item["id"] for item in items if item["id"] not in hidden] == case["visible"]
+
+
+# Every row kind the fold reads, including a Pay row whose checkout expired
+# (never hidden) and an outcome that is neither a success nor empty.
+_DRIVE_ROW_KINDS = (
+    ("document_share_decided", "pending", None),
+    ("document_share_outcome", "no_files_shared", None),
+    ("document_share_outcome", "completed", None),
+    ("document_share_outcome", "failed", None),
+    ("document_share_payment_ready", "pending", None),
+    ("document_share_payment_ready", "pending", "expired"),
+    ("document_share_payment_confirmed", "paid", None),
+    ("document_share_payment_refunded", "refunded", None),
+)
+
+
+def test_removing_any_visible_drive_row_never_surfaces_a_row_it_hid() -> None:
+    # Another request whose Pay row is hidden by its own payment. No removal
+    # in request-1 may touch it.
+    bystanders = [
+        _drive_item("100", "document_share_payment_ready", "request-2", "pending"),
+        _drive_item("101", "document_share_payment_confirmed", "request-2", "paid"),
+    ]
+    checked = 0
+    for size in range(1, 5):
+        # Every combination in every id order, so a stale row that arrived
+        # after the row contradicting it is covered too.
+        for kinds in itertools.product(_DRIVE_ROW_KINDS, repeat=size):
+            items = [
+                _drive_item(str(position), event_type, "request-1", status, payment)
+                for position, (event_type, status, payment) in enumerate(kinds, start=1)
+            ] + bystanders
+            hidden_before = hidden_drive_item_ids(items)
+            visible_before = {item["id"] for item in items} - hidden_before
+            for target in items[:size]:
+                if target["id"] in hidden_before:
+                    continue
+                removed = {target["id"]}
+                if target["event_type"] == "document_share_outcome":
+                    # The server's existing rule: older outcomes leave too.
+                    removed |= {
+                        item["id"]
+                        for item in items[:size]
+                        if item["event_type"] == "document_share_outcome"
+                        and int(item["id"]) <= int(target["id"])
+                    }
+                revealed = drive_rows_revealed_by_removal(items, removed)
+                remaining = [item for item in items if item["id"] not in removed | revealed]
+                visible_after = {item["id"] for item in remaining} - hidden_drive_item_ids(
+                    remaining
+                )
+                assert visible_after <= visible_before - {target["id"]}, (kinds, target["id"])
+                # Precise: only rows the Feed was already hiding, in this request.
+                assert revealed <= hidden_before - {"100", "101"}, (kinds, target["id"])
+                checked += 1
+    assert checked > 4000
+
+
+def test_removing_no_files_outcome_also_removes_the_rows_it_was_hiding() -> None:
+    stamp = ["removed"]
+    no_files = {"request_id": "req-a", "user_facing_status": "no_files_shared"}
+    available = {"request_id": "req-a", "user_facing_status": "pending"}
+    connection, service = _sqlite_feed(
+        [
+            (8, "owner", "connected_systems", "document_share_payment_ready", available),
+            (9, "owner", "connected_systems", "document_share_decided", available),
+            (10, "owner", "connected_systems", "document_share_outcome", no_files),
+            (11, "other", "connected_systems", "document_share_decided", available),
+            (12, "other", "connected_systems", "document_share_outcome", no_files),
+            (13, "owner", "connected_systems", "document_share_decided", {"request_id": "req-b"}),
+            (14, "owner", "kai", "kai_analysis_completed", {}),
+        ],
+        stamp=stamp,
+    )
+
+    result = service.dismiss("owner", item_id=10)
+
+    # "No files were shared" leaves with the "Files are available" decision
+    # and the Pay row it was hiding, so neither can take its place.
+    assert _dismissed_with(connection, "removed") == [8, 9, 10]
+    assert result["dismissed_ids"] == ["8", "9", "10"]
+    assert _live_ids(connection, "owner") == [13, 14]
+    assert _live_ids(connection, "other") == [11, 12]
+    # Undo brings back exactly that set.
+    token = result["dismissal_token"]
+    assert service.restore("owner", item_id=10, dismissal_token=token)["restored"] is True
+    assert _live_ids(connection, "owner") == [8, 9, 10, 13, 14]
+
+
+@pytest.mark.parametrize(
+    ("rows", "target", "expected", "payment_status"),
+    [
+        pytest.param(
+            [
+                (20, "document_share_payment_ready", "pending"),
+                (21, "document_share_outcome", "completed"),
+            ],
+            21,
+            [20, 21],
+            {},
+            id="success outcome",
+        ),
+        pytest.param(
+            [
+                (30, "document_share_payment_ready", "pending"),
+                (31, "document_share_payment_confirmed", "paid"),
+            ],
+            31,
+            [30, 31],
+            {},
+            id="payment confirmation",
+        ),
+        pytest.param(
+            [
+                (80, "document_share_payment_ready", "pending"),
+                (81, "document_share_payment_refunded", "refunded"),
+            ],
+            81,
+            [80, 81],
+            {},
+            id="payment refund",
+        ),
+        pytest.param(
+            [
+                (39, "document_share_decided", "pending"),
+                (40, "document_share_payment_ready", "pending"),
+                (41, "document_share_outcome", "completed"),
+                (42, "document_share_outcome", "no_match"),
+            ],
+            41,
+            [40, 41, 42],
+            {},
+            id="stale no-match outcome stored after the success",
+        ),
+        pytest.param(
+            [
+                (50, "document_share_payment_ready", "pending"),
+                (51, "document_share_outcome", "completed"),
+            ],
+            51,
+            [51],
+            {"req": "expired"},
+            id="expired checkout stays visible",
+        ),
+    ],
+)
+def test_removing_a_payment_or_outcome_never_surfaces_an_old_pay_row(
+    rows: list[tuple[int, str, str]],
+    target: int,
+    expected: list[int],
+    payment_status: dict[str, str],
+) -> None:
+    stamp = ["removed"]
+    connection, service = _sqlite_feed(
+        [
+            (
+                row_id,
+                "owner",
+                "connected_systems",
+                event_type,
+                {"request_id": "req", "user_facing_status": status},
+            )
+            for row_id, event_type, status in rows
+        ],
+        stamp=stamp,
+        payment_status=payment_status,
+    )
+
+    result = service.dismiss("owner", item_id=target)
+
+    assert _dismissed_with(connection, "removed") == expected
+    assert result["dismissed_ids"] == [str(row_id) for row_id in expected]
+
+
+def test_pay_row_leaves_with_the_last_row_that_was_hiding_it() -> None:
+    stamp = ["payment"]
+    connection, service = _sqlite_feed(
+        [
+            (
+                60,
+                "owner",
+                "connected_systems",
+                "document_share_payment_ready",
+                {"request_id": "req"},
+            ),
+            (
+                61,
+                "owner",
+                "connected_systems",
+                "document_share_payment_confirmed",
+                {"request_id": "req"},
+            ),
+            (
+                62,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": "req", "user_facing_status": "completed"},
+            ),
+        ],
+        stamp=stamp,
+    )
+
+    # The outcome still hides Pay, so only the confirmation leaves.
+    service.dismiss("owner", item_id=61)
+    assert _dismissed_with(connection, "payment") == [61]
+    stamp[0] = "outcome"
+    service.dismiss("owner", item_id=62)
+    assert _dismissed_with(connection, "outcome") == [60, 62]
+
+
+def test_clear_also_removes_a_newer_stale_row_it_would_surface() -> None:
+    stamp = ["clear"]
+    connection, service = _sqlite_feed(
+        [
+            (
+                70,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": "req", "user_facing_status": "completed"},
+            ),
+            # Stored after the success it contradicts, so it sits above the
+            # Clear watermark while the Feed folds it away.
+            (
+                71,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": "req", "user_facing_status": "no_match"},
+            ),
+            (
+                72,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": "req-new", "user_facing_status": "no_match"},
+            ),
+            (
+                73,
+                "other",
+                "connected_systems",
+                "document_share_outcome",
+                {"request_id": "req", "user_facing_status": "no_match"},
+            ),
+        ],
+        stamp=stamp,
+    )
+
+    assert service.clear("owner", up_to_id=70) == {"status": "ok"}
+
+    assert _dismissed_with(connection, "clear") == [70, 71]
+    # Later activity for another request stays visible.
+    assert _live_ids(connection, "owner") == [72]
+    assert _live_ids(connection, "other") == [73]
 
 
 def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
