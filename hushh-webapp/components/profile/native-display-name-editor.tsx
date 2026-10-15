@@ -98,7 +98,11 @@ export function NativeDisplayNameEditor(props: DisplayNameEditorProps) {
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
       live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
     const presentation = new NativeProfileNamePresentation<AccountIdentity>(identity, nativeDrawers, isCurrent, phase => {
-      if (active) setRenderer(phase === "active" ? "native" : phase === "fallback" ? "web" : "blocked");
+      if (!active) return;
+      // A confirmed fallback is the renderer for this editor lifetime. An
+      // ordinary privacy resume must not swap it back to native mid-edit.
+      if (phase === "fallback") setAdmitted(false);
+      setRenderer(phase === "active" ? "native" : phase === "fallback" ? "web" : "blocked");
     });
     const instance = { owner, epoch, identity, presentation, sequence: 0, fingerprint: null as string | null };
     replica.current = instance;
