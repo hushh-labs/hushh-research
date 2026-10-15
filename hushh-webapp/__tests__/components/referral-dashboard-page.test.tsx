@@ -442,7 +442,7 @@ describe("ReferralDashboardPage", () => {
     render(<ReferralDashboardPage />);
 
     expect(await screen.findByText("2,450")).toBeInTheDocument();
-    const rankLabel = screen.getByText("Published rank");
+    const rankLabel = screen.getByText("Rank", { selector: "dt" });
     const rankCell = rankLabel.parentElement as HTMLElement;
     expect(within(rankCell).getByText("Unable to load")).toBeInTheDocument();
   });

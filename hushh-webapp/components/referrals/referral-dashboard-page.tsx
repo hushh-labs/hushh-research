@@ -40,26 +40,26 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "rewards", label: "Rewards" },
 ];
 
-/** Fixed reference palette; globals.css scopes accent tokens to this route. */
+/** Shared semantic colors preserve contrast in both app appearances. */
 const COLORS = {
-  bg: "#f2f2f7",
-  text: "#1d1d1f",
-  text2: "#6e6e73",
-  text3: "#8e8e93",
-  sep: "rgba(60, 60, 67, .12)",
+  bg: "var(--background)",
+  text: "var(--foreground)",
+  text2: "var(--muted-foreground)",
+  text3: "var(--app-secondary-label)",
+  sep: "var(--border)",
   blue: "var(--app-accent)",
   blueText: "var(--app-accent-deep)",
   blueSoft: "var(--app-accent-tint)",
   meSurface: "var(--app-accent-surface)",
-  green: "#34c759",
-  greenText: "#137a35",
+  green: "var(--app-success)",
+  greenText: "var(--app-success-deep)",
   gold: "var(--referral-medal-deep)",
   goldSoft: "var(--referral-medal-light)",
   goldText: "#8a6431",
   goldTint: "rgba(212, 165, 116, .2)",
   timerFrom: "#1c1c1e",
   timerTo: "#242426",
-  card: "#ffffff",
+  card: "var(--app-card-surface-default)",
   fill: "rgba(120, 120, 128, .16)",
   fill2: "rgba(120, 120, 128, .1)",
   chevron: "#c7c7cc",
@@ -736,13 +736,13 @@ function StatsGrid({
     onRetry?: () => void;
   }[] = [
     {
-      label: "Your coins",
+      label: "Coins",
       value: statText(pointsRes, (p) => fmt(p)),
       sub: statSub(pointsRes, () => ""),
       onRetry: pointsRes.status === "error" ? onRetryPoints : undefined,
     },
     {
-      label: "Published rank",
+      label: "Rank",
       value: statText(leaderboardRes, (lb) => {
         const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
         return v ? `#${v.rank}` : "—";
@@ -873,22 +873,16 @@ function StandingsTab({
   return (
     <div className="referral-standings">
       <div className="referral-ranking-toolbar">
-        <div
-          role="group"
-          aria-label="Standings type"
+        <SegmentedTabs
+          value={board}
+          onValueChange={(value) => onBoardChange(value as "individual" | "circles")}
+          options={[
+            { value: "individual", label: "Individual" },
+            { value: "circles", label: "Circles" },
+          ]}
+          ariaLabel="Standings type"
           className="referral-ranking-switch"
-        >
-          {(["individual", "circles"] as const).map((key) => (
-            <button
-              key={key}
-              aria-pressed={board === key}
-              onClick={() => onBoardChange(key)}
-              className="referral-ranking-option"
-            >
-              {key}
-            </button>
-          ))}
-        </div>
+        />
         {gapText ? (
           <p
             className="referral-ranking-summary"
@@ -1157,14 +1151,13 @@ function RewardsTab({
                           <span className="referral-product-tile-art grid shrink-0 place-items-center">
                             <RewardArtwork milestoneKey={entry.milestone_key} title={label[0] ?? entry.reward} />
                           </span>
-                          <span
+                          {(earned || (isNext && awaitingAward)) && <span
                             className="referral-milestone-status referral-type-caption"
-                            aria-hidden={!earned && !isNext ? true : undefined}
-                            style={{ color: earned ? "#137a35" : "#006dcc", visibility: earned || isNext ? "visible" : "hidden" }}
-                          >{earned ? "Unlocked" : isNext && awaitingAward ? "Confirming" : "Up next"}</span>
+                            style={{ color: earned ? COLORS.greenText : COLORS.blueText }}
+                          >{earned ? "Unlocked" : "Confirming"}</span>}
                         </div>
                         <h4 className="ui-text-headline">{rewardDisplayTitle(label[0] ?? entry.reward)}</h4>
-                        <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? "#137a35" : COLORS.text2 }}>
+                        <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? COLORS.greenText : COLORS.text2 }}>
                           {earned ? `Unlocked at ${fmt(entry.threshold)}` : `${fmt(entry.threshold)} referrals`}
                         </p>
                       </Card>

@@ -29,16 +29,16 @@
 .stepCopy h3 { --foundation-title3-size: var(--type-row-label-compact-size); --foundation-title3-weight: var(--type-row-label-emphasis-weight); --foundation-title3-line: var(--type-row-label-compact-line); --foundation-title3-tracking: normal; margin: 0; }
 .reward { color: var(--app-accent-deep); }
 .earning { margin: 0 var(--journey-gutter); padding: 0 0 8px; }
-.earningHeader { margin-bottom: 6px; }
+.earningHeader { margin-bottom: 8px; padding-top: 8px; }
 .earningHeader h3 { --foundation-title3-size: var(--type-section-label-compact-size); --foundation-title3-line: var(--type-section-label-compact-line); --foundation-title3-weight: var(--type-section-label-compact-weight); --foundation-title3-tracking: normal; margin: 0; color: var(--muted-foreground); }
 .rewardList { min-width: 0; }
-.rewardRow { --earning-color: var(--app-accent-deep); position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) 80px; align-items: center; gap: 14px; min-width: 0; padding: 10px 0; }
+.rewardRow { --earning-color: var(--app-accent-deep); position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) 80px; align-items: center; gap: 14px; min-width: 0; padding: 16px 0; }
 .rewardRow + .rewardRow::before { position: absolute; top: 0; right: 0; left: 50px; height: 1px; background: color-mix(in srgb, var(--border) 60%, transparent); content: ""; }
 .rewardRow[data-earning="streak"] { --earning-color: var(--app-warning-deep); }
 .rewardRow[data-earning="flash"] { --earning-color: var(--app-purple); }
 .rewardRow[data-earning="pkm"] { --earning-color: var(--app-indigo); }
 .rewardRow[data-earning="connections"] { --earning-color: var(--journey-teal); }
-.earningIcon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; background: color-mix(in srgb, var(--earning-color) 9%, transparent); color: var(--earning-color); }
+.earningIcon { display: grid; width: 36px; height: 36px; place-items: center; color: var(--earning-color); }
 .earningIcon svg { width: 21px; height: 21px; }
 .earningCopy h4 { --foundation-headline-size: var(--type-row-label-compact-size); --foundation-headline-line: var(--type-row-label-compact-line); --foundation-headline-weight: var(--type-row-label-compact-weight); margin: 0 0 3px; }
 .earningCopy p { margin: 0; color: var(--muted-foreground); font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); }
@@ -55,12 +55,12 @@
   .steps::before { position: absolute; top: 34px; bottom: 34px; left: 17px; width: 1px; background: var(--border); content: ""; }
   .steps li { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 12px; text-align: left; }
   .marker { width: 36px; height: 36px; margin: 0; border-radius: 12px; }
-  .rewardRow { grid-template-columns: 32px minmax(0, 1fr) 56px; gap: 10px; padding: 10px 0; }
+  .rewardRow { grid-template-columns: 32px minmax(0, 1fr) 56px; gap: 10px; padding: 16px 0; }
   .rewardRow + .rewardRow::before { left: 42px; right: 0; }
-  .earningIcon { width: 32px; height: 32px; border-radius: 10px; }
+  .earningIcon { width: 32px; height: 32px; }
   .earningIcon svg { width: 19px; height: 19px; }
 }
 @container referral-journey (max-width: 350px) {
   .journey { --journey-gutter: 0px; }
-  .rewardRow { gap: 8px; padding: 10px 0; }
+  .rewardRow { gap: 8px; padding: 16px 0; }
 }

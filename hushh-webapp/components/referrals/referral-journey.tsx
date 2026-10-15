@@ -63,12 +63,12 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
             {[
               { id: "streak", title: "Keep your streak", description: `1 qualifying referral daily for ${policy.streak_rules.run_length_days} days`, amount: policy.streak_rules.bonus_points, unit: "coins", icon: Flame },
               { id: "flash", title: "Flash boost", description: `Replaces ${policy.points.qualified_referral_points} coins when active`, amount: policy.points.flash_window_total_points, unit: "coins", icon: Zap },
-              { id: "pkm", title: "PKM Master", description: "Use memory daily", amount: POINT_AWARDS.pkmMaster, unit: "points", icon: Brain },
+              { id: "pkm", title: "Memory master", description: "Use memory daily", amount: POINT_AWARDS.pkmMaster, unit: "points", icon: Brain },
               { id: "connections", title: "Connection Builder", description: "Each new connection", amount: POINT_AWARDS.connectionBuilder, unit: "points", icon: Users },
               { id: "agents", title: "Agent usage", description: "Every use, any agent", amount: POINT_AWARDS.agentUsage, unit: "points", icon: MessageCircle },
             ].map(({ id, title, description, amount, unit, icon: Icon }) => (
               <article key={id} className={styles.rewardRow} data-earning={id}>
-                <span className={styles.earningIcon} aria-hidden="true"><Icon /></span>
+                <span className={styles.earningIcon} aria-hidden="true"><Icon weight="regular" /></span>
                 <div className={styles.earningCopy}>
                   <h4>{title}</h4>
                   <p>{description}</p>
