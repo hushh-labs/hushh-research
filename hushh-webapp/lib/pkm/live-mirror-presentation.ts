@@ -269,7 +269,7 @@ export function liveMirrorStatus(
     updating: "Checking your latest change",
     stale: ago ? `Last checked ${ago}` : null,
     partial: "Showing what we could check",
-    conflict: "Two sources disagree",
+    conflict: "Some details disagree",
     empty: "New changes will show here",
   };
   return { headline: HEADLINES[overall], sub: sub[overall] };

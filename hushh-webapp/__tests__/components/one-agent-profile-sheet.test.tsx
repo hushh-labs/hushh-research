@@ -386,7 +386,7 @@ describe("One agent profile feed preview", () => {
     await screen.findByTestId("live-mirror-status");
     // The headline and its line are Profile's, from the shared presentation module.
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
-    expect(mirrorStatus().getByText("Two sources disagree")).toBeInTheDocument();
+    expect(mirrorStatus().getByText("Some details disagree")).toBeInTheDocument();
     const [name, amount] = screen.getAllByTestId("live-mirror-conflict");
     expect([rowTitle(name!), rowTitle(amount!)]).toEqual(["Name", "Amount"]);
     // One claim per line, worded as on Profile, each with when it was checked or changed.
