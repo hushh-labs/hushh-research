@@ -661,7 +661,7 @@ function ShareLocationFeatureCard() {
     >
       <MapBackdrop tone="share" />
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
-      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
+      <div className="relative z-20 w-[56%] px-5 pt-5 md:bg-[color:var(--app-primary-surface)]" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
           data-one-use-case-tag
@@ -893,7 +893,7 @@ function FeaturesScreen({
           ? "Location access is off. Turn it on to set up One Location."
           : locationGranted
             ? "Location is ready. Your next tap opens the place picker."
-            : "Your location stays private until you share.";
+            : null;
 
   return (
     <div
@@ -946,15 +946,17 @@ function FeaturesScreen({
             <SaveMySoulFeatureCard />
           </div>
         </div>
-        <p
-          className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]"
-          aria-live="polite"
-          role={
-            locationPreparationRetry || locationBlocked ? "alert" : undefined
-          }
-        >
-          {status}
-        </p>
+        {status ? (
+          <p
+            className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]"
+            aria-live="polite"
+            role={
+              locationPreparationRetry || locationBlocked ? "alert" : undefined
+            }
+          >
+            {status}
+          </p>
+        ) : null}
       </div>
       <div
         className="mx-auto w-full max-w-[430px] shrink-0 pt-5"

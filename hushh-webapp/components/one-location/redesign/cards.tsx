@@ -669,6 +669,7 @@ export function SharedWithMeCard({
                     warningRole.glyph,
                   )}
                 >
+                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
                   Ask to refresh
                 </Button>
               ) : null}

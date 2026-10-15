@@ -155,8 +155,20 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
       screen.getByRole("button", { name: "Set up my location" }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Your location stays private until you share."),
-    ).toBeTruthy();
+      screen.queryByText("Your location stays private until you share."),
+    ).toBeNull();
+  });
+
+  it("keeps permission progress visible and the feature CTA disabled while requesting Location", () => {
+    renderFlow({ activeScreen: "features", locationBusy: true });
+
+    expect(screen.getByText("Requesting Location…")).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    expect(
+      screen.getByRole("button", { name: "Set up my location" }),
+    ).toBeDisabled();
   });
 
   it("requests Location only after the explicit Features CTA and advances to place", async () => {

@@ -36,6 +36,7 @@ import {
   Link2,
   Pencil,
   Plus,
+  RefreshCw,
   Send,
   Share2,
   Check,
@@ -2984,17 +2985,13 @@ function LocationDetailFlow({
                             disabled={vm.busy === "request"}
                             className="h-8 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
                           >
-                            {vm.busy === "request" ? (
-                              <span
-                                className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <Send
-                                className="mr-1.5 h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                            )}
+                            <RefreshCw
+                              className={cn(
+                                "mr-1.5 h-3.5 w-3.5",
+                                vm.busy === "request" && "animate-spin",
+                              )}
+                              aria-hidden="true"
+                            />
                             Ask to refresh
                           </Button>,
                           // SharedWithMeCard already draws and clips the card

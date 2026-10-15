@@ -871,9 +871,6 @@ export function JoinCircleFlow({
           <p id="one-location-join-code-label" className="text-[17px] font-semibold leading-[22px] text-foreground">
             Enter invite code
           </p>
-          <p id="one-location-join-code-help" className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
-            Enter the 12-character code shared with you.
-          </p>
         </div>
         <fieldset
           aria-labelledby="one-location-join-code-label"
@@ -918,7 +915,7 @@ export function JoinCircleFlow({
                 spellCheck={false}
                 autoComplete="off"
                 aria-label={index === 0 ? "Circle invite code" : `Circle invite code, characters ${index * 4 + 1} to ${index * 4 + 4}`}
-                aria-describedby={`one-location-join-code-help${error ? " one-location-join-circle-error" : ""}`}
+                aria-describedby={error ? "one-location-join-circle-error" : undefined}
                 aria-invalid={error ? true : undefined}
                 placeholder={["ABCD", "EFGH", "KMNP"][index]}
                 className={cn(
