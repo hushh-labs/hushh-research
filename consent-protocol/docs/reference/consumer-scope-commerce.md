@@ -126,6 +126,31 @@ immutable pod image through the normal release workflow, use the existing
 owner-approved update, verify recovery, and repeat the same proposal. No encrypted
 fixture save or scope purchase is claimed by this failed attempt.
 
+The next build removes the qualification-only reuse pin, which otherwise skips
+the pod build and republishes that older image. The release descriptor retains
+its existing predecessor and additionally admits the exact installed `fa018342`
+digest as a compatible offer. Independent source review binds installed source
+`e04b76c61433` to candidate `81824cf2e99e`: thirteen encrypted persistence,
+recovery, migration and admission modules are byte-identical; both descend from
+the tombstone-aware floor. Historical AI-selection v1 remains readable with the
+same HKDF/AAD, and the added Azure endpoint is optional. Existing recovery,
+Azure update, public connector configuration and schema-wire tests qualify the
+offer separately from installation. Canonical core remains required on the final
+descriptor candidate. This does not establish an installed image: owner approval,
+fresh Microsoft authority, durable handoff, exact digest and encrypted recovery
+remain mandatory, followed by the same Memory proposal.
+
+The release pack exposed an 8,764-character inline model probe, beyond the
+unchanged 8,000-character argument budget. Its body moves byte-for-byte into
+`scripts/deploy/verify-managed-vertex-runtime.sh`; the same build step passes all
+16 required environment bindings explicitly. Candidate identity, synthetic-only
+requests, cleared secrets, positive UAT receipts, voice checks, bounded logging
+readback and cleanup remain unchanged. Existing release and deployment checks
+pass 162 cases, including invalid/partial receipt refusal and the argument budget.
+The stale candidate's in-progress core was stopped after this independent failure
+was established; it is not counted as a successful run. The final candidate still
+requires the complete canonical core and exact-source hosted CI.
+
 The composed core's subsequent blockers were a main-imported implicit Mermaid
 node and an outdated platform-skill inventory hash. The diagram now declares its
 node; the independently reviewed skill diff changes one freshness comment only,
@@ -367,8 +392,9 @@ pass. This correction still requires exact-candidate core, CI and Dev release.
 At `2026-10-14T14:52:35Z`, both private Azure runtimes were independently
 observed without `APP_FRONTEND_ORIGIN`; the counterpart also lacked the public
 Sandbox pin. Shared Dev deployment does not install owner-pod software or repair
-its environment. The current qualification-only reuse pin still publishes the
-earlier `e04b76c61433` image. Follow the canonical
+its environment. At that observation, the qualification-only reuse pin published
+the earlier `e04b76c61433` image. The October 15 release preparation above removes
+that pin and qualifies its exact predecessor for the next build. Follow the canonical
 [pod update runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md)
 to qualify the exact predecessor, remove the reuse pin for the next application
 image build, publish the immutable image and complete ordinary owner approval,

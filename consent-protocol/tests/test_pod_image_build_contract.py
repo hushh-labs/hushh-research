@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests._deploy_contract import backend_deploy_script
+from tests._deploy_contract import backend_deploy_script, managed_vertex_probe_script
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOUDBUILD = REPO_ROOT / "deploy" / "backend.cloudbuild.yaml"
@@ -434,7 +434,8 @@ def test_no_cloud_build_step_arg_exceeds_the_limit(config_path: str):
             )
 
 
-def test_the_extracted_deploy_script_receives_every_variable_it_reads():
+@pytest.mark.parametrize("step_id", ["deploy-backend", "verify-managed-vertex-runtime"])
+def test_the_extracted_deploy_script_receives_every_variable_it_reads(step_id):
     """`set -u` plus a missing `env:` entry would fail the deploy at runtime.
 
     Cloud Build substitutes ${_FOO} in the config, never inside a file from the source
@@ -444,8 +445,13 @@ def test_the_extracted_deploy_script_receives_every_variable_it_reads():
     import re
 
     config = yaml.safe_load(CLOUDBUILD.read_text(encoding="utf-8"))
-    step = _step(config, "deploy-backend")
-    script = backend_deploy_script()
+    step = _step(config, step_id)
+    script = (
+        backend_deploy_script() if step_id == "deploy-backend" else managed_vertex_probe_script()
+    )
+    if step_id == "verify-managed-vertex-runtime":
+        assert step["entrypoint"] == "bash"
+        assert step["args"] == ["scripts/deploy/verify-managed-vertex-runtime.sh"]
 
     passed = {entry.split("=", 1)[0] for entry in (step.get("env") or [])}
     # A packed entry (Cloud Build caps a step at 100 env entries) hands over
@@ -456,7 +462,7 @@ def test_the_extracted_deploy_script_receives_every_variable_it_reads():
         passed |= set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", entry.split("=", 1)[1]))
     body = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
     referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", body))
-    referenced |= set(re.findall(r"\$\{?(PROJECT_ID)\}?", body))
+    referenced |= set(re.findall(r"\$\{?(PROJECT_ID|BUILD_ID)\}?", body))
 
     missing = sorted(referenced - passed)
     assert not missing, f"referenced in the script but absent from the step's env: {missing}"
