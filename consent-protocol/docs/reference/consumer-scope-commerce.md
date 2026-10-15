@@ -50,8 +50,7 @@ keyboard/layering unit cases pass. A controlled-interpolation diagnostic passed
 both engines and eight broken-motion controls, but was superseded during normal
 composition with the developer's concurrent browser fix. The retained collector
 uses trusted Playwright input and real RAF/timer geometry; its caller preserves
-the original sub-100 ms onset and settled geometry assertions. The final trusted-input motion case passes Chromium and WebKit. Neither collector
-proves physical presented-frame latency or FPS.
+the original sub-100 ms onset and settled geometry assertions. Local Chromium and WebKit results do not establish hosted performance acceptance: the retained `a2b1e87d6e` run failed Linux History timing. The fixed budgets now belong to the mandatory macOS performance lane; Linux retains geometry and gesture cancellation. Neither collector proves physical presented-frame latency or FPS.
 
 Normal merges `b1ddad85be8d` and `de4f5aa20056` incorporate main through
 `ef703daa8981` in the existing verification checkout, including its three-file
@@ -3766,3 +3765,23 @@ Canonical core passed at `eb34af7b290b` in 554 seconds. The interrupted merged c
 The concurrent verified-hosting/saved-AI setup contract changes completion semantics. Revision `8a957610367a7fda` therefore has one explicit fail-closed cloud-workflow retirement; unrelated workflow histories remain retained. Two incoming main test-module measurements are independently reviewed in the existing architecture baseline; budgets, scanner, exclusions and all other findings remain unchanged. Current prompt changes are source-qualified only: the installed counterpart pod remains `2026.10-dev.15+1d88a25b7e47.cdcf8dc2`, and no private-pod software update is implied by a shared Dev release.
 
 Recovered-candidate checks pass all 181 selected backend cases, all 438 Back cases, generated UI parity and the architecture ratchet with zero new or worsened findings. Every previously recorded workflow-policy revision remains represented. These checks use the recovered exact source; the full core and hosted CI remain pending. Headless reviewer continuation leaves the restarted shared Chrome untouched.
+
+### 2026-10-15 parallel-branch reconciliation
+
+The preserved infrastructure branch incorporates the concurrently published
+`f1159af6d8` changes through a normal merge. Reuse its process-wide three-session
+connection cap, receipt normalization and generator-owned column ordering; the
+parallel draft cap and fixture-order edits were not added as a second system.
+Retain owner/placement checks between awaited reads and the private-placement
+negative control alongside the incoming owner-decision assertion. Focused backend
+verification passed 238 cases with one database-dependent skip. Unchanged Memory
+verification passed all 52 cases with one worker after a contended Back run failed;
+the remaining Location retry, generation, canonical core and hosted CI are pending.
+These checks do not establish a new Dev release or paid-purchase acceptance.
+
+Two separate maintenance gaps remain recorded for their existing owners: dynamic
+UAT/production capacity accounting omits dedicated sessions (`repo-operations-intake`),
+and Calendar review cleanup on reset needs an explicit delete because reset retains
+`actor_profiles` (account lifecycle/security owner). Full account deletion already
+follows the verified schema cascades. Neither gap authorizes a capacity increase,
+a second ledger, or a claim that the Sandbox lifecycle is complete.

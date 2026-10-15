@@ -210,6 +210,7 @@ export default defineConfig({
         /receipt-pagination\.layout\.spec\.ts/,
         /receipt-storage\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
+        /history-motion\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
         // Native drawer admission samples this authored CSS before coverage;
         // prove its cascade in the same engine as the shipped WKWebView.

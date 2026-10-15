@@ -219,12 +219,13 @@ class WorldModelJobs(ProfileResearchJobs):
             state is None
             and last_run is not None
             and self.clock() - last_run.timestamp() < PWM_REPREPARE_AFTER_SECONDS
-            and (active_draft is None or await draft_completed(user_id, active_draft))
         ):
-            # The latest run finished recently and its draft aged out. A run the
-            # retention purge removed before it finished is prepared again.
+            completed = active_draft is None or await draft_completed(user_id, active_draft)
             await require_access()
-            return {"status": "saved", "pkm_written": False}
+            if completed:
+                # A recently finished draft aged out. Unfinished purged work
+                # resumes below instead of buying a new preparation interval.
+                return {"status": "saved", "pkm_written": False}
         await require_access()
         if (
             state

@@ -177,7 +177,11 @@ def _hub_worker_count(deploy_env: str, *, preview: bool = False) -> int:
 
 def _dedicated_per_worker() -> int:
     declared = LIMITS["dedicated_connections_per_worker"]
-    return sum(entry["connections"] for entry in declared.values())
+    from db.connection import _DEDICATED_CONNECTION_LIMIT
+
+    ceiling = LIMITS["dedicated_connection_ceiling"]["connections"]
+    assert ceiling == _DEDICATED_CONNECTION_LIMIT
+    return min(sum(entry["connections"] for entry in declared.values()), ceiling)
 
 
 def _hub_fleet(values: dict[str, str], deploy_env: str) -> Fleet:

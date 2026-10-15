@@ -15,7 +15,7 @@
   padding: 0 6px;
   border: 0;
   background: transparent;
-  color: #0071e3;
+  color: var(--app-accent-deep);
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;

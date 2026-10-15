@@ -845,6 +845,7 @@ async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monke
         pwm, "get_chat_key_provider", lambda: SimpleNamespace(current_key=lambda _: b"k" * 32)
     )
     instance = pwm_manager(monkeypatch)
+    owner_decisions = {"confirmed": ["Synthetic owner declaration"], "rejected": []}
     if existing == "private":
         from fastapi import HTTPException
 
@@ -852,18 +853,19 @@ async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monke
 
         placement.get_owner_hosting_mode.return_value = "byoc"
         with pytest.raises(HTTPException) as error:
-            await instance.ensure("owner", "token")
+            await instance.ensure("owner", "token", owner_decisions=owner_decisions)
         assert error.value.status_code == 409
         enroll_default.assert_not_awaited()
         instance.offer.assert_not_awaited()
         return
-    result = await instance.ensure("owner", "token")
+    result = await instance.ensure("owner", "token", owner_decisions=owner_decisions)
     await settle(instance)
     if existing == "missing":
         assert result["status"] == "pending"
         enroll_default.assert_awaited_once_with("owner", "token")
         assert rows["owner"]["enabled"] and rows["owner"]["email_enabled"]
         instance.offer.assert_awaited_once()
+        assert instance.offer.await_args.kwargs["inputs"] == {"owner_decisions": owner_decisions}
         return
     # Negative control: an explicit opt-out stays off, and nothing is enrolled
     # before setup resolves. No research state is written either way.

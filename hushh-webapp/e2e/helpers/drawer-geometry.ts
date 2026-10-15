@@ -1,15 +1,21 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-/** Gesture settlement must release its inline overrides before CSS motion is sampled. */
+/** Release gesture overrides and settle responsive CSS before timing new input. */
 export async function expectPaneMotionReleased(pane: Locator) {
   await expect.poll(() => pane.evaluate(element =>
     ["transition", "transform", "translate", "visibility", "will-change"]
       .every(property => !(element as HTMLElement).style.getPropertyValue(property)),
   )).toBe(true);
-  await pane.evaluate(async element => {
-    element.getBoundingClientRect();
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-  });
+  await expect.poll(() => pane.evaluate(element => {
+    const panel = element as HTMLElement;
+    const style = getComputedStyle(panel);
+    const clearance = Number.parseFloat(style.getPropertyValue("--agent-history-shadow-clearance")) || 0;
+    const restingX = panel.dataset.state === "closed" ? -panel.offsetWidth - clearance : panel.offsetLeft;
+    const moving = panel.getAnimations().some(animation =>
+      animation.playState !== "finished" && animation.playState !== "idle" &&
+      Number.isFinite(animation.effect?.getComputedTiming().endTime));
+    return !moving && Math.abs(panel.getBoundingClientRect().x - restingX) <= 1;
+  })).toBe(true);
 }
 
 type HistoryMotion = {
@@ -23,7 +29,7 @@ type HistoryMotion = {
   rendering: { visibility: string; state: string | undefined; translate: string; delay: string };
 };
 
-type MotionWindow = Window & { historyMotion?: { result: Promise<HistoryMotion>; stop: () => void } };
+type MotionWindow = Window & { historyMotion?: { result?: HistoryMotion; stop: () => void } };
 
 /** Collect real CSS geometry while Playwright delivers native input outside evaluation. */
 export async function sampleHistoryMotion(page: Page, action: "open" | "close") {
@@ -39,8 +45,6 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
     let frameId = 0;
     let timerId = 0;
     let finishId = 0;
-    let resolve!: (result: HistoryMotion) => void;
-    const result = new Promise<HistoryMotion>(done => { resolve = done; });
     const observeTransition = (event: TransitionEvent) => {
       if (start !== undefined && event.target === panel && ["translate", "transform", "visibility"].includes(event.propertyName))
         transitions.push({ type: event.type, property: event.propertyName, elapsed: performance.now() - start });
@@ -67,10 +71,10 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
       finishId = window.setTimeout(() => {
         sample("timer");
         const style = getComputedStyle(panel);
-        resolve({ frames, transitions, width, restingX: panel.offsetLeft, before,
+        (window as MotionWindow).historyMotion!.result = { frames, transitions, width, restingX: panel.offsetLeft, before,
           after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
           shadowClearance: Number.parseFloat(style.getPropertyValue("--agent-history-shadow-clearance")) || 0,
-          rendering: { visibility: document.visibilityState, state: panel.dataset.state, translate: style.translate, delay: style.transitionDelay } });
+          rendering: { visibility: document.visibilityState, state: panel.dataset.state, translate: style.translate, delay: style.transitionDelay } };
         stop();
       }, action === "open" ? 360 : 260);
     };
@@ -80,12 +84,14 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
     panel.addEventListener("transitionstart", observeTransition);
     frameId = requestAnimationFrame(onFrame);
     timerId = window.setInterval(() => sample("timer"), 8);
-    (window as MotionWindow).historyMotion = { result, stop };
+    (window as MotionWindow).historyMotion = { stop };
   }, action);
   try {
     if (action === "open") await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     else await page.keyboard.press("Escape");
-    return await page.evaluate(() => (window as MotionWindow).historyMotion!.result);
+    // Keep browser evaluation turns short while its native compositor runs.
+    await page.waitForFunction(() => Boolean((window as MotionWindow).historyMotion?.result), undefined, { polling: 16 });
+    return await page.evaluate(() => (window as MotionWindow).historyMotion!.result!);
   } finally {
     await page.evaluate(() => { (window as MotionWindow).historyMotion?.stop(); delete (window as MotionWindow).historyMotion; });
   }

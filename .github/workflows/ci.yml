@@ -290,11 +290,10 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
-            # The macOS editor latency lane (web-editor-performance-check):
-            # npm run test:layout-editor-performance, i.e. one spec whose
-            # beforeAll bundles one fixture with vite and compiles
-            # app/globals.css with Tailwind. These are that spec's and that
-            # fixture's transitive imports, the files they read from disk, and
+            # The macOS editor and drawer latency lane (web-editor-performance-check):
+            # npm run test:layout-editor-performance: the editor and History specs whose
+            # beforeAll hooks bundle their fixtures with Vite and compile
+            # app/globals.css with Tailwind. These are their transitive imports, the files they read from disk, and
             # the configs and lockfile that build and run them. components/icons
             # (12 of its 14 files, reached through index barrels) and
             # lib/morphy-ux (13 primitives that import one another) are listed
@@ -308,6 +307,19 @@ jobs:
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
             editor:
+              - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
+              - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
+              - 'hushh-webapp/components/app-ui/app-chat-history-edge-gesture.tsx'
+              - 'hushh-webapp/components/app-ui/drawer-motion.ts'
+              - 'hushh-webapp/components/app-ui/search-clear-button.tsx'
+              - 'hushh-webapp/components/app-ui/side-panel-motion.tsx'
+              - 'hushh-webapp/components/ui/alert-dialog.tsx'
+              - 'hushh-webapp/components/ui/dropdown-menu.tsx'
+              - 'hushh-webapp/e2e/fixtures/history-motion.tsx'
+              - 'hushh-webapp/e2e/helpers/drawer-geometry.ts'
+              - 'hushh-webapp/e2e/helpers/history-motion.ts'
+              - 'hushh-webapp/e2e/history-motion.layout.spec.ts'
+              - 'hushh-webapp/lib/agent/chat-time-separators.ts'
               - 'hushh-webapp/components/agent/animated-menu-cross-icon.tsx'
               - 'hushh-webapp/components/app-ui/native-chat-chrome.tsx'
               - 'hushh-webapp/components/app-ui/native-feature-page.tsx'
@@ -653,7 +665,6 @@ jobs:
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
           WEB_TARGETED_PART: ${{ matrix.part }}
-          PLAYWRIGHT_SHARD: ${{ matrix.shard }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
           WEB_CI_DEPS_INSTALLED: ${{ matrix.part == 'browser' && '1' || '0' }}
@@ -707,7 +718,7 @@ jobs:
           npm ci
           npx playwright install chromium webkit
 
-      - name: Verify 100 KB editor latency on macOS
+      - name: Verify editor and History motion latency on macOS
         working-directory: hushh-webapp
         run: npm run test:layout-editor-performance
 

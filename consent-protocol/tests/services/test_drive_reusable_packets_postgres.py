@@ -849,9 +849,13 @@ async def test_packet_failures_keep_safe_diagnostics_and_retry_behavior(
     assert secret not in caplog.text
 
 
-async def test_packet_claim_failure_is_logged_without_changing_exception_or_exposing_text(caplog):
+async def test_packet_claim_failure_is_logged_without_changing_exception_or_exposing_text(
+    caplog, monkeypatch
+):
     from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 
+    admission = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_packet_worker.admit_hub_content", admission)
     secret = "private-sql-parameters-and-token"
     error = ConnectorLifecycleError(secret)
     store = SimpleNamespace(claim_packet=AsyncMock(side_effect=error), release_packet=AsyncMock())
@@ -861,6 +865,7 @@ async def test_packet_claim_failure_is_logged_without_changing_exception_or_expo
     with pytest.raises(ConnectorLifecycleError) as captured:
         await worker.run_packet_one(user_id="private-owner-id")
     assert captured.value is error
+    admission.assert_awaited_once_with("private-owner-id", "drive_packet_build_claim")
     store.release_packet.assert_not_awaited()
     assert (
         "stage=claim_packet code=connector_storage_unavailable attempt=0 elapsed_ms=" in caplog.text

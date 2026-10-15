@@ -39,7 +39,9 @@ import asyncio
 import hashlib
 import logging
 import os
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import asynccontextmanager, contextmanager
+from threading import Lock
 from typing import Any, Optional
 from urllib.parse import quote_plus
 
@@ -110,6 +112,31 @@ class DatabaseUnavailableError(RuntimeError):
         self.code = "DATABASE_UNAVAILABLE"
         self.status_code = 503
         super().__init__(message)
+
+
+class DedicatedConnectionCapacityError(DatabaseUnavailableError):
+    """The worker's non-request connection budget is already in use."""
+
+
+# Process-wide, including callers on different event loops. Reserve before any
+# network await; release only after the session has closed or been terminated.
+_DEDICATED_CONNECTION_LIMIT = 3
+_dedicated_connection_count = 0
+_dedicated_connection_guard = Lock()
+
+
+@contextmanager
+def _dedicated_connection_slot() -> Iterator[None]:
+    global _dedicated_connection_count
+    with _dedicated_connection_guard:
+        if _dedicated_connection_count >= _DEDICATED_CONNECTION_LIMIT:
+            raise DedicatedConnectionCapacityError("Background database work is busy; retry later.")
+        _dedicated_connection_count += 1
+    try:
+        yield
+    finally:
+        with _dedicated_connection_guard:
+            _dedicated_connection_count -= 1
 
 
 def _is_connection_unavailable_error(exc: BaseException) -> bool:
@@ -451,6 +478,7 @@ async def dedicated_connection():
     A provider call made while holding an advisory lock must not reserve one of
     the request pool's limited connections. The caller owns the lock lifetime;
     this context always closes the dedicated connection and releases its locks.
+    The shared worker budget fails fast instead of starving the request pool.
     """
     if _is_offline_mode():
         pool = await get_pool()
@@ -458,29 +486,34 @@ async def dedicated_connection():
             yield conn
         return
 
-    timeout = _get_connect_timeout_seconds()
-    socket = os.getenv("DB_UNIX_SOCKET")
-    if socket:
-        conn = await asyncpg.connect(
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME", "postgres"),
-            host=socket,
-            port=int(os.getenv("DB_PORT", "5432")),
-            timeout=timeout,
-            command_timeout=60,
-        )
-    else:
-        conn = await asyncpg.connect(
-            _get_database_url(),
-            ssl=get_database_ssl(),
-            timeout=timeout,
-            command_timeout=60,
-        )
-    try:
-        yield conn
-    finally:
-        await conn.close()
+    with _dedicated_connection_slot():
+        timeout = _get_connect_timeout_seconds()
+        socket = os.getenv("DB_UNIX_SOCKET")
+        if socket:
+            conn = await asyncpg.connect(
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASSWORD"),
+                database=os.getenv("DB_NAME", "postgres"),
+                host=socket,
+                port=int(os.getenv("DB_PORT", "5432")),
+                timeout=timeout,
+                command_timeout=60,
+            )
+        else:
+            conn = await asyncpg.connect(
+                _get_database_url(),
+                ssl=get_database_ssl(),
+                timeout=timeout,
+                command_timeout=60,
+            )
+        try:
+            yield conn
+        finally:
+            try:
+                await conn.close(timeout=5)
+            except BaseException:
+                conn.terminate()
+                raise
 
 
 async def get_pool() -> asyncpg.Pool:

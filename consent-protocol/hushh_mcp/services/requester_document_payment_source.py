@@ -8,7 +8,7 @@ requester; account erasure cannot rehydrate a private memory projection.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -37,7 +37,7 @@ class RequesterDocumentPaymentSourceCapacity(RequesterDocumentPaymentSourceUnava
 def _instant(value: Any) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise RequesterDocumentPaymentSourceUnavailable("payment timestamp unavailable")
-    return value.isoformat()
+    return value.astimezone(UTC).isoformat()
 
 
 def _row_view(row: dict[str, Any], *, user_id: str) -> dict[str, Any]:

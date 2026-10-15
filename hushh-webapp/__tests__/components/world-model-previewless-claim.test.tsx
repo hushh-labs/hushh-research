@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({
@@ -148,10 +148,7 @@ it.each([
     fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
     await waitFor(() =>
       expect(mock.claim).toHaveBeenCalledWith(
-        expect.objectContaining({
-          vaultKey: "vault-key", vaultOwnerToken: "owner-token",
-          isCurrent: expect.any(Function), signal: expect.any(AbortSignal),
-        }),
+        expect.objectContaining({ vaultKey: "vault-key", vaultOwnerToken: "owner-token", isCurrent: expect.any(Function), signal: expect.any(AbortSignal) }),
         token,
         check,
       ),
@@ -201,4 +198,23 @@ it("routes a different signed-in account back to explicit invitation recovery", 
   expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
   expect(destination).not.toContain(token);
   expect(mock.claim).not.toHaveBeenCalled();
+});
+
+
+it("cancels a claim and preserves its handoff when its owner view unmounts", async () => {
+  let finish!: (value: unknown) => void;
+  mock.claim.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  const view = render(<WorldModelClaimInvitation ownerId="recipient" vaultKey="vault-key" vaultOwnerToken="owner-token" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Claim my model" }));
+  await waitFor(() => expect(mock.claim).toHaveBeenCalledOnce());
+  const session = mock.claim.mock.calls[0][0];
+  expect(session.isCurrent()).toBe(true);
+  const handoff = new URL(window.location.href).searchParams.get("handoff")!;
+  view.unmount();
+  expect(session.signal.aborted).toBe(true);
+  expect(session.isCurrent()).toBe(false);
+  await act(async () => { finish({ claimed: true }); });
+  expect(mock.reloadResearch).not.toHaveBeenCalled();
+  expect(mock.replace).not.toHaveBeenCalled();
+  expect(readWorldModelInvitationHandoff(handoff, "recipient")).toBe(token);
 });

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const {
   replace,
@@ -287,7 +288,7 @@ describe("flag OFF — onboarding is unchanged", () => {
     // With the flag off, the freshly unlocked key finalizes the setup and routes
     // straight home -- no migration pass runs on either side of the vault.
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith(ROUTES.HOME);
     });
     expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
   });
@@ -458,7 +459,7 @@ describe("flag ON — vault is the last step, after the migration", () => {
       });
     });
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith(ROUTES.HOME);
     });
   });
 });
@@ -482,7 +483,7 @@ describe.each(["0", "1"])("finance continuation with local-first=%s", (flag) => 
     await act(async () => { finishWrite(); });
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/setup/finance/import"));
     expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1);
-    expect(replace).not.toHaveBeenCalledWith("/one");
+    expect(replace).not.toHaveBeenCalledWith(ROUTES.HOME);
   });
 
   it("does not navigate or drain when encrypted finalization fails", async () => {
@@ -516,5 +517,5 @@ it("starts the Finance watchdog only after the encrypted finalizer succeeds", as
   expect(replace).not.toHaveBeenCalled();
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
   expect(replace).toHaveBeenCalledWith("/one/setup/finance/import");
-  expect(replace).not.toHaveBeenCalledWith("/one");
+  expect(replace).not.toHaveBeenCalledWith(ROUTES.HOME);
 });

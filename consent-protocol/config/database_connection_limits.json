@@ -17,6 +17,10 @@
     "hushh_mcp/services/fleet_sweep_lock.py": {
       "connections": 2,
       "why": "Pod liveness and personal-agent reconcile sweeps. Every hub worker tries both locks, and each try opens a connection, even though only the holder keeps it."
+    },
+    "hushh_mcp/services/gmail_live_receipts_service.py": {
+      "connections": 2,
+      "why": "Owner receipt-scan advisory locks. The per-worker _scan_connections semaphore bounds dedicated connections to two; scans release their connection on every terminal path."
     }
   },
   "listener_modules": {
@@ -143,5 +147,9 @@
         "deploy/drive/deploy_worker_service_prod.sh"
       ]
     }
+  },
+  "dedicated_connection_ceiling": {
+    "connections": 3,
+    "source": "db.connection._DEDICATED_CONNECTION_LIMIT is a process-wide fail-fast admission ceiling shared by all dedicated_connection callers. Per-caller limits remain below; saturation defers work rather than borrowing request-pool capacity."
   }
 }

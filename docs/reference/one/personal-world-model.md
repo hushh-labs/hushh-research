@@ -6,10 +6,10 @@ Canonical owner: [One Index](./README.md).
 
 ```mermaid
 flowchart LR
-  Setup[Verified setup and vault unlock] --> Ensure[Automatic ensure and resume]
+  Setup[Verified setup, vault and research policy] --> Ensure[Automatic ensure and resume]
   Ensure --> Research[Resumable native research]
   Research --> Draft[View-only Google research]
-  Research --> Feed[Feed and one email]
+  Research --> Feed[Feed and optional email]
   Profile[Profile] --> Page[Personal World Model page]
   Draft --> Page
   Page --> Decide[Yes / No / Edit / Remove]
@@ -25,11 +25,13 @@ flowchart LR
   Claim --> Page
 ```
 
+Hub content execution is available only in Shared. Private owners require a qualified pod capability; their work never falls back to the hub.
+
 ## User experience
 
 Research is on by default. Setup discloses it, and once the owner's setup is resolved the first `ensure` call creates the missing preference row as enabled with readiness email enabled. An existing disabled row is the owner's explicit opt-out and is never turned back on; no migration rewrites existing rows. The owner keeps an off switch for research and for the readiness email.
 
-There is no Build button, research settings screen or manual URL in the main journey. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: a new owner's research starts in the background, an existing owner without a model starts preparation, and interrupted work resumes. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a model is prepared again automatically after seven days without research activity. Automatic messages remain outside chat.
+There is no Build button, research settings screen or manual URL in the main journey. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: a new owner's research starts in the background, an existing owner without a model starts preparation, and interrupted work resumes. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a finished model may be prepared again seven days after its latest preparation started; purged unfinished work may resume sooner. Automatic messages remain outside chat.
 
 Profile has one compact **Personal World Model** row immediately below Memory. It opens the dedicated `/one/profile/world-model` page as a full route, using the existing Profile icons, typography, cards, Back navigation and vault authority. The page shows one state: **Preparing your model**, **Ready to review** or **Up to date**.
 

@@ -11,6 +11,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import {
   CapabilitySetupTile,
   SetupNavigationTile,
@@ -21,7 +22,6 @@ import {
   VaultExplainerScreens,
 } from "@/components/onboarding/setup/local-first-vault-sequence";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
@@ -473,7 +473,6 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
-    returnTo,
     queueEntryWelcome,
     resolveFinalizedSetupTarget,
     shouldShowContactsWelcome,

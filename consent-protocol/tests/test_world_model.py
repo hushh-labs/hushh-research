@@ -266,6 +266,10 @@ def owner_client(monkeypatch, jobs):
     monkeypatch.setattr(routes, "world_model_jobs", jobs)
     app = FastAPI()
     app.include_router(routes.router)
+    app.dependency_overrides[routes.hub_content_chat_owner] = lambda: {
+        "user_id": "owner",
+        "token": "fixture",
+    }
     app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
         "user_id": "owner",
         "token": "fixture",

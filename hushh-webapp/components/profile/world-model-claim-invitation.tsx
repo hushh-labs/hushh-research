@@ -151,8 +151,13 @@ export function WorldModelClaimInvitation({
                 onClick={() =>
                   void run(async () => {
                     const capture = guard();
+                    const actionSession = {
+                      ...session,
+                      isCurrent: capture.isCurrent,
+                      signal: lifetime.current.signal,
+                    };
                     await WorldModelInvitationsService.claim(
-                      { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
+                      actionSession,
                       claimToken,
                       // Only a shown, checked box is a research request.
                       offerResearch && researchConsent,
@@ -180,8 +185,13 @@ export function WorldModelClaimInvitation({
                 onClick={() =>
                   void run(async () => {
                     const capture = guard();
+                    const actionSession = {
+                      ...session,
+                      isCurrent: capture.isCurrent,
+                      signal: lifetime.current.signal,
+                    };
                     await WorldModelInvitationsService.reject(
-                      { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
+                      actionSession,
                       claimToken,
                     );
                     await capture.assertCurrent();

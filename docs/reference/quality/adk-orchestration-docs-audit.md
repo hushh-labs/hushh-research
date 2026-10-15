@@ -6,7 +6,7 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-14 UTC
+## Decision — 2026-10-15 UTC
 
 **Hold the application merge and production BYOC rollout.** The hub and frontend
 currently serve verified `5c2d1483aa`; the personal Azure pod completed its Dev 19
@@ -23,7 +23,9 @@ Existing owners retain their resources and selected configuration.
 
 **2026-10-14; application deployed, Shared Files activation pending.** Exact `5c2d1483aa` passed the core mirror (615 s), [full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251). Verified ADC readback confirms backend `00172-7q4` and frontend `00146-l8q`, both 100% traffic; schema guard reports zero violations. The original failed helper-upload deployment remains retained. Frozen ADK `3501811eb6b` and concurrent root work are preserved. Owner pods retain their separately verified installed images.
 
-The local continuation fixes provider-neutral AI labels and encrypted resumable-upload custody, with parameterized owner/lease/recovery fences. Five real PostgreSQL receipt cases, 31 AI lifecycle cases, 19 reviewer authority cases and the WebKit motion check pass; disabling animation fails its negative control. Shared retries do not invoke pod reconnection, and scheduling requires a qualified background executor. Real GCS and the actual backend identity prove private bucket admission, exact bytes, conditional conflicts and cleanup. Independent dev receipt-key custody is prepared. Failed runs remain retained; exact-candidate core, hosted CI, deployment and unlocked Shared Files acceptance are still required.
+The continuation implements provider-neutral AI labels and encrypted resumable-upload custody with owner/lease/recovery fences. Focused SQL, AI and reviewer checks passed. [Candidate `a2b1e87d6e` hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38684157859) passed every lane except Linux History motion timing. The replacement preserves the 100 ms onset and 360/260 ms windows in the mandatory macOS performance lane; Linux retains geometry, stationary chat and gesture cancellation. The isolated motion case passes both engines (6.6 s total), and disabling transitions fails its original assertions. New exact-SHA CI remains required; earlier timing failures under host contention remain retained.
+
+**15 October candidate:** the local core was completed by resuming failed stages rather than repeating passing suites: 19,751 backend cases passed in the first run; the seven failures and two later PostgreSQL failures were corrected and rechecked. All 27,310 tests import. A hosted push failed before creating jobs because of a duplicate workflow environment key; the corrected parser and negative control pass. Draft PR 7555 also required reconciliation with main `57a2c39744`: owner placement, one AI step and encrypted local-first finalization are retained. Focused API, invitation-lifetime, navigation and generated-contract checks cover the overlap; reviewed structural-debt ceilings preserve the existing budgets. Hosted exact-SHA CI and a governed dev deployment remain required. Read-only dev migration checks found no relocated-ID collisions or applied checksum mismatches; Files 959 is applied and history cleanup 249 stays deferred. Shared Files owner acceptance is prepared but unperformed. Owner images and concurrent root/ADK/PDF work remain unchanged.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |
