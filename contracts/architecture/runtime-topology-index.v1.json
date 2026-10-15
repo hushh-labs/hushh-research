@@ -1482,6 +1482,7 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_agent_engagement_sessions",
+        "one_referral_activity_days",
         "one_referral_attributions",
         "one_referral_circle_contributions",
         "one_referral_circle_selections",
@@ -1492,6 +1493,8 @@
         "one_referral_leaderboard_snapshot_entries",
         "one_referral_leaderboard_snapshots",
         "one_referral_milestone_entitlements",
+        "one_referral_network_circles",
+        "one_referral_network_members",
         "one_referral_policies",
         "one_referral_program_settings",
         "one_referral_relationships",
@@ -1505,7 +1508,7 @@
       "id": "one_referral_program",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 270 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 271 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query. Migration 272 adds circles and milestones: an interval history of each user's single active referral-contest team (one_referral_circle_selections, new and referral-owned -- it never writes to one_location_circles or one_location_circle_memberships), an append-only settled-once record of which team gets credit for each qualified relationship resolved at event time (one_referral_circle_contributions, COUNT(*) per circle_id is the team's raw cumulative score), lifetime once-only milestone entitlements (one_referral_milestone_entitlements), and a staff review/fulfillment foundation with no shipping or purchase capability (one_referral_fulfillment_records). Migration 273 adds one_referral_display_handles: an opt-in, self-chosen public alias distinct from actor_identity_cache.display_name, so a referrer who has not set one has no public leaderboard identity and is rendered as an anonymous placeholder rather than their real/account name. Migration 274 adds one_referral_weekly_awards: finalized weekly rank-1/2/3 prize awards, unique on (reward_round_id, award_slot) only -- deliberately never on user_id, because the program is cumulative with no weekly reset and a previous winner is expected to win again in a later round without earning anything new that week. cumulative_points_at_cutoff is a frozen snapshot written once at finalization; winning never writes back to one_referral_score_events, so a prize is never itself a point award, and re-running finalization for an already-finalized round is a no-op via ON CONFLICT DO NOTHING on that same unique pair."
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 270 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 271 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query. Migration 272 adds circles and milestones: an interval history of each user's single active referral-contest team (one_referral_circle_selections, new and referral-owned -- it never writes to one_location_circles or one_location_circle_memberships), an append-only settled-once record of which team gets credit for each qualified relationship resolved at event time (one_referral_circle_contributions, COUNT(*) per circle_id is the team's raw cumulative score), lifetime once-only milestone entitlements (one_referral_milestone_entitlements), and a staff review/fulfillment foundation with no shipping or purchase capability (one_referral_fulfillment_records). Migration 273 adds one_referral_display_handles: an opt-in, self-chosen public alias distinct from actor_identity_cache.display_name, so a referrer who has not set one has no public leaderboard identity and is rendered as an anonymous placeholder rather than their real/account name. Migration 274 adds one_referral_weekly_awards: finalized weekly rank-1/2/3 prize awards, unique on (reward_round_id, award_slot) only -- deliberately never on user_id, because the program is cumulative with no weekly reset and a previous winner is expected to win again in a later round without earning anything new that week. cumulative_points_at_cutoff is a frozen snapshot written once at finalization; winning never writes back to one_referral_score_events, so a prize is never itself a point award, and re-running finalization for an already-finalized round is a no-op via ON CONFLICT DO NOTHING on that same unique pair. Migration 347 separates referral points and loyalty coins, replaces the historical referral-date streak interpretation with atomic per-owner calendar-day app attendance, adds immutable inherited referral-network membership with late-parent subtree reconciliation, records real completed One ADK replies as content-free transactional usage events, and exposes owner-scoped direct-member display names plus reward claim state. Published individual rank uses coins; referral-network circle rank uses qualified descendant counts independently of Location Circle permissions."
     },
     {
       "data_class": "workflow_state",
@@ -6438,21 +6441,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "2e7014392fdaac58bc20ddbdbeb5ddee9f4320ff607347db8990ab0b5cfdb737",
-    "agent_registry": "1d52a84047a9d586dd97523aeff3c1a5ca1c3b36b8557f4561a477c95643dbb1",
+    "action_gateway": "d6d90a0c2cc47f4d27aee2899f227b53d0e5cbb8cdd9c2cb370b37a97920fedf",
+    "agent_registry": "620ef8b51a978410270249d9c6d1098ca7fee8439160c520fedc3fa29214e60c",
     "cache_manifest": "5d9690804dbb56234b716f40dc17d639f91363aee846ce28280cdfb63648f229",
-    "data_plane": "e7145582266f31c5cee40c8cd1e65ab956e43117752e1c3b209a34e90a0ba9da",
+    "data_plane": "6149922f566c752886d19355a52af82b26e6c4763a76ff648a27a9df3b1384b0",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
     "route_index": "f8779ba3b574ea8acaa29d8b166f3b2aa4adfb6759e23e40e3e796888388eeef",
     "route_layout": "c71861a1f75efe842941ddd7222e2302502edb5b47d1c44f95cb0cc8961b6857",
-    "surface_map": "ad4b6bb7cf8e34eb6de26f5a5f3e9b7cdfa7c72564fcf5b8c45d6ca518af65ca",
+    "surface_map": "c78d44223972aabe9c3005c01b86e870be3bbe1fe317a89b4f3376d12b5ed439",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 257,
+    "actions": 256,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,

@@ -445,11 +445,21 @@ export const AGENT_SURFACE_SOURCE = {
             // This static header fixture measures the production avatar's
             // outer geometry; native playback is mounted by Connections tests.
             kind: "image",
-            containerClass: "",
+            containerClass: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /data-one-presence-state=\{state\} className=\{`([^$]+)\$\{className/,
+              "One presence surface classes",
+              "components/agent/one-presence-avatar.tsx",
+            )[1] + one(
+              header,
+              /<OnePresenceAvatar state=\{onePresenceState\} className="([^"]+)"/,
+              "One presence sizing override",
+              WORKSPACE_PATH,
+            )[1],
             className: one(
               read("components/agent/one-presence-avatar.tsx"),
-              /data-one-presence-state=\{state\}[\s\S]*?className \?\? "([^"]+)"/,
-              "One presence surface sizing",
+              /unoptimized loading="eager" decoding="async" className="([^"]+)"/,
+              "One presence image sizing",
               "components/agent/one-presence-avatar.tsx",
             )[1],
           }

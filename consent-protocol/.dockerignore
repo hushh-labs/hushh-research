@@ -18,6 +18,8 @@ env/
 .pytest_cache/
 tests/
 test.py
+# Offline evaluation packages never ship in the runtime image.
+hushh_eval/
 
 # Git
 .git

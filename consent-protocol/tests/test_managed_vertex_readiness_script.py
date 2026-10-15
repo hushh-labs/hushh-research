@@ -207,7 +207,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         "from_environment",
         classmethod(
             lambda cls, *, vertex_project=None: cls(
-                project=vertex_project or "hushh-vertex-personal54",
+                project=vertex_project or "unscoped-default-project",
                 locations=("global",),
                 auth_mode="vertex_adc",
             )
@@ -219,7 +219,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
             self.project = project
 
         async def generate_content_async(self, *_args, **_kwargs):
-            if self.project == "hussh-511311" and scenario == "billing_denied":
+            if self.project == "hushh-vertex-personal54" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
             if scenario == "adk_error":
                 yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
@@ -242,7 +242,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     chat_probe = next(p for p in report["probes"] if str(p["probe"]).startswith("one_chat:"))
     chat_available = scenario == "success"
 
-    assert report["one_chat_project"] == "hussh-511311"
+    assert report["one_chat_project"] == "hushh-vertex-personal54"
     assert report["one_chat_probe_ok"] is chat_available
     assert chat_probe["ok"] is chat_available
     assert report["ok"] is chat_available
@@ -281,7 +281,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
         yield None
 
     def build_client(**kwargs):
-        assert kwargs["vertex_project"] == "hussh-511311"
+        assert kwargs["vertex_project"] == "hushh-vertex-personal54"
         return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
 
     from unittest.mock import AsyncMock
@@ -291,7 +291,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     monkeypatch.setattr(module, "_probe_adk_response", AsyncMock())
     monkeypatch.setattr(factory, "build_managed_live_client", build_client)
     report = await module.main()
-    assert report["one_voice_project"] == "hussh-511311"
+    assert report["one_voice_project"] == "hushh-vertex-personal54"
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"

@@ -16,7 +16,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { OneWelcomeArtwork } from "@/components/onboarding/OneWelcomeStory";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid, isWeb } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -24,7 +24,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { EnterpriseSsoSection } from "@/components/onboarding/EnterpriseSsoSection";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
@@ -972,14 +971,13 @@ export function AuthStep({
 
   return (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", lightStyles.shell)}
+      className={lightStyles.shell}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
-      <div className={lightStyles.existingBackdrop}><OnboardingHeroBackground /></div>
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1004,146 +1002,137 @@ export function AuthStep({
         }
       />
 
-      <button
-        type="button"
-        onClick={handleBack}
-        disabled={providerBusy}
-        aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
-        data-voice-control-id={providerBusy ? undefined : "auth_back"}
-        className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", lightStyles.back, isWeb() && lightStyles.webBack)}
-      >
-        <ArrowLeft className={cn("h-[18px] w-[18px]", lightStyles.existingBackIcon)} strokeWidth={2} />
-        <Image src="/onboarding/figma/auth-back-chevron.svg" alt="" width={10} height={17} unoptimized className={lightStyles.backGlyph} />
-      </button>
-
-      <div
-        className={cn("relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4", lightStyles.content)}
-        style={{
-          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-        }}
-        data-auth-content-block
-      >
-        <div
-          className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
-          data-auth-signin-clusters
+      <div className={lightStyles.frame}>
+        <button
+          type="button"
+          onClick={handleBack}
+          disabled={providerBusy}
+          aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
+          data-voice-control-id={providerBusy ? undefined : "auth_back"}
+          className={lightStyles.back}
         >
-          <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <span className={lightStyles.brandMark} aria-hidden="true">
-              <span className={lightStyles.brandGlow} />
-              <HushhMark
-                aria-hidden="true"
-                className={lightStyles.brandIcon}
-              />
-            </span>
+          <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+        </button>
 
-            <h1
-              role="heading"
-              aria-level={1}
-              aria-label="Welcome to One"
-              className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", lightStyles.title)}
-            >
-              Welcome to One
-              <span className="text-[#387BF5]">.</span>
-            </h1>
-          </div>
+        <div className={lightStyles.artwork} data-auth-illustration>
+          <OneWelcomeArtwork />
+        </div>
 
-          <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
-            {initialContactsEnabled ? (
-              <div className="space-y-2 text-start text-sm text-muted-foreground">
-                <label className="flex min-h-11 items-center gap-3 font-semibold">
-                  <Checkbox checked={findInitialContacts} disabled={providerBusy}
-                    onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
-                  <span>Find people I know</span>
-                </label>
-                <p>With your permission, we’ll organize a shared Contacts circle. Members can see who’s in it. You control sharing.</p>
+        <div
+          className={lightStyles.content}
+          data-auth-content-block
+        >
+          <div
+            className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
+            data-auth-signin-clusters
+          >
+            <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
+              <h1
+                role="heading"
+                aria-level={1}
+                aria-label="Welcome to One"
+                className={lightStyles.title}
+              >
+                Welcome to One
+                <span className="text-[#387BF5]">.</span>
+              </h1>
+            </div>
+
+            <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
+              {initialContactsEnabled ? (
+                <div className={cn("space-y-2 text-start text-sm text-muted-foreground", lightStyles.contacts)}>
+                  <label className="flex min-h-11 items-center gap-3 font-semibold">
+                    <Checkbox checked={findInitialContacts} disabled={providerBusy}
+                      onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
+                    <span>Find people I know</span>
+                  </label>
+                  <p>Use my contacts to make a shared circle. Members can see who’s in it.</p>
+                </div>
+              ) : null}
+              <div className="space-y-3" data-auth-provider-actions>
+                {providerRecovery && !providerAttempt ? (
+                  <p role="status" className="text-center text-sm text-muted-foreground">
+                    {providerRecovery}
+                  </p>
+                ) : null}
+                {providerAttempt?.phase === "attention_required" ? (
+                  <p
+                    role="status"
+                    className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
+                  >
+                    The provider window needs attention. You can retry the same
+                    sign-in option securely.
+                  </p>
+                ) : null}
+                {authOptions.map((option) => (
+                  <AuthProviderButton
+                    key={option.id}
+                    label={option.label}
+                    icon={<>
+                      <span className={lightStyles.existingProviderIcon}>{option.icon}</span>
+                      <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />
+                    </>}
+                    onClick={() => {
+                      void option.onClick();
+                    }}
+                    disabled={providerBusy}
+                    voiceControlId={`auth_${option.id}`}
+                    className={cn(
+                      option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                      lightStyles.providerButton,
+                    )}
+                  />
+                ))}
+                <EnterpriseSsoSection
+                  redirectPath={redirectPath}
+                  disabled={providerBusy}
+                />
+
+                <button type="button" disabled={providerBusy}
+                  className={cn("min-h-11 w-full text-sm text-muted-foreground hover:text-foreground", lightStyles.returning)}
+                  onClick={() => setReturningSignIn((value) => !value)}>
+                  {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
+                </button>
+
+                {showReviewer ? (
+                  <AuthProviderButton
+                    label="Continue as Reviewer"
+                    icon={<Icon icon={Shield} size="md" />}
+                    onClick={handleReviewerLogin}
+                    disabled={providerBusy}
+                    className={REVIEWER_BTN_CLASS}
+                  />
+                ) : null}
               </div>
-            ) : null}
-            <div className="space-y-3" data-auth-provider-actions>
-              {providerRecovery && !providerAttempt ? (
-                <p role="status" className="text-center text-sm text-muted-foreground">
-                  {providerRecovery}
-                </p>
-              ) : null}
-              {providerAttempt?.phase === "attention_required" ? (
-                <p
-                  role="status"
-                  className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
-                >
-                  The provider window needs attention. You can retry the same
-                  sign-in option securely.
-                </p>
-              ) : null}
-              {authOptions.map((option) => (
-                <AuthProviderButton
-                  key={option.id}
-                  label={option.label}
-                  icon={<>
-                    <span className={lightStyles.existingProviderIcon}>{option.icon}</span>
-                    {option.id === "apple" && <Image src="/onboarding/figma/auth-apple-dark.png" alt="" width={37} height={37} unoptimized className={lightStyles.darkAppleIcon} />}
-                    <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />
-                  </>}
-                  onClick={() => {
-                    void option.onClick();
-                  }}
-                  disabled={providerBusy}
-                  voiceControlId={`auth_${option.id}`}
-                  className={cn(
-                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
-                    lightStyles.providerButton,
-                  )}
-                />
-              ))}
-              <EnterpriseSsoSection
-                redirectPath={redirectPath}
-                disabled={providerBusy}
-              />
-
-              <button type="button" disabled={providerBusy}
-                className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setReturningSignIn((value) => !value)}>
-                {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
-              </button>
-
-              {showReviewer ? (
-                <AuthProviderButton
-                  label="Continue as Reviewer"
-                  icon={<Icon icon={Shield} size="md" />}
-                  onClick={handleReviewerLogin}
-                  disabled={providerBusy}
-                  className={REVIEWER_BTN_CLASS}
-                />
-              ) : null}
             </div>
           </div>
         </div>
-      </div>
 
-      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
-        <div
-          className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
-          data-auth-supporting-content
-        >
-          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
-            By continuing you agree to our{" "}
-            <br />
-            <Link
-              href={ROUTES.TERMS}
-              data-voice-control-id="auth_terms"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
-            >
-              Terms
-            </Link>
-            <span aria-hidden="true"> and </span>
-            <Link
-              href={ROUTES.PRIVACY}
-              data-voice-control-id="auth_privacy"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
-            >
-              Privacy Policy
-            </Link>
-            .
-          </p>
+        <div className={lightStyles.footer}>
+          <div
+            className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
+            data-auth-supporting-content
+          >
+            <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
+              By continuing you agree to our{" "}
+              <Link
+                href={ROUTES.TERMS}
+                data-voice-control-id="auth_terms"
+                className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              >
+                Terms
+              </Link>
+              <span aria-hidden="true"> and </span>
+              <Link
+                href={ROUTES.PRIVACY}
+                data-voice-control-id="auth_privacy"
+                className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              >
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          </div>
         </div>
       </div>
     </main>

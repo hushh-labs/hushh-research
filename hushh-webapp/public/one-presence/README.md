@@ -4,11 +4,11 @@ The chat header and One Feed/Profile sheet receive the same presentation state
 from `AgentChatWorkspace`. This observes current work; it does not classify
 message text or change agent decisions.
 
-| Activity | State | HD fallback | Animation in header and profile |
+| Activity | State | Static fallback | Animation in header and profile |
 | --- | --- | --- | --- |
-| One generating a draft | `working` | `drafting-hd.png` | `working.riv` |
+| Email draft generation in the editor | `working` | `drafting-hd.png` | `working.riv` |
 | One preparing an answer or running a local action | `thinking` | `thinking-hd.png` | `thinking.riv` |
-| Response tokens arriving or voice speaking | `answering` | `thinking-hd.png` (shared static fallback) | `answering.riv` |
+| Response tokens arriving or voice speaking | `answering` | `answering-poster.png` | `answering.riv` |
 | No foreground work | `connected` | Original `profile-hd.png` | `connected.riv` |
 
 An open editor, completed draft, queued proposal or pending confirmation is
@@ -21,8 +21,13 @@ does not keep the artwork busy.
 
 All four native Rive Solo timelines preserve the authored 24 FPS, 72-frame
 loops. The header and open Feed/Profile panel share one activity state. The
-outgoing animation remains mounted while its replacement loads and paints,
-then both crossfade using the shared opacity motion token. Additive blending
+outgoing artwork remains mounted until the requested activity has either a
+decoded portrait or a painted native frame, then both crossfade using the
+shared opacity motion token. A ready portrait presents a short-lived activity
+while its larger Rive file is still loading; the native canvas takes over only
+after its first frame paints. Async portraits wait for `decode()`, including
+cached images, because a loaded image can still draw empty pixels in WebKit.
+If both are unavailable, the outgoing artwork stays visible. Additive blending
 inside an isolated avatar prevents transparent artwork from dimming mid-fade;
 settled artwork uses normal compositing because no visible layers overlap.
 Superseded loads and transitions cannot change the current request.
@@ -41,13 +46,15 @@ worker. The authored idle blink spans only two frames; unrelated fixture
 builds must not starve the renderer and skip it. All cases remain included in
 the native CI shard partition with unchanged motion and first-paint deadlines.
 Backing buffers are capped at the embedded images' 128px resolution while CSS
-geometry remains 44/72px in the header and 192px in the panel. This avoids
+geometry remains 52/88px in the header and defaults to 192px in the panel. This avoids
 20.25 times the backing-pixel count of a 576px Retina profile buffer without
 adding detail; this is not a measured CPU improvement. Actual buffer dimensions
 are rechecked on resize and resume, including
-Rive's internal hidden-to-visible resize. HD fallback density is unchanged.
-HD portraits remain the loading/error and reduced-motion fallback; answering
-currently shares the thinking HD portrait for that static fallback only.
+Rive's internal hidden-to-visible resize. The original HD portraits retain
+their density. Answering uses its existing 128px native-pose poster, with the
+same source resolution as its animation, rather than the Thinking portrait.
+All four activities therefore remain visually distinct during loading,
+errors and reduced motion.
 WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).
 Runtime CDN fallback and asset CDN loading are disabled. Instances, pending
 render callbacks, observers and transition timers are cleaned up on replacement
@@ -62,9 +69,26 @@ native frame pacing remains unverified.
 Animated frames have a 128px source and are displayed at 192 CSS px in the panel,
 so animated work artwork is softer than the HD fallback portraits.
 The artwork, canvas and owning avatar surfaces have no opaque background disk.
-The compact header artwork fills its existing 44px phone and 72px desktop
-trigger; the panel uses a 192px surface. Canvas and fallback portraits share
+The compact header artwork fills its 52px phone and 88px desktop
+trigger. This artwork-only control has no Material ripple, hover fill, press
+fill or tap flash; keyboard focus uses a thin outline without a filled halo.
+The panel uses a square 192px surface by default, bounded by its available
+width; `--one-presence-size` can resize that owning container without changing
+the native instance. Canvas and fallback portraits share
 the same bounds, including when playback pauses or reduced motion is enabled.
+
+## Current Rive input boundary
+
+Runtime inspection of all four deployed files reports
+`stateMachineNames: ["State Machine 1"]` and
+`stateMachineInputs("State Machine 1"): []`. Each file contains one activity
+artboard and no boolean, number or trigger inputs. These exports cannot drive
+hover/tap behavior or four activities through one persistent input-driven
+instance. That requires an authored combined asset with explicit inputs;
+changing the React adapter or reloading the canvas does not supply them.
+The existing activity mapping and painted crossfades remain the compatibility
+path until such an asset is available. Higher-resolution animated artwork is
+also required to improve the native 128px source detail at large Retina sizes.
 
 ## HD variant provenance
 

@@ -5,7 +5,7 @@ import { apiJson } from "./api-client";
  *
  * Everything here is server-decided. The client never computes a count, never
  * decides whether a referral qualified, and never sees anything about the
- * people behind the numbers beyond a status word and the day they started.
+ * people beyond the direct member display name, status and aggregate progress.
  */
 export type ReferralStatus =
   | "Qualified"
@@ -14,8 +14,10 @@ export type ReferralStatus =
   | "Expired";
 
 export type ReferralRow = {
+  id?: string;
+  display_name?: string;
   status: ReferralStatus;
-  /** Where this person has reached, as a step -- never who they are. */
+  /** Where this person has reached, as a privacy-safe step. */
   step: string;
   started_on: string;
   /** Credited active minutes so far, capped at the bar. */
@@ -26,6 +28,8 @@ export type ReferralRow = {
 };
 
 export type ReferralSummary = {
+  total_count?: number;
+  next_offset?: number | null;
   slug: string;
   link: string;
   /** Accepted referral-link opens, including QR navigation; not unique visitors. */
@@ -57,13 +61,18 @@ export type BindResult = {
 
 export type ReferralPolicy = {
   version: number;
-  points: { qualified_referral_points: number; flash_window_total_points: number; streak_three_day_bonus_points: number };
+  points: { qualified_referral_points: number; flash_window_total_points: number; streak_three_day_bonus_points: number; referral_in_progress_points?: number; referral_qualified_activity_total_points?: number; agent_usage_points?: number; pkm_daily_points?: number; connection_created_points?: number };
   streak_rules: { run_length_days: number; bonus_points: number };
   challenge_duration_days: number | null;
   weekly_prizes_enabled: boolean;
 };
 
 export type WeeklyChallenge = {
+  received_at_monotonic?: number;
+  server_now?: string;
+  round_id?: string;
+  status?: string;
+  weekly_prizes_enabled?: boolean;
   active: boolean;
   week_started_at: string | null;
   cutoff_at: string | null;
@@ -80,6 +89,8 @@ export type LeaderboardEntry = {
 };
 
 export type LeaderboardPage = {
+  snapshot_id?: string;
+  next_after_rank?: number | null;
   snapshot_generated_at: string | null;
   entries: LeaderboardEntry[];
   viewer: LeaderboardEntry | null;
@@ -87,12 +98,17 @@ export type LeaderboardPage = {
 };
 
 export type CircleLeaderboardEntry = {
+  rank?: number;
+  member_count?: number;
+  qualified_member_count?: number;
   circle_id: string;
   circle_name: string;
   contribution_count: number;
 };
 
 export type EarnedMilestone = {
+  claimed_at?: string | null;
+  fulfillment_status?: string | null;
   milestone_key: string;
   reward: string;
   earned_at: string;
@@ -113,16 +129,30 @@ export type MilestoneProgress = {
 };
 
 export type EngagementStatus = {
-  streak: { current_run_days: number; run_length_days: number };
+  streak: { current_run_days: number; run_length_days: number; longest_run_days?: number; last_activity_date?: string | null };
   flash: { active: boolean; ends_at: string | null };
 };
 
 export type CircleSelection = {
+  circle_name?: string;
+  rank?: number;
+  member_count?: number;
+  qualified_member_count?: number;
+  contribution_count?: number;
   circle_id: string | null;
   selected_at?: string;
 };
 
 export const ReferralService = {
+  async recordAppOpen(opts: { idToken: string }): Promise<{ activity_date: string; timezone: string; server_now: string; next_day_at: string }> {
+    return apiJson("/api/one/referrals/app-open", { method: "POST", headers: { Authorization: `Bearer ${opts.idToken}` } });
+  },
+
+  async claimReward(opts: { idToken: string; milestoneKey: string }): Promise<{ status: string }> {
+    return apiJson("/api/one/referrals/rewards/claim", { method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.idToken}` },
+      body: JSON.stringify({ milestone_key: opts.milestoneKey }) });
+  },
   /**
    * `apiJson` does not attach credentials -- every authenticated /api/one call
    * in this app passes the Firebase ID token explicitly, and the proxy forwards
@@ -180,8 +210,8 @@ export const ReferralService = {
   /** This person's own recorded point total, summed live from the ledger --
    * independent of the published leaderboard snapshot. Correct for an
    * unranked account or one whose points posted after the latest snapshot. */
-  async getPoints(opts: { idToken: string }): Promise<{ points: number }> {
-    return apiJson<{ points: number }>("/api/one/referrals/points", {
+  async getPoints(opts: { idToken: string }): Promise<{ points: number; coins: number }> {
+    return apiJson<{ points: number; coins: number }>("/api/one/referrals/points", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -196,10 +226,12 @@ export const ReferralService = {
     idToken: string;
     afterRank?: number;
     limit?: number;
+    snapshotId?: string;
   }): Promise<LeaderboardPage> {
     const params = new URLSearchParams();
     if (opts.afterRank) params.set("after_rank", String(opts.afterRank));
     if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.snapshotId) params.set("snapshot_id", opts.snapshotId);
     const query = params.toString();
     return apiJson<LeaderboardPage>(
       `/api/one/referrals/leaderboard${query ? `?${query}` : ""}`,
@@ -287,13 +319,14 @@ export const ReferralService = {
   /** The current seven-day challenge round's start and close. `active` is
    * false when the program's weekly schedule is unset. */
   async getChallenge(opts: { idToken: string }): Promise<WeeklyChallenge> {
-    return apiJson<WeeklyChallenge>("/api/one/referrals/challenge", {
+    const result = await apiJson<WeeklyChallenge>("/api/one/referrals/challenge", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${opts.idToken}`,
       },
     });
+    return { ...result, received_at_monotonic: performance.now() };
   },
 
   /** This person's current referral-contest team, if any. */

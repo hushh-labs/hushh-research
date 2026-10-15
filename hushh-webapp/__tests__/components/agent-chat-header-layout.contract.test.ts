@@ -108,7 +108,7 @@ describe("agent chat header layout", () => {
   it("uses the larger One profile avatar with the canonical mark", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
-    expect(header).toContain("!size-11 md:!size-[72px]");
+    expect(header).toContain("size-13 shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none md:size-22");
     expect(header).not.toContain("🤫");
   });
 });

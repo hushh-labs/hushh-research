@@ -53,7 +53,13 @@ def _progress(qualified_count: int, earned_keys: list[str]):
         if "FROM one_referral_milestone_entitlements" in sql:
             return _Result(
                 [
-                    SimpleNamespace(milestone_key=key, reward="x", earned_at=EARNED_AT)
+                    SimpleNamespace(
+                        milestone_key=key,
+                        reward="x",
+                        earned_at=EARNED_AT,
+                        claimed_at=None,
+                        fulfillment_status="pending_review",
+                    )
                     for key in earned_keys
                 ]
             )

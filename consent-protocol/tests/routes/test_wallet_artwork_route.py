@@ -8,6 +8,27 @@ from api.routes.one.wallet_card_access import router
 ROOT = "/api/one/wallet/card-access/artwork"
 
 
+def test_bank_design_browse_is_owner_only_and_never_accepts_card_credentials():
+    assert client("foreign").post(ROOT + "/banks", json={"network": "visa"}).status_code == 403
+    response = client().post(ROOT + "/banks", json={"network": "mastercard", "country": "IN"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "private, no-store"
+    body = response.json()
+    assert body["selectionBasis"] == "owner_selected_bank" and body["requiresConfirmation"]
+    bank = next(row for row in body["banks"] if row["name"] == "HDFC Bank")
+    designs = (
+        client()
+        .post(
+            ROOT + "/banks",
+            json={"network": "mastercard", "country": "IN", "bankKey": bank["bankKey"]},
+        )
+        .json()
+    )
+    assert len(designs["variants"]) == bank["designCount"] == 3 and "match" not in designs
+    for field in ["pan", "iinPrefix", "cvv", "pin", "cardholderName", "photo", "vaultKey"]:
+        denied = client().post(ROOT + "/banks", json={"network": "visa", field: "4242424242424242"})
+        assert denied.status_code == 422 and "4242424242424242" not in denied.text
+
+
 def client(owner="owner"):
     app = FastAPI()
     app.include_router(router)

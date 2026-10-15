@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import os
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -68,6 +69,8 @@ def authority(monkeypatch):
     )
     monkeypatch.setattr(jobs, "validate_first_party_owner_token", AsyncMock(return_value=object()))
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
+    # The breaker is process-wide; one test's provider refusals must not leak.
+    monkeypatch.setattr(jobs, "provider_breaker", jobs.ProviderBreaker())
 
 
 def manager(store=None, offer=None, check=None, clock=None):
@@ -903,3 +906,385 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
     assert instance.offer.await_count == (1 if expected == "pending" else 0)
     if active_draft is not None:
         finished.assert_awaited_once_with("owner", active_draft)
+
+
+class ProviderDenied(Exception):
+    """Shape of google.genai ClientError: numeric code and status enum."""
+
+    code = 403
+    status = "PERMISSION_DENIED"
+
+
+class TurnFailed(RuntimeError):
+    pass
+
+
+def failing_provider_research(calls, cause=ProviderDenied):
+    async def research(**kwargs):
+        calls.append(kwargs["attempts_used"])
+        await kwargs["on_attempts_start"]((33 + len(calls),))
+        try:
+            raise cause("private provider text for alex@example.test")
+        except cause as failure:
+            raise TurnFailed("turn failed") from failure
+
+    return research
+
+
+def paused_with_evidence(now):
+    return {
+        "job_id": "00000000-0000-4000-8000-0000000000aa",
+        "status": "paused",
+        "started_at": now - 300,
+        "finished_at": now - 30,
+        "identity_binding": "owner-bound-identity",
+        "starts": [now - 300],
+        "attempted_combinations": [1, 33],
+        "discovery_started_at": now - 300,
+        "work": {"attempts": {"1": {"state": "received"}}},
+        "consent_generation": "00000000-0000-4000-8000-000000000001",
+        "result": {"status": "paused", "pkm_written": False, "restart_required": True},
+        "revision": 1,
+        "fence": "seed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_pwm_failed_retries_with_saved_evidence_spend_the_hourly_start_budget(
+    monkeypatch, caplog
+):
+    # UAT: one search had been saved, then every run failed. Saved evidence
+    # exempted every retry from the 3-an-hour start budget, so a run was bought
+    # every cooldown for hours. (A provider refusal returns its start instead:
+    # see the refund test below.)
+    caplog.set_level("INFO")
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls, cause=RuntimeError),
+        clock=lambda: now[0],
+    )
+    instance.store.rows["owner"] = paused_with_evidence(now[0])
+    # Continuing the paused slice is free and keeps the draft.
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    row = instance.store.rows["owner"]
+    assert row["status"] == "unavailable"
+    assert row["job_id"] == "00000000-0000-4000-8000-0000000000aa"
+    assert row["starts"] == [now[0] - 300]
+    results = []
+    for _ in range(3):
+        now[0] += jobs.FAILURE_COOLDOWN_SECONDS + 10
+        results.append(await instance.start("owner", "fixture-token"))
+        await settle(instance)
+    assert len(calls) == 3
+    # The refusal says when the oldest counted start ages out of the hour.
+    assert results[2] == {"status": "unavailable", "pkm_written": False, "retry_after_s": 3090}
+    assert len(instance.store.rows["owner"]["starts"]) == 3
+    assert "provider_code=None provider_status=None provider_rejected=False" in caplog.text
+    assert "one.pwm_decision op=start decision=budget_starts" in caplog.text
+    # Match the event and flag, not the full line: the CI worker's log
+    # formatting of the job id differs from a local run.
+    started = [r.getMessage() for r in caplog.records if "pwm_started" in r.getMessage()]
+    assert any("resumed=True" in message for message in started), started
+    for private in ("alex@example.test", "private provider text", "fixture-token"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_hourly_start_budget_refusal_says_when_a_start_is_accepted_again():
+    # Three starts in the hour: the refusal is not persisted, so it is the only
+    # place the owner can learn the wait. It ends when the oldest start ages out.
+    now = [10_000.0]
+    offer = AsyncMock(return_value=RESULT)
+    instance = manager(offer=offer, clock=lambda: now[0])
+    spent = {
+        "job_id": "00000000-0000-4000-8000-0000000000bb",
+        "status": "unavailable",
+        "started_at": now[0] - 500,
+        "finished_at": now[0] - 500,
+        "identity_binding": "owner-bound-identity",
+        "starts": [now[0] - 3000, now[0] - 2000, now[0] - 1000],
+        "attempted_combinations": [],
+        "result": {"status": "unavailable", "pkm_written": False},
+        "revision": 1,
+        "fence": "seed",
+    }
+    instance.store.rows["owner"] = copy.deepcopy(spent)
+    assert await instance.start("owner", "fixture-token") == {
+        "status": "unavailable",
+        "pkm_written": False,
+        "retry_after_s": 600,
+    }
+    offer.assert_not_awaited()
+    assert instance.store.rows["owner"] == spent
+    # Never zero: a start that ages out this very second is still counted.
+    now[0] += 599.5
+    assert (await instance.start("owner", "fixture-token"))["retry_after_s"] == 1
+    # Once it is out of the hour, a start is accepted and bought.
+    now[0] += 1
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert len(instance.store.rows["owner"]["starts"]) == 3
+    assert instance.store.rows["owner"]["starts"][0] == spent["starts"][1]
+
+
+@pytest.mark.asyncio
+async def test_provider_rejected_runs_return_their_start_so_an_outage_never_locks_the_owner_out(
+    monkeypatch, caplog
+):
+    # UAT: a project-wide 403 failed every run before inference, and each one
+    # still bought an hourly start. Once billing was restored the owner was
+    # refused for the rest of the hour. A refused run bought nothing: the start
+    # goes back, the 15-minute cooldown stays. Any other failure keeps its start.
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls),
+        clock=lambda: now[0],
+    )
+    for _ in range(3):
+        assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+        await settle(instance)
+        row = instance.store.rows["owner"]
+        assert row["status"] == "unavailable"
+        assert row["result"]["reason"] == "provider_unavailable"
+        assert row["starts"] == []
+        now[0] += jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS + 10
+    assert len(calls) == 3
+    assert "provider_code=403 provider_status=PERMISSION_DENIED provider_rejected=True" in (
+        caplog.text
+    )
+    # The provider is back: the budget is intact and a fourth run is accepted.
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert len(calls) == 4
+    assert "decision=budget_starts" not in caplog.text
+    # A failure of our own, not the provider's refusal, still spends a start.
+    other = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research([], cause=RuntimeError),
+        clock=lambda: now[0],
+    )
+    assert (await other.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(other)
+    assert other.store.rows["owner"]["starts"] == [now[0]]
+    for private in ("alex@example.test", "private provider text", "fixture-token"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_pwm_failure_is_reported_not_masked_as_pending_restart(monkeypatch):
+    # UAT: GET /jobs answered a failed run with pending, then restart_required,
+    # so every open client restarted research after each cooldown, forever.
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls),
+        clock=lambda: now[0],
+    )
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    draft_id = instance.store.rows["owner"]["job_id"]
+    failed = {
+        "status": "unavailable",
+        "pkm_written": False,
+        "reason": "provider_unavailable",
+        "draft_id": draft_id,
+    }
+    cooling = {**failed, "retry_after_s": jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS}
+    assert await instance.status("owner", "fixture-token") == cooling
+    # A second client inside the cooldown is told the outcome, not pending.
+    assert await instance.start("owner", "fixture-token") == cooling
+    now[0] += jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS + 1
+    assert await instance.status("owner", "fixture-token") == failed
+    assert len(calls) == 1
+    # A fresh owner request after the cooldown may still retry.
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_provider_breaker_refuses_every_owner_without_a_run_until_the_window_passes(
+    monkeypatch, caplog
+):
+    # UAT: a project-wide 403 failed every owner's run in under a second, and
+    # each failed run still bought a model slot and a paid start.
+    import logging
+
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls),
+        clock=lambda: now[0],
+    )
+    for owner in ("owner-a", "owner-b", "owner-c"):
+        assert (await instance.start(owner, "fixture-token"))["status"] == "pending"
+        await settle(instance)
+        now[0] += 60
+    assert len(calls) == 3
+    refused = {
+        "status": "unavailable",
+        "pkm_written": False,
+        "reason": "provider_unavailable",
+        "retry_after_s": jobs.PROVIDER_BREAKER_SECONDS - 180,
+    }
+    assert await instance.start("owner-d", "fixture-token") == refused
+    # Process-wide: the legacy discovery manager shares the same breaker.
+    legacy = manager(clock=lambda: now[0])
+    assert await legacy.start("owner-e", "fixture-token") == refused
+    assert "owner-d" not in instance.store.rows and not instance.tasks
+    legacy.offer.assert_not_awaited()
+    breaker = [
+        record
+        for record in caplog.records
+        if "decision=provider_breaker" in record.getMessage() and record.levelno == logging.WARNING
+    ]
+    assert len(breaker) == 2
+    now[0] += jobs.PROVIDER_BREAKER_SECONDS - 180
+    assert (await instance.start("owner-d", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert len(calls) == 4
+    for private in ("alex@example.test", "private provider text", "fixture-token"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejected", [True, False])
+async def test_provider_rejection_before_inference_refunds_only_that_runs_last_charge(
+    monkeypatch, rejected
+):
+    now = 10_000.0
+
+    async def research(**kwargs):
+        await kwargs["on_attempts_start"]((2,))
+        await kwargs["on_attempts_start"]((34,))
+        if rejected:
+            raise TurnFailed("turn failed") from ProviderDenied("private provider text")
+        raise TurnFailed("turn failed") from RuntimeError("private provider text")
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, clock=lambda: now)
+    instance.store.rows["owner"] = paused_with_evidence(now)
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    row = instance.store.rows["owner"]
+    assert row["status"] == "unavailable"
+    # Earlier charges of this run and of past runs stay paid; only the model
+    # slot the provider refused before inference is returned.
+    assert row["attempted_combinations"] == ([1, 33, 2] if rejected else [1, 33, 2, 34])
+    assert row["result"].get("reason") == ("provider_unavailable" if rejected else None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejected", [True, False])
+async def test_failure_cooldown_is_fifteen_minutes_for_provider_refusals(monkeypatch, rejected):
+    now = [10_000.0]
+    calls = []
+    offer = (
+        failing_provider_research(calls)
+        if rejected
+        else AsyncMock(side_effect=RuntimeError("private provider text"))
+    )
+    instance = pwm_manager(monkeypatch, progressive=True, offer=offer, clock=lambda: now[0])
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    cooldown = jobs.PROVIDER_FAILURE_COOLDOWN_SECONDS if rejected else jobs.FAILURE_COOLDOWN_SECONDS
+    now[0] += 30
+    for operation in (instance.status, instance.start):
+        result = await operation("owner", "fixture-token")
+        assert result["status"] == "unavailable"
+        assert result["retry_after_s"] == cooldown - 30
+        assert result.get("reason") == ("provider_unavailable" if rejected else None)
+    assert instance.offer.await_count == 1 if not rejected else len(calls) == 1
+    now[0] += cooldown - 30
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert instance.offer.await_count == 2 if not rejected else len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_search_attempt_records_wall_clock_time_at_start_and_completion(monkeypatch):
+    import copy
+    import json
+
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    import hushh_mcp.runtime_providers as providers
+    from hushh_mcp.one_adk import world_model as pwm
+
+    plan = {
+        "purpose": "identity",
+        "seed_fields": ["full_name", "email"],
+        "anchor_ids": [],
+        "candidate_id": None,
+        "topics": ["career"],
+        "question": "Find the supplied owner's public work.",
+    }
+    responses = [
+        LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="search_public_web", args={"plan_json": json.dumps(plan)}
+                        )
+                    )
+                ],
+            )
+        ),
+        LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text="Builds software.")]),
+            grounding_metadata=types.GroundingMetadata(
+                web_search_queries=["Alex Example"],
+                grounding_chunks=[{"web": {"title": "Bio", "uri": "https://example.test/alex"}}],
+            ),
+        ),
+    ]
+
+    class FakeModel(BaseLlm):
+        model: str = "gemini-3.6-flash"
+
+        async def generate_content_async(self, llm_request, stream=False):
+            if not responses:
+                raise pwm.ResearchSliceComplete()
+            yield responses.pop(0)
+
+    monkeypatch.setattr(
+        providers, "build_managed_regional_gemini_adk_model", lambda *_: FakeModel()
+    )
+    snapshots = []
+
+    async def progress(value):
+        snapshots.append(copy.deepcopy(value))
+
+    before = time.time()
+    result = await pwm.run_world_model(
+        identity={"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None},
+        user_id="owner",
+        consent_token="fixture",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=AsyncMock(),
+        on_progress=progress,
+    )
+    assert result["status"] == "paused"
+    # The search's start is activity too: a long first answer must not read as idle.
+    started = next(
+        s["attempts"]["1"] for s in snapshots if s["attempts"]["1"]["state"] == "started"
+    )
+    assert isinstance(started["at"], float) and before <= started["at"] <= time.time()
+    attempt = snapshots[-1]["attempts"]["1"]
+    assert attempt["state"] == "received"
+    assert isinstance(attempt["at"], float) and started["at"] <= attempt["at"] <= time.time()

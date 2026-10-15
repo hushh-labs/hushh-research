@@ -20,7 +20,7 @@ import {
   type CardBrand,
   type CardValidationResult,
 } from "@/lib/wallet/card-validation";
-import { approveWalletCatalogArtwork, assertWalletArtworkApproval, readWalletArtwork, MAX_WALLET_ARTWORK_CHARACTERS, type WalletCardArtwork, type WalletArtworkResolution, type WalletArtworkVariant } from "@/lib/wallet/card-artwork";
+import { approveWalletCatalogArtwork, assertWalletArtworkApproval, readWalletArtwork, MAX_WALLET_ARTWORK_CHARACTERS, type WalletCardArtwork, type WalletArtworkResolution, type WalletArtworkVariant, type WalletArtworkReference } from "@/lib/wallet/card-artwork";
 import { validateCardImage } from "@/lib/wallet/card-scan-image";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { ApiService } from "@/lib/services/api-service";
@@ -63,7 +63,25 @@ export interface WalletCardInput {
 
 class WalletNetworkSessionChangedError extends Error {}
 
+const exactArtworkProofs = new WeakMap<WalletArtworkVariant, { userId: string; token: string; epoch: number; catalogVersion: string }>();
+
+/** One bounded operation on web and native; late completions lose authority. */
+async function artworkDeadline<T>(signal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) cancel(); else signal?.addEventListener("abort", cancel, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error("Artwork unavailable.")); }, 8000);
+  });
+  try { return await Promise.race([run(controller.signal), timeout]); }
+  finally { clearTimeout(timer); signal?.removeEventListener("abort", cancel); controller.abort(); }
+}
+
 export interface WalletNetworkContext { userId: string; vaultOwnerToken: string }
+export interface WalletBankChoice { bankKey: string; issuerId: string; name: string; country: string; designCount: number }
+export interface WalletBankDesignRequest { network: CardBrand; country?: string; bankKey?: string; offset?: number }
+export interface WalletBankDesigns { catalogVersion: string; banks: WalletBankChoice[]; variants: WalletArtworkVariant[]; nextOffset: number | null }
 export interface WalletNetworkInput { iinPrefix: string; panLength: number; selectedNetwork?: CardBrand }
 export interface WalletNetworkResult {
   network: CardBrand;
@@ -141,7 +159,7 @@ export class WalletService {
     return true;
   }
 
-  private static async networkRequest(context: WalletNetworkContext, suffix: string, signal?: AbortSignal, input?: WalletNetworkInput, path = "/networks"): Promise<unknown> {
+  private static async networkRequest(context: WalletNetworkContext, suffix: string, signal?: AbortSignal, input?: WalletNetworkInput | WalletBankDesignRequest, path = "/networks"): Promise<unknown> {
     const assertCurrent = networkSessionGuard(context, signal);
     assertCurrent();
     const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId });
@@ -189,12 +207,71 @@ export class WalletService {
     });
   }
 
+  /** Cosmetic bank choices disclose no card number, prefix or saved-card IDs. */
+  static async bankArtwork(context: WalletNetworkContext, input: WalletBankDesignRequest, signal?: AbortSignal): Promise<WalletBankDesigns> {
+    if ((input.offset !== undefined && (!Number.isInteger(input.offset) || input.offset < 0 || input.offset > 10000)) || !isCardNetworkId(input.network) || (input.country && !/^[A-Z]{2}$/.test(input.country)) || (input.bankKey && !/^[a-f0-9]{32}$/.test(input.bankKey))) throw new Error("Bank designs unavailable.");
+    const payload = { network: input.network, ...(input.country ? { country: input.country } : {}), ...(input.bankKey ? { bankKey: input.bankKey } : {}), ...(input.offset !== undefined ? { offset: input.offset } : {}) };
+    const data = await this.networkRequest(context, "/banks", signal, payload, "/artwork");
+    const id = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(v);
+    const text = (v: unknown) => typeof v === "string" && Boolean(v.trim()) && v.length <= 100 && !/[\u0000-\u001f\u007f]/.test(v);
+    if (!isRecord(data) || data.selectionBasis !== "owner_selected_bank" || data.requiresConfirmation !== true || !id(data.catalogVersion) || data.bankKey !== (input.bankKey ?? null) || !Array.isArray(data.banks) || data.banks.length > 1000 || !Array.isArray(data.variants) || data.variants.length > 24 || !(data.nextOffset === null || (Number.isInteger(data.nextOffset) && Number(data.nextOffset) > (input.offset ?? 0) && Number(data.nextOffset) <= 10000))) throw new Error("Bank designs unavailable.");
+    const banks: WalletBankChoice[] = data.banks.map(row => {
+      if (!isRecord(row) || (input.country && row.country !== input.country) || typeof row.bankKey !== "string" || !/^[a-f0-9]{32}$/.test(row.bankKey) || !id(row.issuerId) || !text(row.name) || typeof row.country !== "string" || !/^[A-Z]{2}$/.test(row.country) || !Number.isInteger(row.designCount) || Number(row.designCount) < 1 || Number(row.designCount) > 10000) throw new Error("Bank designs unavailable.");
+      return { bankKey: row.bankKey, issuerId: String(row.issuerId), name: String(row.name), country: row.country, designCount: Number(row.designCount) };
+    });
+    if (new Set(banks.map(row => row.bankKey)).size !== banks.length) throw new Error("Bank designs unavailable.");
+    const bank = banks.find(row => row.bankKey === input.bankKey);
+    const variants: WalletArtworkVariant[] = data.variants.map(row => {
+      if (!isRecord(row) || !bank || row.issuerId !== bank.issuerId || ![row.assetId, row.productId, row.variantId].every(id) || !text(row.label) || typeof row.digest !== "string" || !/^[a-f0-9]{64}$/.test(row.digest) || row.image !== `/api/one/wallet/card-access/artwork/assets/${row.digest}` || typeof row.allowOverlay !== "boolean") throw new Error("Bank designs unavailable.");
+      return { assetId: String(row.assetId), issuerId: bank.issuerId, productId: String(row.productId), variantId: String(row.variantId), label: String(row.label), digest: row.digest, image: String(row.image), allowOverlay: row.allowOverlay, issuerName: bank.name, productName: text(row.productName) ? String(row.productName) : String(row.label), variantName: text(row.variantName) ? String(row.variantName) : "Bank design", country: bank.country };
+    });
+    if (new Set(variants.map(row => row.assetId)).size !== variants.length) throw new Error("Bank designs unavailable.");
+    return { catalogVersion: String(data.catalogVersion), banks, variants, nextOffset: data.nextOffset as number | null };
+  }
+
+  /** Local-only allocation from the encrypted domain. Never identify by last4. */
+  static async suggestBankArtwork(params: VaultContextParams & { pan: string; variants: readonly WalletArtworkVariant[]; signal?: AbortSignal }): Promise<WalletArtworkVariant | null> {
+    const assertCurrent = networkSessionGuard(params, params.signal); assertCurrent();
+    const candidates = [...params.variants].sort((a, b) => a.assetId.localeCompare(b.assetId));
+    if (!candidates.length || new Set(candidates.map(row => row.issuerId)).size !== 1) return null;
+    const data = await this.loadDomain(params); assertCurrent();
+    const artwork = isRecord(data?.artwork) ? data.artwork : {}, secrets = isRecord(data?.secrets) ? data.secrets : {};
+    const byDigest = new Map<string, WalletArtworkVariant>();
+    for (const candidate of candidates) if (!byDigest.has(candidate.digest)) byDigest.set(candidate.digest, candidate);
+    const unique = [...byDigest.values()];
+    const counts = new Map(unique.map(row => [row.digest, 0]));
+    const pan = normalizePan(params.pan);
+    for (const [cardId, record] of Object.entries(artwork)) {
+      const chosen = readWalletArtwork(record);
+      if (chosen?.source !== "catalog" || chosen.issuerId !== candidates[0]!.issuerId) continue;
+      const candidate = candidates.find(row => row.assetId === chosen.assetId && row.digest === chosen.digest && row.productId === chosen.productId && row.variantId === chosen.variantId);
+      const secret = secrets[cardId];
+      if (candidate && pan.length >= 13 && isRecord(secret) && normalizePan(String(secret.pan ?? "")) === pan) return candidate;
+      // Retired catalog aliases still use this image in the owner's Wallet.
+      if (counts.has(chosen.digest)) counts.set(chosen.digest, counts.get(chosen.digest)! + 1);
+    }
+    return unique.reduce((least, row) => counts.get(row.digest)! < counts.get(least.digest)! ? row : least);
+  }
+
   static async resolveCardArtwork(context: WalletNetworkContext, input: WalletNetworkInput, signal?: AbortSignal): Promise<WalletArtworkResolution> {
-    if (!/^(?:[0-9]{6}|[0-9]{8})$/.test(input.iinPrefix) || input.panLength < 13 || input.panLength > 19) throw new Error("Artwork unavailable.");
+    if (!/^(?:[0-9]{6}|[0-9]{8})$/.test(input.iinPrefix) || !Number.isInteger(input.panLength) || input.panLength < 13 || input.panLength > 19) throw new Error("Artwork unavailable.");
     const payload = { iinPrefix: input.iinPrefix, panLength: input.panLength, ...(input.selectedNetwork ? { selectedNetwork: input.selectedNetwork } : {}) };
-    const data = await this.networkRequest(context, "/resolve", signal, payload, "/artwork");
+    const data = await artworkDeadline(signal, bounded => this.networkRequest(context, "/resolve", bounded, payload, "/artwork"));
     if (!isRecord(data) || !["exact", "ambiguous", "issuer_only", "unknown"].includes(String(data.match)) || !Array.isArray(data.variants) || typeof data.catalogVersion !== "string") throw new Error("Artwork unavailable.");
-    const variants = data.variants.filter((value): value is WalletArtworkVariant => isRecord(value) && ["assetId", "issuerId", "productId", "variantId", "label", "image", "digest"].every(key => typeof value[key] === "string") && /^\/api\/one\/wallet\/card-access\/artwork\/assets\/[a-f0-9]{64}$/.test(String(value.image)) && /^[a-f0-9]{64}$/.test(String(value.digest)) && typeof value.allowOverlay === "boolean");
+    if (!/^[A-Za-z0-9._-]{1,100}$/.test(data.catalogVersion) || data.variants.length > 30) throw new Error("Artwork unavailable.");
+    const variants: WalletArtworkVariant[] = data.variants.map(value => {
+      if (!isRecord(value) || !["assetId", "issuerId", "productId", "variantId"].every(key => typeof value[key] === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(value[key] as string)) || typeof value.label !== "string" || !value.label.trim() || value.label.length > 100 || /[\u0000-\u001f\u007f]/.test(value.label) || !/^[a-f0-9]{64}$/.test(String(value.digest)) || value.image !== `/api/one/wallet/card-access/artwork/assets/${value.digest}` || typeof value.allowOverlay !== "boolean") throw new Error("Artwork unavailable.");
+      const variant: WalletArtworkVariant = { assetId: value.assetId as string, issuerId: value.issuerId as string, productId: value.productId as string, variantId: value.variantId as string, label: value.label, image: value.image as string, digest: value.digest as string, allowOverlay: value.allowOverlay };
+      for (const key of ["issuerName", "productName", "variantName"] as const) if (typeof value[key] === "string" && value[key].trim() && value[key].length <= 100 && !/[\u0000-\u001f\u007f]/.test(value[key])) variant[key] = value[key];
+      for (const key of ["providerId", "artworkVersion"] as const) if (typeof value[key] === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(value[key])) variant[key] = value[key];
+      if (typeof value.country === "string" && /^[A-Z]{2}$/.test(value.country)) variant.country = value.country;
+      for (const key of ["width", "height"] as const) if (typeof value[key] === "number" && Number.isInteger(value[key]) && value[key] > 0 && value[key] <= 2048) variant[key] = value[key];
+      return Object.freeze(variant);
+    });
+    if (data.match === "exact") {
+      if (data.provider !== "configured" || variants.length !== 1) throw new Error("Artwork unavailable.");
+      exactArtworkProofs.set(variants[0]!, { userId: context.userId, token: context.vaultOwnerToken, epoch: snapshotVaultSessionEpoch(), catalogVersion: data.catalogVersion });
+    }
     const metadata: NonNullable<WalletArtworkResolution["metadata"]> = {};
     if (isRecord(data.metadata)) {
       for (const key of ["issuerName", "productFamily", "tier"] as const) { const value = data.metadata[key]; if (typeof value === "string" && value.trim() && value.length <= 100 && !/[\u0000-\u001f\u007f]/.test(value)) metadata[key] = value; }
@@ -206,9 +283,22 @@ export class WalletService {
 
   static async selectCardArtwork(context: WalletNetworkContext, variant: WalletArtworkVariant, catalogVersion: string, signal?: AbortSignal): Promise<WalletCardArtwork> {
     const epoch = snapshotVaultSessionEpoch();
+    const artwork = await artworkDeadline(signal, bounded => this.readCatalogArtwork(context, variant, catalogVersion, bounded));
+    const proof = exactArtworkProofs.get(variant);
+    const evidence = proof && proof.userId === context.userId && proof.token === context.vaultOwnerToken && proof.epoch === epoch && proof.catalogVersion === catalogVersion ? "provider_exact" : "owner_selected";
+    return approveWalletCatalogArtwork({ ...artwork, evidence }, context.userId, epoch);
+  }
+
+  /** A thumbnail is validated but is never an owner approval to persist artwork. */
+  static async previewCardArtwork(context: WalletNetworkContext, variant: WalletArtworkVariant, catalogVersion: string, signal?: AbortSignal): Promise<string> {
+    return (await artworkDeadline(signal, bounded => this.readCatalogArtwork(context, variant, catalogVersion, bounded))).image;
+  }
+
+  private static async readCatalogArtwork(context: WalletNetworkContext, variant: WalletArtworkVariant, catalogVersion: string, signal: AbortSignal): Promise<Extract<WalletCardArtwork, { source: "catalog" }>> {
     const assertCurrent = networkSessionGuard(context, signal); assertCurrent();
     if (!/^\/api\/one\/wallet\/card-access\/artwork\/assets\/[a-f0-9]{64}$/.test(variant.image)) throw new Error("Artwork unavailable.");
-    const approval = await this.validateArtworkReferences(context, [{ source: "catalog", version: 1, ...variant, catalogVersion, evidence: "owner_selected" }], signal);
+    const reference: WalletArtworkReference = { assetId: variant.assetId, issuerId: variant.issuerId, productId: variant.productId, variantId: variant.variantId, digest: variant.digest, catalogVersion };
+    const approval = await this.validateArtworkReferences(context, [reference], signal);
     if (!approval[0]?.approved) throw new Error("Artwork unavailable.");
     const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId }); assertCurrent();
     if (!token) throw new Error("Artwork unavailable.");
@@ -223,19 +313,24 @@ export class WalletService {
     let binary = ""; for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
     // Revalidate metadata after download too; a changed approval cannot ride
     // along on an unchanged image digest.
-    const finalApproval = await this.validateArtworkReferences(context, [{ source: "catalog", version: 1, ...variant, catalogVersion, evidence: "owner_selected" }], signal); assertCurrent();
+    const finalApproval = await this.validateArtworkReferences(context, [reference], signal); assertCurrent();
     if (!finalApproval[0]?.approved) throw new Error("Artwork unavailable.");
-    return approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: variant.assetId, issuerId: variant.issuerId, productId: variant.productId, variantId: variant.variantId, catalogVersion, digest, image: `data:${blob.type};base64,${btoa(binary)}`, allowOverlay: finalApproval[0].allowOverlay, evidence: "owner_selected" }, context.userId, epoch);
+    return { source: "catalog", version: 1, assetId: variant.assetId, issuerId: variant.issuerId, productId: variant.productId, variantId: variant.variantId, catalogVersion, digest, image: `data:${blob.type};base64,${btoa(binary)}`, allowOverlay: finalApproval[0].allowOverlay, evidence: "owner_selected", ...(variant.providerId ? { providerId: variant.providerId } : {}), ...(variant.artworkVersion ? { artworkVersion: variant.artworkVersion } : {}) };
   }
 
-  private static async validateArtworkReferences(context: WalletNetworkContext, artworks: Extract<WalletCardArtwork, { source: "catalog" }>[], signal?: AbortSignal): Promise<{ approved: boolean; allowOverlay: boolean }[]> {
+  /** Display status only: never creates a persistence approval. */
+  static async checkCardArtworkDisplay(context: WalletNetworkContext, reference: WalletArtworkReference, signal?: AbortSignal, purpose: "selection" | "saved" = "selection"): Promise<boolean> {
+    return Boolean((await artworkDeadline(signal, bounded => this.validateArtworkReferences(context, [reference], bounded, purpose)))[0]?.approved);
+  }
+
+  private static async validateArtworkReferences(context: WalletNetworkContext, artworks: WalletArtworkReference[], signal?: AbortSignal, purpose: "selection" | "saved" = "selection"): Promise<{ approved: boolean; allowOverlay: boolean }[]> {
     const assertCurrent = networkSessionGuard(context, signal); assertCurrent();
     const token = await AuthService.getIdTokenWithRetry({ expectedUserId: context.userId }); assertCurrent();
     if (!token) throw new Error("Artwork unavailable.");
     const selections = artworks.map(row => ({ assetId: row.assetId, issuerId: row.issuerId, productId: row.productId, variantId: row.variantId, catalogVersion: row.catalogVersion, digest: row.digest }));
     const response = await ApiService.apiFetch("/api/one/wallet/card-access/artwork/validate", { method: "POST", cache: "no-store", signal,
       headers: { Authorization: `Bearer ${token}`, "X-Hushh-Consent": context.vaultOwnerToken, "Content-Type": "application/json" },
-      body: JSON.stringify({ selections }), isEffectCurrent: () => { try { assertCurrent(); return true; } catch { return false; } } });
+      body: JSON.stringify({ selections, purpose }), isEffectCurrent: () => { try { assertCurrent(); return true; } catch { return false; } } });
     assertCurrent(); if (!response.ok) throw new Error("Artwork unavailable.");
     const result = await response.json(); assertCurrent();
     if (!Array.isArray(result.selections) || result.selections.length !== selections.length || !result.selections.every((row: unknown, index: number) => isRecord(row) && row.assetId === selections[index]!.assetId && typeof row.approved === "boolean" && typeof row.allowOverlay === "boolean")) throw new Error("Artwork unavailable.");
@@ -249,7 +344,7 @@ export class WalletService {
     assertCurrent();
     assertWalletArtworkApproval(params.artwork, params.userId);
     if (params.artwork.source === "catalog") {
-      const approval = await this.validateArtworkReferences(params, [params.artwork]);
+      const approval = await artworkDeadline(undefined, signal => this.validateArtworkReferences(params, [params.artwork as Extract<WalletCardArtwork, { source: "catalog" }>], signal));
       assertCurrent();
       if (!approval[0]?.approved || approval[0].allowOverlay !== params.artwork.allowOverlay) throw new Error("Artwork approval changed. Choose your design again.");
     }
@@ -316,7 +411,7 @@ export class WalletService {
     const catalogCards = presentations.filter(row => row.artwork?.source === "catalog");
     for (let offset = 0; offset < catalogCards.length; offset += 24) {
       const batch = catalogCards.slice(offset, offset + 24);
-      const approvals = await this.validateArtworkReferences(params, batch.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>)).catch(() => []);
+      const approvals = await artworkDeadline(undefined, signal => this.validateArtworkReferences(params, batch.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>), signal, "saved")).catch(() => []);
       assertCurrent();
       batch.forEach((row, index) => { if (!approvals[index]?.approved) row.artwork = { source: "neutral", version: 1 }; });
     }
@@ -387,7 +482,7 @@ export class WalletService {
     let artwork = params.card.artwork;
     if (artwork) assertWalletArtworkApproval(artwork, params.userId);
     if (artwork?.source === "catalog") {
-      const approval = await this.validateArtworkReferences(params, [artwork]).catch(() => []);
+      const approval = await artworkDeadline(undefined, signal => this.validateArtworkReferences(params, [artwork as Extract<WalletCardArtwork, { source: "catalog" }>], signal)).catch(() => []);
       assertCurrent();
       if (!approval[0]?.approved || approval[0].allowOverlay !== artwork.allowOverlay) artwork = { source: "neutral", version: 1 };
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { ChevronRight } from "@/components/icons";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
@@ -36,16 +37,29 @@ export function visibleFollowUps(
 export function AgentFollowUpSuggestions({
   suggestions,
   onSelect,
+  onEndConversation,
 }: {
   suggestions: readonly string[];
   onSelect: (suggestion: string) => void;
+  onEndConversation?: (suggestion: string) => void;
 }) {
+  const ended = useRef(false);
   return (
     <AgentSuggestionList
       suggestions={suggestions}
       label="Suggested follow-ups"
       testId="agent-follow-up-suggestions"
-      onSelect={onSelect}
+      onSelect={(suggestion) => {
+        if (ended.current) return;
+        // Only the explicitly selected terminal UI choice; never classify typed text.
+        const label = suggestion.trim().toLowerCase();
+        if (onEndConversation && ["other", "others", "something else"].includes(label)) {
+          ended.current = true;
+          onEndConversation(suggestion);
+          return;
+        }
+        onSelect(suggestion);
+      }}
     />
   );
 }
