@@ -17,6 +17,10 @@ enum NativeProfileStyleValue: Codable, Equatable {
     var text: String { if case .text(let text) = self { return text }; return "" }
 }
 struct NativeProfileStyleOption: Decodable, Equatable { let value: String; let label: String }
+struct NativeProfileStyleMenuBinding {
+    let identity: NativeDrawerIdentity, privacy: Int, choices: [String: [NativeProfileStyleOption]]
+    init(_ state: NativeProfileStyleProjection) { identity = state.identity; privacy = state.privacyGeneration; choices = state.choices }
+}
 struct NativeProfileStyleProjection: Decodable {
     let documentId: String, ownerEpoch: String, family: String, scene: String
     let ownerGeneration: Int, revision: Int, updateSequence: Int, privacyGeneration: Int
@@ -77,9 +81,10 @@ final class NativeProfileStyleModel: ObservableObject {
     private var hasMarkedText: Bool {
         editors.allObjects.contains { ($0 as? UITextView)?.markedTextRange != nil || ($0 as? UITextField)?.markedTextRange != nil }
     }
+    private var hasVisibleMenu: Bool { (menus.allObjects + retiringMenus).contains { $0.menuVisible } }
     var canEdit: Bool { !retired && !projection.busy && pending == nil }
-    var canSave: Bool { canEdit && !composing && !hasMarkedText && projection.canSave && projection.acknowledgedEditRevision == editRevision && !menus.allObjects.contains { $0.menuVisible } }
-    var canDismiss: Bool { canEdit && !menus.allObjects.contains { $0.menuVisible } }
+    var canSave: Bool { canEdit && !composing && !hasMarkedText && projection.canSave && projection.acknowledgedEditRevision == editRevision && !hasVisibleMenu }
+    var canDismiss: Bool { canEdit && !hasVisibleMenu }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
     init(_ projection: NativeProfileStyleProjection) { self.projection = projection; draft = projection.draft }
     func update(_ next: NativeProfileStyleProjection) -> Bool {
@@ -118,11 +123,19 @@ final class NativeProfileStyleModel: ObservableObject {
     }
     func register(_ editor: UIView) { editors.add(editor) }
     func register(_ menu: NativeDrawerMenuControl) { menus.add(menu) }
+    func chooseOption(_ field: String, value: NativeProfileStyleValue?, from source: NativeProfileStyleMenuBinding) {
+        guard canEdit, source.identity == projection.identity, source.privacy == projection.privacyGeneration,
+              source.choices == projection.choices else { return }
+        change(field, value)
+    }
     func menuVisibilityChanged() { objectWillChange.send(); changed?() }
     func withdraw(_ menu: NativeDrawerMenuControl) {
         menus.remove(menu)
         retiringMenus.append(menu)
-        menu.dismissOwnedMenu { [weak self, weak menu] in self?.retiringMenus.removeAll { $0 === menu } }
+        menu.dismissOwnedMenu { [weak self, weak menu] in
+            self?.retiringMenus.removeAll { $0 === menu }
+            self?.menuVisibilityChanged()
+        }
     }
     func dismissMenus(_ completion: @escaping () -> Void) {
         let all = menus.allObjects + retiringMenus
@@ -144,7 +157,7 @@ final class NativeProfileStyleModel: ObservableObject {
 }
 
 @available(iOS 26.0, *)
-private struct NativeProfileStyleText: UIViewRepresentable {
+struct NativeProfileStyleText: UIViewRepresentable {
     @ObservedObject var model: NativeProfileStyleModel
     let field: String
     let multiline: Bool
@@ -182,12 +195,21 @@ private struct NativeProfileStyleText: UIViewRepresentable {
         init(_ model: NativeProfileStyleModel, _ field: String, _ multiline: Bool) { self.model = model; self.field = field; self.multiline = multiline }
         func textViewDidChange(_ view: UITextView) { capture(view) }
         func textViewDidChangeSelection(_ view: UITextView) { capture(view) }
-        private func capture(_ view: UITextView) { model.change(field, .text(view.text), composing: view.markedTextRange != nil) }
+        private func capture(_ view: UITextView) {
+            let marked = view.markedTextRange != nil
+            let current = view.text ?? ""
+            let text = !multiline && !marked ? current.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "") : current
+            model.change(field, .text(text), composing: marked)
+        }
         func textView(_ view: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            if !multiline && text.contains("\n") { view.resignFirstResponder(); return false }
             let current = view.text as NSString
             guard model.canEdit, range.location <= current.length, range.length <= current.length - range.location else { return false }
-            return current.replacingCharacters(in: range, with: text).utf16.count <= (multiline ? 280 : 64)
+            if !multiline && text == "\n" {
+                guard view.markedTextRange == nil else { return false }
+                capture(view); view.resignFirstResponder(); return false
+            }
+            let replacement = !multiline && view.markedTextRange == nil ? text.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "") : text
+            return current.replacingCharacters(in: range, with: replacement).utf16.count <= (multiline ? 280 : 64)
         }
     }
 }
@@ -218,13 +240,12 @@ private struct NativeProfileStyleMenu: UIViewRepresentable {
         button.accessibilityValue = title
         // Never replace an open menu or bind a delayed choice to new options.
         guard !button.menuVisible else { return }
-        let update = model.projection.updateSequence
+        let source = NativeProfileStyleMenuBinding(model.projection)
         let key = field
         button.menu = UIMenu(children: options.map { option in
             UIAction(title: option.label, state: option.value == (selected ?? "") ? .on : .off) { [weak button, weak model] _ in
                 button?.afterDismissal {
-                    guard let model, model.canEdit, model.projection.updateSequence == update else { return }
-                    model.change(key, option.value.isEmpty ? nil : .text(option.value))
+                    model?.chooseOption(key, value: option.value.isEmpty ? nil : .text(option.value), from: source)
                 }
             }
         })

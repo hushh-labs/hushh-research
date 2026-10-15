@@ -64,11 +64,34 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(model.confirm(intent)); XCTAssertFalse(model.confirm(intent))
         XCTAssertTrue(model.settle(intent, saved: true)); XCTAssertTrue(model.saved)
         XCTAssertTrue(model.canEdit, "Explicit Save stays in the existing Settings editor")
+        let binding = NativeProfileStyleMenuBinding(next)
+        updated["updateSequence"] = 3; updated["appearance"] = "dark"
+        let themed = try JSONDecoder().decode(NativeProfileStyleProjection.self, from: JSONSerialization.data(withJSONObject: updated))
+        XCTAssertTrue(model.update(themed))
+        model.edit = { field, value, _, _ in field == "tone" && value == .text("warm") }
+        model.chooseOption("tone", value: .text("warm"), from: binding)
+        XCTAssertTrue(model.draft["tone"] == .text("warm"), "A compatible appearance update cannot invalidate an open menu")
+        updated["updateSequence"] = 4; updated["draftRevision"] = 2; updated["acknowledgedEditRevision"] = 2
+        updated["draft"] = ["tone": "warm"]
+        XCTAssertTrue(model.update(try JSONDecoder().decode(NativeProfileStyleProjection.self, from: JSONSerialization.data(withJSONObject: updated))))
         let menu = NativeDrawerMenuControl(type: .system)
         model.register(menu)
         let interaction = UIContextMenuInteraction(delegate: menu)
         let config = UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: nil)
         menu.contextMenuInteraction(interaction, willDisplayMenuFor: config, animator: nil)
+        XCTAssertFalse(model.canSave); XCTAssertFalse(model.canDismiss)
+        model.withdraw(menu)
+        XCTAssertFalse(model.canSave, "A removed trigger still owns its visible popup")
+        XCTAssertFalse(model.canDismiss)
+        if #available(iOS 26.0, *) {
+            let field = UITextView()
+            model.register(field)
+            let delegate = NativeProfileStyleText.Coordinator(model, "preferred_name", false)
+            XCTAssertTrue(delegate.textView(field, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "Ada\nLovelace"),
+                          "A multiline paste is not a Return key and cannot dismiss the editor")
+            model.edit = { _, _, _, _ in true }
+            XCTAssertFalse(delegate.textView(field, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "\n"))
+        }
         var disappeared = false
         let ended = expectation(description: "Owned menu completed disappearance")
         model.clear()
