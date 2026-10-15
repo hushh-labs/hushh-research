@@ -32,7 +32,6 @@
       "substory.P01": "partial -> implemented_in_code",
       "substory.P02": "partial -> implemented_in_code",
       "substory.P03": "partial -> implemented_in_code",
-      "substory.P05": "partial -> implemented_in_code",
       "substory.P06": "missing -> implemented_in_code",
       "substory.P07": "partial -> implemented_in_code",
       "substory.P08": "partial -> implemented_in_code",
@@ -42,17 +41,14 @@
       "substory.A01": "missing -> implemented_in_code",
       "substory.A02": "missing -> implemented_in_code",
       "substory.A03": "missing -> implemented_in_code",
-      "substory.A04": "partial -> implemented_in_code",
       "substory.A05": "partial -> implemented_in_code",
       "substory.A06": "partial -> implemented_in_code",
       "substory.A07": "partial -> implemented_in_code",
-      "substory.A08": "partial -> implemented_in_code",
       "substory.A09": "partial -> implemented_in_code",
       "substory.A12": "partial -> implemented_in_code",
       "substory.E12": "missing -> implemented_in_code",
       "substory.E14": "partial -> implemented_in_code",
-      "substory.E15": "missing -> partial",
-      "substory.E09": "missing -> partial"
+      "substory.E15": "missing -> partial"
     },
     "coverageMatrixChanges": "oneChatRecall moves from separate to partial for the seven admitted inventory surfaces: the private agent receives a bounded, allowlisted packet, not every field or record."
   },
@@ -282,7 +278,7 @@
       "evidence": [
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 26,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -308,7 +304,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 479,
+          "line": 1,
           "level": "code"
         },
         {
@@ -343,7 +339,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -369,7 +365,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 518,
+          "line": 1,
           "level": "code"
         },
         {
@@ -400,7 +396,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 307,
+          "line": 1,
           "level": "code"
         },
         {
@@ -410,7 +406,7 @@
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 34,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -437,17 +433,17 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 113,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 195,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 267,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -474,7 +470,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
@@ -515,12 +511,12 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 143,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 55,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -546,7 +542,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 30,
+          "line": 1,
           "level": "code"
         },
         {
@@ -583,7 +579,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 24,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -609,17 +605,17 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 208,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 85,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
-          "line": 73,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -646,12 +642,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
-          "line": 1006,
+          "line": 1,
           "level": "code"
         },
         {
@@ -687,7 +683,7 @@
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 52,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -713,12 +709,12 @@
       "evidence": [
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 118,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "docs/reference/architecture/live-memory-source-contract.md",
-          "line": 60,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -763,7 +759,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 30,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -778,7 +774,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 807,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -793,7 +789,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -808,7 +804,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
-          "line": 184,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -823,7 +819,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
-          "line": 1006,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -868,7 +864,7 @@
       "evidence": [
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 118,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -884,7 +880,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 30,
+          "line": 1,
           "level": "code"
         },
         {
@@ -905,7 +901,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
@@ -931,7 +927,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 24,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -952,7 +948,7 @@
         },
         {
           "path": "hushh-webapp/lib/services/source-journal-service.ts",
-          "line": 66,
+          "line": 1,
           "level": "code"
         },
         {
@@ -977,12 +973,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 208,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
-          "line": 73,
+          "line": 1,
           "level": "code"
         }
       ],
@@ -1002,12 +998,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 783,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 694,
+          "line": 1,
           "level": "code"
         }
       ],
@@ -1027,22 +1023,22 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
-          "line": 1006,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/components/profile/living-memory-document.tsx",
-          "line": 48,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/components/agent/one-agent-profile-sheet.tsx",
-          "line": 129,
+          "line": 1,
           "level": "code"
         }
       ],
@@ -1062,12 +1058,12 @@
       "evidence": [
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 118,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 36,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1092,7 +1088,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
-          "line": 23,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1182,12 +1178,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 30,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/components/profile/living-memory-document.tsx",
-          "line": 43,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1201,8 +1197,8 @@
       "given": "structured current facts and source revisions exist",
       "when": "I open Profile Live Mirror",
       "then": "I see safely rendered headings, lists and links generated from those records",
-      "status": "implemented_in_code",
-      "baseline": "The preview is Markdown generated from the projection with escaped values and rendered safely: no raw pre block, raw HTML, image loads or script links.",
+      "status": "partial",
+      "baseline": "Profile's preview is Markdown generated from the projection and rendered safely: headings and lists render, values are escaped, and raw HTML, images and script links cannot render. Links and tables are intentionally not rendered from owner values.",
       "confidence": 0.96,
       "evidence": [
         {
@@ -1232,17 +1228,17 @@
       "when": "I open Profile, the Memory workspace and One profile",
       "then": "all three previews agree on value, revision and freshness",
       "status": "implemented_in_code",
-      "baseline": "Profile, the private agent's profile sheet and the private agent's turn packet read one projection through peekLiveMirror behind one owner and vault-epoch fence. The Soul editor stays separate chat memory, not a second mirror.",
+      "baseline": "Profile, the Memory workspace, the private agent's profile sheet and the private agent's turn packet read one projection through peekLiveMirror behind one owner and vault-epoch fence, and the three visual surfaces share one presentation module. The Soul editor stays separate chat memory, not a second mirror.",
       "confidence": 0.96,
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
-          "line": 95,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
-          "line": 23,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1272,12 +1268,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-session-verification.ts",
-          "line": 14,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 33,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1307,7 +1303,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 49,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1337,7 +1333,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 96,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1362,7 +1358,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 127,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1397,7 +1393,7 @@
         },
         {
           "path": "hushh-webapp/components/profile/living-memory-document.tsx",
-          "line": 38,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1417,7 +1413,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
-          "line": 45,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1517,7 +1513,7 @@
         },
         {
           "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-          "line": 496,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1541,13 +1537,13 @@
       "given": "the structured mirror can produce Markdown",
       "when": "I open either agent mirror",
       "then": "headings, lists, tables and links render safely from the same projection",
-      "status": "implemented_in_code",
-      "baseline": "The profile sheet renders no raw Markdown; the full preview lives in the Profile mirror, generated from the same projection and rendered safely.",
+      "status": "partial",
+      "baseline": "The Memory workspace and the private agent's profile sheet show a compact live preview from the same projection; the full Markdown preview lives in the Profile mirror, where headings and lists render safely and links and tables from owner values do not.",
       "confidence": 0.96,
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/soul-memory-document.tsx",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1577,7 +1573,7 @@
       "evidence": [
         {
           "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-          "line": 496,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1607,7 +1603,7 @@
       "evidence": [
         {
           "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-          "line": 496,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1632,7 +1628,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 33,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1651,13 +1647,13 @@
       "given": "a preferred name conflicts with verified Profile identity",
       "when": "I inspect either mirror or ask the agent",
       "then": "both claims and their provenance are shown for review without silent overwrite",
-      "status": "implemented_in_code",
-      "baseline": "The packet passes the name-conflict flag and conflicted records with no value chosen; the authored rule shows both claims and does not pick.",
+      "status": "partial",
+      "baseline": "The private agent's packet flags a Soul-versus-profile name conflict and marks conflicted records with no value chosen; its authored rule asks it to show both names. The Profile mirror and previews show 'Needs your review' but not both claims with their sources.",
       "confidence": 0.96,
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 166,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1682,7 +1678,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
-          "line": 144,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1707,12 +1703,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/components/profile/soul-memory-panel.tsx",
-          "line": 82,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
-          "line": 200,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1732,7 +1728,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1757,7 +1753,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
-          "line": 45,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1787,27 +1783,27 @@
       "evidence": [
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 118,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 280,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 299,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 484,
+          "line": 1,
           "level": "automated_contract"
         },
         {
           "path": "docs/reference/architecture/live-memory-source-contract.md",
-          "line": 60,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1832,7 +1828,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 479,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1857,7 +1853,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1877,7 +1873,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 518,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1902,7 +1898,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 307,
+          "line": 1,
           "level": "code"
         },
         {
@@ -1927,12 +1923,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 113,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
-          "line": 267,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1957,7 +1953,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1977,12 +1973,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 34,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -1996,13 +1992,13 @@
       "given": "I save or delete a Location record",
       "when": "the encrypted Location authority commits",
       "then": "both mirrors show the eligible place or visit fact and its revision, while live coordinates follow a separate opt-in",
-      "status": "partial",
-      "baseline": "Saved places and visit ratings render in Profile memory.md from the encrypted location domain with per-record receipts; no inventory kind, history or fact-index provenance.",
+      "status": "missing",
+      "baseline": "Saved places and visit ratings stay in the encrypted location domain. The Live Mirror lists that saved section's state only; there is no inventory kind, history or fact-index provenance for Location.",
       "confidence": 0.96,
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/memory-complete-rows.ts",
-          "line": 131,
+          "line": 1,
           "level": "code"
         },
         {
@@ -2012,7 +2008,7 @@
         },
         {
           "path": "docs/reference/architecture/live-memory-source-contract.md",
-          "line": 108,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -2062,7 +2058,7 @@
         },
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 3,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -2082,7 +2078,7 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 42,
+          "line": 1,
           "level": "code"
         },
         {
@@ -2117,7 +2113,7 @@
         },
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 30,
+          "line": 1,
           "level": "code"
         }
       ]
@@ -2172,12 +2168,12 @@
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/living-source-records.ts",
-          "line": 67,
+          "line": 1,
           "level": "code"
         },
         {
           "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
-          "line": 208,
+          "line": 1,
           "level": "code"
         },
         {
@@ -2207,7 +2203,7 @@
         },
         {
           "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
-          "line": 52,
+          "line": 1,
           "level": "code"
         },
         {
@@ -2217,12 +2213,12 @@
         },
         {
           "path": "hushh-webapp/__tests__/lib/pkm/memory-scope-retrieval.test.ts",
-          "line": 232,
+          "line": 1,
           "level": "automated_contract"
         },
         {
           "path": "scripts/ci/live-memory-source-gate.py",
-          "line": 539,
+          "line": 1,
           "level": "automated_contract"
         }
       ]

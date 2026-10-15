@@ -2,9 +2,9 @@
 
 The encrypted `one_living_sources._private.inventory` is a derived, owner-only
 projection. Its authority remains in the source services and PKM domains.
-Profile Live Mirror, the private agent's profile sheet and the private agent
-read one owner-scoped Live Mirror projection. It is built in memory from this
-inventory and its observed history and is never persisted. Its Markdown and
+Profile Live Mirror, the Memory workspace, the private agent's profile sheet and
+the private agent read one owner-scoped Live Mirror projection. It is built in
+memory from this inventory and its observed history and is never persisted. Its Markdown and
 `memory.md` are derived previews, not a second source of truth. The bridge
 runs only while the owner client is open and the vault is unlocked; it does
 not provide closed-app or continuous 24/7 capture. Every surface shows one
