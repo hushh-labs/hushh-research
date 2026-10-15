@@ -234,13 +234,13 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     { width: 393, regions: { top: 120, bottom: 280 } },
     { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
     const { width, regions } = options;
-    const rightInset = regions?.fullWindow ? 0 : width < 640 ? 12 : 18;
+    const fullWindow = regions?.fullWindow || !regions && width < 640;
+    const rightInset = fullWindow ? 0 : width < 640 ? 12 : 18;
     await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
-    // The floating Profile pane keeps a 12–18px viewport gutter; it is not
-    // an edge-to-edge drawer. Keep an independent expected inset so removing
-    // the product gutter still fails this assertion.
+    // Phones are edge-to-edge unless a bounded native reservation is active;
+    // desktop and bounded native panes retain their independent outer gutter.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;

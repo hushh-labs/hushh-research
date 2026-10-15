@@ -8077,7 +8077,8 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
     --app-side-pane-height: 100dvh;
     top: 0 !important;
     bottom: 0 !important;
-    height: 100dvh !important;
+    /* Fixed insets fill the viewport exactly; WebKit rounds 100dvh early. */
+    height: auto !important;
   }
 }
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
@@ -8096,7 +8097,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
     bottom: 0 !important;
     width: 100vw !important;
     max-width: none !important;
-    height: 100dvh !important;
+    height: auto !important;
     border: 0 !important;
     border-radius: 0 !important;
   }

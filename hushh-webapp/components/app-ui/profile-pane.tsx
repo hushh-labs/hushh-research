@@ -359,6 +359,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
         className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
         aria-label="Profile"
         data-testid="profile-pane"
+        data-app-side-pane
         data-native-panel-group="profile"
         onOpenAutoFocus={(event) => {
           event.preventDefault();

@@ -261,6 +261,7 @@ export function AgentConnectionsDrawer({
             data-agent-history-drawer
             data-native-panel-group="history"
             data-state={historyOpen ? "open" : "closed"}
+            data-app-side-pane
             aria-modal={externalModalOpen ? undefined : true}
             aria-label={mode === "connections" ? "Chat connectors" : "Agent chat history"}
             aria-hidden={!historyDisplayed || externalModalOpen}
