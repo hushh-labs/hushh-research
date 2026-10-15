@@ -156,3 +156,22 @@ def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
     # The historic broad shell exclusion must break this exact deployment input.
     broken = pathspec.GitIgnoreSpec.from_lines(["*.sh"])
     assert all(broken.match_file(helper) for helper in referenced)
+
+
+def test_wallet_artwork_survives_upload_and_docker_filters():
+    """The broad assets/ filter shipped a catalog with 101 missing WebP files."""
+    assets = list((BACKEND_ROOT / "hushh_mcp/resources/wallet-artwork/assets").glob("*.webp"))
+    assert len(assets) == 101
+    for ignore_file in IGNORE_FILES:
+        spec = pathspec.GitIgnoreSpec.from_lines(
+            ignore_file.read_text(encoding="utf-8").splitlines()
+        )
+        for asset in assets:
+            relative = asset.relative_to(ignore_file.parent)
+            # Uploaders prune excluded directories before inspecting their files.
+            for parent in relative.parents:
+                if parent.as_posix() != ".":
+                    assert not spec.match_file(parent.as_posix() + "/"), str(parent)
+            assert not spec.match_file(relative.as_posix()), str(asset)
+    broken = pathspec.GitIgnoreSpec.from_lines(["assets/"])
+    assert all(broken.match_file(asset.relative_to(REPO_ROOT).as_posix()) for asset in assets)

@@ -400,6 +400,8 @@ function OwnerConnectorsPanel({
   const [allowBackground, setAllowBackground] = useState(false);
   const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
   const [liveBackgroundError, setLiveBackgroundError] = useState(false);
+  // The row's own word on a change: "saving", or the direction that failed.
+  const [liveBackgroundChange, setLiveBackgroundChange] = useState<"saving" | "on" | "off" | null>(null);
   const [liveBackgroundRead, retryLiveBackground] = useState(0);
   const [loading, setLoading] = useState(false);
   const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
@@ -737,11 +739,13 @@ function OwnerConnectorsPanel({
     if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
       setLiveBackground(null);
       setLiveBackgroundError(false);
+      setLiveBackgroundChange(null);
       return;
     }
     let active = true;
     setLiveBackground(null);
     setLiveBackgroundError(false);
+    setLiveBackgroundChange(null);
     void ExternalConnectorService.liveBackground(vaultOwnerToken)
       .then((enabled) => { if (active) setLiveBackground(enabled); })
       .catch(() => { if (active) setLiveBackgroundError(true); });
@@ -2496,13 +2500,23 @@ function OwnerConnectorsPanel({
                 <SettingsGroup density="compact">
                   <SettingsRow title="Background Drive access" description={liveBackground === null
                     ? liveBackgroundError ? "Couldn’t check background access." : "Checking background access…"
+                    : liveBackgroundChange === "saving" ? "Saving…"
+                    : liveBackgroundChange ? `Couldn’t turn ${liveBackgroundChange}. Try again.`
                     : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away."}
                     trailing={liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
                       disabled={driveBusy}
                       onCheckedChange={(next) => void runDrive(async (token) => {
-                        const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
-                        setLiveBackground(confirmed);
-                        setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
+                        setLiveBackgroundChange("saving");
+                        try {
+                          const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
+                          setLiveBackground(confirmed);
+                          setLiveBackgroundChange(null);
+                          setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
+                        } catch (error) {
+                          // The switch never left the saved state; the row says the change didn't land.
+                          setLiveBackgroundChange(next ? "on" : "off");
+                          throw error;
+                        }
                       })}
                     /> : null} />
                   {liveBackground === null && liveBackgroundError && <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>}

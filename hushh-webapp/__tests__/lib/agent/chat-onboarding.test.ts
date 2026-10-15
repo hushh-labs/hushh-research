@@ -111,9 +111,9 @@ describe("unrelated input never breaks onboarding", () => {
     const started = start().state;
     const dismissed = chip(started, "name_other");
     expect(dismissed.state.step).toBe("done");
-    expect(dismissed.state.turns.filter((turn) => turn.role === "assistant")).toEqual(
-      started.turns.filter((turn) => turn.role === "assistant"),
-    );
+    expect(dismissed.state.turns.at(-1)).toMatchObject({
+      role: "assistant", text: "Okay. What would you like help with?",
+    });
     expect(dismissed.state.progress.status).toBe("completed");
     expect(dismissed.effects).toEqual([
       { type: "persist_progress", progress: dismissed.state.progress }, { type: "focus_composer" },

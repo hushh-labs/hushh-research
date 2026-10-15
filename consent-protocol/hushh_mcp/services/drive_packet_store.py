@@ -7,6 +7,8 @@ request or create a payment. Immutable versions retain their exact source terms.
 from __future__ import annotations
 
 import json
+import re
+from datetime import date
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -28,6 +30,8 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 LISTING_DISCLOSURE = "drive-packet-listing-connections-v1"
+# The owner's list shows a packet's first files; its document count says how many more.
+OWNER_CONTENT_DOCUMENTS = 20
 PACKET_FAILURE_CODES = frozenset(
     {
         "packet_unavailable",
@@ -54,6 +58,27 @@ PACKET_FAILURE_CODES = frozenset(
         "background_processing_required",
     }
 )
+
+
+def _plain(value, limit):
+    """One line of display text, or None."""
+    if not isinstance(value, str):
+        return None
+    return " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", value).split())[:limit].rstrip() or None
+
+
+def _span(periods):
+    """The first start and last end of dated periods as "YYYY-MM-DD", or None."""
+    days = []
+    for item in periods if isinstance(periods, list) else []:
+        try:
+            days.append((date.fromisoformat(item["start"]), date.fromisoformat(item["end"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not days:
+        return None
+    start, end = min(day for day, _ in days), max(day for _, day in days)
+    return {"start": start.isoformat(), "end": end.isoformat()} if start <= end else None
 
 
 def safe_packet_failure_code(code):
@@ -762,7 +787,67 @@ class DrivePacketStore(DriveDocumentFactsStore):
             ).scalar_one()
         )
 
-    async def list_packets(self, *, user_id, owner_user_id=None, cursor=None, limit=25):
+    def _owner_contents(self, connection, owner, rows, stale):
+        """What is inside each listed packet version, for its owner's own list.
+
+        File name and pages come from the owner's encrypted document record;
+        type and dates from its current facts, never from a packet waiting for
+        a policy recheck (`stale`). Buyers never receive any of it: only the
+        owner's call reaches here. A file that cannot be opened is left out.
+        """
+        page = [row for row in rows if row["version"]]
+        if not page:
+            return {}
+        items = connection.execute(
+            text("""SELECT s.packet_id,d.document_id,d.user_id,d.connection_generation,d.metadata_envelope,
+              f.connection_generation AS facts_generation,f.facts_version,f.facts_envelope,
+              e.total_pages,e.unit_kind
+              FROM unnest(CAST(:ids AS uuid[]),CAST(:versions AS bigint[])) AS page(packet_id,version)
+              JOIN drive_packet_version_sources s ON s.packet_id=page.packet_id AND s.version=page.version
+              JOIN connected_documents d ON d.document_id=s.document_id AND d.user_id=:owner
+              LEFT JOIN drive_document_facts f ON f.document_id=s.document_id
+                AND f.facts_version=s.facts_version AND f.user_id=:owner
+              LEFT JOIN drive_document_extractions e ON e.document_id=f.document_id
+                AND e.extraction_version=f.extraction_version
+              ORDER BY s.packet_id,s.document_id"""),
+            {
+                "owner": owner,
+                "ids": [str(row["packet_id"]) for row in page],
+                "versions": [row["version"] for row in page],
+            },
+        ).mappings()
+        result = {}
+        for item in items:
+            packet_id = str(item["packet_id"])
+            documents = result.setdefault(packet_id, [])
+            if len(documents) >= OWNER_CONTENT_DOCUMENTS:
+                continue
+            try:
+                metadata = self.cipher.open(dict(item))
+            except DriveReadError:
+                continue
+            facts = None
+            if item["facts_envelope"] is not None and packet_id not in stale:
+                try:
+                    facts = self.facts({**item, "connection_generation": item["facts_generation"]})
+                except DriveReadError:
+                    facts = None
+            kind = (facts or {}).get("document_type") or {}
+            documents.append(
+                {
+                    "name": _plain(metadata.get("name"), 120) or "Untitled file",
+                    "type": _plain(kind.get("value"), 80),
+                    "pages": item["total_pages"] if item["unit_kind"] == "page" else None,
+                    "period": _span((facts or {}).get("periods", [])),
+                }
+            )
+        return result
+
+    async def list_packets(
+        self, *, user_id, owner_user_id=None, cursor=None, limit=25, owner_contents=False
+    ):
+        """One page of packets. `owner_contents` adds each packet's files for
+        its owner's own list; any other viewer never gets them."""
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
 
         owner = owner_user_id or user_id
@@ -797,6 +882,16 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 ).mappings()
             )
             result = []
+            contents = (
+                self._owner_contents(
+                    connection,
+                    owner,
+                    rows[: max(1, min(100, limit))],
+                    {str(row["packet_id"]) for row in rows if row["policy_version"] != policy},
+                )
+                if owner_contents and user_id == owner
+                else None
+            )
             for item in rows[: max(1, min(100, limit))]:
                 row = dict(item)
                 policy_stale = row["policy_version"] != policy
@@ -861,6 +956,19 @@ class DrivePacketStore(DriveDocumentFactsStore):
                             purchasable and row["listing_enabled"] and user_id != owner
                         ),
                         "canList": bool(purchasable and user_id == owner),
+                        # Owner only: their own files. A buyer's list never has this key.
+                        **(
+                            {
+                                "contents": {
+                                    "period": None
+                                    if policy_stale
+                                    else _span(assessment.get("periods", [])),
+                                    "documents": contents.get(str(row["packet_id"]), []),
+                                }
+                            }
+                            if contents is not None
+                            else {}
+                        ),
                     }
                 )
             return {

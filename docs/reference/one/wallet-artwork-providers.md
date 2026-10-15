@@ -236,3 +236,27 @@ browser-rendered, with no generated mockup substituted for the application.
 | --- | --- | --- |
 | 390 px | [Original picker](../../assets/wallet-artwork/before-390.png) | [Visual picker](../../assets/wallet-artwork/after-390.png) |
 | 1440 px | [Original picker](../../assets/wallet-artwork/before-1440.png) | [Visual picker](../../assets/wallet-artwork/after-1440.png) |
+
+
+## Automatic network illustrations in Add
+
+Add does not ask the owner to pick a bank or design. After network validation,
+Wallet requests the approved cosmetic catalog through `/artwork/banks` with
+`automatic=true` and the canonical network only. No PAN, card identifier, hash,
+name or vault key enters that request. A matching network image is illustrative;
+it does not identify the person's bank, product or physical design.
+
+Allocation runs inside the canonical encrypted Wallet snapshot mutation. It
+reuses an eligible same-number design, otherwise picks an unused image digest,
+then the least-used digest when the available pool is exhausted. Different
+issuers in the network pool participate together; image aliases do not defeat
+rotation. A genuine revision conflict re-allocates against the freshly decrypted
+snapshot; a transient send retry replays the same encrypted artifacts. Saved
+`network_assigned` artwork is retained across reloads, subject to current display
+approval. Missing coverage, unavailable/revoked bytes or the artwork storage
+budget use the existing neutral fallback without blocking card saving. Owner or
+vault changes abort the save. Other/unknown never substitutes the TROY image.
+
+The repository's Cloud Build upload filter explicitly includes the bundled
+Wallet artwork directory and its rasters. Packaging regressions check both the
+files and every parent directory so a catalog cannot ship without its images.

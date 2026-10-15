@@ -290,7 +290,7 @@ function UnlockedRequestButton({
         <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
         <RecipientIdentityNotice preview={fileIdentity} />
         <DocumentRequestQuoteNotice quote={fileQuote.quote} loading={fileQuote.loading}
-          error={fileQuote.error} onRetry={fileQuote.refresh} />
+          error={fileQuote.error} onRetry={fileQuote.refresh} personName={personName} />
         <HelperText>Ask as a question: {ASK_HELPER}</HelperText>
         {draftNeedsDates ? (
           <HelperText role="status">

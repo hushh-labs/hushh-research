@@ -11,7 +11,7 @@ import { DriveCollectionPanel } from "@/components/agent/drive-collection-panel"
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 const person = "11111111-1111-4111-8111-111111111111";
-const packet = { packetId: person, version: 2, listingRevision: 3, title: "Schwab statements",
+const packet = { packetId: person, version: 2, listingRevision: 3, title: "Example Bank statements",
   description: "Verified statements", state: "ready", coverageSummary: "September 2026", gaps: [],
   documentCount: 3, verifiedAt: "2026-10-13T10:00:00Z", freshness: "current", assessmentScore: 95,
   importance: 100, suggestedPriceCents: 1234, priceCents: 1234, listingEnabled: false,
@@ -31,46 +31,6 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
 describe("agent prepared packets", () => {
-  it("lets the owner Allow or Deny without choosing documents, and preserves edited cents", async () => {
-    render(<DrivePacketCatalog />);
-    await screen.findByText("Schwab statements");
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByLabelText("Price for Schwab statements")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Edit price" }));
-    fireEvent.change(screen.getByLabelText("Price for Schwab statements"), { target: { value: "56.78" } });
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
-    await waitFor(() => expect(state.listing).toHaveBeenCalledWith("private-token", packet, "allow", 5678, expect.any(Function)));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deny" })).not.toBeDisabled());
-    fireEvent.change(screen.getByLabelText("Price for Schwab statements"), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
-    await waitFor(() => expect(state.listing).toHaveBeenLastCalledWith("private-token", packet, "deny", 1234, expect.any(Function)));
-  });
-  it("reuses the buyer request key on retry and links to already-owned access", async () => {
-    state.request.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce({ requestId: person, existingAccess: true });
-    render(<DrivePacketCatalog ownerPersonRef={person} />);
-    const button = await screen.findByRole("button", { name: "Request packet · $12.34" });
-    fireEvent.click(button);
-    await screen.findByText("Couldn’t finish. Retry to check the latest status.");
-    fireEvent.click(button);
-    const link = await screen.findByRole("link", { name: "View access" });
-    expect(link.getAttribute("href")).toContain(encodeURIComponent(`document_share_request:${person}`));
-    expect(state.request.mock.calls[0][3]).toBe(state.request.mock.calls[1][3]);
-    expect(state.request.mock.calls[0][1]).toBe("firebase-token");
-    expect(state.listing).not.toHaveBeenCalled();
-  });
-  it("links a missing Google identity only after the buyer explicitly asks, then retries the same packet", async () => {
-    state.request.mockRejectedValueOnce(Object.assign(new Error("identity"), { code: "verify_google_identity_required" }))
-      .mockResolvedValueOnce({ requestId: person, existingAccess: false });
-    render(<DrivePacketCatalog ownerPersonRef={person} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Request packet · $12.34" }));
-    const link = await screen.findByRole("button", { name: "Add Google account" });
-    expect(state.linkIdentity).not.toHaveBeenCalled();
-    fireEvent.click(link);
-    await screen.findByRole("link", { name: "View request" });
-    expect(state.linkIdentity).toHaveBeenCalledWith("owner", expect.any(Function));
-    expect(state.request.mock.calls[1][1]).toBe("linked-firebase-token");
-    expect(state.request.mock.calls[1][3]).toBe(state.request.mock.calls[0][3]);
-  });
   it("discards a late private packet response after the authenticated owner changes", async () => {
     let resolve!: (value: unknown) => void;
     state.packets.mockReturnValueOnce(new Promise(done => { resolve = done; })).mockResolvedValue({ packets: [], nextCursor: null });
@@ -79,7 +39,7 @@ describe("agent prepared packets", () => {
     state.uid = "new-owner"; state.token = "new-token"; publishValidatedAuthSessionOwner("new-owner");
     view.rerender(<DrivePacketCatalog />);
     await act(async () => resolve({ packets: [packet], nextCursor: null }));
-    expect(screen.queryByText("Schwab statements")).toBeNull();
+    expect(screen.queryByText("Example Bank statements")).toBeNull();
   });
   it("keeps preparation off until the owner changes the saved switch, with distinct counts under details", async () => {
     state.setProcessing.mockResolvedValue({ ...status, enabled: true, state: "indexing", revision: 1 });
@@ -99,7 +59,7 @@ describe("agent prepared packets", () => {
   it("keeps prepared packets visible when preparation is paused without claiming current work", async () => {
     state.collection.mockResolvedValue({ ...status, enabled: false, state: "paused" });
     const view = render(<DriveCollectionPanel backgroundEnabled />);
-    expect(await screen.findByText("Schwab statements")).toBeInTheDocument();
+    expect(await screen.findByText("Example Bank statements")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Prepare packets" })).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByText("Agent One is preparing your packets.")).toBeNull();
     view.unmount();

@@ -281,10 +281,12 @@ describe("OnePresenceAvatar playback lifecycle", () => {
 });
 
 describe("One activity presentation", () => {
-  it("uses distinct waiting and output states, with actual draft generation taking priority", () => {
+  it("uses distinct waiting and output states, with active work taking priority", () => {
     expect(resolveOnePresenceState({ drafting: false, answering: false, thinking: false })).toBe("connected");
     expect(resolveOnePresenceState({ drafting: false, answering: false, thinking: true })).toBe("thinking");
     expect(resolveOnePresenceState({ drafting: false, answering: true, thinking: true })).toBe("answering");
     expect(resolveOnePresenceState({ drafting: true, answering: true, thinking: true })).toBe("working");
+    expect(resolveOnePresenceState({ working: true, drafting: false, answering: true, thinking: true })).toBe("working");
+    expect(resolveOnePresenceState({ working: false, drafting: false, answering: false, thinking: true })).toBe("thinking");
   });
 });

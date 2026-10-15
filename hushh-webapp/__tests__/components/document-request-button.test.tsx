@@ -284,7 +284,7 @@ describe("requesting exact files from a connection", () => {
 
   async function openFiles(purpose = "Six months of statements", withDates = true) {
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
-    expect(await screen.findByText("Estimated price $10. You'll see the final price before you pay. You pay only if files are found.")).toBeVisible();
+    expect(await screen.findByText("About $10. You pay only if files are found.")).toBeVisible();
     fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
     if (withDates) {
       fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
@@ -320,7 +320,7 @@ describe("requesting exact files from a connection", () => {
       mount();
       await openFiles("  Files modified in the last two days  ", false);
       expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
-      expect(screen.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
+      expect(screen.getByText("Choose a start and end date.")).toBeVisible();
       expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
       // Opening previews the account once; sending proves it again.
       expect(await screen.findByText("Files will be shared with b@gmail.test")).toBeVisible();
@@ -346,7 +346,11 @@ describe("requesting exact files from a connection", () => {
       );
       expect(reconcile).toHaveBeenCalledOnce();
       expect(state.invalidate).toHaveBeenCalledWith("b");
-      expect(screen.getByText("Request sent.")).toHaveClass("text-center");
+      expect(screen.getByText("Request sent.")).toHaveAttribute("role", "status");
+      const sent = screen.getByText("Files modified in the last two days").closest("[data-testid='settings-row']");
+      expect(sent).toHaveTextContent("Waiting for A · Sep 29 – Oct 1, 2026");
+      // The quote is an estimate: the sent row shows no price.
+      expect(sent?.textContent).not.toContain("$");
       expect(screen.getByRole("button", { name: "Request more files" })).toHaveClass("h-[50px]");
       const link = screen.getByRole("link", { name: "View request" }).getAttribute("href");
       expect(link).toContain(encodeURIComponent(`document_share_request:${requestId}`));
@@ -384,7 +388,7 @@ describe("requesting exact files from a connection", () => {
     expect(state.create).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Review the updated quote");
-    expect(await screen.findByText("Estimated price $25. You'll see the final price before you pay. You pay only if files are found.")).toBeVisible();
+    expect(await screen.findByText("About $25. You pay only if files are found.")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent.")).toBeVisible();
     expect(state.create.mock.calls[0][2].expectedQuoteVersion).toBe(1);
@@ -397,7 +401,7 @@ describe("requesting exact files from a connection", () => {
       priceReady: false, payoutReady: false, paymentsReady: false });
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
-    expect(await screen.findByText("The owner will set a price. You review it before paying.")).toBeVisible();
+    expect(await screen.findByText("A sets the price. You see it before you pay.")).toBeVisible();
     expect(screen.getByText("We'll ask the owner to set up payouts.")).toBeVisible();
     expect(screen.queryByText(/\$10/)).toBeNull();
     fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: "Bank statements" } });
@@ -410,12 +414,36 @@ describe("requesting exact files from a connection", () => {
     expect(state.create.mock.calls[0][2]).toMatchObject({ expectedQuoteVersion: 0 });
   });
 
+  it("starts the price line with a capital when the name is the fallback", async () => {
+    state.quote.mockResolvedValueOnce({ amountCents: null, version: 0, paymentRequired: true,
+      priceReady: false, payoutReady: true, paymentsReady: true });
+    render(<DocumentRequestButton personRef={personRef} personName="this person" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByText("This person sets the price. You see it before you pay.")).toBeVisible();
+  });
+
+  it("retries a failed price check, and says when no payment is needed", async () => {
+    state.quote.mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ amountCents: null, version: 3, paymentRequired: false, priceReady: true, paymentsReady: true, payoutReady: true });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByText("Couldn't check the price.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No payment needed.")).toBeVisible();
+    expect(state.quote).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses an incomplete period before sending or linking anything", async () => {
     mount();
     await openFiles(undefined, false);
+    expect(screen.getByRole("group", { name: "Dates" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
-    expect(screen.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
-    expect(screen.queryByText("Choose both dates, with the end on or after the start.")).not.toBeInTheDocument();
+    expect(screen.getByText("Choose a start and end date.")).toBeVisible();
+    expect(screen.queryByText("The end date must be on or after the start date.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
+    expect(screen.getByText("The end date must be on or after the start date.")).toBeVisible();
+    expect(screen.queryByText("Choose a start and end date.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
     expect(state.linkGoogle).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
@@ -449,7 +477,7 @@ describe("requesting exact files from a connection", () => {
     ["identity_link_web_required", "Open One on the web to add your Google account once."],
     ["connection_required", "You need an active connection with this person."],
     ["sharing_unavailable", "File requests aren't available for this connection yet."],
-    ["date_range_required", "Choose exact start and end dates before sending this request."],
+    ["date_range_required", "Choose a start and end date."],
   ])("maps %s to plain copy", async (code, copy) => {
     state.create.mockRejectedValueOnce(new DriveSharingError(code, 409));
     mount();
@@ -522,7 +550,7 @@ describe("chat draft question card", () => {
       clientRequestId, purpose: "Six months of statements",
       periodStart: "2026-03-01", periodEnd: "2026-08-31",
     }} />);
-    expect(await screen.findByText("Estimated price $10. You'll see the final price before you pay. You pay only if files are found.")).toBeVisible();
+    expect(await screen.findByText("About $10. You pay only if files are found.")).toBeVisible();
     expect(await screen.findByText("Files will be shared with b@gmail.test")).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
     expect(await screen.findByTestId("legacy-document-review")).toHaveTextContent(requestId);
