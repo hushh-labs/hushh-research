@@ -113,7 +113,12 @@ Fresh main `40b717f69040` is composed on the preserved branch with its owner-rev
 World Model changes. The integration forwards bounded job inputs, admits private
 placement before default enrollment, retains invitation request-time authority and
 blocks implicit reviewer background writes while preserving explicit actions.
-All 175 semantic retirements and eight workflow predecessor references remain.
+All 175 prior semantic retirements and eight workflow predecessor references
+remain. Three independently reviewed same-version setup retirements additionally
+bind incoming main revision `710bd535b7febc69`: the hosting-aware connection choice
+and return-to-hub completion intentionally reject paused Gemini-only semantics.
+The exact-revision gate caught these after the normal merge; no wildcard or
+unrelated action retirement was added.
 The final focused packs pass 71 backend, 106 frontend and 461 Back cases;
 TypeScript and generated UI parity pass. Independent source/AST review qualifies
 exactly ten inherited or composed size measurements under unchanged architecture
