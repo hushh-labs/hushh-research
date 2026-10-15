@@ -1,5 +1,48 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+/** Gesture settlement must release its inline overrides before CSS motion is sampled. */
+export async function expectPaneMotionReleased(pane: Locator) {
+  await expect.poll(() => pane.evaluate(element =>
+    ["transition", "transform", "translate", "visibility", "will-change"]
+      .every(property => !(element as HTMLElement).style.getPropertyValue(property)),
+  )).toBe(true);
+  await pane.evaluate(async element => {
+    element.getBoundingClientRect();
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+}
+
+/** Sample the real fixture action after a painted baseline, retaining intermediate frames. */
+export async function sampleHistoryMotion(page: Page, action: "open" | "close") {
+  return page.evaluate(async action => {
+    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+    const main = document.querySelector("main")!;
+    const nav = document.querySelector("[data-fixture-bottom-bar]")!;
+    const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
+    const width = panel.offsetWidth;
+    const frames: { elapsed: number; x: number }[] = [];
+    const start = performance.now();
+    const finished = new Promise<void>(resolve => {
+      const sample = () => {
+        const elapsed = performance.now() - start;
+        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
+        if (elapsed < (action === "open" ? 360 : 260)) requestAnimationFrame(sample); else resolve();
+      };
+      requestAnimationFrame(sample);
+    });
+    if (action === "open") {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find(button => button.textContent === "Open drawer")!.click();
+    } else {
+      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }
+    await finished;
+    return { frames, width, restingX: panel.offsetLeft, before,
+      after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
+      shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
+  }, action);
+}
+
 export async function expectPaneRestingAtFrame(page: Page, pane: Locator, leftSafeInset = 0) {
   const inset = Math.max((await profileFrame(page)).x, leftSafeInset);
   await expect.poll(() => pane.evaluate((element, x) => Math.abs(element.getBoundingClientRect().left - x), inset)).toBeLessThanOrEqual(1);

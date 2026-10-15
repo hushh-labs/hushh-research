@@ -1,4 +1,4 @@
-import { profileFrame, expectPaneRestingAtFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
+import { profileFrame, expectPaneRestingAtFrame, expectPaneMotionReleased, sampleHistoryMotion, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
 import { expect, test, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -412,34 +412,15 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   await page.setViewportSize({ width: 393, height: 852 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await mountAppChrome(page, 74);
-  await page.locator("[data-agent-history-drawer]").waitFor({ state: "attached" });
-  const motion = await page.evaluate(async () => {
-    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-    const main = document.querySelector("main")!;
-    const nav = document.querySelector("[data-fixture-bottom-bar]")!;
-    const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
-    const width = panel.offsetWidth;
-    const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-      .find(button => button.textContent === "Open drawer")!;
-    trigger.click();
-    const frames: { elapsed: number; x: number }[] = [];
-    const start = performance.now();
-    await new Promise<void>(resolve => {
-      const sample = () => {
-        const elapsed = performance.now() - start;
-        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
-        if (elapsed < 360) requestAnimationFrame(sample); else resolve();
-      };
-      requestAnimationFrame(sample);
-    });
-    return { frames, width, restingX: panel.offsetLeft, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y] };
-  });
+  const dialog = page.locator("[data-agent-history-drawer]");
+  await expect(dialog).toHaveAttribute("data-state", "closed");
+  await expectPaneMotionReleased(dialog);
+  const motion = await sampleHistoryMotion(page, "open");
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
   expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1)).toBe(true);
   expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x - motion.restingX)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
-  const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
   await expectPaneRestingAtFrame(page, dialog);
@@ -465,23 +446,10 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   await expectPaneRestingAtFrame(page, dialog);
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
   await expectPaneRestingAtFrame(page, dialog);
-  const exit = await page.evaluate(async () => {
-    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-    // The authored Escape handler closes History without another navigation owner.
-    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    const samples: number[] = [];
-    const start = performance.now();
-    await new Promise<void>(resolve => {
-      const sample = () => {
-        samples.push(panel.getBoundingClientRect().x);
-        if (performance.now() - start < 260) requestAnimationFrame(sample); else resolve();
-      };
-      requestAnimationFrame(sample);
-    });
-    return { samples, width: panel.offsetWidth, shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
-  });
-  expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
-  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width - exit.shadowClearance, 0);
+  await expectPaneMotionReleased(dialog);
+  const exit = await sampleHistoryMotion(page, "close");
+  expect(exit.frames.some(frame => frame.x < -1 && frame.x > -exit.width + 1)).toBe(true);
+  expect(exit.frames.at(-1)!.x).toBeCloseTo(-exit.width - exit.shadowClearance, 0);
 });
 
 for (const { width, safeLeft } of [
