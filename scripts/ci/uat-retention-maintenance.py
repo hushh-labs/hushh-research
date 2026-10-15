@@ -1070,7 +1070,9 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
     if (
         run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
-        or run.get("event") not in {"schedule", "workflow_dispatch"}
+        # repository_dispatch is the hourly clock's tick: the scheduled pass,
+        # queued by the previous pass (capacity-maintenance.yml `next-pass`).
+        or run.get("event") not in {"schedule", "repository_dispatch", "workflow_dispatch"}
         or (run.get("repository") or {}).get("full_name") != repository
         or (run.get("head_repository") or {}).get("full_name") != repository
     ):

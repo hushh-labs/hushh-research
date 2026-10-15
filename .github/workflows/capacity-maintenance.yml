@@ -3,6 +3,14 @@ name: Capacity Maintenance
 on:
   schedule:
     - cron: "17 * * * *"
+  # GitHub delivered only 3-6 of the 24 daily runs of this cron (and of
+  # verify-protected-lists.yml's identical one) on 2026-10-12..14, with median
+  # gaps of 5-6 h and up to 10.6 h. capacity-maintenance-clock.yml checks every
+  # hour, without cloud credentials, and sends this tick only when maintenance
+  # is due, so quiet hours add no run here. A tick carries no inputs and
+  # grants exactly the scheduled pass's authority.
+  repository_dispatch:
+    types: [capacity-maintenance-tick]
   workflow_dispatch:
     inputs:
       environment:
@@ -20,10 +28,11 @@ on:
         default: false
         type: boolean
 
-# Coalesce only scheduled work; manual requests have independent identities.
-# Keep the default one-pending queue here, never cancel an active mutation.
+# Coalesce only scheduled work (cron and clock ticks); manual requests have
+# independent identities. Keep the default one-pending queue here, never
+# cancel an active mutation.
 concurrency:
-  group: capacity-maintenance-${{ github.event_name == 'schedule' && 'scheduled' || github.run_id }}
+  group: capacity-maintenance-${{ (github.event_name == 'schedule' || github.event_name == 'repository_dispatch') && 'scheduled' || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -52,15 +61,26 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Require main and governed manual actor
+        id: authority
         shell: bash
         env:
           RELEASE_ENV: ${{ inputs.environment }}
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          CLOCK_EVENT_TYPE: ${{ github.event.action }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || exit 1
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
+            repository_dispatch)
+              # A tick is the scheduled pass, sent by the clock workflow's
+              # GITHUB_TOKEN; a governed operator may also send one.
+              [[ "$CLOCK_EVENT_TYPE" = capacity-maintenance-tick ]] || exit 1
+              if [[ "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
+                python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+                python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+              fi
+              ;;
             workflow_dispatch)
               [[ "$RELEASE_ENV" = uat || "$RELEASE_ENV" = production ]] || exit 1
               [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
@@ -71,7 +91,7 @@ jobs:
 
       - name: Verify due uat source
         id: uat
-        if: github.event_name == 'schedule' || inputs.environment == 'uat'
+        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.environment == 'uat'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
@@ -80,7 +100,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/uat-retention-source"
       - name: Verify due production source
         id: production
-        if: github.event_name == 'schedule' || inputs.environment == 'production'
+        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.environment == 'production'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
@@ -144,7 +164,7 @@ jobs:
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
-          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+          APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
         run: |
           set -euo pipefail
           flags=()
@@ -227,7 +247,7 @@ jobs:
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
-          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+          APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
         run: |
           set -euo pipefail
           flags=()

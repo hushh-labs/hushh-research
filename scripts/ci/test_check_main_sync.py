@@ -12,6 +12,10 @@ fails any lag; it is the negative control.
 
 Each case builds a throwaway bare origin plus a clone, sets commit ages through
 GIT_COMMITTER_DATE, and runs the real script the way CI does: `sh`, env only.
+
+The gate job checks out the PR head but takes its workflow from the merge
+commit, so it must read the script from that merge commit too. The last case
+runs the job's own step against a head whose script predates the mode.
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/git/check-main-sync.sh"
+CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+GATE_STEP = "      - name: Verify branch freshness against PR base\n"
 HOUR = 3600
 FILES = ("app.txt", "other.txt", "notes.txt")
 
@@ -34,6 +40,17 @@ class Run(NamedTuple):
     code: int
     output: str
     summary: str
+
+
+def gate_step() -> tuple[str, str]:
+    """Return (env block, run script) of the PR gate's freshness step in ci.yml."""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = text.index(GATE_STEP) + len(GATE_STEP)
+    end = text.find("\n\n", start)
+    step = text[start:] if end < 0 else text[start:end]
+    env, _, run = step.partition("        run: |\n")
+    script = "".join(line[10:] + "\n" for line in run.splitlines())
+    return env, script
 
 
 class Repo:
@@ -259,6 +276,74 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
         self.assertEqual(run.code, 1, run.output)
         self.assertIn("[main-sync] BLOCKED", run.output)
         self.assertIn("is behind origin/main by 2 commit(s)", run.output)
+
+    def test_gate_step_runs_the_script_from_the_merge_commit_not_the_head(self) -> None:
+        # Regression of 2026-10-15 (run 38659836145): the workflow, taken from
+        # refs/pull/N/merge, set MAIN_SYNC_MODE=bounded, while the job ran the
+        # head's own copy of the script, cut before that mode existed.
+        env_block, step = gate_step()
+        self.assertIn("MAIN_SYNC_SCRIPT_SHA: ${{ github.sha }}\n", env_block)
+
+        repo = self.repo
+        old_script = (
+            "case \"$MAIN_SYNC_MODE\" in block|warn) ;; *)\n"
+            "  echo \"Unsupported MAIN_SYNC_MODE '$MAIN_SYNC_MODE'. Use 'block' or 'warn'.\"; exit 1 ;;\n"
+            "esac\n"
+        )
+        script_path = repo.work / "scripts/git/check-main-sync.sh"
+        script_path.parent.mkdir(parents=True)
+        script_path.write_text(old_script, encoding="utf-8")
+        repo.commit(FILES, 3, "main")
+        repo.git("checkout", "-q", "-b", "feature")
+        head = repo.commit(("app.txt",), 2.5, "feature")
+        repo.git("checkout", "-q", "main")
+        script_path.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+        tested = repo.commit(("other.txt",), 2, "main")
+        # GitHub's refs/pull/1/merge: the head merged onto the tested base. Only
+        # origin has it, as on a runner, so the step must fetch it by SHA.
+        repo.git("checkout", "-q", "--detach", tested)
+        repo.git("merge", "-q", "--no-ff", "--no-verify", "-m", "Merge feature", "feature")
+        merge = repo.git("rev-parse", "HEAD")
+        repo.git("push", "-q", "origin", "main", "feature", f"{merge}:refs/pull/1/merge")
+
+        runner = repo.root / "runner"
+        temp = repo.root / "runner-temp"
+        temp.mkdir()
+        subprocess.run(
+            ["git", "clone", "-q", "--no-local", "--no-checkout", str(repo.root / "origin.git"), str(runner)],
+            env=repo.env, check=True,
+        )
+        subprocess.run(["git", "checkout", "-q", "--detach", head], cwd=runner, env=repo.env, check=True)
+        missing = subprocess.run(
+            ["git", "cat-file", "-e", f"{merge}^{{commit}}"], cwd=runner, env=repo.env, capture_output=True
+        )
+        self.assertNotEqual(missing.returncode, 0, "the merge commit must be absent before the step fetches it")
+        step_file = repo.root / "gate-step.sh"
+        step_file.write_text(step, encoding="utf-8")
+        env = {
+            **repo.env,
+            "MAIN_SYNC_REMOTE": "origin",
+            "MAIN_SYNC_BRANCH": "main",
+            "MAIN_SYNC_MODE": "bounded",
+            "MAIN_SYNC_TESTED_BASE_SHA": tested,
+            "MAIN_SYNC_CURRENT_BRANCH": "feature",
+            "MAIN_SYNC_SCRIPT_SHA": merge,
+            "RUNNER_TEMP": str(temp),
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_STEP_SUMMARY": str(repo.root / "summary.md"),
+        }
+
+        def run(command: list[str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(command, cwd=runner, env=env, capture_output=True, text=True)
+
+        fixed = run(["bash", "-e", str(step_file)])
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("::warning title=Branch Freshness Advisory::", fixed.stdout + fixed.stderr)
+
+        # Negative control: the step as it was runs the head's copy and fails.
+        old = run(["sh", "scripts/git/check-main-sync.sh"])
+        self.assertEqual(old.returncode, 1, old.stdout + old.stderr)
+        self.assertIn("Unsupported MAIN_SYNC_MODE 'bounded'", old.stdout + old.stderr)
 
 
 if __name__ == "__main__":
