@@ -4052,3 +4052,15 @@ cannot guarantee that independently running clients will not request admission.
 No purchases, withdrawals or refunds are established by these source checks.
 The latest verified funding remains $10.50 per reviewer and $15 operating capital;
 these settled actions must not be repeated. Live payment admission stays disabled.
+
+
+The latest full core on `75eae4c391c6` passes governance, 20,245 protocol
+cases and 1,266 serial PostgreSQL cases (135 existing skips, three expected
+failures). Web verification then rejects five raw accent declarations in incoming
+onboarding CSS. Those now consume the existing accent/foreground tokens; no
+allowlist or gate is relaxed. Frontend core, MCP and integration continue on the
+CSS-only correction; backend source evidence remains applicable. Actual
+broken-code controls reject removal of stream placement admission, progress
+retirement and suppressed-session listener cleanup, then restore canonical bytes.
+A read-only provider observation at `2026-10-15T14:00:41Z` again confirms the
+same funded amounts, balanced liabilities, sufficient backing and fee conservation.
