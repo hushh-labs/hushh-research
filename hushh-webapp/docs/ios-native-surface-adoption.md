@@ -24,9 +24,9 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `a0d8fd0a27`, preserving the compact shared header and native draft ports
+through `812974bf48`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
-the shared Live Memory preview.
+the shared Live Memory preview and upstream referral/schema corrections.
 
 The ordinary Capacitor/React renderer remains the default for custom controls.
 Development qualification uses `HUSHH_NATIVE_SHELL_QUALIFICATION` (or the
