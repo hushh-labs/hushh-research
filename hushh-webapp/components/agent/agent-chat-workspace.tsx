@@ -4346,7 +4346,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         type: "calendar.invitations", filter: "all", calendarId: invitation.calendarId,
         eventId: invitation.eventId, decision: invitation.decision || "offer_times", accountEmail: invitation.accountEmail, timeZone: invitation.timeZone,
         startAt: invitation.startAt, endAt: invitation.endAt,
-      } }, message: invitation.request || "Review this invitation.", stateChanged: true });
+      } }, message: invitation.request || "Review this invitation.", stateChanged: true,
+        sourceAssistantMessageId: `handoff-${handoff.id}-assistant` });
       setMessages(current => [...current, ...(invitation.request ? [{ id: `handoff-${handoff.id}-user`, role: "user" as const, timestamp, sentAtMs, text: invitation.request, status: "done" as const }] : []), { id: `handoff-${handoff.id}-assistant`, role: "assistant", timestamp, sentAtMs,
         text: "Review this invitation below. I'll ask you to confirm before changing your response or sending Mail.",
         status: "done", renderAsPlainAssistantMessage: true }]);
