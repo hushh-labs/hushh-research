@@ -175,3 +175,28 @@ async def test_rerun_and_order_shuffle_checks_are_recorded():
 
     # Same evidence, possibly reordered, with references reassigned by position.
     assert texts(primary) == texts(shuffled)
+
+
+async def test_provider_rate_limits_are_retried_but_other_errors_are_not():
+    from hushh_eval.drive_packets.judge import with_retries
+
+    calls, waits = [], []
+
+    async def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("429 RESOURCE_EXHAUSTED")
+        return "answer"
+
+    async def no_sleep(delay):
+        waits.append(delay)
+
+    assert await with_retries(flaky, sleep=no_sleep) == "answer"
+    assert len(calls) == 3 and waits == [4.0, 12.0]
+
+    async def broken():
+        raise ValueError("400 INVALID_ARGUMENT")
+
+    with pytest.raises(ValueError):
+        await with_retries(broken, sleep=no_sleep)
+    assert waits == [4.0, 12.0]

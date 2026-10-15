@@ -352,6 +352,29 @@ def reliability(rows: list[JudgmentRow]) -> dict:
     }
 
 
+RETRY_DELAYS = (4.0, 12.0, 30.0)
+
+
+async def with_retries(call, *, delays=RETRY_DELAYS, sleep=None):
+    """Retry provider rate limits and transient 5xx; a provider failure is not a verdict."""
+    import asyncio
+
+    from hushh_eval.drive_packets.usage import is_rate_limited
+
+    sleep = sleep or asyncio.sleep
+    for attempt in range(len(delays) + 1):
+        try:
+            return await call()
+        except Exception as error:
+            transient = is_rate_limited(error) or any(
+                code in str(error) for code in ("503", "UNAVAILABLE", "500 INTERNAL")
+            )
+            if not transient or attempt == len(delays):
+                raise
+            await sleep(delays[attempt])
+    raise AssertionError("unreachable")
+
+
 class FakeJudge:
     """Deterministic CI judge: passes with an exact quote unless told otherwise."""
 
@@ -427,8 +450,10 @@ class VertexJudge:
             thinking_config=thinking,
             max_output_tokens=8192,
         )
-        response = await self._client.aio.models.generate_content(
-            model=self.model, contents=prompt, config=config
+        response = await with_retries(
+            lambda: self._client.aio.models.generate_content(
+                model=self.model, contents=prompt, config=config
+            )
         )
         if response.model_version and not response.model_version.startswith(self.model):
             raise JudgeConfigError("judge_model_version_mismatch")

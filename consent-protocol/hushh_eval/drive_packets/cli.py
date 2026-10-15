@@ -32,6 +32,13 @@ from hushh_eval.drive_packets.contracts import (
 from hushh_eval.drive_packets.privacy import PrivacyError, PrivateWorkdir, keyed
 
 COMMANDS = ("plan-batch", "run-batch", "judge", "label", "score", "report", "gate")
+VERDICT_ERRORS = {
+    "judge_schema_invalid",
+    "judge_citation_invalid",
+    "judge_fail_without_reason",
+    "judge_pass_with_failures",
+    "judge_fail_without_citation",
+}
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "tests/fixtures/drive_pipeline_eval/manifest-v2.json"
 RUNTIME_MODEL = "gemini-3.6-flash"
@@ -389,9 +396,26 @@ async def _judge(args) -> int:
     details = batch.private_json("details.json", {})
     facts = batch.private_json("facts_private.json", {})
     packets = read_rows(batch.file("packets.jsonl"), PacketRow)
+    judgments = read_rows(batch.file("judgments.jsonl"), JudgmentRow)
+    if args.retry_provider_errors:
+        # A provider failure (rate limit, outage) is not a verdict: judge again.
+        failed = {
+            row.packet_key
+            for row in judgments
+            if row.judge_id in {"J1", "J2"}
+            and row.error_code
+            and row.error_code not in VERDICT_ERRORS
+        }
+        judgments = [row for row in judgments if row.packet_key not in failed]
+        replace_rows(batch.file("judgments.jsonl"), judgments)
+        queue_rows = read_rows(batch.file("queue.jsonl"), QueueRow)
+        replace_rows(
+            batch.file("queue.jsonl"),
+            [row for row in queue_rows if row.subject.removeprefix("packet:") not in failed],
+        )
     done = {
         row.packet_key
-        for row in read_rows(batch.file("judgments.jsonl"), JudgmentRow)
+        for row in judgments
         if row.variant == "consensus" or row.judge_id == "deterministic"
     }
     semaphore = asyncio.Semaphore(args.concurrency)
@@ -737,6 +761,11 @@ def parser() -> argparse.ArgumentParser:
     judge.add_argument("--judge", choices=("vertex", "fake"), default="vertex")
     judge.add_argument("--vertex-project", default=VERTEX_PROJECT)
     judge.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
+    judge.add_argument(
+        "--retry-provider-errors",
+        action="store_true",
+        help="Judge again packets whose judge call failed at the provider (not a verdict)",
+    )
     judge.set_defaults(func=cmd_judge)
 
     label = base("label", "Deterministic labels, blind pre-labels, silver and the human queue")
