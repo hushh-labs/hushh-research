@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import type { LiveMirrorClaim, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
 
 const m = vi.hoisted(() => ({
@@ -59,6 +59,8 @@ const T0 = "2026-10-15T10:00:00.000Z";
 const T1 = "2026-10-15T10:01:00.000Z";
 const NOW = "2026-10-15T10:02:00.000Z";
 const UPDATED = "2026-10-15T09:30:00.000Z";
+/** Four minutes after NOW: a later read of the same build, still inside the profile's freshness window. */
+const READ_LATER = "2026-10-15T10:06:00.000Z";
 type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
 
 const profile = (name: string, owner = "owner-a"): LivingSourceInput => ({
@@ -105,9 +107,13 @@ function mirror(options: {
   });
   return applyLiveMirrorReadTime(projection, options.readAt ?? NOW, options.status ?? "current");
 }
-/** (a) memory.md, at revision 9, names the owner "Ankit K"; the verified profile says "Ankit Kumar". */
+/**
+ * (a) memory.md, at revision 9, names the owner "Ankit K"; the verified profile says "Ankit Kumar".
+ * Read four minutes after the build, so a check time shows whether it follows the read or the build.
+ */
 const nameConflictView = () => mirror({
   steps: [{ inputs: [profile("Ankit Kumar")], kinds: ["profile"], now: T1 }],
+  readAt: READ_LATER,
   document: { freshness: [
     { domain: "one_memory", title: "Identity facts", status: "conflicted", contentRevision: 9, updatedAt: T0, cardCount: 1 },
   ] },
@@ -329,7 +335,8 @@ describe("Profile Live Mirror", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Needs your review");
     const name = row("Sources disagree", "Name");
     expect(within(name).getByText(`Your memory: Ankit K · Changed ${formatLiveMirrorDateTime(T0)} · Version 9`)).toBeInTheDocument();
-    expect(within(name).getByText("Profile: Ankit Kumar · Checked 1 min ago · Version 1")).toBeInTheDocument();
+    // Checked at T1 and read at READ_LATER: 5 min, not the 1 min between the check and the build.
+    expect(within(name).getByText("Profile: Ankit Kumar · Checked 5 min ago · Version 1")).toBeInTheDocument();
     // The heading says it once: no badge on its rows, and no separate "Review" group.
     expect(within(group("Sources disagree")).queryByText("Needs review")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Review" })).toBeNull();
@@ -337,7 +344,7 @@ describe("Profile Live Mirror", () => {
     fireEvent.click(within(name).getByRole("button"));
     const dialog = screen.getByRole("dialog", { name: "Source details" });
     expect(within(rowIn(dialog, "Your memory: Ankit K")).getByText(`Changed ${formatLiveMirrorDateTime(T0)} · Version 9`)).toBeInTheDocument();
-    expect(within(rowIn(dialog, "Profile: Ankit Kumar")).getByText("Checked 1 min ago · Version 1")).toBeInTheDocument();
+    expect(within(rowIn(dialog, "Profile: Ankit Kumar")).getByText("Checked 5 min ago · Version 1")).toBeInTheDocument();
     // One link per place a side is fixed, in claim order, each titled by where it goes.
     expect(within(dialog).getAllByRole("link").map(link => link.getAttribute("href"))).toEqual(["/one/pkm", "/one/profile/account"]);
     expect(within(dialog).getByRole("link", { name: "Edit memory.md" })).toHaveAttribute("href", "/one/pkm");
@@ -379,6 +386,21 @@ describe("Profile Live Mirror", () => {
     const route = liveMirrorSourceRoute("document_request_payment")!;
     expect(within(dialog).getAllByRole("link")).toHaveLength(1);
     expect(within(dialog).getByRole("link", { name: route.label })).toHaveAttribute("href", route.href);
+  });
+
+  it("never shows a disagreement about another person's identifier, even in a view that skipped read time", () => {
+    // Build and read time both drop these; this view stands in for one that did not.
+    const side = (copy: number, value: string): LiveMirrorClaim => ({ source: "document_request_payment", origin: "record",
+      label: `Document payment 1, copy ${copy}`, value, revision: 1, sourceUpdatedAt: UPDATED, verifiedAt: T1 });
+    m.view = {
+      ...mirror({ steps: [{ inputs: [profile("Ankit Kumar"), payment("p1", 1_234)], kinds: ["profile", "document_request_payment"], now: T1 }] }),
+      conflicts: [
+        { predicate: "document_request_payment.counterpartRef", label: "Person", claims: [side(1, "PERSON_REF_X"), side(2, "PERSON_REF_Y")] },
+      ],
+    };
+    render(<LivingMemoryDocument />);
+    expect(screen.queryByRole("heading", { name: "Sources disagree" })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
 
   it("sends each source and record to where it is fixed, titled by where it goes", () => {

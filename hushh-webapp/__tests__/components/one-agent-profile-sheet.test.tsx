@@ -72,6 +72,8 @@ const item = (id: string, event_type: string) => ({
 const T0 = "2026-10-15T09:58:00.000Z";
 const T = "2026-10-15T10:00:00.000Z";
 const READ = "2026-10-15T10:00:30.000Z";
+/** Five minutes after the build: a later read of the same view, still inside its freshness window. */
+const READ_LATER = "2026-10-15T10:05:00.000Z";
 type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
 const person = (ownerId: string, name: string, email: string | null = "a@example.test"): LivingSourceInput => ({
   kind: "profile", id: ownerId, createdAt: null, updatedAt: T0, value: { name, email },
@@ -377,6 +379,7 @@ describe("One agent profile feed preview", () => {
       steps: [{ inputs: [person(uid, "Ankit Kumar"), payment("p1", 1_234)], kinds: ["profile", "document_request_payment"], now: T }],
       inventory: disagreeingPaymentCopy,
       extra: NAME_CONFLICT,
+      readAt: READ_LATER,
     }));
     const view = render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     openProfileTab();
@@ -387,9 +390,10 @@ describe("One agent profile feed preview", () => {
     const [name, amount] = screen.getAllByTestId("live-mirror-conflict");
     expect([rowTitle(name!), rowTitle(amount!)]).toEqual(["Name", "Amount"]);
     // One claim per line, worded as on Profile, each with when it was checked or changed.
+    // Checked at the build and read five minutes later: the check time follows the read.
     expect(lines(name!)).toEqual([
       `Your memory: Ankit K · Changed ${formatLiveMirrorDateTime(T0)} · Version 9`,
-      "Profile: Ankit Kumar · Checked just now · Version 1",
+      "Profile: Ankit Kumar · Checked 5 min ago · Version 1",
     ]);
     // Money reads in each copy's own currency.
     expect([euros(1_234), euros(5_678)]).toEqual(["€12.34", "€56.78"]);
