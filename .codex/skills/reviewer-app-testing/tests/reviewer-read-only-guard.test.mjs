@@ -370,7 +370,6 @@ test("the rehearsal entrypoint cannot gain blanket spending or choose ambient de
   assert.throws(() => parseCommerceArguments([...argumentsList, "--approve-action", "all"]), /EXACT_OPERATOR_ACTION_INVALID/);
 });
 
-
 test("human authentication admits exact provider exchanges but never custom-token minting or payments", async () => {
   let handler;
   const guard = await installReadOnlyMutationGuard({ route: async (_pattern, callback) => { handler = callback; } },
