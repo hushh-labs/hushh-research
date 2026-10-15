@@ -15,7 +15,7 @@ from pathlib import Path
 from generate_location_onboarding_runtime_schema_contracts import table_columns
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "350_consumer_scope_commerce.sql"
+MIGRATION_NAME = "351_consumer_scope_commerce.sql"
 MANIFEST_PATH = ROOT / "db" / "release_migration_manifest.json"
 CONTRACT_LANES = {
     "prod_core_schema.json": "base",
@@ -36,7 +36,7 @@ def expected_contracts() -> dict[Path, dict]:
     if not tables or len(tables) != len(set(tables)):
         raise ValueError("Invalid scope commerce table declarations")
     projections = table_columns(migration, table_names=tables)
-    placement = (ROOT / "db/migrations/353_one_placement_reader_foundation.sql").read_text()
+    placement = (ROOT / "db/migrations/354_one_placement_reader_foundation.sql").read_text()
     placement_projections = table_columns(
         placement, table_names=("personal_agent_registry", "byoc_setup_jobs")
     )
@@ -45,7 +45,7 @@ def expected_contracts() -> dict[Path, dict]:
         migration,
         re.IGNORECASE,
     )
-    binding_migration = "355_stripe_payout_source_binding.sql"
+    binding_migration = "356_stripe_payout_source_binding.sql"
     functions += re.findall(
         r"\bCREATE\s+OR\s+REPLACE\s+FUNCTION\s+(enforce_stripe_payout_source_binding|scope_commerce_payout_account_claims_v1)\s*\(",
         (ROOT / "db/migrations" / binding_migration).read_text(),

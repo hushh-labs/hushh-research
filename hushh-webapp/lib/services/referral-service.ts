@@ -28,6 +28,7 @@ export type ReferralRow = {
 };
 
 export type ReferralSummary = {
+  joined_count: number;
   total_count?: number;
   next_offset?: number | null;
   slug: string;
@@ -60,6 +61,7 @@ export type BindResult = {
 };
 
 export type ReferralPolicy = {
+  flash_bonus_enabled?: boolean;
   version: number;
   points: { qualified_referral_points: number; flash_window_total_points: number; streak_three_day_bonus_points: number; referral_in_progress_points?: number; referral_qualified_activity_total_points?: number; agent_usage_points?: number; pkm_daily_points?: number; connection_created_points?: number };
   streak_rules: { run_length_days: number; bonus_points: number };
@@ -68,6 +70,8 @@ export type ReferralPolicy = {
 };
 
 export type WeeklyChallenge = {
+  calendar_active?: boolean;
+  campaign_active?: boolean;
   received_at_monotonic?: number;
   server_now?: string;
   round_id?: string;
@@ -98,7 +102,7 @@ export type LeaderboardPage = {
 };
 
 export type CircleLeaderboardEntry = {
-  rank?: number;
+  rank: number;
   member_count?: number;
   qualified_member_count?: number;
   circle_id: string;
@@ -122,6 +126,8 @@ export type NextMilestone = {
 };
 
 export type MilestoneProgress = {
+  joined_referral_count: number;
+  progress_basis?: "joined_referrals";
   available_milestones?: Omit<NextMilestone, "progress">[];
   lifetime_qualified_count: number;
   earned: EarnedMilestone[];
@@ -134,6 +140,8 @@ export type EngagementStatus = {
 };
 
 export type CircleSelection = {
+  status?: "preview" | "available";
+  competition_active?: boolean;
   circle_name?: string;
   rank?: number;
   member_count?: number;
@@ -145,7 +153,7 @@ export type CircleSelection = {
 
 export const ReferralService = {
   async recordAppOpen(opts: { idToken: string }): Promise<{ activity_date: string; timezone: string; server_now: string; next_day_at: string }> {
-    return apiJson("/api/one/referrals/app-open", { method: "POST", headers: { Authorization: `Bearer ${opts.idToken}` } });
+    return apiJson("/api/one/referrals/app-open", { method: "POST", headers: { Authorization: `Bearer ${opts.idToken}`, "Content-Type": "application/json" }, body: JSON.stringify({surface:"referral_dashboard"}) });
   },
 
   async claimReward(opts: { idToken: string; milestoneKey: string }): Promise<{ status: string }> {
@@ -160,13 +168,17 @@ export const ReferralService = {
    * surfaces as "Unable to load".
    */
   async getSummary(opts: { idToken: string }): Promise<ReferralSummary> {
-    return apiJson<ReferralSummary>("/api/one/referrals/summary", {
+    const result = await apiJson<ReferralSummary>("/api/one/referrals/summary", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${opts.idToken}`,
       },
     });
+    if (!Number.isSafeInteger(result.joined_count) || result.joined_count < 0) {
+      throw new Error("Joined referral totals are unavailable");
+    }
+    return result;
   },
 
   /** Revoke the presented referral QR; preserve earned referrals and progress. */
@@ -207,17 +219,21 @@ export const ReferralService = {
     });
   },
 
-  /** This person's own recorded point total, summed live from the ledger --
+  /** This person's own recorded earned Coins, summed live from the ledger --
    * independent of the published leaderboard snapshot. Correct for an
    * unranked account or one whose points posted after the latest snapshot. */
   async getPoints(opts: { idToken: string }): Promise<{ points: number; coins: number }> {
-    return apiJson<{ points: number; coins: number }>("/api/one/referrals/points", {
+    const result = await apiJson<{ points: number; coins: number }>("/api/one/referrals/points", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${opts.idToken}`,
       },
     });
+    if (!Number.isSafeInteger(result.coins) || result.coins !== result.points) {
+      throw new Error("Lifetime Coins are unavailable");
+    }
+    return result;
   },
 
   /** One page of the published cumulative leaderboard. The caller's own row
@@ -249,7 +265,7 @@ export const ReferralService = {
   async getCircleLeaderboard(opts: {
     idToken: string;
   }): Promise<{ teams: CircleLeaderboardEntry[] }> {
-    return apiJson<{ teams: CircleLeaderboardEntry[] }>(
+    const result = await apiJson<{ teams: CircleLeaderboardEntry[]; status: string; competition_active: boolean }>(
       "/api/one/referrals/circles/leaderboard",
       {
         method: "GET",
@@ -259,6 +275,10 @@ export const ReferralService = {
         },
       },
     );
+    if (result.status !== "preview" || result.competition_active !== false || result.teams.length !== 0) {
+      throw new Error("Referral team standings are unavailable");
+    }
+    return result;
   },
 
   /** This person's lifetime milestone progress and earned merchandise. */
@@ -331,17 +351,20 @@ export const ReferralService = {
 
   /** This person's current referral-contest team, if any. */
   async getCircleSelection(opts: { idToken: string }): Promise<CircleSelection> {
-    return apiJson<CircleSelection>("/api/one/referrals/circle", {
+    const result = await apiJson<CircleSelection>("/api/one/referrals/circle", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${opts.idToken}`,
       },
     });
+    if (result.status !== "preview" || result.competition_active !== false || result.circle_id !== null) {
+      throw new Error("Referral team membership is unavailable");
+    }
+    return result;
   },
 
-  /** Select this person's one active referral-contest team. Requires
-   * accepted membership in that Location Circle already. */
+  /** Preview gate: team selection remains unavailable until opt-in policy approval. */
   async selectCircle(opts: {
     idToken: string;
     circleId: string;

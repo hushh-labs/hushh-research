@@ -28,8 +28,8 @@ pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL 
 
 MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_hosting_choice.sql"
 CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
-RELEASE_CHOICE = MIGRATION.parent.parent / "351_one_shared_hosting_choice.sql"
-RELEASE_DOWN = MIGRATION.parent.parent / "rollback/351_one_shared_hosting_choice.rollback.sql"
+RELEASE_CHOICE = MIGRATION.parent.parent / "352_one_shared_hosting_choice.sql"
+RELEASE_DOWN = MIGRATION.parent.parent / "rollback/352_one_shared_hosting_choice.rollback.sql"
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """
@@ -283,8 +283,8 @@ async def test_release_only_first_run_observes_absent_pods_and_records_shared(pg
 
 
 def test_canonical_reader_and_continuity_sequence_preserves_placements_and_replay(pg):
-    foundation = MIGRATION.parent.parent / "353_one_placement_reader_foundation.sql"
-    continuity = MIGRATION.parent.parent / "354_one_legacy_shared_continuity.sql"
+    foundation = MIGRATION.parent.parent / "354_one_placement_reader_foundation.sql"
+    continuity = MIGRATION.parent.parent / "355_one_legacy_shared_continuity.sql"
     # The canonical placement migration reinstalls the account-erasure guards.
     # Exercise that real predecessor, rather than inventing a no-op installer.
     pg.execute("CREATE TABLE actor_profiles (user_id TEXT PRIMARY KEY)")

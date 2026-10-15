@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
+from hushh_mcp.operons.referral.joined import JOINED_REFERRAL_PREDICATE
 from hushh_mcp.operons.referral_scoring.milestones import milestones_newly_earned
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,16 @@ def lifetime_qualified_count(connection, user_id: str) -> int:
              WHERE referrer_user_id = :uid AND status = 'qualified'
             """
         ),
+        {"uid": user_id},
+    ).fetchone()
+    return int(row.total) if row else 0
+
+
+def lifetime_joined_count(connection, user_id: str) -> int:
+    row = connection.execute(
+        text(f"""SELECT COUNT(DISTINCT r.referred_user_id) AS total
+          FROM one_referral_relationships r
+          WHERE r.referrer_user_id=:uid AND {JOINED_REFERRAL_PREDICATE}"""),  # nosec B608 # Authored constant predicate; owner ID is bound.
         {"uid": user_id},
     ).fetchone()
     return int(row.total) if row else 0

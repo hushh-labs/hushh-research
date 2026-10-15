@@ -75,6 +75,8 @@ export function useReferralStream(
 
         attempt = 0;
         setConnected(true);
+        // Recover changes missed between the last read and this subscription.
+        onChangeRef.current();
 
         const reader = response.body.getReader();
         activeReader = reader;

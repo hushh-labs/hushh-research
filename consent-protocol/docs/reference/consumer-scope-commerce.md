@@ -4191,3 +4191,11 @@ sensitive-information withholding remains the default. The private-pod sharing
 continuation adapter and owner identifier-processing opt-in remain implementation
 work. Recipient use stays tied to the granted information; it does not silently
 create a permanent recipient PKM copy. Rehearsals use synthetic identifiers only.
+
+Latest main integration (`812974bf4875`) preserves its published referral migrations
+348/349. The unpublished branch tail was relocated byte-for-byte from 349–355
+to 350–356 with its prior manifest, SQL and rollback bodies archived in
+`db/legacy/scope-commerce-infrastructure-ffd69db5/`. Read-only checks on
+2026-10-15 found no accepted ledger identities or baselines in that range on
+Dev, UAT or production. Existing preservation evidence remains unchanged;
+release and database preservation checks remain required.

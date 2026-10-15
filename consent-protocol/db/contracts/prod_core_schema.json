@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 355,
+  "expected_migration_version": 356,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -91,6 +91,7 @@
     "one_referral_bind_network",
     "one_referral_record_completed_reply",
     "one_referral_rebuild_network",
+    "one_referral_record_confirmed_memory_reward",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -117,8 +118,8 @@
       "user_id_hash"
     ],
     "account_identity_presence": [
-      "user_id_hash",
-      "first_observed_at"
+      "first_observed_at",
+      "user_id_hash"
     ],
     "account_legal_acceptances": [
       "accepted_at",
@@ -547,11 +548,11 @@
       "wrapped_key_bundle"
     ],
     "contact_sync_lookup_budgets": [
-      "user_id",
       "bucket_kind",
       "bucket_start",
       "lookup_count",
-      "updated_at"
+      "updated_at",
+      "user_id"
     ],
     "conversations": [
       "created_at",
@@ -1690,24 +1691,24 @@
       "user_id"
     ],
     "kai_run_state": [
+      "cancel_requested_at",
+      "completed_at_iso",
+      "created_at",
+      "expires_at",
+      "finished_at",
+      "heartbeat_at",
+      "progress",
+      "relay_ciphertext",
+      "relay_public_key",
       "run_id",
-      "user_id",
       "run_kind",
       "session_id",
-      "ticker",
+      "started_at_iso",
       "status",
       "terminal_event",
       "terminal_receipt",
-      "progress",
-      "started_at_iso",
-      "completed_at_iso",
-      "heartbeat_at",
-      "finished_at",
-      "cancel_requested_at",
-      "relay_public_key",
-      "relay_ciphertext",
-      "created_at",
-      "expires_at"
+      "ticker",
+      "user_id"
     ],
     "live_memory_connector_events": [
       "event_id",
@@ -1889,29 +1890,29 @@
       "user_id"
     ],
     "one_capability_runs": [
-      "run_id",
-      "schema_version",
-      "user_id",
       "capability_id",
       "capability_version",
-      "graph_revision",
-      "status",
-      "step_cursor",
       "context_revision",
+      "created_at",
       "expected_context_revision",
-      "pending_interaction",
-      "pending_directive_id",
+      "expires_at",
+      "graph_revision",
       "idempotency_key",
-      "slots_hmac",
+      "pending_directive_id",
+      "pending_interaction",
+      "revision",
+      "run_id",
+      "schema_version",
+      "settlement_reference_hmac",
+      "slots_algorithm",
       "slots_ciphertext",
+      "slots_hmac",
       "slots_iv",
       "slots_tag",
-      "slots_algorithm",
-      "settlement_reference_hmac",
-      "revision",
-      "expires_at",
-      "created_at",
-      "updated_at"
+      "status",
+      "step_cursor",
+      "updated_at",
+      "user_id"
     ],
     "one_email_kyc_preferences": [
       "automatic_response_preparation_enabled",
@@ -2177,77 +2178,77 @@
       "user_b_id"
     ],
     "one_location_onboarding_drafts": [
-      "draft_id",
-      "schema_version",
-      "user_id",
-      "run_id",
-      "workflow_version",
-      "graph_revision",
-      "run_revision",
       "content_digest",
-      "status",
       "created_at",
-      "expires_at"
+      "draft_id",
+      "expires_at",
+      "graph_revision",
+      "run_id",
+      "run_revision",
+      "schema_version",
+      "status",
+      "user_id",
+      "workflow_version"
     ],
     "one_location_onboarding_interactions": [
-      "lease_id",
-      "directive_id",
-      "schema_version",
-      "user_id",
-      "run_id",
-      "workflow_version",
-      "step_cursor",
-      "run_revision",
-      "context_revision",
-      "surface_id",
-      "resume_surface_id",
       "allowed_actions_digest",
-      "issued_at",
-      "expires_at",
       "consumed_at",
+      "context_revision",
+      "directive_id",
+      "expires_at",
+      "issued_at",
+      "lease_id",
       "outcome_code",
-      "result_digest"
+      "result_digest",
+      "resume_surface_id",
+      "run_id",
+      "run_revision",
+      "schema_version",
+      "step_cursor",
+      "surface_id",
+      "user_id",
+      "workflow_version"
     ],
     "one_location_onboarding_receipts": [
-      "receipt_id",
-      "schema_version",
-      "user_id",
-      "run_id",
-      "workflow_version",
-      "step_cursor",
+      "consumed_at",
       "context_revision",
-      "receipt_kind",
-      "outcome_code",
-      "issuer",
       "evidence_digest",
-      "lease_id",
-      "issued_at",
       "expires_at",
-      "consumed_at"
+      "issued_at",
+      "issuer",
+      "lease_id",
+      "outcome_code",
+      "receipt_id",
+      "receipt_kind",
+      "run_id",
+      "schema_version",
+      "step_cursor",
+      "user_id",
+      "workflow_version"
     ],
     "one_location_pkm_finalize_authorizations": [
       "authorization_id",
+      "committed_request_fingerprint",
+      "consumed_at",
+      "context_revision",
+      "directive_id",
+      "draft_digest",
+      "draft_id",
+      "expected_commit_id",
+      "expires_at",
+      "interaction_result_digest",
+      "issued_at",
+      "lease_id",
+      "place_receipt_evidence_digest",
+      "result_archived_revision_id",
+      "result_content_revision",
+      "result_manifest_revision",
+      "run_id",
+      "run_revision",
       "schema_version",
       "token_sha256",
       "user_id",
-      "run_id",
-      "workflow_version",
-      "run_revision",
-      "context_revision",
-      "lease_id",
-      "directive_id",
-      "draft_id",
-      "draft_digest",
-      "expected_commit_id",
-      "place_receipt_evidence_digest",
-      "interaction_result_digest",
-      "issued_at",
-      "expires_at",
-      "consumed_at",
-      "committed_request_fingerprint",
-      "result_content_revision",
-      "result_manifest_revision",
-      "result_archived_revision_id"
+      "workflow_version"
     ],
     "one_location_place_rating_aggregates": [
       "place_id",
@@ -2439,10 +2440,11 @@
       "source_url"
     ],
     "one_referral_activity_days": [
-      "user_id",
       "activity_date",
+      "dashboard_visited_at",
+      "recorded_at",
       "timezone",
-      "recorded_at"
+      "user_id"
     ],
     "one_referral_events": [
       "scored_at"
@@ -2454,16 +2456,16 @@
       "claimed_at"
     ],
     "one_referral_network_circles": [
+      "created_at",
       "id",
-      "leader_user_id",
-      "created_at"
+      "leader_user_id"
     ],
     "one_referral_network_members": [
-      "user_id",
       "circle_id",
+      "joined_at",
       "parent_user_id",
       "relationship_id",
-      "joined_at"
+      "user_id"
     ],
     "one_referral_policies": [
       "required_product_event"
@@ -2475,8 +2477,11 @@
       "coins"
     ],
     "one_referral_streak_state": [
-      "last_activity_date",
       "current_streak",
+      "dashboard_current_streak",
+      "dashboard_last_activity_date",
+      "dashboard_longest_streak",
+      "last_activity_date",
       "longest_streak"
     ],
     "one_voice_conversations": [
@@ -3636,5 +3641,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 355
+  "expected_schema_head": 356
 }

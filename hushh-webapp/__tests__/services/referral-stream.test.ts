@@ -65,7 +65,7 @@ describe("useReferralStream", () => {
 
     renderHook(() => useReferralStream(fakeUser, onChange));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
   });
 
   it("ignores heartbeats, which are for the connection and not the screen", async () => {
@@ -83,7 +83,7 @@ describe("useReferralStream", () => {
     await waitFor(() => expect(ApiService.apiFetchStream).toHaveBeenCalled());
     // Give the reader a turn before asserting the absence.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("reads events split across chunk boundaries", async () => {
@@ -97,7 +97,7 @@ describe("useReferralStream", () => {
 
     renderHook(() => useReferralStream(fakeUser, onChange));
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
   });
 
   it("reports disconnected when the stream cannot open, so polling resumes", async () => {
