@@ -1,6 +1,9 @@
 # Shared tab snap measurement, 2026-10-15
 
-Canonical owner: [Render performance charter](../render-performance-charter.md).
+## Visual Context
+
+Canonical visual owner: [Mobile Index](../README.md). This measurement follows
+the [Render performance charter](../render-performance-charter.md).
 
 This desktop browser reading uses the production Referrals components and
 `SwipeViews`, with synthetic authentication and service responses. Chromium and
