@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 341,
+  "expected_migration_version": 344,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -78,7 +78,10 @@
     "stamp_drive_owner_payout_held_at",
     "invalidate_drive_collection_sync",
     "invalidate_drive_packet_sources",
-    "pwm_completion_feed_projection"
+    "pwm_completion_feed_projection",
+    "append_live_memory_connector_event",
+    "erase_live_memory_connector_journal_on_root_delete",
+    "erase_hosted_source_envelope_on_grant_change"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1426,6 +1429,51 @@
       "revoked",
       "send_enabled",
       "send_grant_generation"
+    ],
+    "live_memory_connector_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_id",
+      "operation",
+      "schema_version",
+      "occurred_at"
+    ],
+    "live_memory_connector_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
+      "updated_at"
+    ],
+    "live_memory_hosted_pilot_grants": [
+      "user_id",
+      "grant_id",
+      "generation",
+      "source_kind",
+      "source_id",
+      "review_version",
+      "status",
+      "created_at",
+      "updated_at",
+      "reviewed_at",
+      "expires_at",
+      "revoked_at"
+    ],
+    "live_memory_hosted_source_envelopes": [
+      "user_id",
+      "grant_id",
+      "grant_generation",
+      "source_id",
+      "scope_code",
+      "envelope_version",
+      "key_id",
+      "owner_revision",
+      "owner_nonce",
+      "owner_ciphertext",
+      "owner_ciphertext_sha256",
+      "owner_aad_sha256",
+      "created_at",
+      "updated_at"
     ],
     "marketplace_investor_actions": [
       "id",

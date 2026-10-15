@@ -128,7 +128,21 @@ def registered_kinds(records_code: str, sync_code: str) -> tuple[set[str], set[s
     if not re.fullmatch(r'"[a-z][a-z0-9_]*"(?:\s*\|\s*"[a-z][a-z0-9_]*")*', union):
         raise ValueError("LivingSourceInput.kind must remain a static literal union")
     typed = set(re.findall(r'"([a-z][a-z0-9_]*)"', union))
-    emitted = set(re.findall(r'\bkind:\s*"([a-z][a-z0-9_]*)"', sync_code))
+    # Only constructors that produce LivingSourceInput rows count. Query
+    # arguments such as `kind: "all"` and TS exclusion shapes such as
+    # `{ kind: "earning" }` are unrelated to inventory registration.
+    starts = [
+        *re.finditer(r"\b(?:inputs|entries)\.push\(\s*\{", sync_code),
+        *re.finditer(r"\bentries\.set\(\s*[^,()]+,\s*\{", sync_code),
+    ]
+    emitted: set[str] = set()
+    for start in starts:
+        literal = re.match(r'\s*kind:\s*"([a-z][a-z0-9_]*)"\s*,', sync_code[start.end():])
+        if not literal:
+            raise ValueError("LivingSourceInput constructor must begin with a static literal kind")
+        emitted.add(literal.group(1))
+    if not starts:
+        raise ValueError("no LivingSourceInput constructors found")
     if typed != emitted:
         raise ValueError(f"typed and emitted source kinds differ: type={sorted(typed)}, emitted={sorted(emitted)}")
     return typed, emitted
@@ -304,11 +318,18 @@ def self_test(root: Path, sources: list[dict], records_code: str, sync_code: str
         else:
             raise AssertionError("retained inventory capacity mismatch passed")
     try:
-        registered_kinds(records_code, sync_code + '\ninputs.push({ kind: "undeclared" });')
+        registered_kinds(records_code, sync_code + '\ninputs.push({ kind: "undeclared", id: "x" });')
     except ValueError as error:
         assert "typed and emitted" in str(error)
     else:
         raise AssertionError("undeclared runtime emission passed")
+    registered_kinds(records_code, sync_code + '\nconst query = { kind: "all" }; type Earning = { kind: "earning" };')
+    try:
+        registered_kinds(records_code, sync_code + '\ninputs.push({ kind: dynamicKind, id: "x" });')
+    except ValueError as error:
+        assert "static literal kind" in str(error)
+    else:
+        raise AssertionError("dynamic inventory source kind passed")
     outside = dict(code)
     outside["hushh-webapp/lib/pkm/unreviewed-source-writer.ts"] = (
         'PkmWriteCoordinator.saveMergedDomain({ domain: "one_living_sources", '

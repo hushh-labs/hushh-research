@@ -13,7 +13,7 @@ const contractFailure = (field: string) => ({ name: "PayoutContractError", field
 
 const page = (items: unknown[], extra: Record<string, unknown> = {}) => ({
   schemaVersion: 1, mode: "live", kind: "all", asOf: at, currency: "USD", coinsPerDollar: 100,
-  balanceCoins: 911, items, nextCursor: null, reset: false, ...extra,
+  balanceCoins: 911, items, sourceItemCount: items.length, nextCursor: null, reset: false, ...extra,
 });
 const earning = (extra: Record<string, unknown> = {}) => ({
   id: `earning:${requestId}`, kind: "earning", type: "earning", status: "credited", reversalStatus: null, review: null,
@@ -71,6 +71,37 @@ describe("payout activity list", () => {
     apiJson.mockResolvedValueOnce(page([earning(), deposit()], { kind: "coins" }));
     const coins = await PayoutActivityService.list("vault", { kind: "coins", mode: "live", limit: 20 });
     expect(coins.items.map((item) => item.kind)).toEqual(["earning"]);
+  });
+
+  it("refuses lossy or incomplete source reads while preserving the tolerant activity UI", async () => {
+    const query = { kind: "all" as const, mode: "live" as const, limit: 20 };
+    for (const body of [
+      page([earning({ id: "earning:invalid" })]),
+      page([redemption(), redemption()]),
+      page([redemption({ test: true })]),
+      page([redemption({ updatedAt: "invalid" })]),
+      page([redemption({ amountCents: null, coinsDelta: null })]),
+      page([redemption({ status: "future_state" })]),
+      page([deposit({ amountCents: null })]),
+      page([redemption({ id: `reversal:${redemptionId}`, kind: "adjustment",
+        amountCents: null, coinsDelta: -911 })]),
+      page([deposit({ expectedArrivalAt: "invalid" })]),
+    ]) {
+      apiJson.mockResolvedValueOnce(body);
+      await expect(PayoutActivityService.list("vault", query, { sourceRead: true }))
+        .rejects.toMatchObject(contractFailure("sourceRead.items"));
+    }
+    apiJson.mockResolvedValueOnce(page([], { nextCursor: "more" }));
+    await expect(PayoutActivityService.list("vault", query, { sourceRead: true }))
+      .rejects.toMatchObject(contractFailure("sourceRead.completeness"));
+    apiJson.mockResolvedValueOnce(page([], { reset: true }));
+    await expect(PayoutActivityService.list("vault", query, { sourceRead: true }))
+      .rejects.toMatchObject(contractFailure("sourceRead.completeness"));
+    apiJson.mockResolvedValueOnce(page([redemption()], { sourceItemCount: 2 }));
+    await expect(PayoutActivityService.list("vault", query, { sourceRead: true }))
+      .rejects.toMatchObject(contractFailure("sourceRead.completeness"));
+    apiJson.mockResolvedValueOnce(page([earning({ id: "earning:invalid" })]));
+    expect((await PayoutActivityService.list("vault", query)).items).toEqual([]);
   });
 
   it("refuses pages it cannot trust and never sends an invalid query", async () => {

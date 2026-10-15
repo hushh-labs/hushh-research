@@ -7,6 +7,7 @@ import {
   isVaultSessionEpochCurrent,
 } from "@/lib/vault/session-epoch";
 import { AuthService } from "@/lib/services/auth-service";
+import { SourceJournalService } from "@/lib/services/source-journal-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -44,10 +45,15 @@ export function LivingMemoryBridge() {
     let scannedConnectionVersion = 0;
     let payoutHintVersion = 0;
     let scannedPayoutVersion = 0;
+    let activityHintVersion = 0;
+    let scannedActivityVersion = 0;
     let consentHintVersion = 0;
     let scannedConsentVersion = 0;
+    let requestPaymentHintVersion = 0;
+    let scannedRequestPaymentVersion = 0;
     let connectorHintVersion = 0;
     let scannedConnectorVersion = 0;
+    let connectorJournalCursor = "0";
     const stopWatch = watchMemoryFreshness(userId);
     const build = async () => {
       if (stopped || !isVaultSessionEpochCurrent(epoch)) return;
@@ -66,9 +72,27 @@ export function LivingMemoryBridge() {
             sourceDirty = false;
             const idToken = await AuthService.getIdToken();
             if (!idToken) throw new Error("Source authorization unavailable");
+            // Journal hints are committed in source order. Capture the head
+            // before the authoritative overview scan, then checkpoint it only
+            // after the encrypted source projection was stored successfully.
+            // A missed/expired hint forces a full overview instead of guessing
+            // at facts from journal metadata.
+            let journalHead: string | null = null;
+            try {
+              const journal = await SourceJournalService.connectorHead(
+                vaultOwnerToken, connectorJournalCursor,
+              );
+              journalHead = journal.headCursor;
+              if (journal.changed) connectorHintVersion++;
+            } catch {
+              // Verification scans remain available when journal replay is
+              // temporarily unavailable; the next wake retries this cursor.
+            }
             const connectionVersion = connectionHintVersion;
             const payoutVersion = payoutHintVersion;
+            const activityVersion = activityHintVersion;
             const consentVersion = consentHintVersion;
+            const requestPaymentVersion = requestPaymentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
               await syncLivingSources({
@@ -78,13 +102,18 @@ export function LivingMemoryBridge() {
                 idToken,
                 forceConnections: connectionVersion > scannedConnectionVersion,
                 forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                forcePayoutActivity: activityVersion > scannedActivityVersion,
                 forceConsent: consentVersion > scannedConsentVersion,
+                forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
                 forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
               });
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
+              scannedActivityVersion = activityVersion;
               scannedConsentVersion = consentVersion;
+              scannedRequestPaymentVersion = requestPaymentVersion;
               scannedConnectorVersion = connectorVersion;
+              if (journalHead !== null) connectorJournalCursor = journalHead;
             }
           }
           if (stopped || !isVaultSessionEpochCurrent(epoch)) break;
@@ -159,6 +188,9 @@ export function LivingMemoryBridge() {
       const owner = (event as CustomEvent<{ userId?: string }>).detail?.userId;
       if (owner && owner !== userId) return;
       consentHintVersion++;
+      // Committed payment ready, paid and refund document events use this
+      // request-scoped feed signal. The snapshot remains the authority.
+      requestPaymentHintVersion++;
       refreshSources();
     };
     const onNativeConnectorReturn = (event: Event) => {
@@ -175,10 +207,16 @@ export function LivingMemoryBridge() {
       }
     });
     const stopPayoutChanges = subscribePayoutStateChanged((detail) => {
+      let changed = false;
       if (payoutChangeTouches(detail, ["earnings"])) {
         payoutHintVersion++;
-        refreshSources();
+        changed = true;
       }
+      if (payoutChangeTouches(detail, ["wallet", "earnings", "bank_payouts"])) {
+        activityHintVersion++;
+        changed = true;
+      }
+      if (changed) refreshSources();
     });
     window.addEventListener(
       AGENT_CHAT_HISTORY_INVALIDATED_EVENT,

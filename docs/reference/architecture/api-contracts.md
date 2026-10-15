@@ -136,6 +136,90 @@ Hussh Coins balances derive from immutable delivery-settled credits and compensa
 entries. A sandbox redemption never updates a live balance or an old payout.
 See [the document payment contract](../operations/drive-request-stripe-paywall.md).
 
+### Living source connector change journal
+
+`GET /api/one/source-journal/connectors?after=0&limit=100` requires the
+`VAULT_OWNER` token and returns `private, no-store`. `after` is a nonnegative
+decimal cursor and `limit` is 1–100. All cursor and sequence fields are decimal
+strings so native and JavaScript clients retain PostgreSQL `BIGINT` precision.
+The response contains `events` with `eventId`, `sequence`, `sourceId`,
+`operation` (`changed` or `deleted`), `schemaVersion` and `occurredAt`, plus
+`nextCursor`, `headCursor`, `earliestCursor`, `hasMore` and `resetRequired`.
+`earliestCursor` is the oldest cursor from which continuous replay is possible;
+at most 2,048 hints per owner are retained. An old, future or discontinuous
+cursor returns no events and `resetRequired:true`; the client must verify a
+complete authoritative connector overview before checkpointing `headCursor`.
+An account reset erases event content and advances a persistent cursor barrier,
+including when that owner had no prior journal row. Full account erasure removes
+the journal and suppresses later source writes for the deleted identity.
+Hints carry no status, credential, account label, scope or provider payload,
+and neither authorize sharing nor update encrypted memory on their own.
+Invalid cursors and limits return a private 422; unavailable storage returns a
+private 503. Web uses the existing `/api/one` catch-all proxy; native clients
+use the same backend route.
+
+### Hosted Live Memory pilot review intent
+
+`GET`, `POST` and `DELETE /api/one/hosted-memory/pilot` require the authenticated
+owner's `VAULT_OWNER` token and return `private, no-store`. There is no owner ID
+in the URL or request body. `POST` accepts only
+`{"sourceKind":"curated_oauth_connector","sourceId":"hubspot","reviewVersion":"hosted_memory_pilot.v1","expectedGeneration":"0","acknowledgeHostedCustody":true,"acknowledgeSourceScope":true}`.
+`sourceId` must identify a checked-in curated OAuth MCP provider that is still
+active in the operator-owned reviewed connector catalog. The selected provider
+is pinned to this grant generation. A different provider requires a new review
+generation and erases the preceding staged envelope.
+Unknown fields, including attempted vault keys or owner tokens, are rejected
+with a private 422. The response contains `status` (`off`, `pending`, `expired`,
+or `revoked`), an opaque `grantId`, decimal-string `generation`, selected source,
+review version and timestamps. `expectedGeneration` must match the current
+decimal-string generation from GET; the first request uses `"0"`. A delayed
+pre-revocation POST receives a private 409 and cannot rearm the row.
+It always reports `captureEnabled:false` and `workerPaired:false`. A pending
+review expires after 15 minutes. Repeating POST within that window is
+idempotent at the current generation; a fresh request after expiration or
+revocation gets a new grant ID and higher generation. DELETE is idempotent and
+advances the generation on the first revocation; if no review row exists yet,
+it creates a revoked generation-1 fence so a delayed initial POST cannot
+restore pending intent. Owner account reset erases the
+pending record; full account erasure cascades from `vault_keys`.
+
+`PUT /api/one/hosted-memory/pilot/envelope` requires the same owner token and
+stages one owner-encrypted `connector_status.v1` snapshot for the selected
+provider. Its strict body has `grantId`, decimal-string `expectedGeneration`,
+`sourceKind`, `sourceId`, `scope`, `envelopeVersion` (`aes256gcm.pilot.v1`),
+decimal-string `expectedRevision`, UUID-v4 `keyId`, unpadded URL-safe base64
+`nonceBase64Url` (12-byte AES-GCM IV), `ciphertextBase64Url` (ciphertext with
+16-byte tag), and lowercase-hex `aadSha256`. The UTF-8 AAD is exactly
+`hushh-hosted-source-v1\n` + unpadded base64url(owner UID) + `\n` + grant UUID
++ `\n` + decimal generation + `\n` + source ID +
+`\nconnector_status.v1\n` + decimal new revision, without a trailing newline.
+The owner encrypts with a locally owner-wrapped pilot key and a fresh random IV
+for every revision. The server verifies the AAD digest, grant, source and
+revision, but cannot inspect the encrypted status. It rejects reuse of the
+immediately preceding `(keyId, nonce)` pair; the client remains responsible
+for never reusing a key and IV across older revisions. A successful PUT and
+`GET /api/one/hosted-memory/pilot/envelope` return exact ciphertext, digest,
+revision and source metadata with `private, no-store` and
+`captureEnabled:false`, `workerPaired:false`. Stale or changed grants return
+private 409; malformed envelopes return private 422; absent current ciphertext
+returns private 404.
+The owner-side plaintext status before encryption uses
+`not_connected|connected|verifying|needs_reauth|revoked|error`; `not_connected`
+is an authoritative tombstone for future client projection merges.
+The server cannot infer or validate any of these values from ciphertext.
+
+Review and owner staging store no vault key, owner token, plaintext source value,
+DEK, wrapped key, attestation or runtime credential. No route activates a worker,
+releases a key, or authorizes closed-app source reads. A pending review expires
+after 15 minutes and immediately blocks envelope readback and new staging.
+The encrypted row remains in storage after expiry until renewed review, source
+switch, revocation, account reset or full erasure; no expiry purge runs yet.
+Grant change and revocation erase that row transactionally. A missing or
+unavailable table returns a private 503 rather than claiming capture is active.
+The owner-facing enrollment and separately reviewed key-custody protocol in
+[the hosted custody ADR](./hosted-confidential-memory-custody-adr.md) remain
+future work.
+
 ### Wallet Profile lifecycle
 
 The Wallet cards surface and `/one/wallet-card` share the same identity pass
@@ -3517,7 +3601,7 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `GET /api/one/payouts/account/earnings?cursor=…&mode=live\|test` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor; `mode` defaults to the payment mode. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
 | `GET /api/one/payouts/account/bank-payouts?cursor=…` | Up to 20 recorded Stripe bank payout statuses per page with `nextCursor`. Each keeps the masked bank it was sent to (write-once), the payout method, Stripe's bank trace and reconciliation status, and when the status changed; a same-status provider update still applies. An account transfer is never reported as a bank deposit. |
 | `GET /api/one/payouts/account/balance` | The owner's Connect balance for the configured mode: `{stripeMode, currency, accountLinked, inStripeCents, availableCents, pendingCents, nextAvailableOn, nextAvailableCents, asOf, stale}`. An unlinked owner gets zeros with `accountLinked:false`. Snapshot read; refreshes from Stripe inline (single flight, at most 2.5 s) only when stale; 503 `BALANCE_UNAVAILABLE` otherwise. |
-| `GET /api/one/payouts/activity?kind=&mode=&cursor=&limit=&since=` | One owner-scoped, newest-first list of earnings, coin redemptions, bank deposits and adjustments (`kind` all, earning, redemption, deposit, adjustment or coins; `limit` 20, at most 50; opaque cursor). Held money carries `review: {reason, nextStep}` from a closed vocabulary, never provider text. `balanceAfterCoins` is the ledger balance after that row, not the available balance: reservations and holds are not ledger rows. `since=` (never with `cursor`) rereads from 30 s before that time and returns at most 100 changed rows; more than that returns `reset:true` and no rows. Deposit IDs keep their `po_`; no other provider ID is returned. 422 `INVALID_ACTIVITY_QUERY` on unknown filters, 422 `INVALID_CURSOR` for a cursor from another owner, mode, kind or signing key. The web client refuses a page whose `schemaVersion` is not 1, whose `mode` or `kind` differs from the query, or whose `nextCursor` repeats the cursor it sent; drops rows that break amount, ID or mode rules; never displays provider IDs; and merges pages by ID. |
+| `GET /api/one/payouts/activity?kind=&mode=&cursor=&limit=&since=` | One owner-scoped, newest-first list of earnings, coin redemptions, bank deposits and adjustments (`kind` all, earning, redemption, deposit, adjustment or coins; `limit` 20, at most 50; opaque cursor). Held money carries `review: {reason, nextStep}` from a closed vocabulary, never provider text. `balanceAfterCoins` is the ledger balance after that row, not the available balance: reservations and holds are not ledger rows. `sourceItemCount` is the raw page row count before client presentation filters; a strict memory source read requires it to equal the returned `items.length`. `since=` (never with `cursor`) rereads from 30 s before that time and returns at most 100 changed rows; more than that returns `reset:true` and no rows. Deposit IDs keep their `po_`; no other provider ID is returned. 422 `INVALID_ACTIVITY_QUERY` on unknown filters, 422 `INVALID_CURSOR` for a cursor from another owner, mode, kind or signing key. The web client refuses a page whose `schemaVersion` is not 1, whose `mode` or `kind` differs from the query, or whose `nextCursor` repeats the cursor it sent; drops rows that break amount, ID or mode rules; never displays provider IDs; and merges pages by ID. |
 | `GET /api/one/payouts/activity/{itemId}` | One receipt for the authenticated owner: amounts, fees, status timeline, masked bank and a Hussh reference `HC-XXXXXXXX` for support. No `acct_`, `ch_`, `pi_`, `tr_` or `trr_` IDs. Another owner's item is 404 `ACTIVITY_ITEM_NOT_FOUND`. |
 | `GET /api/connectors/google_drive/sharing/requests?direction=outgoing`, `GET …/requests/{id}`, `GET …/requests/{id}/delivery` | For the requester of a request that requires payment, each also carries `payment`, the requester payment view: `{state, amountCents, currency, checkoutExpiresAt, requestExpiresAt, refund, nextAction, withdrawn}`. `state` is `none`, `awaiting_owner`, `preparing`, `payable`, `link_expired`, `request_expired`, `paid`, `refund_pending`, `refunded`, `partially_refunded` or `closed`; `nextAction` is `pay`, `wait_owner`, `new_request` or `none`. Money states win, so a late payment on a closed request never reads as unpaid or closed. Free requests and the owner's view keep their old shape. No provider IDs, owner earnings or file details. |
 | `GET /api/connectors/google_drive/sharing/requests/{id}/payment` | Requester only. Adds `paymentView`, the same payment view, beside the existing quote and status fields. |

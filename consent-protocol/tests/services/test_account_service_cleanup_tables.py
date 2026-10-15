@@ -169,6 +169,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["success"] is True
     assert result["account_deleted"] is True
     assert result["details"]["external_connectors"] is True
+    assert result["details"]["live_memory_hosted_pilot_grants"] is True
+    assert result["details"]["live_memory_hosted_source_envelopes"] is True
     assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_kyc_workflows"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
@@ -1594,10 +1596,16 @@ async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message,
     release.assert_not_called()
 
 
-def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch):
-    """Sealed review arguments must not outlive a reset, which keeps the actor_profiles row."""
+def test_account_reset_erases_pending_connector_reviews_and_hosted_memory_intent(monkeypatch):
+    """A reset keeps the account spine, so pending authority must be explicitly erased."""
     service = AccountService()
     assert "user_id = :user_id" in str(service._delete_by_user_queries["one_mcp_pending_calls"])
+    assert "user_id = :user_id" in str(
+        service._delete_by_user_queries["live_memory_hosted_pilot_grants"]
+    )
+    assert "user_id = :user_id" in str(
+        service._delete_by_user_queries["live_memory_hosted_source_envelopes"]
+    )
     conn = MagicMock()
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
     monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
@@ -1605,4 +1613,8 @@ def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch)
     service._clear_user_data_tables(conn, "user_123", results)
     executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert "DELETE FROM live_memory_hosted_pilot_grants" in executed
+    assert "DELETE FROM live_memory_hosted_source_envelopes" in executed
     assert results.get("one_mcp_pending_calls") is True
+    assert results.get("live_memory_hosted_pilot_grants") is True
+    assert results.get("live_memory_hosted_source_envelopes") is True
