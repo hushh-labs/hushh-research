@@ -394,7 +394,12 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_hourly_cleanup_has_no_waiting_followup(self):
         source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
-        self.assertIn('cron: "17 * * * *"', source)
+        clock = (ROOT / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+        # The hourly cadence lives in the clock (GitHub dropped most runs of the
+        # cron this workflow had); it holds no runner while it waits.
+        self.assertIn('cron: "41 * * * *"', clock)
+        self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", clock)
+        self.assertNotIn("schedule:", source.split("\npermissions:", 1)[0])
         self.assertNotIn("workflow_run:", source)
         self.assertNotIn("uat-drain-wait:", source)
         self.assertNotIn("uat-drain-recheck:", source)

@@ -1590,10 +1590,22 @@ def checkpoint(args, run_id, observed, pending, status):
             stream.write("checkpoint_ready=true\n")
 
 
+# Capacity Maintenance's run-name for a tick scoped to one environment. Such a
+# pass never runs the other environment's verify step, so it cannot attempt
+# that environment's cleanup, and the other environment's guard skips it without
+# fetching its jobs. Without this, UAT-only clock passes (about 13 a day) would
+# lengthen production's walk between production deploys past its 90 s budget.
+SCOPED_TICK_TITLES = {
+    "uat": "Capacity Maintenance tick (uat)",
+    "production": "Capacity Maintenance tick (production)",
+}
+
+
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
     name = (
         "UAT" if environment == "uat" else "Production"
     ) + " bounded revision cleanup"
+    other_scope = SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
     legacy = (
         "UAT revision maintenance (no drain wait)"
         if environment == "uat"
@@ -1614,6 +1626,8 @@ def assert_checkpoint_publication(repository: str, environment: str) -> None:
                 or (run.get("repository") or {}).get("full_name") != repository
                 or (run.get("head_repository") or {}).get("full_name") != repository
             ):
+                continue
+            if run.get("event") == "repository_dispatch" and run.get("display_title") == other_scope:
                 continue
             inventory = api(
                 repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100"

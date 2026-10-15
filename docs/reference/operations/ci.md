@@ -523,13 +523,15 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 8. publish release artifacts with revisions, reports, and final status
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
-run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of the cron's
-24 daily runs on 2026-10-12..14, `Capacity Maintenance Clock` checks both environments
-every hour without cloud credentials, wakes maintenance with a `capacity-maintenance-tick`
-repository dispatch (the scheduled pass's authority) only when work is due, and re-arms
-itself through the `capacity-maintenance-clock` environment's 60-minute wait timer, which
-holds no runner. Release lanes look up their required check by name, so the clock's checks
-on an idle `main` head never crowd it out. An authorized operator
+run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
+cron's 24 daily runs on 2026-10-12..14, `Capacity Maintenance Clock` is now its only
+schedule: it checks both environments every hour without cloud credentials, wakes
+maintenance only when work is due with a repository dispatch scoped to the due
+environments (the scheduled pass's authority within that scope), and re-arms itself
+through the `capacity-maintenance-clock` environment's 60-minute wait timer, which holds no
+runner. A scoped pass's title lets the other environment's checkpoint guard skip it without
+reading its jobs. The deploy-SHA gate and the UAT target selector look up the post-merge gate
+by check name, so the clock's checks on an idle `main` head never crowd it out. An authorized operator
 can explicitly inspect or apply cleanup; manual requests are not coalesced with cron.
 Scheduled work keeps one active and one pending request without cancelling active
 mutations. Each environment still shares its deployment/rollback lock.

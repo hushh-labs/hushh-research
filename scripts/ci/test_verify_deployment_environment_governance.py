@@ -212,8 +212,13 @@ def test_capacity_cleanup_rejects_deployment_events_and_non_main() -> None:
 def test_capacity_clock_tick_carries_only_scheduled_authority() -> None:
     tick = "capacity-maintenance-tick"
     for actor in ("github-actions[bot]", "kushaltrivedi5"):
-        accepted = _validate_capacity_trigger("repository_dispatch", {}, actor=actor, action=tick)
-        assert accepted.returncode == 0, accepted.stderr
+        for scoped in (tick, tick + "-uat", tick + "-production"):
+            accepted = _validate_capacity_trigger("repository_dispatch", {}, actor=actor, action=scoped)
+            assert accepted.returncode == 0, accepted.stderr
+    # The clock's own re-arm event must never wake maintenance.
+    for foreign in ("capacity-maintenance-clock", tick + "-dev"):
+        refused = _validate_capacity_trigger("repository_dispatch", {}, actor="github-actions[bot]", action=foreign)
+        assert refused.returncode != 0, foreign
     # A tick wakes both environments, so a human needs both cohorts; azfx is
     # in the UAT cohort only.
     for actor in ("unapproved-contributor", "azfx"):
@@ -243,6 +248,47 @@ def test_capacity_clock_accepts_only_its_own_trigger() -> None:
     for event_name in ("workflow_dispatch", "workflow_run", "push", "pull_request"):
         assert clock(event_name, actor="github-actions[bot]", action=tick).returncode != 0, event_name
     assert clock("schedule", ref="contributor-branch").returncode != 0
+
+
+def _run_wake_step(uat_ready: str, production_ready: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the real clock `wake` step with a fake gh that records dispatches."""
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+    match = re.search(
+        r"      - name: Send one capacity-maintenance-tick\n.*?"
+        r"        run: \|\n(.*?)(?=\n\n|\n      - name:|\Z)", source, re.DOTALL,
+    )
+    assert match is not None, "Capacity clock wake step is missing"
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temporary:
+        bin_dir = Path(temporary)
+        calls = bin_dir / "calls"
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(f"#!/bin/sh\necho \"$*\" >> '{calls}'\nexit 0\n")
+        fake_gh.chmod(0o755)
+        result = subprocess.run(
+            ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "GITHUB_REPOSITORY": "org/repo",
+                 "UAT_READY": uat_ready, "PRODUCTION_READY": production_ready},
+            capture_output=True, text=True, check=False,
+        )
+        recorded = calls.read_text().splitlines() if calls.exists() else []
+    return result, recorded
+
+
+def test_capacity_clock_wakes_maintenance_scoped_to_due_environments() -> None:
+    # A UAT-only tick must not add a run to production's checkpoint walk.
+    post = "api --method POST repos/org/repo/dispatches -f event_type="
+    for uat, production, expected in (
+        ("true", "true", ["capacity-maintenance-tick"]),
+        ("true", "", ["capacity-maintenance-tick-uat"]),
+        ("false", "true", ["capacity-maintenance-tick-production"]),
+        ("false", "false", []),
+    ):
+        result, recorded = _run_wake_step(uat, production)
+        assert result.returncode == 0, result.stderr
+        assert recorded == [post + tick for tick in expected], (uat, production, recorded)
 
 
 def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
@@ -301,6 +347,7 @@ def main() -> int:
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_capacity_clock_tick_carries_only_scheduled_authority,
         test_capacity_clock_accepts_only_its_own_trigger,
+        test_capacity_clock_wakes_maintenance_scoped_to_due_environments,
         test_capacity_clock_refuses_to_queue_before_its_wait,
     ]
     for test in tests:

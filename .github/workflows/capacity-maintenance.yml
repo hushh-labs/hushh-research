@@ -1,16 +1,25 @@
 name: Capacity Maintenance
+# A scoped tick names its environment in the run title. The checkpoint guard
+# (assert_checkpoint_publication in scripts/ci/uat-retention-maintenance.py)
+# reads that title to skip, without fetching jobs, passes that could not have
+# touched its environment; the verify steps below enforce the same scope.
+run-name: >-
+  ${{ github.event.action == 'capacity-maintenance-tick-uat' && 'Capacity Maintenance tick (uat)'
+  || github.event.action == 'capacity-maintenance-tick-production' && 'Capacity Maintenance tick (production)'
+  || 'Capacity Maintenance' }}
 
 on:
-  schedule:
-    - cron: "17 * * * *"
-  # GitHub delivered only 3-6 of the 24 daily runs of this cron (and of
-  # verify-protected-lists.yml's identical one) on 2026-10-12..14, with median
-  # gaps of 5-6 h and up to 10.6 h. capacity-maintenance-clock.yml checks every
-  # hour, without cloud credentials, and sends this tick only when maintenance
-  # is due, so quiet hours add no run here. A tick carries no inputs and
-  # grants exactly the scheduled pass's authority.
+  # No cron here: capacity-maintenance-clock.yml is the schedule. GitHub
+  # delivered only 3-6 of the 24 daily runs of this workflow's former hourly
+  # cron (and of verify-protected-lists.yml's identical one) on 2026-10-12..14,
+  # with median gaps of 5-6 h and up to 10.6 h. The clock checks every hour
+  # without cloud credentials and sends a tick only when maintenance is due,
+  # scoped to the due environments, so quiet hours and one environment's work
+  # add no run that the other environment's checkpoint guard must walk. A tick
+  # carries no inputs and grants exactly the scheduled pass's authority within
+  # its scope.
   repository_dispatch:
-    types: [capacity-maintenance-tick]
+    types: [capacity-maintenance-tick, capacity-maintenance-tick-uat, capacity-maintenance-tick-production]
   workflow_dispatch:
     inputs:
       environment:
@@ -73,9 +82,12 @@ jobs:
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
             repository_dispatch)
-              # A tick is the scheduled pass, sent by the clock workflow's
-              # GITHUB_TOKEN; a governed operator may also send one.
-              [[ "$CLOCK_EVENT_TYPE" = capacity-maintenance-tick ]] || exit 1
+              # A tick is the scheduled pass for its scope, sent by the clock
+              # workflow's GITHUB_TOKEN; a governed operator may also send one.
+              case "$CLOCK_EVENT_TYPE" in
+                capacity-maintenance-tick|capacity-maintenance-tick-uat|capacity-maintenance-tick-production) ;;
+                *) exit 1 ;;
+              esac
               if [[ "$GITHUB_ACTOR" != "github-actions[bot]" ]]; then
                 python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
                 python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
@@ -91,7 +103,7 @@ jobs:
 
       - name: Verify due uat source
         id: uat
-        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.environment == 'uat'
+        if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-uat' || inputs.environment == 'uat'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
@@ -100,7 +112,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/uat-retention-source"
       - name: Verify due production source
         id: production
-        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.environment == 'production'
+        if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |

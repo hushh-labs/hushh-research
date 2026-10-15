@@ -2108,6 +2108,39 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     with self.assertRaises(MAINTENANCE.retention.UnsafeState):
                         MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
 
+    def test_production_guard_skips_uat_scoped_ticks_without_fetching_jobs(self):
+        # The clock sends about 13 UAT-only ticks a day. Walking each one (a jobs
+        # call at about 0.5 s) pushed production's guard past its 90 s budget
+        # after a week without a production cleanup.
+        def tick(run_id, title):
+            return {**self.trusted_source(run_id, "capacity-maintenance.yml"),
+                    "event": "repository_dispatch", "display_title": title}
+
+        checkpoint = tick(999, "Capacity Maintenance tick (production)")
+        saved = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed", "steps": [
+            {"name": "Prepare or finish eligible production revision cleanup", "conclusion": "success"},
+            {"name": "Save production cleanup checkpoint", "conclusion": "success"}]}]}
+        skipped = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed",
+                                               "conclusion": "skipped", "steps": []}]}
+        for title, expected_job_calls in (("Capacity Maintenance tick (uat)", 1), ("Capacity Maintenance tick", 151)):
+            runs = [tick(1000 + n, title) for n in range(150)] + [checkpoint]
+            job_calls = []
+
+            def api(_repository, endpoint, runs=runs, job_calls=job_calls):
+                if endpoint.startswith("workflows/capacity-maintenance.yml/runs"):
+                    return {"workflow_runs": runs}
+                job_calls.append(endpoint)
+                return saved if endpoint.startswith("runs/999/") else skipped
+
+            with (
+                self.subTest(title=title),
+                mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
+            ):
+                MAINTENANCE.assert_checkpoint_publication("org/repo", "production")
+                # The negative control (an unscoped tick) is still walked run by run.
+                self.assertEqual(len(job_calls), expected_job_calls)
+
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         source = (workflows / "capacity-maintenance.yml").read_text()
@@ -2115,7 +2148,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
         def check_policy(text, clock):
             triggers = text.split("\npermissions:", 1)[0]
-            self.assertIn('cron: "17 * * * *"', triggers)
+            # The clock is the schedule; a cron here would add unscoped passes
+            # that both environments' checkpoint guards must walk.
+            self.assertNotIn("schedule:", triggers)
+            self.assertIn('cron: "41 * * * *"', clock.split("\npermissions:", 1)[0])
             self.assertIn("  workflow_dispatch:", triggers)
             self.assertNotIn("workflow_run:", triggers)
             self.assertNotIn("uat-drain-wait:", text)
@@ -2130,7 +2166,15 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertNotIn("queue: max", concurrency)
             # Ticks are the scheduled pass: no inputs, coalesced with the cron,
             # and never a deployment event.
-            self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-tick]\n", triggers)
+            self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-tick, capacity-maintenance-tick-uat, capacity-maintenance-tick-production]\n", triggers)
+            # A scoped tick's title is what the other environment's guard skips,
+            # so the title, the verify steps and the walk must agree.
+            for scope, other in (("uat", "production"), ("production", "uat")):
+                title = MAINTENANCE.SCOPED_TICK_TITLES[scope]
+                self.assertIn(f"github.event.action == 'capacity-maintenance-tick-{scope}' && '{title}'", text)
+                verify = text.split(f"      - name: Verify due {scope} source\n", 1)[1].split("\n        env:", 1)[0]
+                self.assertIn(f"capacity-maintenance-tick-{scope}'", verify)
+                self.assertNotIn(f"capacity-maintenance-tick-{other}'", verify)
             self.assertIn("github.event_name == 'repository_dispatch') && 'scheduled'", concurrency)
             self.assertNotIn("client_payload", text)
             # The clock lives in its own workflow, so quiet hours add no run
@@ -2142,7 +2186,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertIn("cancel-in-progress: false", clock_triggers)
             wake = clock.split("\n  wake:\n", 1)[1].split("\n  next-check:\n", 1)[0]
             self.assertIn("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", wake)
-            self.assertIn("event_type=capacity-maintenance-tick", wake)
+            self.assertIn('event_type="$tick"', wake)
+            for tick in ("capacity-maintenance-tick\n", "capacity-maintenance-tick-uat\n", "capacity-maintenance-tick-production\n"):
+                self.assertIn(f"tick={tick}", wake)
             rearm = clock.split("\n  next-check:\n", 1)[1]
             self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", rearm)
             self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", rearm)
@@ -2152,7 +2198,11 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
         check_policy(source, clock_source)
         for broken, broken_clock in (
-            (source.replace("  schedule:", "  workflow_run:\n  schedule:"), clock_source),
+            (source.replace("  repository_dispatch:", "  workflow_run:\n  repository_dispatch:"), clock_source),
+            (source.replace("on:\n", 'on:\n  schedule:\n    - cron: "17 * * * *"\n', 1), clock_source),
+            (source.replace("|| github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'",
+                            "|| github.event.action == 'capacity-maintenance-tick-uat' || inputs.environment == 'production'"), clock_source),
+            (source.replace("'Capacity Maintenance tick (uat)'", "'Capacity Maintenance (uat)'"), clock_source),
             (source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n', clock_source),
             (source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"), clock_source),
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
