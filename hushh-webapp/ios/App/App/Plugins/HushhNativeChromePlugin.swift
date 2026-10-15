@@ -436,6 +436,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var profileBackAdmissionTimer: Timer?
     private var profileBackAdmissionInFlight = false
     private var historyChoiceStage = "none"
+    private var profileChoiceStages = [String: String]()
+    private var profileTapCounts = [String: Int]()
+    private func observeProfileChoice(_ id: String, stage: String) {
+        guard id == "profile-back" || id == "profile-close" else { return }
+        profileChoiceStages[id] = stage
+        if stage == "tap" { profileTapCounts[id] = min(1_000_000, (profileTapCounts[id] ?? 0) + 1) }
+    }
     private var historyTapCount = 0
     private var historyEvidenceSequence = 0
     private var profileSampleSequence = 0
@@ -547,7 +554,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 $0.hasPrefix("paneX=") || $0.hasPrefix("paneY=") ||
                 $0.hasPrefix("paneWidth=") || $0.hasPrefix("paneHeight=")
             }.joined(separator: ";")
-            let packet = [publicFields, native].filter { !$0.isEmpty }.joined(separator: ";")
+            let trace = [("profile-back", "pb"), ("profile-close", "pc")].map { id, prefix in
+                "\(prefix)Tap=\(profileTapCounts[id] ?? 0);\(prefix)Stage=\(profileChoiceStages[id] ?? "none")"
+            }.joined(separator: ";")
+            let packet = [publicFields, native, trace].filter { !$0.isEmpty }.joined(separator: ";")
             return packet.utf8.count <= 1024 ? packet : "pbAvailable=0;pcAvailable=0"
         }
         if Thread.isMainThread {
@@ -1342,6 +1352,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             #if DEBUG
             if call.getString("controlId") == "chat-history-toggle" { self.historyChoiceStage = valid ? "confirmed" : "confirmation-refused" }
+            if let id = call.getString("controlId") { self.observeProfileChoice(id, stage: valid ? "confirmed" : "confirmation-refused") }
             #endif
             call.resolve(["valid": valid])
         }
@@ -1531,12 +1542,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func activateControl(_ controlId: String) {
         #if DEBUG
         if controlId == "chat-history-toggle" { historyChoiceStage = "tap"; historyTapCount = min(1_000_000, historyTapCount + 1) }
+        observeProfileChoice(controlId, stage: "tap")
         #endif
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
               slot.state.phase == "active", presentation.enabled, canPresent, controlPlaneAllows(slot),
               geometryIsCurrent(slot), panelIsSettled(slot) else {
             #if DEBUG
             if controlId == "chat-history-toggle" { historyChoiceStage = "refused" }
+            observeProfileChoice(controlId, stage: "refused")
             #endif
             return
         }
@@ -1602,6 +1615,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         notifyListeners("choiceRequested", data: event)
         #if DEBUG
         if controlId == "chat-history-toggle" { historyChoiceStage = "emitted" }
+        observeProfileChoice(controlId, stage: "emitted")
         #endif
     }
     private func invalidatePresentation(conceal: Bool = false) {

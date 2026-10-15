@@ -189,6 +189,10 @@ final class AppUITests: XCTestCase {
                 return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
             }, uniquingKeysWith: { _, newest in newest })
             for (control, prefix) in [("back", "pb"), ("close", "pc")] {
+                if let count = Int(fields["\(prefix)Tap"] ?? ""), (0...1_000_000).contains(count),
+                   let stage = fields["\(prefix)Stage"], ["none", "tap", "refused", "emitted", "confirmed", "confirmation-refused"].contains(stage) {
+                    print("COHERENT_PROFILE_TAP control=\(control) count=\(count) stage=\(stage)")
+                }
                 if fields["\(prefix)Available"] == "0" {
                     print("COHERENT_PANE_HIT control=\(control) available=false")
                 } else {
