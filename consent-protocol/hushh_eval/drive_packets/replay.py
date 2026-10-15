@@ -170,8 +170,9 @@ class InMemoryPacketStore:
         self.heads: dict[str, dict] = {}
         self.facts_store = facts_store
         # The owner's name on file for the runtime's wrong-person fence, as
-        # {"names": [...]}. A replay without one is not checked by that fence;
-        # the other Ready gates still run. Real-Drive batches may supply it.
+        # {"names": [...]}, held in memory only. A replay without one is not
+        # checked by that fence; the other Ready gates still run. run-batch
+        # supplies it from --owner-name or the owner's identity on file.
         self.owner = owner
         self._clock = 0
 
@@ -344,7 +345,7 @@ class InMemoryPacketStore:
 class InMemoryFactsStore:
     """The DriveDocumentFactsStore methods DrivePacketWorker uses, without persistence."""
 
-    def __init__(self, cases: list[ReplayCase], *, policy: str, profile: str):
+    def __init__(self, cases: list[ReplayCase], *, policy: str, profile: str, owner=None):
         self.policy, self.profile = policy, profile
         self.documents = {
             case.document_uuid: {
@@ -363,7 +364,7 @@ class InMemoryFactsStore:
             }
             for case in cases
         }
-        self.packets = InMemoryPacketStore(facts_store=self)
+        self.packets = InMemoryPacketStore(facts_store=self, owner=owner)
         self._order = 0
 
     async def enqueue(self, *, user_id, policy_version, document_ids=None):
@@ -455,6 +456,7 @@ class InMemoryFactsStore:
 
     def member_evidence(self, document_id, policy_version):
         document = self.documents[document_id]
+        created = document["case"].metadata.get("createdTime")
         return {
             "document_id": document_id,
             "source_version": document["case"].source_version,
@@ -464,6 +466,9 @@ class InMemoryFactsStore:
             "extraction_version": "replay",
             "complete": not document["has_gaps"],
             "facts": document["facts"],
+            # As DrivePacketStore supplies it: the Ready gates read the file's
+            # creation time for undated duplicates; the model is never shown it.
+            **({"created_time": created} if created else {}),
         }
 
 
@@ -512,12 +517,14 @@ class ReplayRunner:
         )
 
     async def run_owner_path(
-        self, *, batch_id: str, cases: list[ReplayCase], runtime: dict
+        self, *, batch_id: str, cases: list[ReplayCase], runtime: dict, owner: dict | None = None
     ) -> ReplayResult:
         from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 
         policy = runtime["facts_policy_version"]
-        facts_store = InMemoryFactsStore(cases, policy=policy, profile=EXTRACTION_PROFILE)
+        facts_store = InMemoryFactsStore(
+            cases, policy=policy, profile=EXTRACTION_PROFILE, owner=owner
+        )
         worker = self._worker(facts_store, policy)
         lanes = asyncio.Semaphore(self.concurrency)
         timings: dict[str, int] = {}

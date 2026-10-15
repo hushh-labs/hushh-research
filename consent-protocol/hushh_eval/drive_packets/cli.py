@@ -67,6 +67,22 @@ def _live_required(args) -> None:
         )
 
 
+def _owner_listing(args, source) -> tuple[dict | None, str]:
+    """The owner's name for the runtime's wrong-person fence, and where it came
+    from: --owner-name, else the owner's identity on file in a live source.
+
+    The name stays in memory: it never enters a prompt, a batch file or a
+    report, and only its origin is printed.
+    """
+    name = (getattr(args, "owner_name", None) or "").strip()
+    if name:
+        return {"names": [name]}, "explicit_name"
+    read = getattr(source, "owner_identity", None)
+    if callable(read):
+        return read(), "name_on_file"
+    return None, "none"
+
+
 def _source(args, workdir, plan_source: dict):
     from hushh_eval.drive_packets.sources import FixtureSource, UatReadOnlySource
 
@@ -249,6 +265,7 @@ async def _run(args) -> int:
     pending = [case for case in cases if case.case_id not in done]
     source = _source(args, workdir, source_conf)
     try:
+        owner, owner_check = _owner_listing(args, source)
         replay_cases, extraction_rows, details = await ops.materialize(
             batch, pending, source, kind=source_conf["kind"], crosswalk=crosswalk
         )
@@ -270,7 +287,9 @@ async def _run(args) -> int:
     )
     sampled = [case for case in replay_cases if not frame_is_anchor(plan, case.case_id)]
     anchored = [case for case in replay_cases if frame_is_anchor(plan, case.case_id)]
-    result = await runner.run_owner_path(batch_id=batch.batch_id, cases=sampled, runtime=runtime)
+    result = await runner.run_owner_path(
+        batch_id=batch.batch_id, cases=sampled, runtime=runtime, owner=owner
+    )
     rows = extraction_rows + result.observations
     packets = result.packets
     anchor_report = None
@@ -279,7 +298,7 @@ async def _run(args) -> int:
             interpret=interpret, model=model, budget=budget, concurrency=args.concurrency
         )
         anchor_result = await anchor_runner.run_owner_path(
-            batch_id=batch.batch_id, cases=anchored, runtime=runtime
+            batch_id=batch.batch_id, cases=anchored, runtime=runtime, owner=owner
         )
         rows += anchor_result.observations
         for packet in anchor_result.packets:
@@ -319,6 +338,7 @@ async def _run(args) -> int:
             "packets": dict(Counter(packet.state for packet in packets)),
             "anchors": anchor_report,
             "budget_exhausted": result.budget_exhausted,
+            "owner_check": owner_check,
             "usage": usage,
         }
     )
@@ -835,6 +855,11 @@ def parser() -> argparse.ArgumentParser:
     run = base("run-batch", "Replay production code on the preregistered sample")
     run.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
     run.add_argument("--max-cost-usd", type=float)
+    run.add_argument(
+        "--owner-name",
+        help="The consenting owner's name for the wrong-person fence (default: the owner's "
+        "identity on file for live sources). Held in memory only; never written or printed.",
+    )
     run.set_defaults(func=cmd_run)
 
     judge = base("judge", "Deterministic checks, then the pinned J1/J2 judges")
