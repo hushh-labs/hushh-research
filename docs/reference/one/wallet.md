@@ -454,6 +454,11 @@ survive unrelated catalog updates but current revocation, grant or rights change
 invalidate their presentation on authorized reads and visible approval rechecks. This does not erase a durable
 encrypted copy, so a license requiring copy deletion is unsupported.
 
+The [supplied card atlas](wallet-card-atlas.md) adds reviewed, adapted bank
+designs and owner-selected unused-image suggestions for manual Add. It does not
+infer a bank from a sample number or claim an exact physical-card match. The
+bundled catalog is replaced by an explicitly configured private catalog.
+
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
 `POST /resolve`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
 a six/eight-digit IIN, PAN length and optional selected network. It refuses full

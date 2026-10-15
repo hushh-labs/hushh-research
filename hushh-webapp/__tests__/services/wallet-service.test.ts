@@ -63,6 +63,37 @@ const DOMAIN_DATA = {
 };
 
 describe("WalletService", () => {
+  it("rotates unused bank designs privately, reuses the same number, and never mutates existing cards", async () => {
+    const make = (assetId: string) => ({ assetId, issuerId: "bank", productId: assetId, variantId: "v1", label: assetId, digest: assetId === "blue" ? "a".repeat(64) : "b".repeat(64), image: `/api/one/wallet/card-access/artwork/assets/${assetId === "blue" ? "a".repeat(64) : "b".repeat(64)}`, allowOverlay: false });
+    const blue = make("blue"), gold = make("gold");
+    const saved = { ...blue, source: "catalog", version: 1, catalogVersion: "test", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected" };
+    const domain = { ...DOMAIN_DATA, artwork: { [CARD_ID]: saved } }, before = JSON.stringify(domain);
+    mockLoadDomainData.mockResolvedValue(domain); networkApi.fetch.mockClear();
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4000000000011111", variants: [blue, { ...blue, assetId: "blue-alias" }, gold] })).toEqual(gold);
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4111 1111 1111 1111", variants: [gold, blue] })).toEqual(blue);
+    // A retired alias still occupies blue's pixels, but cannot be restored.
+    mockLoadDomainData.mockResolvedValue({ ...domain, artwork: { [CARD_ID]: { ...saved, assetId: "retired-blue" } } });
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4111111111111111", variants: [blue, gold] })).toEqual(gold);
+    mockLoadDomainData.mockResolvedValue({ ...DOMAIN_DATA, artwork: {} });
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4242424242424242", variants: [{ ...blue, assetId: "blue-z-alias" }, blue, gold] })).toEqual(blue);
+    mockLoadDomainData.mockResolvedValue({ ...domain, artwork: { ...domain.artwork, second: { ...saved, ...gold, image: saved.image } } });
+    expect(await WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4242424242424242", variants: [gold, blue] })).toEqual(blue);
+    expect(JSON.stringify(domain)).toBe(before); expect(networkApi.fetch).not.toHaveBeenCalled();
+    let finish!: (v: unknown) => void; mockLoadDomainData.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const pending = WalletService.suggestBankArtwork({ ...CONTEXT, pan: "4242424242424242", variants: [blue, gold] });
+    advanceVaultSessionEpoch(); finish(domain); await expect(pending).rejects.toThrow("Wallet changed");
+  });
+
+  it("constructs a credential-free bank request and refuses a partially malformed bank catalog", async () => {
+    const bank = { bankKey: "a".repeat(32), issuerId: "bank", name: "Owned bank", country: "US", designCount: 2 };
+    const response = { catalogVersion: "test", selectionBasis: "owner_selected_bank", requiresConfirmation: true, bankKey: null, banks: [bank], variants: [], nextOffset: null };
+    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify(response)));
+    const input = { network: "visa" as const, pan: "4242424242424242", vaultKey: "not-for-wire" };
+    expect((await WalletService.bankArtwork(CONTEXT, input)).banks).toEqual([bank]);
+    const [, options] = networkApi.fetch.mock.calls.at(-1)!; expect(JSON.parse(options.body)).toEqual({ network: "visa" });
+    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify({ ...response, banks: [bank, { ...bank, country: "invalid" }] })));
+    await expect(WalletService.bankArtwork(CONTEXT, input)).rejects.toThrow("Bank designs unavailable");
+  });
   it("uses native binary transport and verifies approved final artwork bytes", async () => {
     vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto);
     const blob = await encodeCardPng({ width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) });

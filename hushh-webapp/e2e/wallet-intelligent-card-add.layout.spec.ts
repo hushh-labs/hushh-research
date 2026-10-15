@@ -9,11 +9,18 @@ import { productFontStyle, stripAppFontFaces, awaitProductFont } from "./fixture
 let server: Server, origin: string, card: Buffer, record: Record<string, any> | null = null;
 const wire: string[] = [];
 let artworkMode: "unknown" | "ambiguous" | "exact" | "outage" | "revoked" = "unknown";
-let approvedArt: { bytes: Buffer; variant: Record<string, unknown> }[] = [];
+let approvedArt: { bytes: Buffer; variant: Record<string, unknown>; mime?: string }[] = [];
+let atlasArt: typeof approvedArt = [], bankMode = false, atlasVersion = "";
+const atlasBankKey = "a".repeat(32);
 test.beforeAll(async () => {
   const root = process.cwd(), dir = fs.mkdtempSync(path.join(os.tmpdir(), "wallet-full-flow-"));
   const { build } = await import("vite"), { Scanner } = await import("@tailwindcss/oxide"), { compile } = await import("tailwindcss");
   const sharp = (await import("sharp")).default;
+  // Requester-authorized, reviewed actual atlas files; card input remains synthetic.
+  const atlasRoot = path.join(root, "../consent-protocol/hushh_mcp/resources/wallet-artwork");
+  const atlas = JSON.parse(fs.readFileSync(path.join(atlasRoot, "catalog.json"), "utf8"));
+  atlasVersion = atlas.version;
+  atlasArt = atlas.assets.filter((row: { issuer_id: string; network: string }) => row.issuer_id === "hdfc-bank-in" && row.network === "mastercard").map((row: any) => ({ mime: row.mime, bytes: fs.readFileSync(path.join(atlasRoot, "assets", row.digest + ".webp")), variant: { assetId: row.asset_id, issuerId: row.issuer_id, productId: row.product_id, variantId: row.variant_id, label: row.label, issuerName: row.issuer_name, productName: row.product_name, variantName: row.variant_name, country: row.country, digest: row.digest, allowOverlay: false, image: `/api/one/wallet/card-access/artwork/assets/${row.digest}` } }));
   card = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="756"><rect width="1200" height="756" fill="#dbe8f8"/><g font-family="Arial" font-size="54" fill="#101827"><text x="80" y="135">SYNTHETIC CARD</text><text x="80" y="350">4242 4242 4242 4242</text><text x="80" y="480">VALID THRU 12/30</text><text x="80" y="630">ALEX SAMPLE</text></g></svg>')).png().toBuffer();
   // Owned blank test pixels; no bank branding, sample PAN or issuer coverage.
   approvedArt = await Promise.all([{ name: "Blue", width: 856, height: 540, color: "#223852" }, { name: "Gold", width: 540, height: 856, color: "#9a773e" }].map(async (design, index) => {
@@ -44,15 +51,20 @@ test.beforeAll(async () => {
     if (url === "/fixture.js") { res.setHeader("Content-Type", "text/javascript"); res.end(script); return; }
     if (url === "/fixture/encrypted-record") { json(record); return; }
     if (url.includes("/artwork/assets/")) {
-      const asset = approvedArt.find(row => url.endsWith(String(row.variant.digest)));
+      const asset = (bankMode ? atlasArt : approvedArt).find(row => url.endsWith(String(row.variant.digest)));
       if (!asset || artworkMode === "revoked" || req.headers.authorization !== "Bearer synthetic-test-token" || req.headers["x-hushh-consent"] !== "synthetic-owner-token") { res.statusCode = 404; json({ error: "Unavailable" }); return; }
-      res.setHeader("Content-Type", "image/png"); res.end(asset.bytes); return;
+      res.setHeader("Content-Type", asset.mime ?? "image/png"); res.end(asset.bytes); return;
     }
     if (req.method === "POST") {
       let body = ""; for await (const chunk of req) body += chunk;
       wire.push(body);
       if (url.endsWith("/store-domain")) { const payload = JSON.parse(body); record = { ...payload, revision: (record?.revision ?? 0) + 1 }; json({ success: true, data_version: record.revision }); return; }
-      if (url.endsWith("/networks/resolve")) { json({ network: "visa", source: "prefix", candidates: ["visa"] }); return; }
+      if (url.endsWith("/networks/resolve")) { const network = bankMode ? "mastercard" : "visa"; json({ network, source: "prefix", candidates: [network] }); return; }
+      if (url.endsWith("/artwork/banks")) {
+        if (req.headers.authorization !== "Bearer synthetic-test-token" || req.headers["x-hushh-consent"] !== "synthetic-owner-token") { res.statusCode = 403; json({ error: "Unavailable" }); return; }
+        const input = JSON.parse(body), available = bankMode && input.network === "mastercard";
+        json({ catalogVersion: atlasVersion, selectionBasis: "owner_selected_bank", requiresConfirmation: true, bankKey: input.bankKey ?? null, banks: available ? [{ bankKey: atlasBankKey, issuerId: "hdfc-bank-in", name: "HDFC Bank", country: "IN", designCount: atlasArt.length }] : [], variants: available && input.bankKey === atlasBankKey ? atlasArt.map(row => row.variant) : [], nextOffset: null }); return;
+      }
       if (url.endsWith("/artwork/resolve")) {
         if (artworkMode === "outage") { res.statusCode = 503; json({ error: "Unavailable" }); return; }
         json({ match: artworkMode === "exact" ? "exact" : artworkMode === "ambiguous" ? "ambiguous" : "unknown", provider: artworkMode === "unknown" ? "unconfigured" : "configured", issuerId: "owned-test-bank", catalogVersion: "owned-1", variants: artworkMode === "exact" ? [approvedArt[0]!.variant] : artworkMode === "ambiguous" ? approvedArt.map(row => row.variant) : [] }); return;
@@ -167,4 +179,34 @@ test("exact artwork selects automatically; an unavailable provider keeps saving 
   await page.getByRole("button", { name: "Add to Wallet", exact: true }).click();
   await expect(page.getByRole("region", { name: "Cards" })).toBeVisible();
   await expect(page.locator('[data-card-artwork="catalog"]')).toHaveCount(0);
+});
+
+for (const width of [390, 1440]) test(`atlas bank designs rotate privately and persist for two cards at ${width}px`, async ({ page }, testInfo) => {
+  record = null; wire.length = 0; artworkMode = "unknown"; bankMode = true;
+  try {
+    await page.setViewportSize({ width, height: width > 800 ? 1300 : 1000 }); await page.goto(origin); await awaitProductFont(page);
+    const add = async (pan: string) => {
+      await page.getByLabel("Card number", { exact: true }).fill(pan);
+      await page.getByLabel("Name on card", { exact: true }).fill("SYNTHETIC OWNER");
+      await page.getByLabel("Expiry (MM/YY)", { exact: true }).fill("12/30");
+      await page.getByLabel("Bank (optional)").click(); await page.getByRole("option", { name: "HDFC Bank · IN" }).click();
+      await expect(page.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", "catalog");
+      const digest = await page.getByTestId("wallet-card-face").getAttribute("data-artwork-digest");
+      await expect(page.getByTestId("secure-card-save")).toBeEnabled(); await page.getByTestId("secure-card-save").click();
+      await expect(page.getByRole("region", { name: "Cards", exact: true })).toBeVisible();
+      return digest;
+    };
+    const first = await add("5555555555554444");
+    await page.getByRole("button", { name: "Add another card", exact: true }).click();
+    const second = await add("5105105105105100"); expect(second).not.toBe(first);
+    const ids = await page.locator("[data-card-id]").evaluateAll(elements => elements.map(element => element.getAttribute("data-card-id")));
+    expect(ids).toHaveLength(2);
+    await page.reload(); await awaitProductFont(page);
+    await expect(page.getByTestId("wallet-card-face")).toHaveCount(2);
+    const digests = await page.getByTestId("wallet-card-face").evaluateAll(elements => elements.map(element => element.getAttribute("data-artwork-digest")));
+    expect(digests).toEqual(expect.arrayContaining([first, second]));
+    expect(await page.locator("[data-card-id]").evaluateAll(elements => elements.map(element => element.getAttribute("data-card-id")))).toEqual(ids);
+    expect(wire.every(body => !body.includes("5555555555554444") && !body.includes("5105105105105100"))).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`atlas-two-cards-${width}.png`), fullPage: true });
+  } finally { bankMode = false; }
 });
