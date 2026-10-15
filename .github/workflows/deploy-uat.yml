@@ -243,6 +243,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           cp scripts/ci/runtime-capacity-budget.py \
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp scripts/ci/account-deletion-fence-decision.py \
+            "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           cp config/runtime-capacity.json \
             "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           cp scripts/ops/verify_passkey_domain_associations.py \
@@ -260,6 +262,8 @@ jobs:
             scripts/ops/verify_uat_release.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
+            scripts/ci/account-deletion-fence-decision.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
             config/runtime-capacity.json
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
@@ -796,9 +800,70 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Qualify uninterrupted account deletion
+        id: account-deletion-fence-decision
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GCP_PROJECT_ID}" != "hushh-pda-uat" ] \
+             || [ "${UAT_CLOUDSQL_INSTANCE}" != "hushh-pda-uat:us-central1:hushh-uat-pg" ]; then
+            echo "Refusing account deletion preflight on a non-canonical UAT target."
+            exit 1
+          fi
+          if ! gcloud run revisions list \
+            --service="${BACKEND_SERVICE}" --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" --format=json \
+            > /tmp/uat-account-deletion-revisions.json; then
+            printf '[]\n' > /tmp/uat-account-deletion-revisions.json
+          fi
+          decision="$(python3 scripts/ci/account-deletion-fence-decision.py \
+            --revisions-json /tmp/uat-account-deletion-revisions.json \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --github-output "$GITHUB_OUTPUT")"
+          if [ "${decision}" = "unfenced_candidate" ]; then
+            DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${GCP_PROJECT_ID}")"
+            DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${GCP_PROJECT_ID}")"
+            echo "::add-mask::${DB_USER}"
+            echo "::add-mask::${DB_PASSWORD}"
+            cloud-sql-proxy --address 127.0.0.1 --port 6543 \
+              ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+              "${UAT_CLOUDSQL_INSTANCE}" >/tmp/cloud-sql-proxy-uat-deletion-preflight.log 2>&1 &
+            PROXY_PID=$!
+            trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+            python3 - <<'PY'
+          import socket
+          import time
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6543)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind for deletion preflight")
+          PY
+            if ! command -v psql >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq postgresql-client
+            fi
+            if PGHOST=127.0.0.1 PGPORT=6543 PGDATABASE=postgres \
+               PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+               psql --no-psqlrc -v expected_fence_count=0 \
+                 --file deploy/account-deletion/verify_release_boundary.sql \
+                 > /tmp/uat-account-deletion-unfenced-preflight.log 2>&1; then
+              echo "required=false" >> "$GITHUB_OUTPUT"
+              echo "Verified active v201 database and revisions; deletion remains available."
+              exit 0
+            fi
+            echo "Unfenced database verification failed; retaining the release fence."
+          fi
+          echo "required=true" >> "$GITHUB_OUTPUT"
+
       - name: Install fail-closed account deletion release fence
         id: install-account-deletion-fence
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.account-deletion-fence-decision.outputs.required == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -912,11 +977,13 @@ jobs:
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
 
-          # Re-acquire the table locks and prove the fence immediately before
-          # migration so manual drift cannot reopen the rolling-deploy gap.
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            | tee /tmp/uat-account-deletion-fence-premigration.log
+          # A migration-201 transition must reassert the fence after connecting.
+          # A verified v201-to-v201 rollout keeps deletion available instead.
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              | tee /tmp/uat-account-deletion-fence-premigration.log
+          fi
 
           (
             cd consent-protocol
@@ -933,7 +1000,11 @@ jobs:
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-predeploy.json
-          psql --no-psqlrc \
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/uat-account-deletion-boundary.log
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
@@ -2302,9 +2373,12 @@ jobs:
           export PGDATABASE=postgres
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            > /tmp/uat-account-deletion-fence-rollback.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ] \
+             || [ "${rollback_contract}" != "v201" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              > /tmp/uat-account-deletion-fence-rollback.log
+          fi
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
             --command 'SELECT count(*) FROM public.account_deletion_tombstones')"
           if [[ ! "${tombstone_count}" =~ ^[0-9]+$ ]]; then
@@ -2536,7 +2610,11 @@ jobs:
           export PGDATABASE=postgres
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             > /tmp/uat-account-deletion-boundary-preactivation.log
           psql --no-psqlrc --tuples-only --no-align \
@@ -2544,9 +2622,11 @@ jobs:
               'counts_by_status', COALESCE((SELECT json_object_agg(cleanup_status, intent_count) FROM (SELECT cleanup_status, count(*) AS intent_count FROM public.account_deletion_tombstones GROUP BY cleanup_status) grouped), '{}'::json),
               'oldest_due_age_seconds', COALESCE((SELECT floor(extract(epoch FROM (now() - min(cleanup_next_attempt_at))))::bigint FROM public.account_deletion_tombstones WHERE firebase_uid IS NOT NULL AND cleanup_status <> 'completed' AND cleanup_next_attempt_at <= now()), 0)
             )" > /tmp/uat-account-deletion-cleanup-health.json
-          psql --no-psqlrc \
-            --file deploy/account-deletion/remove_release_fence.sql \
-            | tee /tmp/uat-account-deletion-fence-removal.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/remove_release_fence.sql \
+              | tee /tmp/uat-account-deletion-fence-removal.log
+          fi
           echo "activated=true" >> "$GITHUB_OUTPUT"
 
       # Delivers One Voice scheduled mail. UAT only: production pins
@@ -2913,6 +2993,7 @@ jobs:
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
+                  "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
@@ -2982,6 +3063,8 @@ jobs:
             /tmp/uat-backend-candidate-health.json
             /tmp/uat-backend-promoted-service.json
             /tmp/uat-account-deletion-fence-install.log
+            /tmp/uat-account-deletion-revisions.json
+            /tmp/uat-account-deletion-unfenced-preflight.log
             /tmp/uat-account-deletion-fence-premigration.log
             /tmp/uat-account-deletion-boundary.log
             /tmp/uat-account-deletion-boundary-preactivation.log
@@ -3034,6 +3117,7 @@ jobs:
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
             echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
+            echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
