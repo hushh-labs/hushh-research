@@ -331,7 +331,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(
       screen.getByRole("checkbox", { name: "Keep I founded Example." }),
     ).not.toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Your Personal World Model details are saved.");
     expect(mocks.prepare.mock.calls[0][0].message).not.toContain(
       "I founded Example.",
@@ -357,9 +357,9 @@ describe("onboarding profile draft and owner confirmation", () => {
       mocks.apiFetch.mockResolvedValueOnce(respond(result));
       render(<ProfileResearchCard {...props} />);
       if (status === "no_match") {
-        await screen.findByText(/couldn’t find a reliable public profile/);
+        await screen.findByText(/Couldn’t connect these pages to you/);
         expect(
-          screen.getByRole("button", { name: "Save to Memory" }),
+          screen.getByRole("button", { name: "Save" }),
         ).toBeDisabled();
         expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
       }
@@ -474,7 +474,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     fireEvent.change(screen.getByRole("textbox", { name: `Edit ${FACT}` }), {
       target: { value: "I lead an engineering team." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Your Personal World Model details are saved.");
     const message = mocks.prepare.mock.calls[0][0].message;
     expect(message).toContain("I lead an engineering team.");
@@ -497,7 +497,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
     expect(
-      screen.getByRole("button", { name: "Save to Memory" }),
+      screen.getByRole("button", { name: "Save" }),
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(mocks.prepare).not.toHaveBeenCalled();
@@ -538,7 +538,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     );
     render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByRole("alertdialog");
     expect(mocks.addToPKM).not.toHaveBeenCalled();
     fireEvent.click(
@@ -590,11 +590,11 @@ describe("onboarding profile draft and owner confirmation", () => {
       );
       render(<ProfileResearchCard {...props} />);
       await screen.findByText("Alex Example");
-      fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Save to Memory" }),
+          screen.getByRole("button", { name: "Save" }),
         ).toBeEnabled(),
       );
       expect(mocks.addToPKM).not.toHaveBeenCalled();
@@ -614,8 +614,8 @@ describe("onboarding profile draft and owner confirmation", () => {
     });
     render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByRole("button", { name: "Retry save" });
     await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
@@ -640,7 +640,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     );
     render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByRole("button", { name: "Retry save" });
     expect(
       screen.getByRole("checkbox", { name: `Keep ${FACT}` }),
@@ -664,7 +664,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     );
     const root = render(<ProfileResearchCard {...props} />);
     await screen.findByText("Alex Example");
-    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
     root.unmount();
     await act(async () => {

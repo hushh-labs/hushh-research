@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2701,
+  "finding_count": 2707,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16285,7 +16285,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 981
+      "value": 1002
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19615,7 +19615,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
-      "value": 1127
+      "value": 1203
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24575,7 +24575,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "ProfileResearchJobs",
-      "value": 467
+      "value": 540
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24611,7 +24611,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "_run",
-      "value": 188
+      "value": 219
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24647,7 +24647,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "start",
-      "value": 131
+      "value": 150
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24719,7 +24719,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_profile_research_jobs.py",
       "symbol": null,
-      "value": 1043
+      "value": 1317
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25511,7 +25511,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": "run_world_model",
-      "value": 349
+      "value": 354
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25610,7 +25610,7 @@
       "limit": 80,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": "_replay_referral_policy_v2_sql",
-      "value": 103
+      "value": 124
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25628,7 +25628,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": "test_referral_v2_replay_accepts_only_an_intact_later_lineage",
-      "value": 198
+      "value": 241
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25894,7 +25894,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": "search_public_web",
-      "value": 125
+      "value": 130
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26398,7 +26398,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/personal-world-model-page.tsx",
       "symbol": null,
-      "value": 740
+      "value": 1077
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26614,7 +26614,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": null,
-      "value": 584
+      "value": 697
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26741,6 +26741,60 @@
       "path": "consent-protocol/tests/services/test_calendar_shared_availability.py",
       "symbol": "journey",
       "value": 87
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ops/pwm_uat_status.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ops/pwm_uat_status.py",
+      "symbol": "main",
+      "value": 118
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/personal-world-model-page.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/personal-world-model-page.test.tsx",
+      "symbol": null,
+      "value": 900
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_world_model.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_world_model.py",
+      "symbol": null,
+      "value": 732
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/world-model-research-service.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/world-model-research-service.test.ts",
+      "symbol": null,
+      "value": 631
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/world-model-research-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/world-model-research-service.ts",
+      "symbol": null,
+      "value": 600
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/world-model-journey.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/world-model-journey.test.tsx",
+      "symbol": null,
+      "value": 505
     }
   ],
   "inspected_files": 6625,
@@ -49543,6 +49597,197 @@
         "source_sha256": "887d090e75eb9b2b8d304c881aa1e63cca08d41cd11fcb1e3196ac79245d4e9b"
       }
     ]
+  },
+  "scope_commerce_maindb4_composition_20261015": {
+    "boundary": "Exactly18 reviewed rank-zero observations. Prior findings/history, scanner, exclusions and500/250/80budgets retained. New growth still rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 540,
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 467,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "bef78030ed4bc09b8e7f0b7db9ea2e073bc63a50",
+        "source_sha256": "7a7f4fa833f3e2cc1ba9957b86b9cae12919bc6cb6bfd657037683013eaf63b6"
+      },
+      {
+        "accepted_ceiling": 354,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|run_world_model|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 349,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "6e89b06f9c4dfe4a33c9a7f469039a4868aefe01",
+        "source_sha256": "ff8bbbc8ce94e37323a2e8c048f6774a0dfa81a6ff5f24ad6781be0a51abff0a"
+      },
+      {
+        "accepted_ceiling": 241,
+        "key": "function_size|consent-protocol/tests/test_migration_authority.py|test_referral_v2_replay_accepts_only_an_intact_later_lineage|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 198,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d49f76fd1dafd0ae4ad850bc8498021548305c67",
+        "source_sha256": "62381869c8ee83cd459e3fda76263590a87c419771f7c827a958d0f4ebdf93e8"
+      },
+      {
+        "accepted_ceiling": 219,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 188,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "bef78030ed4bc09b8e7f0b7db9ea2e073bc63a50",
+        "source_sha256": "7a7f4fa833f3e2cc1ba9957b86b9cae12919bc6cb6bfd657037683013eaf63b6"
+      },
+      {
+        "accepted_ceiling": 150,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|start|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 131,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "bef78030ed4bc09b8e7f0b7db9ea2e073bc63a50",
+        "source_sha256": "7a7f4fa833f3e2cc1ba9957b86b9cae12919bc6cb6bfd657037683013eaf63b6"
+      },
+      {
+        "accepted_ceiling": 130,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|search_public_web|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 125,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "6e89b06f9c4dfe4a33c9a7f469039a4868aefe01",
+        "source_sha256": "ff8bbbc8ce94e37323a2e8c048f6774a0dfa81a6ff5f24ad6781be0a51abff0a"
+      },
+      {
+        "accepted_ceiling": 124,
+        "key": "function_size|consent-protocol/db/migration_authority.py|_replay_referral_policy_v2_sql|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 103,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "14d7e413241f1b5556ec4df2610bcce42475dd8a",
+        "source_sha256": "4b69d9e73a3a10bfca9e7dc14bb05a874ff15e65201c08120acd93b9f3aa96d8"
+      },
+      {
+        "accepted_ceiling": 118,
+        "key": "function_size|scripts/ops/pwm_uat_status.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "077122e12eea4053de9b2671667924a6743ad8d8",
+        "source_sha256": "ae5b5c3512e185166e7c3f797c9183d4134a3e100b27d90ca26b4ba1afbd3feb"
+      },
+      {
+        "accepted_ceiling": 1317,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1043,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "8784459c1e04871e94220bc16297776c383f6841",
+        "source_sha256": "0f3886040509af7c3db93339f6ff660f6cc75651bbfa4e3bc7950d9e55d87714"
+      },
+      {
+        "accepted_ceiling": 1203,
+        "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1127,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d49f76fd1dafd0ae4ad850bc8498021548305c67",
+        "source_sha256": "62381869c8ee83cd459e3fda76263590a87c419771f7c827a958d0f4ebdf93e8"
+      },
+      {
+        "accepted_ceiling": 1077,
+        "key": "module_size|hushh-webapp/components/profile/personal-world-model-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 740,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "client_context",
+        "source_git_blob": "4e3c9ac94726f9179392244b99934d9c98e94367",
+        "source_sha256": "55eb722e3a55db8a50c6973d016bb7d9a5d44b1f57dd942fc64a2d226f11314f"
+      },
+      {
+        "accepted_ceiling": 1002,
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 981,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "14d7e413241f1b5556ec4df2610bcce42475dd8a",
+        "source_sha256": "4b69d9e73a3a10bfca9e7dc14bb05a874ff15e65201c08120acd93b9f3aa96d8"
+      },
+      {
+        "accepted_ceiling": 900,
+        "key": "module_size|hushh-webapp/__tests__/components/personal-world-model-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5270a5035aaf7f0f48bb21f37e4c2b7c0c9a1dbe",
+        "source_sha256": "c895e4896b6f7344ee30efe3110420d5823489eaa8d1c23adeb936fc3bca91ef"
+      },
+      {
+        "accepted_ceiling": 732,
+        "key": "module_size|consent-protocol/tests/test_world_model.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d373463b7d4765798822f8c6bce9312817a5ef8a",
+        "source_sha256": "0323858b09f075f567e2f42b8d1282037c5f036c2063be277f5d903cb416c6a6"
+      },
+      {
+        "accepted_ceiling": 697,
+        "key": "module_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 584,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "bef78030ed4bc09b8e7f0b7db9ea2e073bc63a50",
+        "source_sha256": "7a7f4fa833f3e2cc1ba9957b86b9cae12919bc6cb6bfd657037683013eaf63b6"
+      },
+      {
+        "accepted_ceiling": 631,
+        "key": "module_size|hushh-webapp/__tests__/services/world-model-research-service.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5f6bbaea3f2f440521375d83c62be35899354cb1",
+        "source_sha256": "79c2c3987170c01918f468881c1a5e98ac7c5feb739096384bb1ca98a0406050"
+      },
+      {
+        "accepted_ceiling": 600,
+        "key": "module_size|hushh-webapp/lib/services/world-model-research-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "client_context",
+        "source_git_blob": "dac37fe234bc016d03747addb35787540e751ea3",
+        "source_sha256": "280ea560eb05fd89d07d5d46df0b32b8a234eb63f130bb0c8fa877e7023f7b56"
+      },
+      {
+        "accepted_ceiling": 505,
+        "key": "module_size|hushh-webapp/__tests__/components/world-model-journey.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed incoming PWM progress and exact v3/v4 migration replay composition. Existing lazy routing, owner/private placement and consent retirement checks preserved; failures release no progress. Existing test cases retained. Size debt remains visible; no financial or deployed acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5e3efbfd4b6bccbe135024bba9e7cbc7c8ccb98b",
+        "source_sha256": "f5fcdfa9dc39375eb01a61d1981eb73e8536b0f56dc7418fb0fb82616f07bbee"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "db4ff6f76604f1ac640c8f5e0e7f8f017742edbe",
+    "prior_baseline_sha256": "ec7cb538ec7e9753b7d9a13a2c52eb62a25f167d392835a4beaeb49f44381b7e",
+    "retained_parent_revision": "77b798c1ea8ef0d655659fb7fa9e07b35b15a517",
+    "reviewed_report_sha256": "11d8f16dde13ced53e537e8cbf1ed51ac8a918c53c26359402885bae4d7778bf",
+    "verification": "170backend/123frontend/462Back focused cases pass. Latest canonical core and hosted CI remain required."
   },
   "scope_commerce_mainf39_integration_review_20261014": {
     "boundary": "Exact reviewed occurrence ceilings only; historical duplicates, scanner, exclusions and 500/250/80 budgets preserved. Retained modularity debt; runtime/provider acceptance remains separate.",

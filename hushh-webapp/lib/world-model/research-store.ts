@@ -1,5 +1,6 @@
 import type {
   PwmPreferences,
+  PwmProgress,
   PwmResult,
 } from "@/lib/services/world-model-research-service";
 
@@ -16,6 +17,17 @@ export type WorldModelResearchState = {
   result: PwmResult | null;
   preferences: PwmPreferences | null;
   failed: boolean;
+  /** What running research is doing; null once a final result arrives. */
+  progress: PwmProgress | null;
+  /** True while a stream or poll is actively receiving. */
+  live: boolean;
+  /** When the last progress or result arrived, as Date.now(). */
+  lastActivityAt: number | null;
+  /**
+   * When research will be tried again on its own, as Date.now(), after a
+   * result said it is unavailable for a while; null for every other result.
+   */
+  retryAt: number | null;
   /** Restarts the reader; pass the switches a preference write just confirmed. */
   reload: (confirmed?: PwmPreferences) => void;
   refresh: () => void;
@@ -32,6 +44,10 @@ export type WorldModelResearchSnapshot = WorldModelResearchAuthority & {
   result: PwmResult | null;
   preferences: PwmPreferences | null;
   failed: boolean;
+  progress: PwmProgress | null;
+  live: boolean;
+  lastActivityAt: number | null;
+  retryAt: number | null;
 };
 
 type Actions = Pick<WorldModelResearchState, "reload" | "refresh">;
@@ -56,6 +72,10 @@ const UNMOUNTED: WorldModelResearchState = Object.freeze({
   result: null,
   preferences: null,
   failed: false,
+  progress: null,
+  live: false,
+  lastActivityAt: null,
+  retryAt: null,
   reload,
   refresh,
 });
@@ -71,6 +91,10 @@ function publish() {
         result: valid ? snapshot!.result : null,
         preferences: valid ? snapshot!.preferences : null,
         failed: valid ? snapshot!.failed : false,
+        progress: valid ? snapshot!.progress : null,
+        live: valid ? snapshot!.live : false,
+        lastActivityAt: valid ? snapshot!.lastActivityAt : null,
+        retryAt: valid ? snapshot!.retryAt : null,
         reload,
         refresh,
       }
@@ -79,7 +103,11 @@ function publish() {
     next.mounted === published.mounted &&
     next.result === published.result &&
     next.preferences === published.preferences &&
-    next.failed === published.failed
+    next.failed === published.failed &&
+    next.progress === published.progress &&
+    next.live === published.live &&
+    next.lastActivityAt === published.lastActivityAt &&
+    next.retryAt === published.retryAt
   )
     return;
   published = next;

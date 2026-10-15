@@ -54,6 +54,7 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+GET /api/one/world-model/jobs/stream
 POST /api/one/world-model/ensure
 DELETE,GET,POST /api/one/world-model/source-reviews
 POST /api/one/world-model/source-reviews/complete

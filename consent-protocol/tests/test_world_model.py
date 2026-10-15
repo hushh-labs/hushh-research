@@ -362,3 +362,371 @@ def test_claim_research_consent_keeps_owner_email_choice(monkeypatch, existing):
     else:
         update.assert_awaited_once_with("owner", "fixture", enabled=True, email_enabled=True)
         enroll.assert_not_awaited()
+
+
+def checkpoint():
+    """A live checkpoint as the runner seals it: answers, identity and receipts included."""
+    return {
+        "job_id": "11111111-1111-4111-8111-111111111111",
+        "status": "pending",
+        "started_at": 1_700_000_000.0,
+        "discovery_started_at": 1_700_000_000.0,
+        "starts": [1_700_000_000.0],
+        "attempted_combinations": [33, 1, 34, 35, 2, 36],
+        "identity_binding": "owner-bound-identity",
+        "revision": 4,
+        "fence": "sealed",
+        "work": {
+            "attempts": {
+                "1": {
+                    "plan": copy.deepcopy(PLAN),
+                    "observed": True,
+                    "answer": "Alex Example publishes alex@example.test and +15550001111.",
+                    "source_refs": ["s1"],
+                    "state": "received",
+                    "at": 1_700_000_030.0,
+                },
+                "2": {
+                    "plan": {**copy.deepcopy(PLAN), "purpose": "coverage", "candidate_id": "c1"},
+                    "observed": False,
+                    "answer": "",
+                    "source_refs": [],
+                    "state": "started",
+                },
+            },
+            "sources": {
+                "s1": {"title": "Bio", "url": "https://example.test/alex"},
+                "s2": {"title": "Talk", "url": "https://example.test/talk"},
+            },
+            "assessment": assessment(),
+        },
+    }
+
+
+def test_derive_progress_reports_counts_and_public_receipts_only():
+    from hushh_mcp.services.world_model_progress import derive_progress
+
+    now = 1_700_000_100.0
+    progress = derive_progress(checkpoint(), now=now, revision_at=1_700_000_045.0)
+    assert progress == {
+        "stage": "coverage",
+        "searches_used": 2,
+        "searches_total": pwm.MAX_SEARCHES,
+        "model_calls_used": 4,
+        "model_calls_total": pwm.MAX_MODEL_CALLS,
+        "topics_checked": ["career"],
+        "sources_found": 2,
+        "recent_sources": [
+            {"title": "Bio", "url": "https://example.test/alex"},
+            {"title": "Talk", "url": "https://example.test/talk"},
+        ],
+        "identity_state": "owner_linked",
+        "candidates": 1,
+        "started_at": "2023-11-14T22:13:20Z",
+        "last_activity_at": "2023-11-14T22:14:05Z",
+        "slice": 1,
+    }
+    serialized = json.dumps(progress)
+    for secret in ("Alex", "alex@example.test", "+15550001111", "publishes", "Exact public"):
+        assert secret not in serialized
+    # Stage follows the checkpoint: nothing yet, identity unresolved, composing.
+    assert derive_progress({"started_at": now}, now=now)["stage"] == "starting"
+    unresolved = checkpoint()
+    del unresolved["work"]["assessment"]
+    assert derive_progress(unresolved, now=now)["identity_state"] is None
+    assert derive_progress(unresolved, now=now)["stage"] == "identity"
+    composing = checkpoint()
+    composing["attempted_combinations"] += [37, 38, 39]
+    assert derive_progress(composing, now=now)["stage"] == "report"
+    # A clock ahead of the poller never reports activity in the future.
+    assert derive_progress(checkpoint(), now=1_700_000_010.0)["last_activity_at"].endswith(
+        "22:13:30Z"
+    )
+    # The ledger already holds the run in flight: a second paid start is part 2.
+    continued = checkpoint()
+    continued["starts"].append(1_700_000_090.0)
+    assert derive_progress(continued, now=now)["slice"] == 2
+    assert derive_progress({"started_at": now, "starts": []}, now=now)["slice"] == 1
+
+
+class ProgressStore:
+    def __init__(self, row):
+        self.row = row
+
+    async def get(self, owner):
+        return copy.deepcopy(self.row)
+
+
+@pytest.mark.asyncio
+async def test_status_attaches_progress_only_while_research_is_live(monkeypatch):
+    from hushh_mcp.services import profile_research_jobs as jobs
+    from hushh_mcp.services import world_model_service as service
+
+    monkeypatch.setattr(jobs, "validate_first_party_owner_token", AsyncMock(return_value=object()))
+    monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    clock = lambda: 1_700_000_100.0  # noqa: E731 - fixed clock
+    live = service.WorldModelJobs(
+        store=ProgressStore(checkpoint()),
+        offer=AsyncMock(),
+        check=AsyncMock(return_value=(None, "owner-bound-identity")),
+        clock=clock,
+    )
+    result = await live.status("owner", "fixture")
+    assert result["status"] == "pending" and result["restart_required"] is False
+    assert result["progress"]["searches_used"] == 2
+    assert result["progress"]["last_activity_at"] == "2023-11-14T22:15:00Z"
+    # The same revision keeps its first-seen time; a newer one moves it.
+    live.clock = lambda: 1_700_000_160.0
+    assert (await live.status("owner", "fixture"))["progress"]["last_activity_at"] == (
+        "2023-11-14T22:15:00Z"
+    )
+    live.store.row["revision"] = 5
+    assert (await live.status("owner", "fixture"))["progress"]["last_activity_at"] == (
+        "2023-11-14T22:16:00Z"
+    )
+    offered = {
+        **checkpoint(),
+        "status": "offered",
+        "finished_at": 1_700_000_090.0,
+        "result": {"status": "offered", "pkm_written": False, "draft_id": "d1"},
+    }
+    done = service.WorldModelJobs(
+        store=ProgressStore(offered),
+        offer=AsyncMock(),
+        check=AsyncMock(return_value=(None, "owner-bound-identity")),
+        clock=clock,
+    )
+    assert await done.status("owner", "fixture") == offered["result"]
+
+
+@pytest.mark.parametrize("retirement", ["consent", "binding", "owner"])
+async def test_live_progress_cannot_release_retired_checkpoint_evidence(monkeypatch, retirement):
+    from hushh_mcp.services import profile_research_jobs as jobs
+    from hushh_mcp.services import world_model_service as service
+
+    admitted = True
+
+    async def token(*_args):
+        return object() if admitted else None
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(jobs, "validate_first_party_owner_token", token)
+    monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(service, "validate_first_party_owner_token", token)
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    refused = {"status": "consent_required", "pkm_written": False}
+    final_check = (refused, "") if retirement == "consent" else (None, "changed-identity")
+    store = ProgressStore(checkpoint())
+    reads = 0
+    read = store.get
+
+    async def checkpoint_read(owner):
+        nonlocal admitted, reads
+        state = await read(owner)
+        reads += 1
+        if reads == 2 and retirement == "owner":
+            admitted = False
+        return state
+
+    store.get = checkpoint_read
+    live = service.WorldModelJobs(
+        store=store,
+        offer=AsyncMock(),
+        clock=lambda: 1_700_000_100.0,
+        check=AsyncMock(side_effect=[(None, "owner-bound-identity"), final_check]),
+    )
+    if retirement == "owner":
+        with pytest.raises(PermissionError, match="Owner session ended"):
+            await live.status("owner", "fixture")
+    else:
+        result = await live.status("owner", "fixture")
+        assert "progress" not in result
+        assert result == (refused if retirement == "consent" else jobs.pending(restart=True))
+
+
+@pytest.mark.asyncio
+async def test_progress_stream_emits_changes_pings_then_result_and_closes():
+    from api.routes.one.world_model_stream import progress_events
+
+    now = 0.0
+    progress = {"stage": "identity", "searches_used": 1}
+    pending = {"status": "pending", "pkm_written": False, "restart_required": False}
+    scripted = [
+        {**pending, "progress": progress},
+        {**pending, "progress": progress},  # 8 s, unchanged: no frame
+        {**pending, "progress": progress},  # 16 s, unchanged: heartbeat
+        {**pending, "progress": {**progress, "searches_used": 2}},
+        {"status": "offered", "pkm_written": False, "draft_id": "d1"},
+        AssertionError("polled after close"),
+    ]
+    jobs = SimpleNamespace(status=AsyncMock(side_effect=scripted))
+
+    async def sleep(seconds):
+        nonlocal now
+        now += seconds
+
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    stream = progress_events(
+        jobs, "owner", "fixture", request, poll_seconds=8.0, clock=lambda: now, sleep=sleep
+    )
+    frames = [frame async for frame in stream]
+    assert [frame["event"] for frame in frames] == ["progress", "ping", "progress", "result"]
+    assert json.loads(frames[2]["data"]) == {**progress, "searches_used": 2}
+    assert json.loads(frames[3]["data"]) == scripted[4]
+    assert jobs.status.await_count == 5
+    # A lifetime cap or a lost session also ends the stream; the cap hands back
+    # the live state so the client reconnects at once.
+    capped = progress_events(
+        SimpleNamespace(status=AsyncMock(return_value=pending)),
+        "owner",
+        "fixture",
+        request,
+        lifetime_seconds=0.0,
+        clock=lambda: 1.0,
+        sleep=sleep,
+    )
+    assert [frame["event"] async for frame in capped] == ["result"]
+    gone = progress_events(
+        SimpleNamespace(status=AsyncMock(side_effect=PermissionError())),
+        "owner",
+        "fixture",
+        request,
+        sleep=sleep,
+    )
+    assert [frame async for frame in gone] == []
+
+
+def test_progress_stream_route_is_owner_only_and_private(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.middlewares.chat_key import require_vault_owner_chat_key
+    from api.routes.one import world_model_stream as routes
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", placement
+    )
+    monkeypatch.setattr(routes, "open_streams", {})
+
+    terminal = {"status": "paused", "pkm_written": False, "restart_required": True}
+    jobs = SimpleNamespace(status=AsyncMock(return_value=terminal))
+    monkeypatch.setattr(routes, "world_model_jobs", jobs)
+    app = FastAPI()
+    app.include_router(routes.router)
+    assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == 401
+    jobs.status.assert_not_awaited()
+    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+        "user_id": "owner",
+        "token": "fixture",
+    }
+    response = TestClient(app).get("/api/one/world-model/jobs/stream")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "event: result" in response.text
+    assert json.loads(response.text.split("data: ")[1].splitlines()[0]) == terminal
+    jobs.status.assert_awaited_once_with("owner", "fixture")
+    jobs.status.side_effect = PermissionError()
+    assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == 403
+    for mode, expected in [("byoc", 409), ("hussh_pods", 409), ("unknown", 503)]:
+        placement.return_value = mode
+        jobs.status.reset_mock(side_effect=True)
+        assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == expected
+        jobs.status.assert_not_awaited()
+        assert routes.open_streams == {}
+
+
+def test_progress_stream_caps_open_streams_per_owner(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.middlewares.chat_key import require_vault_owner_chat_key
+    from api.routes.one import world_model_stream as routes
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+
+    monkeypatch.setattr(routes, "open_streams", {})
+    terminal = {"status": "paused", "pkm_written": False, "restart_required": True}
+    jobs = SimpleNamespace(status=AsyncMock(return_value=terminal))
+    monkeypatch.setattr(routes, "world_model_jobs", jobs)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+        "user_id": "owner",
+        "token": "fixture",
+    }
+    client = TestClient(app)
+    # The owner already holds the allowed streams: a third is refused before
+    # any read, takes no slot, and says when to come back.
+    routes.open_streams["owner"] = routes.MAX_OPEN_STREAMS
+    refused = client.get("/api/one/world-model/jobs/stream")
+    assert refused.status_code == 429
+    assert refused.headers["retry-after"] == "5"
+    assert refused.headers["cache-control"] == "private, no-store"
+    assert "tab" in refused.json()["detail"]
+    jobs.status.assert_not_awaited()
+    assert routes.open_streams == {"owner": routes.MAX_OPEN_STREAMS}
+    # Another owner is not held back by this one's streams.
+    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+        "user_id": "other",
+        "token": "fixture",
+    }
+    assert client.get("/api/one/world-model/jobs/stream").status_code == 200
+    jobs.status.assert_awaited_once_with("other", "fixture")
+    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+        "user_id": "owner",
+        "token": "fixture",
+    }
+    # A freed slot lets the stream open; it is given back once the stream closes.
+    routes.open_streams["owner"] = routes.MAX_OPEN_STREAMS - 1
+    opened = client.get("/api/one/world-model/jobs/stream")
+    assert opened.status_code == 200 and "event: result" in opened.text
+    assert routes.open_streams == {"owner": routes.MAX_OPEN_STREAMS - 1}
+    # A refused handshake gives its slot back as well.
+    routes.open_streams.clear()
+    jobs.status.side_effect = PermissionError()
+    assert client.get("/api/one/world-model/jobs/stream").status_code == 403
+    jobs.status.side_effect = RuntimeError("backend")
+    assert client.get("/api/one/world-model/jobs/stream").status_code == 503
+    assert routes.open_streams == {}
+
+
+@pytest.mark.asyncio
+async def test_open_stream_slot_is_released_when_the_client_leaves(monkeypatch):
+    from api.routes.one import world_model_stream as routes
+
+    monkeypatch.setattr(routes, "open_streams", {})
+
+    async def pings():
+        while True:
+            yield {"event": "ping", "data": "{}"}
+
+    assert routes.acquire_stream("owner") and routes.acquire_stream("owner")
+    assert not routes.acquire_stream("owner")
+    relay = routes.counted("owner", pings())
+    assert (await anext(relay))["event"] == "ping"
+    # The client went away mid-stream: the slot comes back without a result.
+    await relay.aclose()
+    assert routes.open_streams == {"owner": 1}
+    routes.release_stream("owner")
+    assert routes.open_streams == {}
+    # Releasing more than was taken never goes negative.
+    routes.release_stream("owner")
+    assert routes.acquire_stream("owner") and routes.open_streams == {"owner": 1}

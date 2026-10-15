@@ -4218,6 +4218,7 @@ function ProfilePageContent({
           <PersonalWorldModelPage
             embedded
             onManageDetails={() => openVaultBackedPanel("my-data")}
+            onOpenAccount={openAccountPanel}
           />
         </div>
       ),

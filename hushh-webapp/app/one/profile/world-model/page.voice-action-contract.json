@@ -223,7 +223,7 @@
     },
     {
       "action_id": "profile.world_model.research",
-      "label": "Use public sources",
+      "label": "Research public pages",
       "meaning": "Turn public research on or off. Off is an explicit opt-out that research respects.",
       "aliases": [],
       "search_keywords": [
@@ -477,7 +477,7 @@
     {
       "action_id": "profile.world_model.invite",
       "label": "Invite someone",
-      "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -561,7 +561,7 @@
     },
     {
       "action_id": "profile.world_model.reject",
-      "label": "Reject invitation",
+      "label": "Decline invitation",
       "meaning": "Delete an unclaimed invitation addressed to the verified owner.",
       "aliases": [],
       "search_keywords": [

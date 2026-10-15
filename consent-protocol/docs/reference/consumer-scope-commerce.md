@@ -4013,3 +4013,42 @@ already-reviewed production component and fixture tags. Frontend core, MCP-packa
 and integration stages must finish after this fixture-only correction. Completed
 backend/database evidence is retained; no full-core success, hosted CI, deployment
 or financial acceptance is inferred from the partial run.
+
+
+### Current-main composition and debugger admission, 2026-10-15
+
+The corrected frontend continuation on `77b798c1ea8e` passed canonical web-core,
+MCP-package and integration stages after the preceding backend/serial PostgreSQL
+stages passed on `285c6eff7dba`. This is staged evidence across the documented
+fixture-only correction, not one uninterrupted successful full-core command.
+
+A normal merge of main `db4ff6f76604` preserves the active infrastructure branch,
+its lazy One route facade, owner-private placement checks and the existing
+commercial records. PWM progress checks consent and identity binding before and
+after checkpoint reads; refusal or a changed binding exposes no progress.
+The SSE handshake uses the canonical content guard before reading jobs and
+preserves its HTTP refusal. Visibility listeners are retired with their session,
+including suppressed background sessions. Incoming reviewed migration authority
+permits only the exact intact referral v3/v4 replay chain. Migration SQL bodies,
+rollback mappings and the preservation receipt remain unchanged.
+
+Focused verification passes 170 backend, 123 frontend and 462 Back-navigation
+cases. Independent source reviews qualify exactly 18 size observations while
+retaining historical findings and unchanged scanner/budgets. The canonical graph
+regenerates against the real main merge base. Three exact-revision setup
+retirements reject older Gemini-specific cursors rather than silently accepting
+cloud-incompatible instructions. All eight predecessor references remain.
+Latest-candidate core, hosted CI and Dev/pod release remain required.
+
+Repeated Chrome debugger admission prompts are a connection-lifecycle failure,
+not evidence that an application sign-in was lost. This task makes no new shared
+CDP connection attempts or reconnect probes while the operator is away. Isolated,
+task-owned headless reviewer sessions use the canonical memory-only harness;
+shared Chrome, provider sessions and other agents' tabs remain untouched. A
+provider challenge that requires a human stays uncompleted and is recorded;
+no prompt approval or browser security-setting change is automated. This policy
+cannot guarantee that independently running clients will not request admission.
+
+No purchases, withdrawals or refunds are established by these source checks.
+The latest verified funding remains $10.50 per reviewer and $15 operating capital;
+these settled actions must not be repeated. Live payment admission stays disabled.

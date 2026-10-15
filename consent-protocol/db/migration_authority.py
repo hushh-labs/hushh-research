@@ -337,12 +337,13 @@ _REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256 = (
 
 
 def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
-    """Accept one pinned v3 successor without rewriting policy rows.
+    """Accept an ordered lineage of later policies without rewriting rows.
 
-    The published 289 body requires v2 to remain active forever. A later
-    versioned policy retires v2. Replay recognizes only the observed UAT v3
-    contents after verifying the lineage and every authored v2 value. The v3
-    policy still requires an owner attestation before this adapter is released.
+    The published 289 body requires v2 to remain active forever. Later
+    versioned policies retire it in turn. Replay verifies every authored v2
+    value, an unbroken activation/retirement chain ending in exactly one
+    active successor, and the observed UAT v3 contents. Only reviewed v3 or
+    v3-to-v4 lineage is accepted; v4 must match the exact migration-347 patches.
     Keep it out of ledger/observe mode and pin the original file's checksum.
     """
     checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
@@ -363,7 +364,8 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
         "  expected_successor_version INTEGER := 3;\n"
         "  previous_retirement TIMESTAMPTZ;\n"
         "  successor_count INTEGER := 0;\n"
-        "  successor_policy_hash TEXT;\nBEGIN\n",
+        "  successor_policy_hash TEXT;\n"
+        "  v3_row one_referral_program_settings%ROWTYPE;\nBEGIN\n",
     )
     replace_once(
         "  PERFORM 1 FROM one_referral_program_settings WHERE version IN (1, 2) FOR UPDATE;",
@@ -421,8 +423,27 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
         expected_successor_version := expected_successor_version + 1;
         successor_count := successor_count + 1;
       END LOOP;
-      IF successor_count <> 1 OR previous_retirement IS NOT NULL THEN
-        RAISE EXCEPTION 'migration 289: retired version 2 requires exactly one active, reviewed version 3 successor';
+      -- Reviewed lineage only: version 3 (migration 338), optionally retired
+      -- by version 4 (migration 347). A new version needs a new review here.
+      IF successor_count NOT IN (1, 2) OR previous_retirement IS NOT NULL THEN
+        RAISE EXCEPTION 'migration 289: retired version 2 requires the reviewed lineage (version 3, optionally retired by version 4) ending in one active policy';
+      END IF;
+      IF successor_count = 2 THEN
+        SELECT * INTO v3_row FROM one_referral_program_settings WHERE version = 3;
+        IF NOT EXISTS (
+          SELECT 1 FROM one_referral_program_settings s
+           WHERE s.version = 4 AND s.activated_at IS NOT NULL AND s.retired_at IS NULL
+             AND s.qualification_policy_version = 2
+             AND s.points = v3_row.points || '{{"referral_in_progress_points":5,"referral_qualified_activity_total_points":15,"agent_usage_points":10,"pkm_daily_points":15,"connection_created_points":5,"referral_activity_policy":"upgrade"}}'::JSONB
+             AND s.milestones = v3_row.milestones
+             AND s.streak_rules = v3_row.streak_rules || '{{"activity_source":"app_open"}}'::JSONB
+             AND s.flash_windows = v3_row.flash_windows AND s.weekly_schedule = v3_row.weekly_schedule
+             AND s.prize_catalogue = v3_row.prize_catalogue AND s.fulfillment_config = v3_row.fulfillment_config
+             AND s.feature_active = v3_row.feature_active
+             AND s.tie_break_rules = v3_row.tie_break_rules || '{{"individual":"coins_desc_first_earned_asc_user_id_asc","circle":"qualified_referrals_desc_created_at_asc_id_asc"}}'::JSONB
+        ) THEN
+          RAISE EXCEPTION 'migration 289: version 4 contents differ from the policy reviewed in migration 347';
+        END IF;
       END IF;
       SELECT encode(sha256(convert_to(jsonb_build_object(
         'qualification_policy_version', qualification_policy_version,
@@ -433,9 +454,9 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
       )::text, 'UTF8')), 'hex') INTO successor_policy_hash
         FROM one_referral_program_settings WHERE version = 3;
       IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}' THEN
-        RAISE EXCEPTION 'migration 289: active version 3 contents differ from the reviewed policy fingerprint';
+        RAISE EXCEPTION 'migration 289: version 3 contents differ from the reviewed policy fingerprint';
       END IF;
-      RAISE NOTICE 'migration 289: exact historical version 2 superseded by reviewed version 3; idempotent no-op';
+      RAISE NOTICE 'migration 289: exact historical version 2 superseded by a reviewed lineage; idempotent no-op';
     END IF;""",
     )
     return sql

@@ -399,7 +399,7 @@ export function ProfileResearchCard({
         onDiscarded?.();
       } catch {
         if (session.isCurrent())
-          morphyToast.error("Couldn't discard the draft. Try again.");
+          morphyToast.error("Couldn’t discard. Try again.");
       }
     });
   const renderSection = (section: ProfileReport["sections"][number]) => (
@@ -453,7 +453,7 @@ export function ProfileResearchCard({
                 <HelperText>
                   {fact.confidence === "conflicting"
                     ? "Sources disagree"
-                    : "Uncertain match"}
+                    : "Possible match"}
                 </HelperText>
               )}
               <div className="flex flex-wrap gap-x-3 gap-y-1 pl-7">
@@ -489,18 +489,18 @@ export function ProfileResearchCard({
           !embedded) && (
           <HelperText>
             {phase === "loading"
-              ? "One is building your Personal World Model profile…"
+              ? "Reading your pages…"
               : phase === "failed"
                 ? "Personal World Model is unavailable right now."
                 : phase === "saved"
                   ? "Your Personal World Model details are saved."
                   : report?.match_status === "no_match"
-                    ? "Personal World Model couldn’t find a reliable public profile for you. You can add details yourself or try with another verified contact."
+                    ? "Couldn’t connect these pages to you. Check the links or try another verified contact."
                     : report?.summary}
           </HelperText>
         )}
         {report?.match_status === "uncertain" && (
-          <HelperText>Check these details belong to you.</HelperText>
+          <HelperText>Possible match. Confirm only what’s yours.</HelperText>
         )}
       </CardHeader>
       <CardContent
@@ -511,7 +511,7 @@ export function ProfileResearchCard({
             <p>{result.research.identity.reason}</p>
             {result.research.gaps.length > 0 && (
               <details>
-                <summary>What is still unknown</summary>
+                <summary>Still unknown</summary>
                 <ul className="list-disc space-y-1 pl-4">
                   {result.research.gaps.map((gap) => (
                     <li key={gap}>{gap}</li>
@@ -549,14 +549,14 @@ export function ProfileResearchCard({
           <HelperText role="status">
             {phase === "preparing"
               ? "Preparing selected details…"
-              : "Saving to Memory…"}
+              : "Saving…"}
           </HelperText>
         )}
         {saveStarted && !busy && (
           <HelperText>
             {partiallySaved
               ? "Some details saved. Retry to finish."
-              : "Save wasn't confirmed. Retry safely."}
+              : "Save wasn’t confirmed. Try again."}
           </HelperText>
         )}
         {phase === "saved" ? null : (
@@ -582,7 +582,7 @@ export function ProfileResearchCard({
                   onClick={dismiss}
                   disabled={busy || saveStarted || phase === "loading"}
                 >
-                  {worldModel ? "Discard draft" : "Skip"}
+                  {worldModel ? "Discard" : "Skip"}
                 </Button>
               </div>
             }
@@ -599,7 +599,7 @@ export function ProfileResearchCard({
                       ? "Retry save"
                       : worldModel
                         ? "Save selected details"
-                        : "Save to Memory"}
+                        : "Save"}
                 </Button>
               )
             }

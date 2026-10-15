@@ -15,6 +15,7 @@ import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/n
 import {
   WorldModelResearchService,
   type PwmPreferences,
+  type PwmProgress,
   type PwmResult,
 } from "@/lib/services/world-model-research-service";
 import {
@@ -138,6 +139,11 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     let prefs: PwmPreferences | null = null,
       latest: PwmResult | null = null,
       failed = false,
+      progress: PwmProgress | null = null,
+      live = false,
+      lastActivityAt: number | null = null,
+      retryAt: number | null = null,
+      retryTimer: ReturnType<typeof setTimeout> | null = null,
       preferencesRequested = false;
     const store = writer.current;
     const publish = () => {
@@ -157,7 +163,43 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
               : null),
           result: latest,
           failed,
+          progress,
+          live,
+          lastActivityAt,
+          retryAt,
         }));
+    };
+    const clearRetry = () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+    // The automatic retry lives here, not in a page: it happens whether or
+    // not the owner keeps the pane open, and only for this owner, key and token.
+    const scheduleRetry = (at: number) => {
+      clearRetry();
+      retryTimer = setTimeout(
+        () => {
+          retryTimer = null;
+          if (!guard.isCurrent()) return;
+          refreshIntent.current = null;
+          setRevision((value) => value + 1);
+        },
+        Math.min(Math.max(0, at - Date.now()), 2_147_483_647),
+      );
+    };
+    // A long hidden spell is not a quiet one: running research is counted
+    // fresh when the owner returns, until the next real frame arrives.
+    const onVisible = () => {
+      if (document.hidden) return;
+      if (latest?.status !== "pending" && latest?.status !== "paused") return;
+      lastActivityAt = Date.now();
+      publish();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const cleanup = () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+      clearRetry();
     };
     // Read after ensure, so a first-time owner sees the enrolled row; a failed
     // run still reads them, so the off switch stays reachable.
@@ -173,7 +215,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     };
     if (shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh) {
       readPreferences();
-      return () => controller.abort();
+      return cleanup;
     }
     void (async () => {
       // Past decisions only refine research; an unreadable memory never blocks it.
@@ -191,20 +233,51 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         ownerId: owner,
         ownerDecisions,
         refresh: explicitRefresh,
+        onProgress: (next) => {
+          progress = next;
+          live = true;
+          lastActivityAt = Date.now();
+          publish();
+        },
+        onInterrupted: () => {
+          live = false;
+          publish();
+        },
         onResult: (result) => {
           latest = result;
+          live = true;
+          lastActivityAt = Date.now();
+          if (result.status !== "pending" && result.status !== "paused")
+            progress = null;
+          clearRetry();
+          retryAt =
+            result.status === "unavailable" &&
+            result.retry_after_s !== undefined
+              ? lastActivityAt + result.retry_after_s * 1_000
+              : null;
+          if (retryAt !== null) scheduleRetry(retryAt);
           publish();
           readPreferences();
         },
       });
+      live = false;
+      // The watch ended without a final result: nothing is running any more,
+      // so the page offers Try again rather than a resume that never comes.
+      // (Typed explicitly: onResult assigns `latest` from inside a callback.)
+      const ended = latest as PwmResult | null;
+      if (ended?.status === "pending" || ended?.status === "paused")
+        failed = true;
+      publish();
     })().catch(() => {
       if (controller.signal.aborted) return;
       latest = null;
       failed = true;
+      progress = null;
+      live = false;
       publish();
       readPreferences();
     });
-    return () => controller.abort();
+    return cleanup;
   }, [ready, user, vaultKey, vaultOwnerToken, inSetup, revision]);
   return <>{children}</>;
 }
