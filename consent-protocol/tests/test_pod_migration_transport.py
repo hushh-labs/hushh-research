@@ -416,6 +416,9 @@ def test_erasure_memory_binding_uses_separate_proof_and_exact_envelope(minted, m
         "legacy",
         "provider_pending",
         "provider_unknown",
+        "qualified",
+        "bad_coverage",
+        "coverage_without_counts",
         "attempt",
         "unconfirmed",
         "negative",
@@ -438,7 +441,7 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
     )
     reply = {"status": "erased", "erased": True, **payload, "deleted": 6}
     reply.update(alreadyAbsent=3, records=3)
-    if tamper != "legacy":
+    if tamper not in ("legacy", "coverage_without_counts"):
         reply.update(providerRevoked=2, providerUnconfirmed=0, providerUnavailable=0)
     reply.update(
         {
@@ -446,6 +449,9 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
             "legacy": {},
             "provider_pending": {"providerRevoked": 0, "providerUnconfirmed": 2},
             "provider_unknown": {"providerRevoked": 0, "providerUnavailable": 1},
+            "qualified": {"providerCoverage": "connector_history_v1"},
+            "bad_coverage": {"providerCoverage": "current_logins_only"},
+            "coverage_without_counts": {"providerCoverage": "connector_history_v1"},
             "attempt": {"attemptId": "foreign"},
             "unconfirmed": {"erased": False},
             "negative": {"deleted": -1},
@@ -458,7 +464,7 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
     )
     session = _Recorder(body=reply)
     pod = "https://ca-hussh-one-pod.happyfield.eastus2.azurecontainerapps.io"
-    if tamper in (None, "legacy", "provider_pending", "provider_unknown"):
+    if tamper in (None, "legacy", "provider_pending", "provider_unknown", "qualified"):
         acknowledged = transport.crypto_erase_for_erasure(
             pod_url=pod, payload=payload, session=session
         )

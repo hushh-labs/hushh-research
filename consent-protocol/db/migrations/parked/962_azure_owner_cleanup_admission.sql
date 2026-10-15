@@ -178,6 +178,7 @@ BEGIN
    AND worker-ARRAY['executionId','backendPid','approvalIndex']='{}'::jsonb
    AND ((approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp())) IS TRUE
    AND public.azure_erasure_writers_drained(owner_id) IS TRUE
+   AND public.erasure_provider_revocation_complete(prior) IS TRUE
    AND (worker->>'executionId' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') IS TRUE
    AND worker->'backendPid'=to_jsonb(pg_backend_pid())
    AND worker->'approvalIndex'=to_jsonb(jsonb_array_length(before_state->'approvals')-1)
@@ -326,6 +327,7 @@ BEGIN
  AND public.byoc_azure_worker_session_held(owner_id) IS TRUE
  AND public.valid_azure_erasure_plan(owner_id,state->'plan') IS TRUE
  AND public.azure_erasure_writers_drained(owner_id) IS TRUE
+ AND public.erasure_provider_revocation_complete(r) IS TRUE
  AND state->'worker'->>'executionId'=execution_id
  AND state->'worker'->'backendPid'=to_jsonb(pg_backend_pid())
  AND state->'worker'->'approvalIndex'=to_jsonb(jsonb_array_length(state->'approvals')-1)

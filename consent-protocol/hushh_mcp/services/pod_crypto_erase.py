@@ -49,7 +49,7 @@ import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 from hushh_mcp.services.pod_commit_log import ObjectStore, PodCommitLog, object_key_segments
 from hushh_mcp.services.pod_object_version import ABSENT, ObjectVersion
@@ -71,6 +71,19 @@ _ERASED_HEAD = b'{"seq":"erased","state":"erased","version":2}'
 
 class PodCryptoEraseRefused(RuntimeError):
     """The pod did not erase. Never carries storage bodies or owner identifiers."""
+
+
+class ProviderRevocationOutcome(TypedDict):
+    providerRevoked: int
+    providerUnconfirmed: int
+    providerUnavailable: int
+    providerCoverage: NotRequired[Literal["connector_history_v1"]]
+
+
+class CryptoEraseOutcome(ProviderRevocationOutcome):
+    deleted: int
+    alreadyAbsent: int
+    records: int
 
 
 def owned_objects(wrapped_key_object: str) -> tuple[str, ...]:
@@ -211,7 +224,9 @@ def bound_browser_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[st
     return list(json.loads(raw).get("browserObjects", []))
 
 
-def provider_revocation_counts(raw: bytes, *, owner_id: str, attempt_id: str) -> dict[str, int]:
+def provider_revocation_counts(
+    raw: bytes, *, owner_id: str, attempt_id: str
+) -> ProviderRevocationOutcome:
     """A verified tombstone's provider outcome, independently of local key erasure."""
     bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
     body = json.loads(raw)
@@ -225,6 +240,7 @@ def provider_revocation_counts(raw: bytes, *, owner_id: str, attempt_id: str) ->
         "providerRevoked": receipts["revoked"],
         "providerUnconfirmed": receipts["unrevoked"],
         "providerUnavailable": receipts["unavailable"],
+        "providerCoverage": "connector_history_v1",
     }
 
 
@@ -352,8 +368,8 @@ async def crypto_erase(
     open_fenced_log: Callable[[], Awaitable[PodCommitLog]],
     provider_post: Any = None,
     require_provider_revocation: bool = False,
-) -> dict[str, int]:
-    """Destroy the key, then the objects; idempotent per attempt. Returns counts only.
+) -> CryptoEraseOutcome:
+    """Destroy the key, then the objects; return bounded counts and verified coverage.
 
     ``open_fenced_log`` must close admission for exactly this attempt and return the
     pod's log. A legacy or failed provider receipt may be qualified only while

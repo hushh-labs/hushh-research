@@ -514,6 +514,7 @@ async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_
     assert counts["providerRevoked"] == int(provider_status == 200)
     assert counts["providerUnconfirmed"] == int(provider_status != 200)
     assert counts["providerUnavailable"] == 0
+    assert counts["providerCoverage"] == "connector_history_v1"
     raw = await store.get(ERASURE_TOMBSTONE_OBJECT)
     body = json.loads(raw)
     assert body["version"] == 4
@@ -643,6 +644,7 @@ async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_compl
         open_fenced_log=_never,
     )
     assert counts["providerUnavailable"] == 1 and counts["providerRevoked"] == 0
+    assert "providerCoverage" not in counts
 
 
 @pytest.mark.parametrize(

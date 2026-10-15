@@ -227,9 +227,12 @@ def _valid_erase_counts(result: dict[str, Any]) -> tuple[str, ...] | None:
         type(result.get(key)) is int and 0 <= result[key] <= 999_999_999 for key in _ERASE_COUNTS
     ):
         return None
+    coverage = "providerCoverage" in result
+    if coverage and result["providerCoverage"] != "connector_history_v1":
+        return None
     present = set(result) & set(_PROVIDER_ERASE_COUNTS)
     if not present:
-        return _ERASE_COUNTS
+        return None if coverage else _ERASE_COUNTS
     if present != set(_PROVIDER_ERASE_COUNTS) or not all(
         type(result.get(key)) is int and 0 <= result[key] <= 128 for key in _PROVIDER_ERASE_COUNTS
     ):
@@ -237,7 +240,7 @@ def _valid_erase_counts(result: dict[str, Any]) -> tuple[str, ...] | None:
     revoked, pending, unavailable = (result[key] for key in _PROVIDER_ERASE_COUNTS)
     if unavailable > 1 or revoked + pending > 128 or (unavailable and (revoked or pending)):
         return None
-    return (*_ERASE_COUNTS, *_PROVIDER_ERASE_COUNTS)
+    return (*_ERASE_COUNTS, *_PROVIDER_ERASE_COUNTS, *(("providerCoverage",) if coverage else ()))
 
 
 def crypto_erase_for_erasure(

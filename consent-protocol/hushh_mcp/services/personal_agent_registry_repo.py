@@ -459,6 +459,7 @@ class PersonalAgentRegistryRepo:
                 "providerRevoked": 0,
                 "providerUnconfirmed": 0,
                 "providerUnavailable": 1,
+                "providerCoverage": "connector_history_v1",
             },
             "resume": {"setupNonce": "0" * 16},
         }

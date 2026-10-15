@@ -62,6 +62,12 @@ worker polls the original typed provider operation without another DELETE.
 Changed subscriptions, path escapes and unknown legacy operation kinds refuse;
 absence cannot replace settlement. These checks do not prove live full cleanup.
 
+The pod-to-hub deletion receipt now preserves validated historical connector
+coverage. Legacy zero-counter receipts remain readable but cannot admit cloud
+cleanup. The schema preflight checks the actual producer shape before key
+destruction; hub/schema support must precede installing the emitting pod image.
+Focused pod/transport suites and real-SQL admission checks pass locally.
+
 Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
 JIT deletion/finalization and operator-project mail-topic
 cleanup before release freeze. Account deletion stays refused while obligations

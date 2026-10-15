@@ -60,4 +60,6 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION public.erasure_provider_revocation_complete(jsonb);
+
 COMMIT;

@@ -74,6 +74,7 @@ def _pod_receipt(**pod: object) -> dict:
         "service": "ca-hussh-one-pod", "serviceUid": "incarnation-1",
         "revision": "ca-hussh-one-pod--r1", "deleted": 6, "alreadyAbsent": 3, "records": 3,
         "providerRevoked": 2, "providerUnconfirmed": 0, "providerUnavailable": 0,
+        "providerCoverage": "connector_history_v1",
         **pod,
     }  # fmt: skip
 
@@ -193,6 +194,23 @@ def test_actual_repository_preflight_fences_old_schema_before_key_destruction(pg
 
     assert permitted() is False
     pg.apply_file(PROVIDER_MIGRATION)
+    # A counters-only schema is not safe for the actual v4 producer response.
+    pg.execute(
+        "ALTER FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb) "
+        "RENAME TO original_checkpoint_validator"
+    )
+    pg.execute(
+        "CREATE FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb) "
+        "RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ "
+        "SELECT NOT ($2->'agentErased' ? 'providerCoverage') "
+        "AND public.original_checkpoint_validator($1,$2) $$"
+    )
+    assert permitted() is False
+    pg.execute("DROP FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb)")
+    pg.execute(
+        "ALTER FUNCTION public.original_checkpoint_validator(jsonb,jsonb) "
+        "RENAME TO valid_erasure_owner_access_checkpoint"
+    )
     assert permitted() is True
     # A preflight may have returned but the irreversible pod request not finished.
     # Removing support in this window must already be refused, before a checkpoint.
@@ -207,8 +225,11 @@ def test_actual_repository_preflight_fences_old_schema_before_key_destruction(pg
         pg.apply_file(PROVIDER_ROLLBACK)
 
 
+@pytest.mark.parametrize("with_zero_counters", [False, True])
 @_needs_pg
-def test_legacy_checkpoint_remains_readable_without_claiming_provider_revocation(pg):
+def test_legacy_checkpoint_remains_readable_without_claiming_provider_revocation(
+    pg, with_zero_counters
+):
     reservation = _reserve(pg)
     checkpoint = _checkpoint()
     checkpoint["agentErased"] = {
@@ -216,6 +237,10 @@ def test_legacy_checkpoint_remains_readable_without_claiming_provider_revocation
         for key, value in checkpoint["agentErased"].items()
         if not key.startswith("provider")
     }
+    if with_zero_counters:
+        checkpoint["agentErased"].update(
+            providerRevoked=0, providerUnconfirmed=0, providerUnavailable=0
+        )
     assert _retain_checkpoint(pg, reservation, checkpoint) is True
     retained = pg.execute(
         "SELECT backend_metadata#>'{erasure,agentCryptoErase}' "
@@ -223,6 +248,13 @@ def test_legacy_checkpoint_remains_readable_without_claiming_provider_revocation
         (OWNER,),
     )[0][0]
     assert retained == checkpoint
+    assert (
+        pg.execute(
+            "SELECT erasure_provider_revocation_complete(%s::jsonb)",
+            (json.dumps({**reservation, "agentCryptoErase": retained}),),
+        )[0][0]
+        is False
+    )
 
 
 @_needs_pg
@@ -239,6 +271,13 @@ def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
     assert _retain_checkpoint(pg, reservation, _checkpoint(deleted=0, alreadyAbsent=9)) is False
     assert _retain(pg, reservation, receipt) is False  # expected must carry the checkpoint
     checkpointed = {**reservation, "agentCryptoErase": checkpoint}
+    assert (
+        pg.execute(
+            "SELECT erasure_provider_revocation_complete(%s::jsonb)",
+            (json.dumps(checkpointed),),
+        )[0][0]
+        is True
+    )
     assert _preflight(pg, checkpointed) is False
     assert _retain(pg, checkpointed, receipt) is True
     assert _retain(pg, checkpointed, receipt) is True  # an identical retry is acknowledged
@@ -269,6 +308,15 @@ def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
         lambda c: {**c, "agentErased": {**c["agentErased"], "providerRevoked": True}},
         lambda c: {**c, "agentErased": {**c["agentErased"], "providerUnconfirmed": 127}},
         lambda c: {**c, "agentErased": {**c["agentErased"], "providerUnavailable": 1}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "providerCoverage": "legacy"}},
+        lambda c: {
+            **c,
+            "agentErased": {
+                k: v
+                for k, v in c["agentErased"].items()
+                if k not in {"providerRevoked", "providerUnconfirmed", "providerUnavailable"}
+            },
+        },
         lambda c: {
             **c,
             "agentErased": {k: v for k, v in c["agentErased"].items() if k != "providerRevoked"},

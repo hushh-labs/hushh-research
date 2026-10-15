@@ -26,8 +26,13 @@ dependencies. An accepted cloud DELETE or destroyed key is not resource-absence
 evidence. Retention and protected provider objects remain explicit outcomes.
 
 The local Azure correction uses dev-only migration 960 to retain the producer's
-provider-revocation counters. Its read-only preflight invokes the installed
-checkpoint validator before the pod destroys keys. Rolling 960 back locks the
+provider-revocation counters and the exact `connector_history_v1` coverage marker
+from a validated v4 pod tombstone. Old zero-counter checkpoints remain readable;
+they do not prove historical grant coverage and must not be backfilled. Its
+read-only preflight probes the complete producer shape against the installed
+checkpoint validator before the pod destroys keys. Deploy the hub decoder and
+schema acceptance before approving an image that emits the marker: older hub
+decoders reject additional response fields. Rolling 960 back locks the
 registry against new reservations and refuses existing Azure reservations or
 new retained outcomes. Other erasure schema rollback requires its own fenced,
 drained release procedure; an application rollback does not recover deleted keys.

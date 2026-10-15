@@ -83,8 +83,10 @@ def cleanup_pg(monkeypatch, request):
         OWNER,
         SUB,
         TENANT,
+        _checkpoint,
         _reserve,
         _resource_group,
+        _retain_checkpoint,
     )
     from tests.test_personal_agent_notification_checkpoint import _notification_server
 
@@ -125,6 +127,15 @@ def cleanup_pg(monkeypatch, request):
             reservation = server.execute(
                 "SELECT reserve_personal_agent_erasure(%s,'attempt-1')", (OWNER,)
             )[0][0]
+            checkpoint = _checkpoint()
+            provider_case = getattr(request, "param", True)
+            if provider_case == "provider_legacy":
+                checkpoint["agentErased"].pop("providerCoverage")
+            elif provider_case == "provider_pending":
+                checkpoint["agentErased"]["providerUnconfirmed"] = 1
+            elif provider_case == "provider_unavailable":
+                checkpoint["agentErased"].update(providerRevoked=0, providerUnavailable=1)
+            assert _retain_checkpoint(server, reservation, checkpoint) is True
         else:
             server.execute(
                 "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES (%s,'setup-1',%s,'recorded')",
@@ -236,6 +247,17 @@ def test_legacy_missing_journal_can_be_inspected_but_cannot_admit_cleanup(cleanu
     assert _approve_cleanup(pg, owner, reservation, plan)
     assert pg.execute("SELECT azure_erasure_authorization(%s,'inspect')", (owner,))[0][0]
     assert pg.execute("SELECT azure_erasure_authorization(%s,'execute')", (owner,))[0][0] is None
+    assert _begin_cleanup(pg, owner, reservation, str(uuid.uuid4())) is False
+
+
+@pytest.mark.parametrize(
+    "cleanup_pg", ["provider_legacy", "provider_pending", "provider_unavailable"], indirect=True
+)
+def test_owner_approval_cannot_qualify_unknown_or_incomplete_connector_revocation(cleanup_state):
+    pg, owner, reservation, plan, state, retain = cleanup_state
+    assert retain(state) is True
+    assert _approve_cleanup(pg, owner, reservation, plan)
+    assert pg.execute("SELECT azure_erasure_writers_drained(%s)", (owner,))[0][0] is True
     assert _begin_cleanup(pg, owner, reservation, str(uuid.uuid4())) is False
 
 

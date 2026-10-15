@@ -30,7 +30,7 @@ BEGIN
   -- The pod's own confirmation, bound to this attempt and the recorded incarnation.
   IF agent - ARRAY['status','erased','hushhId','attemptId','service','serviceUid','revision',
        'deleted','alreadyAbsent','records',
-       'providerRevoked','providerUnconfirmed','providerUnavailable'] <> '{}'::jsonb
+       'providerRevoked','providerUnconfirmed','providerUnavailable','providerCoverage'] <> '{}'::jsonb
      OR agent->'erased' IS DISTINCT FROM 'true'::jsonb
      OR agent->>'status' IS DISTINCT FROM 'erased'
      OR agent->>'attemptId' IS DISTINCT FROM reservation->>'attemptId'
@@ -47,7 +47,9 @@ BEGIN
   -- Legacy checkpoints remain readable with UNKNOWN provider outcomes.
   -- Retain every new outcome before revoking access; incomplete revocation is
   -- evidence to preserve, never proof that provider cleanup has completed.
-  IF agent ?| ARRAY['providerRevoked','providerUnconfirmed','providerUnavailable'] THEN
+  IF agent ? 'providerCoverage' AND agent->'providerCoverage' IS DISTINCT FROM
+       '"connector_history_v1"'::jsonb THEN RETURN false; END IF;
+  IF agent ?| ARRAY['providerRevoked','providerUnconfirmed','providerUnavailable','providerCoverage'] THEN
     IF NOT agent ?& ARRAY['providerRevoked','providerUnconfirmed','providerUnavailable']
        OR jsonb_typeof(agent->'providerRevoked') IS DISTINCT FROM 'number'
        OR jsonb_typeof(agent->'providerUnconfirmed') IS DISTINCT FROM 'number'
@@ -63,6 +65,18 @@ BEGIN
   END IF;
   RETURN true;
 END;
+$$;
+
+-- Storage accepts legacy observations; destructive cleanup requires positive
+-- historical coverage. Zero counters alone cannot qualify an older receipt.
+CREATE OR REPLACE FUNCTION public.erasure_provider_revocation_complete(reservation jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+ SELECT coalesce(public.valid_erasure_owner_access_checkpoint(
+   reservation,reservation->'agentCryptoErase') IS TRUE
+  AND reservation#>'{agentCryptoErase,agentErased,providerCoverage}'=
+      '"connector_history_v1"'::jsonb
+  AND reservation#>'{agentCryptoErase,agentErased,providerUnconfirmed}'='0'::jsonb
+  AND reservation#>'{agentCryptoErase,agentErased,providerUnavailable}'='0'::jsonb,false);
 $$;
 
 COMMIT;

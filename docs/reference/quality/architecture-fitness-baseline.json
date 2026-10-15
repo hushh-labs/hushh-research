@@ -20707,7 +20707,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_crypto_erase.py",
       "symbol": null,
-      "value": 691
+      "value": 693
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -52542,6 +52542,19 @@
         "previous": 525,
         "reviewed": 532,
         "source_sha256": "b32a8a135e512536bd7f270b712e1776c46d7e142cd0cd536c7892dd71c31da2"
+      }
+    ]
+  },
+  "provider_coverage_boundary_review_20261015": {
+    "source_parent": "c765ee80efb3481073707a04cd16d96e5585797f",
+    "reviewer": "adk_authority_review, read-only independent authority review",
+    "rationale": "Only two historical-coverage assertions extend existing erasure cases. Legacy replies remain readable; positive coverage and zero outstanding provider outcomes gate cloud cleanup. No new test fixture or duplicate test body; all other ceilings and500/250/80 budgets unchanged. Local evidence only.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "previous": 691,
+        "reviewed": 693,
+        "source_sha256": "7bbf3fed476ed1252f420c062f5b68c1dcc2cc0827480cd16b9d06d7671d280a"
       }
     ]
   }
