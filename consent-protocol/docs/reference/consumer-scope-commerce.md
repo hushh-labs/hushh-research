@@ -4199,3 +4199,10 @@ to 350–356 with its prior manifest, SQL and rollback bodies archived in
 2026-10-15 found no accepted ledger identities or baselines in that range on
 Dev, UAT or production. Existing preservation evidence remains unchanged;
 release and database preservation checks remain required.
+
+The incoming referral integration has nine independently reviewed size observations
+(eight existing slots and one `record_app_open` slot), retaining all 2,710 prior
+slots and the 500/250/80 budgets. Main has no accepted fitness baseline; these
+are explicit retained source-size debt, not prior ratchet approval. The core
+run initially stopped at stale topology, then these observations, before runtime
+tests; both failures remain in the local evidence.

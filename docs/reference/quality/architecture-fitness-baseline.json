@@ -9976,7 +9976,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": "get_referral_summary",
-      "value": 105
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16285,7 +16285,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 1050
+      "value": 1065
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17437,7 +17437,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": null,
-      "value": 733
+      "value": 737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20650,7 +20650,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/referrals-panel.test.tsx",
       "symbol": null,
-      "value": 519
+      "value": 520
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23764,7 +23764,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
       "symbol": null,
-      "value": 869
+      "value": 874
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26695,7 +26695,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py",
       "symbol": "get_individual_leaderboard",
-      "value": 89
+      "value": 95
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26722,7 +26722,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_referral_lifecycle_postgres.py",
       "symbol": null,
-      "value": 753
+      "value": 1039
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26731,7 +26731,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx",
       "symbol": null,
-      "value": 510
+      "value": 584
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26822,6 +26822,16 @@
       "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
       "symbol": "test_command_flow_first_use_cost_is_paid_before_provider_deadlines",
       "value": 101
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_activity_service.py|record_app_open|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/one_referral_activity_service.py",
+      "ratchet_reason": "new finding",
+      "symbol": "record_app_open",
+      "value": 85
     }
   ],
   "inspected_files": 6625,
@@ -36201,6 +36211,78 @@
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
     "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+  },
+  "main_referral_integration_review_20261015": {
+    "entries": [
+      {
+        "after": 109,
+        "before": 105,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|get_referral_summary|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "5c9f9538f38fd3e62372d5141dfa10d581a18e327ad723af5a926829ce9a44e6"
+      },
+      {
+        "after": 95,
+        "before": 89,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py|get_individual_leaderboard|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "30aae24b272bf60e935ba6ee0a0926d4e1eb18d322e7453d69b8e4c88cd70e01"
+      },
+      {
+        "after": 85,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_activity_service.py|record_app_open|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "385f4f001d7fa8086d9f4caa8600d3fb726a44ef5f6864de38f03d30b01fcd10"
+      },
+      {
+        "after": 1065,
+        "before": 1050,
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "ae9028251a5ff0db4514dd41a0d4df761156df0c37a4b9759a979f297fe2ce3e"
+      },
+      {
+        "after": 1039,
+        "before": 753,
+        "key": "module_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "377ae9cef7cbe44c91cb1a53e0aa1dfce69976921acbe5bb57025b01462893b8"
+      },
+      {
+        "after": 874,
+        "before": 869,
+        "key": "module_size|hushh-webapp/scripts/architecture/audit-cache-coherence.mjs||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "83fabfc46f5459c1f714cfa07fd308789fba43bb42e4ebdeb6e767d4c82949c3"
+      },
+      {
+        "after": 737,
+        "before": 733,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_referral_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "5c9f9538f38fd3e62372d5141dfa10d581a18e327ad723af5a926829ce9a44e6"
+      },
+      {
+        "after": 584,
+        "before": 510,
+        "key": "module_size|hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "ae494a994d4d84e01373a622f22a7bb233c69d7ab782a8f1984296b99c38c612"
+      },
+      {
+        "after": 520,
+        "before": 519,
+        "key": "module_size|hushh-webapp/__tests__/components/referrals-panel.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "ab8529c4e534903d459b3444aeca4d08f2b735d4231361287e7ad6c1dd8e31f6"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "main_head": "812974bf4875130dd8db2a81fc882fa129adf2d1",
+    "reviewer": "ci_registry_review",
+    "scope": "Exact size debt reviewed against immutable incoming main and retained owner-erasure proof. Main has no accepted baseline; no claim of prior ratchet approval. Preserve all prior slots and 500/250/80 budgets; no dependency, authority or import-initialization exemptions.",
+    "source_head": "b78c4d922c94377d325707f7fd7ed6f049a4a2fb"
   },
   "main_scope_commerce_integration_review_20261015": {
     "entries": [
