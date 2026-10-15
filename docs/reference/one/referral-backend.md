@@ -92,6 +92,19 @@ build. No shared account information was inserted, reset or repaired.
 | `python scripts/ops/data_model_audit.py --text` | Passed; 287 tables classified, no unclassified tables or legacy-write findings |
 | `git diff --check` | Passed |
 
+After merging `main` at `331821640`, the migration-authority and PostgreSQL
+lifecycle pack passed all 81 tests. The merged dashboard passed 37 tests and
+the Back behavior pack passed 454 tests. Full web core passed UI contracts,
+validator regressions, TypeScript, full lint and production build. Backend
+lint, mypy, release/schema contracts and the security scan passed; the composed
+SQL uses fixed authored predicates with bound owner and snapshot values.
+
+The required local core mirror passed gitleaks but could not read repository
+secret-scanning alerts with this actor (HTTP 404). Additional local governance
+and MCP package checks reached Linux-specific process handling and npm spawning
+that Windows cannot execute. Hosted Linux checks on PR #8045 remain the
+authority for those lanes and the full backend/frontend suites.
+
 The isolated PostgreSQL URL selects loopback port 55432 and random schemas;
 no application/shared database URL is used. The developer-API check creates and
 removes its own random local database. Authenticated route fixtures retain
