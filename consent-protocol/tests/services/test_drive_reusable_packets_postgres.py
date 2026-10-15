@@ -242,9 +242,11 @@ def held_pages(reusable, expected, leases, after=None):
             all_running.set()
         try:
             # A schedule that never reaches `expected` proceeds after the wait.
-            await asyncio.wait_for(all_running.wait(), timeout=3)
+            # The wait ends as soon as it is reached, so a loaded runner only
+            # needs the headroom, never pays for it.
+            await asyncio.wait_for(all_running.wait(), timeout=10)
             if after is not None:
-                await asyncio.wait_for(after.wait(), timeout=3)
+                await asyncio.wait_for(after.wait(), timeout=10)
         except TimeoutError:
             pass
         state["in_flight"] -= 1
@@ -1660,22 +1662,14 @@ async def test_semantic_sweep_runs_parallel_facts_with_one_enqueue_per_owner(reu
     await originals(reusable, count=6)
     enqueue = AsyncMock(side_effect=reusable.facts.enqueue)
     monkeypatch.setattr(reusable.facts, "enqueue", enqueue)
-    in_flight = peak = 0
-
-    async def observed_pages(**kwargs):
-        nonlocal in_flight, peak
-        in_flight += 1
-        peak = max(peak, in_flight)
-        await asyncio.sleep(0.05)
-        in_flight -= 1
-        return await assess_pages(**kwargs)
-
-    reusable.worker.page_assessor = observed_pages
+    # Page facts wait until four run at once, instead of a fixed sleep that a
+    # loaded runner can outlast while claims are still serialized.
+    reusable.worker.page_assessor, held = held_pages(reusable, 4, [])
 
     result = await reusable.worker.run(max_jobs=6)
 
     assert result["facts_complete"] == 4
-    assert peak == 4
+    assert held["peak"] == 4
     enqueue.assert_awaited_once()
 
 

@@ -105,9 +105,9 @@ hold identities, versions, operational states and money needed for policy checks
   work, up to `DRIVE_FACTS_OWNER_LEASES` (default 4) running jobs per owner
   across instances, never two on one document. These jobs wait on the model and
   use the worker's one database connection only for short transactions. An
-  invalid value fails closed to one slot. Unused semantic capacity can advance
-  further work in the same drain. No claim of an exact indexing duration is
-  made before a collection runs.
+  invalid value reads as 1; the lane still keeps one facts and one packet slot.
+  Unused semantic capacity can advance further work in the same drain. No claim
+  of an exact indexing duration is made before a collection runs.
 - A bounded internal target API can register up to 50 live provider candidates
   and prioritize their ordinary extraction and facts jobs. It rechecks current
   owner authority and metadata, preserves discovery cursor and lease, and reuses
