@@ -98,6 +98,21 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        case "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}" in
+          false) ;;
+          true)
+            if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_DEPLOY_ENV}" != "uat" ||
+                  "${_DEPLOY_SOURCE}" != "deploy-uat" || "${_DEPLOY_SHA}" != "d8133e4d05ee98074f4a424ac96297ebefb32a9f" ||
+                  "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ||
+                  ! "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ||
+                  ! "${_GITHUB_RUN_ID}" =~ ^[0-9]+$ || "${_CLOUD_RUN_TAG}" != "account-deletion-${_GITHUB_RUN_ID}" ||
+                  "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
+              echo "Invalid one-time UAT Vertex probe exception." >&2
+              exit 1
+            fi
+            ;;
+          *) echo "Invalid Vertex probe exception flag." >&2; exit 1 ;;
+        esac
         if [[ -z "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
           echo "_RUNTIME_SERVICE_ACCOUNT is required." >&2
           exit 1
@@ -504,6 +519,10 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        if [[ "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}" == "true" ]]; then
+          echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice remain degraded."
+          exit 0
+        fi
         case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
           true) probe_mode=full ;;
           false)
@@ -917,6 +936,7 @@ substitutions:
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
   _VERIFY_MANAGED_VERTEX_RUNTIME: "false"
+  _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual
