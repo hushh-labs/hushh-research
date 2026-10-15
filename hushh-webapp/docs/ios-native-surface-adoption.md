@@ -24,7 +24,7 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `33a7db34e0`, preserving the compact shared header and native draft ports
+through `60a73734ac`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
 the shared Live Memory preview and upstream referral/schema corrections. The
 four-state HD mascot assets and playback safeguards are integrated without
@@ -39,6 +39,14 @@ own regression proof: the first combined-head CI at `1231e70ead` failed, despite
 its green local core. Focused fixture, uniform-row, mobile-detail/safe-area,
 optional-feedback and connector-focus corrections now pass. The repaired iOS
 test target builds at `3872060bd8`; integrated exact-head CI remains mandatory.
+The subsequent PR run at `5d50308dda` also failed. Its Feed capture, shared-pane
+markers, WebKit viewport extent and Wallet fixture regressions were corrected
+without relaxing checks. Focused browser checks pass locally; the Linux WebKit
+result must still be established by exact-head CI. Account pages now contain
+their SwiftUI bodies inside UIKit-owned page controllers, keeping Back/Close
+navigation items outside SwiftUI body ownership. Four nearest native tests pass
+at `ade38e4fb6`; local iOS 26.2 does not substitute for older-runtime CI evidence.
+Dock capability discovery also dispatches UIKit host reads to the main queue.
 No main landing or release acceptance is implied by the experimental flag.
 Custom native descriptions below refer to qualification builds, not the
 ordinary Capacitor/React default. After verified landing, complete the remaining
