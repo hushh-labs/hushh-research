@@ -188,6 +188,25 @@ def test_false_ready_counts_consensus_only_and_severity():
     assert (gated["successes"], gated["trials"], gated["extra"]["open_s1"]) == (1, 2, 1)
 
 
+@pytest.mark.parametrize("seed", range(40))
+def test_a_wrong_ready_packet_is_never_hidden_by_a_correct_one_in_its_family(seed):
+    # One family, one correct and one wrong (S2, so open_s1 cannot catch it) Ready
+    # packet. The family is the independent unit, and it counts as wrong whichever
+    # packet the seeded order would visit first.
+    packets = [
+        {"packet_key": f"ok-{seed}", "state": "ready", "verdict": "pass", "family_key": "f1"},
+        {
+            "packet_key": f"bad-{seed}",
+            "state": "ready",
+            "verdict": "fail",
+            "severity": "S2",
+            "family_key": "f1",
+        },
+    ]
+    gated = by_name(metrics.false_ready(packets, seed=seed))["ready_correct_one_per_family"]
+    assert (gated["successes"], gated["trials"]) == (0, 1)
+
+
 def test_price_sanity_and_delivery_receipts():
     packets = [
         {"price_cents": 500, "price_findings": []},
@@ -220,3 +239,19 @@ def test_price_sanity_and_delivery_receipts():
     delivery = metrics.delivery(receipts)[0]
     assert (delivery["successes"], delivery["trials"], delivery["n_unknown"]) == (1, 2, 1)
     assert delivery["extra"]["unauthorized_deliveries"] == 1
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_a_packet_a_person_confirmed_represents_its_family(seed):
+    packets = [
+        {"packet_key": f"ai-{seed}", "state": "ready", "verdict": "pass", "family_key": "f1"},
+        {
+            "packet_key": f"person-{seed}",
+            "state": "ready",
+            "verdict": "pass",
+            "family_key": "f1",
+            "human": True,
+        },
+    ]
+    gated = by_name(metrics.false_ready(packets, seed=seed))["ready_correct_one_per_family"]
+    assert (gated["successes"], gated["trials"], gated["extra"]["human_confirmed"]) == (1, 1, 1)

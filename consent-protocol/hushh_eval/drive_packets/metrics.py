@@ -412,7 +412,14 @@ def false_ready(packets: list[dict], *, seed: int = 20261015) -> list[dict]:
     consensus = [packet for packet in ready if packet.get("verdict") in {"pass", "fail"}]
     wrong = [packet for packet in consensus if packet["verdict"] == "fail"]
     severity = Counter(packet.get("severity") or "none" for packet in wrong)
-    gated = one_per_family(consensus, seed=seed)
+    # A family is the independent unit and counts as wrong if any of its judged
+    # Ready packets is wrong: a correct sibling never hides a wrong one. Among
+    # correct ones, a packet a person confirmed represents the family.
+    gated = one_per_family(
+        consensus,
+        seed=seed,
+        rank=lambda packet: 0 if packet["verdict"] == "fail" else 1 if packet.get("human") else 2,
+    )
     return [
         score(
             "false_ready_rate",
@@ -431,6 +438,7 @@ def false_ready(packets: list[dict], *, seed: int = 20261015) -> list[dict]:
             independence="one_ready_packet_per_family",
             n_unknown=len(ready) - len(consensus),
             open_s1=sum(packet.get("severity") == "S1" for packet in wrong),
+            human_confirmed=sum(bool(packet.get("human")) for packet in gated),
         ),
     ]
 

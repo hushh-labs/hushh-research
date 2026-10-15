@@ -86,10 +86,24 @@ def _order_key(seed: int, value: str) -> str:
     return hashlib.sha256(f"{seed}\0{value}".encode()).hexdigest()
 
 
-def one_per_family(rows: Sequence[dict], *, family: str = "family_key", seed: int = 0):
-    """Keep exactly one row per family (deterministic, seed-ordered); rest are descriptive."""
+def one_per_family(
+    rows: Sequence[dict],
+    *,
+    family: str = "family_key",
+    seed: int = 0,
+    rank: Callable[[dict], int] | None = None,
+):
+    """Keep exactly one row per family (deterministic, seed-ordered); rest are descriptive.
+
+    Rows with a lower ``rank`` represent their family first, so a gate can make a
+    family count as failed whenever any of its rows failed.
+    """
     chosen: dict[str, dict] = {}
-    for row in sorted(rows, key=lambda item: _order_key(seed, str(item.get("packet_key", "")))):
+
+    def order(item: dict) -> tuple[int, str]:
+        return (rank(item) if rank else 0, _order_key(seed, str(item.get("packet_key", ""))))
+
+    for row in sorted(rows, key=order):
         key = row.get(family) or f"singleton:{row.get('packet_key')}"
         chosen.setdefault(key, row)
     return list(chosen.values())
