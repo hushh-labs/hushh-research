@@ -13,7 +13,7 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
-### Writing Style implementation candidate — 2026-10-14
+### Writing Style functional candidate — 2026-10-14
 
 The complete private Writing Style sheet is implemented behind the iPhone
 qualification capability. It uses the existing React draft and encrypted
@@ -22,16 +22,38 @@ scrolling and dismissal. Save stays in the editor, and closing retains the
 unsaved React draft. Other platforms and unsupported wrappers keep the existing
 inline form. Field icons are generated from the same Phosphor row exports as web.
 
-Name and Writing Style now share the UIKit sheet lifetime and one active/retiring
+Name and Writing Style share the UIKit sheet lifetime and one active/retiring
 form registry. Retirement clears private replicas immediately and waits for owned
-menu and sheet completion. Focused JS tests pass 202/202, typecheck and scoped lint
-pass. The new shared Swift helper and Writing Style scene still require compiled
-native and exact-installed-candidate evidence; the earlier Name receipt below
-does not qualify this new source. No account or preference was saved in this pass.
+menu and sheet completion. Compatible appearance updates retain open-menu choices;
+withdrawing a trigger keeps Save/swipe dismissal blocked until popup disappearance.
+The single-line editor distinguishes Return from a multiline paste.
+
+Product `779db926eb` is installed and normally launched on the physical iPhone:
+UAT-backed Debug 1.4.0 (69), native-shell qualification enabled. Executable SHA-256:
+`33d00e4d46d63c42778ad937691aae405a403f2e94dfb1a6d08e88e9fc1f7434`;
+sealed-resource manifest SHA-256:
+`b41a3723229849ada36b96c6f9140e3e5f504078147cbb1411e876b2a8237377`.
+Canonical 154-page preparation, native build, strict app/runner signatures and
+bundled UAT targets pass. Focused JS tests pass 202/202; Back/navigation behavior
+449/449; typecheck, scoped lint, UI-contract freshness and native static parity pass.
+
+Five physical native tests pass for both form models, actual sheet/opening/popup
+retirement, private clearing, one-shot Save, compatible dropdown updates and paste
+admission. The real Writing Style journey passes ten warm Close/reopen cycles,
+including native dropdown changes/restoration and two unsaved keyboard edits. It
+verifies modal isolation, restored touch, no DOM editor duplicate, one WebView and
+the unchanged Chat draft; the application PID remains unchanged through the warm
+journey. Normal configured reviewer passphrase unlock passes. No account name or
+Writing Style preference was saved.
+
+These are functional receipts, not full visual, accessibility, IME or physical
+Release-performance acceptance. Live Save round-trip remains unverified; ordinary
+Voice, Feedback, photo actions and pane tabs remain separate unfinished families.
+No current-head core, CI, merge, deployment or distribution acceptance is claimed.
 
 ### First ordinary native Profile form — 2026-10-14
 
-Product source `88623a6d6c` is installed and normally launched on the physical
+Product source `88623a6d6c` was installed and normally launched on the physical
 iPhone: UAT-backed Debug 1.4.0 (69), native-shell qualification enabled.
 The executable SHA-256 is
 `6c875e2c6d5f2091b89b88f9330806c6222f53978f1d71c84f69f623022478ae`;
@@ -86,7 +108,7 @@ operation authority.
 | Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
 | Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
 | Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Physical native lifecycle3/3 and actual ten-cycle edit/cancel journey pass at `88623a6d6c`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android/older wrappers retain the existing form |
-| Communication | Shared React controller and encrypted `saveOwnerStyleSettings` writer; qualification-only complete native sheet | Implemented source; native build/device qualification pending. Preserve unlocked load, proposed-versus-saved state, explicit Save and web/Android fallbacks |
+| Communication | Shared React controller and encrypted `saveOwnerStyleSettings` writer; qualification-only complete native sheet | Native lifecycle5/5 and real ten-cycle dropdown/edit/Close journey pass at `779db926eb`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android fallbacks retained |
 | Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
 | Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
 | Profile photo | `ProfileAvatarEditor` and existing camera/library/remove owners | Complete owned native action-menu adoption not qualified; no new camera or persistence owner |
@@ -101,7 +123,7 @@ metadata carries neither names nor feedback. Listener admission must finish
 before a scene can be applied, and fallback requires confirmed retirement.
 Profile retirement joins the sheet's actual dismissal, including an already
 retiring sheet. Presentation-time owner revocation withdraws that exact scene.
-The native scene is installed at `88623a6d6c`, as recorded above; the earlier
+The Name journey was verified at `88623a6d6c`, as recorded above; the earlier
 `cd09a3779d` receipts establish only their stated preceding gates. Protected forms, rich
 content, complex multiselects and other-platform fallbacks remain unchanged.
 No merge, deploy, distribution or new family qualification follows from these
