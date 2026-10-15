@@ -904,7 +904,8 @@ function FeedPageSession({
       }
       // Revoked/expired SOS cards have nothing left to act on. Their clear is
       // saved on the server for this account, after the history Clear, and
-      // runs even when only SOS cards are showing; a failure keeps the cards.
+      // runs even when only SOS cards are showing. If the server cannot save
+      // it, the clear is kept on this device and saved on a later visit.
       if (hasClearableSmsEmergencies) await clearSmsEmergencies();
       toast.success("Feed cleared");
     } catch {

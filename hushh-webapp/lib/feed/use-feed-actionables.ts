@@ -231,7 +231,9 @@ export interface UseFeedActionablesResult {
   hasClearableSmsEmergencies: boolean;
   /** Clears every revoked/expired SOS card currently shown, for this account
    * on every device. Wired into the Feed page's existing Clear button. The
-   * server saves it first; on failure this rejects and the cards stay. */
+   * server saves it first. If the server cannot (an older backend, a failed
+   * request or a locked vault), the clear is kept on this device and saved to
+   * the server on a later visit; it never rejects for that. */
   clearSmsEmergencies: () => Promise<void>;
   /** Open while an inline Allow or Don't allow waits for the vault. */
   consentUnlockPrompt: OwnerConsentUnlockPrompt;
@@ -490,8 +492,9 @@ export function isSmsEmergencyGrant(grant: OneLocationGrant): boolean {
 }
 
 /**
- * An older release kept the SOS clear on this device only. The list is read
- * once, copied to the server, then removed (see useFeedActionables).
+ * SOS clears kept on this device only: an older release's, or one the server
+ * could not save yet. The list is copied to the server on a visit, then the
+ * copied ids are removed (see useFeedActionables).
  */
 function readDeviceOnlySmsClearIds(userId: string): Set<string> {
   try {
@@ -506,12 +509,27 @@ function readDeviceOnlySmsClearIds(userId: string): Set<string> {
   }
 }
 
-function forgetDeviceOnlySmsClearIds(userId: string): void {
+function writeDeviceOnlySmsClearIds(userId: string, ids: Set<string>): void {
   try {
-    window.localStorage.removeItem(feedDeviceOnlySosClearStorageKey(userId));
+    const key = feedDeviceOnlySosClearStorageKey(userId);
+    if (ids.size === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify([...ids]));
   } catch {
-    // Storage disabled: nothing is kept to remove.
+    // Storage disabled: the clear still applies for this visit via state.
   }
+}
+
+function rememberDeviceOnlySmsClearIds(userId: string, ids: readonly string[]): void {
+  const next = readDeviceOnlySmsClearIds(userId);
+  for (const id of ids) next.add(id);
+  writeDeviceOnlySmsClearIds(userId, next);
+}
+
+/** Removes only the copied ids: a clear kept while the copy ran stays queued. */
+function forgetDeviceOnlySmsClearIds(userId: string, copied: Set<string>): void {
+  const remaining = readDeviceOnlySmsClearIds(userId);
+  for (const id of copied) remaining.delete(id);
+  writeDeviceOnlySmsClearIds(userId, remaining);
 }
 
 export function notifyFeedActionResolved(): void {
@@ -1399,21 +1417,27 @@ export function useFeedActionables(): UseFeedActionablesResult {
     [receivedGrants, isClearedSmsEmergency],
   );
 
-  // Server first: the cards leave only once the server has saved the clear.
+  // Server first, so the clear holds on every device. If the server cannot
+  // save it (an older backend without the route, a failed request, or a
+  // locked vault), keep the clear on this device the way older releases did:
+  // the cards leave now, and the device-only copy below saves it later.
   const clearSmsEmergencies = useCallback(async () => {
     if (!userId || clearableSmsEmergencyIds.length === 0) return;
-    if (!vaultOwnerToken) throw new Error("Unlock to clear emergency alerts");
-    const cleared = await FeedService.clearSosCards({
-      vaultOwnerToken,
-      grantIds: clearableSmsEmergencyIds,
-    });
-    setServerClearedSmsIds((current) => new Set([...current, ...cleared]));
-    OneLocationStateResource.invalidate(userId);
-    void locationRefresh({ force: true });
+    const grantIds = clearableSmsEmergencyIds;
+    try {
+      if (!vaultOwnerToken) throw new Error("vault_locked");
+      const cleared = await FeedService.clearSosCards({ vaultOwnerToken, grantIds });
+      setServerClearedSmsIds((current) => new Set([...current, ...cleared]));
+      OneLocationStateResource.invalidate(userId);
+      void locationRefresh({ force: true });
+    } catch {
+      rememberDeviceOnlySmsClearIds(userId, grantIds);
+      setDeviceOnlySmsClearIds((current) => new Set([...current, ...grantIds]));
+    }
   }, [userId, vaultOwnerToken, clearableSmsEmergencyIds, locationRefresh]);
 
-  // Copy an older release's device-only clears to the server once, then
-  // forget them here. If the copy fails, the list stays for a later visit.
+  // Copy device-only clears to the server, then forget the copied ids here.
+  // If the copy fails, the list stays hidden and is retried on a later visit.
   useEffect(() => {
     if (!userId || !vaultOwnerToken || !receivedGrants) return;
     if (deviceOnlySmsCopyRef.current === userId) return;
@@ -1438,7 +1462,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           });
           setServerClearedSmsIds((current) => new Set([...current, ...cleared]));
         }
-        forgetDeviceOnlySmsClearIds(userId);
+        forgetDeviceOnlySmsClearIds(userId, deviceOnly);
       } catch {
         // The device list stays hidden here until a later visit copies it.
       }

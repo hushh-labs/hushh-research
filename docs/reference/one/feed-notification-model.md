@@ -186,7 +186,10 @@ mutation and retains that existing atomic policy.
   vault owner token, so it holds on every device. The server never clears a
   live share and never touches another person's grant, and the sender's view of
   the grant does not include it. A clear an older release kept on one device is
-  copied to the server once, then removed from that device.
+  copied to the server once, then removed from that device. If the server
+  cannot save a clear (a backend without this route, a failed request, or a
+  locked vault), the cards still leave and the clear is kept on that device the
+  same way, then copied on a later visit.
 
 The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its
@@ -400,8 +403,9 @@ badge, the items you're looking at stay highlighted" behavior. `FEED_LIST`,
 connection-requests read) are all covered by `CacheService.invalidateUser`, so
 sign-out and account deletion purge them with the rest of the session. The page
 keeps no Feed rows in browser storage. Its only device keys are per account:
-the sound choice, and older releases' device-only clears that wait for their
-one-time server copy. Account delete and reset remove all of them
+the sound choice, and older releases' Clear watermark and SOS clears (or an SOS
+clear the server could not save yet) that wait for their server copy. Account
+delete and reset remove all of them
 (`forgetFeedDeviceState`); sign-out keeps them. An Undo toast belongs to the
 session that removed the row: sign-out or an account switch retires it, so a
 late tap restores nothing.

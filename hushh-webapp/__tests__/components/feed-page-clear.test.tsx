@@ -672,9 +672,11 @@ describe("Feed history interactions", () => {
     expect(mocks.clear).not.toHaveBeenCalled();
   });
 
-  it("says the Feed was not cleared when the server SOS clear fails", async () => {
+  it("says the Feed was not cleared if the SOS clear throws", async () => {
     await renderAfterAutomaticRead();
-    mocks.clearSmsEmergencies.mockRejectedValueOnce(new Error("backend unavailable"));
+    // A server failure does not reject (the hook keeps the clear on this
+    // device); any unexpected error still reaches the page as a failed Clear.
+    mocks.clearSmsEmergencies.mockRejectedValueOnce(new Error("unexpected"));
 
     fireEvent.click(screen.getByRole("button", { name: "Clear feed notifications" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm clear feed notifications" }));
