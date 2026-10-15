@@ -26,8 +26,8 @@
     "date": "2026-10-15",
     "evidenceLevel": "automated_contract",
     "scope": "Live Mirror v1: one owner-scoped, in-memory projection read by Profile, the private agent's profile sheet and the private agent; pending journal hints, gap markers, read-time expiry, in-range reset repair and owner-only lag; journal-kind parity and paid-retrieval guards.",
-    "note": "Statuses reflect code and automated contract tests on this branch only. No real-owner journey was run. audit.lastVerifiedUatRevision stays unchanged until this branch is deployed to UAT and verified, and audit.codeRevision is set at merge.",
-    "evidenceAnchors": "Evidence with line 1 points at a new or changed module or test; exact lines are re-anchored after integration.",
+    "note": "Statuses reflect code and automated contract tests on this branch only. No real-owner journey was run. audit.codeRevision stays the original audit revision and audit.lastVerifiedUatRevision stays unchanged; this block records the branch change, and a later UAT verification updates lastVerifiedUatRevision.",
+    "evidenceAnchors": "Evidence with line 1 points at a whole new or changed module or test file; other evidence points at the exact line.",
     "statusChanges": {
       "substory.P01": "partial -> implemented_in_code",
       "substory.P02": "partial -> implemented_in_code",
