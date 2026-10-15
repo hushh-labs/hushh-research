@@ -25,6 +25,10 @@ Settle restores the base physics. Drag handling, reduced-motion placement,
 height protection, indicator ownership and geometry repair keep their owners.
 Scroll listeners stay attached across selection changes so an echoed selection
 cannot clear in-flight ownership or release the outgoing height prematurely.
+If the route catches up after the final rendered frame, the pager releases its
+height floor only when the exact rendered offset proves arrival within 3px.
+This recovery keeps indicator ownership through settle and needs no additional
+scroll event.
 
 | Browser | Width | You to Ranking, before | After |
 | --- | --- | --- | --- |

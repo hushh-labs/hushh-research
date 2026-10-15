@@ -819,9 +819,21 @@ export function SwipeViews({
 
     if (targetIdx !== -1 && !alreadyTargeted) {
       scrollToSelection(emblaApi, targetIdx);
-    } else if (!isDraggingRef.current && !isAnimatingRef.current && !hasMovedSincePointerDownRef.current) {
-      setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
-      releaseHeightFloor();
+    } else {
+      const rendered = engine?.offsetLocation?.get?.();
+      // A delayed route echo can follow the last rendered frame. Recover the
+      // height without waiting for another scroll event, but keep indicator
+      // ownership until settle and never release while the leaving pane shows.
+      if (targetIdx !== -1 && typeof width === "number" && width > 0 &&
+          typeof rendered === "number" && Number.isFinite(rendered) &&
+          Math.abs(rendered + targetIdx * width) <= ARRIVED_TOLERANCE_PX) {
+        syncTabIndicator();
+        releaseHeightFloor();
+      }
+      if (!isDraggingRef.current && !isAnimatingRef.current && !hasMovedSincePointerDownRef.current) {
+        setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+        releaseHeightFloor();
+      }
     }
     lastReportedValueRef.current = activeValue;
   }, [
@@ -830,6 +842,7 @@ export function SwipeViews({
     options,
     releaseHeightFloor,
     scrollToSelection,
+    syncTabIndicator,
     tabSetId,
   ]);
 
