@@ -53,7 +53,52 @@
       "substory.P05": "partial -> implemented_in_code (v1.1)"
     },
     "coverageMatrixChanges": "oneChatRecall moves from separate to partial for the seven admitted inventory surfaces: the private agent receives a bounded, allowlisted packet, not every field or record.",
-    "v1_1": "Live Mirror v1.1 (branch feat/live-mirror-v1-1, 2026-10-15): conflict claims with each side's source, currency, check or change time and version (A08); safe GFM tables and in-app links in the Profile preview (P05); fix-at-source links per source and per side (P11 stays partial: earnings and wallet activity are view-only); compact previews show rows only (A04 stays partial); value-free lag telemetry (E15 partial). Frontend only; automated proof only."
+    "v1_1": "Live Mirror v1.1 (branch feat/live-mirror-v1-1, 2026-10-15): conflict claims with each side's source, currency, check or change time and version (A08); safe GFM tables and in-app links in the Profile preview (P05); fix-at-source links per source and per side (P11 stays partial: earnings and wallet activity are view-only); compact previews show rows only (A04 stays partial); value-free lag telemetry (E15 partial). Frontend only; automated proof only.",
+    "v1_1Release": "Merged 2026-10-15 as dec7043e33 (#8068). Not deployed to UAT that night: the owner paused all sessions, and the Vertex project hushh-vertex-personal54 (used by production and UAT) was suspended from about 21:05Z, so backend deploys failed their Vertex probe. A frontend-only deploy of dec7043e33 is the next release step.",
+    "v1_1FollowUps": [
+      {
+        "id": "LM11-F1",
+        "story": "substory.A08",
+        "summary": "Fields whose copies agree inside a conflicted record still read 'Sources disagree' in record rows and Source details, while the disagreement list names only the fields that differ.",
+        "where": "hushh-webapp/lib/pkm/live-mirror-projection.ts (conflicted-record facts)",
+        "fix": "Derive conflicted facts from the same per-field comparison as recordClaims; keep agreed values and give the record's Changed row the copies' change times."
+      },
+      {
+        "id": "LM11-F2",
+        "story": "substory.A08",
+        "summary": "When copies differ only in a field that never becomes a claim (photo URL presence, another person's identifier), the status says the sources disagree but the compact preview has no disagreement row and no fix link.",
+        "where": "hushh-webapp/components/profile/live-mirror-preview.tsx",
+        "fix": "Show the conflicted record row, or add the source's route for any source in the conflict state, so the status always sits above something to act on."
+      },
+      {
+        "id": "LM11-F3",
+        "story": "substory.A08",
+        "summary": "A copy that deleted the record claims null for every field, so one removal race shows as several 'copy 2: Not set' disagreements, uncapped in the compact preview; History calls the same event 'Removed'.",
+        "where": "hushh-webapp/lib/pkm/live-mirror-projection.ts, live-mirror-presentation.ts",
+        "fix": "Mark a removed copy's claim, word it 'Removed', collapse it into one record-level disagreement, and cap conflict rows in the compact preview."
+      },
+      {
+        "id": "LM11-F4",
+        "story": "substory.A08",
+        "summary": "memory-refresh.ts soulNameClaims re-implements memory-document.ts's name-conflict rule (same labels, deletions and comparison today).",
+        "where": "hushh-webapp/lib/pkm/memory-refresh.ts",
+        "fix": "Have buildMemoryDocument return its conflicting name values and pass them through as nameClaims.soul."
+      },
+      {
+        "id": "LM11-F5",
+        "story": "substory.P11",
+        "summary": "No test drives the refresh after a correction made through Edit profile; the bridge test covers the PKM-domain path only, because its cache subscription mock is a no-op.",
+        "where": "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx",
+        "fix": "Deliver an ACCOUNT_IDENTITY set event through the cache subscription and assert the mirror is marked pending and refreshed."
+      },
+      {
+        "id": "LM11-F6",
+        "story": "substory.A08",
+        "summary": "A conflicted record keeps its 'Needs review' badge in its own source list, a third mention next to the status and the 'Sources disagree' group.",
+        "where": "hushh-webapp/components/profile/living-memory-document.tsx",
+        "fix": "Drop the record-row badge for records already listed under 'Sources disagree', or link the row to that disagreement."
+      }
+    ]
   },
   "productTruth": {
     "completeAlwaysOnMemory": false,
