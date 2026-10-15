@@ -851,11 +851,9 @@ final class NativeSupportTests: XCTestCase {
         closedRoot.profileStack = []; closedRoot.surfaceOpen = false
         let controller = NativeDrawerPresentationController(closedRoot)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-        var closeFrame = CGRect.zero
         var rowFrames = [String: CGRect]()
         controller.loadViewIfNeeded()
         controller.host.rootView = NativeDrawerContent(model: controller.model, profileRowObserver: { row, frame, _ in
-            if row == "profile-close", !frame.isEmpty { closeFrame = frame }
             rowFrames[row] = frame
         })
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
@@ -873,24 +871,25 @@ final class NativeSupportTests: XCTestCase {
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
         await fulfillment(of: [admitted], timeout: 2)
         func requireClose() async {
-            // Mount the real SwiftUI stack. Model/host-presence assertions did
-            // not catch a toolbar attached outside the navigation content.
-            // SwiftUI does not promise a UINavigationController child; measure
-            // its rendered authored control, not a private containment detail.
+            // This is now an owned public UINavigationController, not
+            // introspection of SwiftUI's undocumented controller hierarchy.
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                closeFrame.width >= 44 && closeFrame.height >= 44 && window.bounds.contains(closeFrame)
+                let close = controller.model.profileNavigationController?.visibleViewController?.navigationItem.rightBarButtonItem
+                return close?.accessibilityIdentifier == "native-profile-drawer-close" && close?.isEnabled == true
             }, object: nil)], timeout: 3)
         }
         await requireClose()
         func requireRow(_ id: String) async {
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard let frame = rowFrames[id] else { return false }
-                return !frame.isEmpty && window.bounds.contains(frame)
+                return !controller.model.navigationTransitioning &&
+                    controller.model.profileNavigationController?.viewControllers.count == controller.model.navigationPath.count + 1 &&
+                    !frame.isEmpty && window.bounds.contains(frame)
             }, object: nil)], timeout: 3)
         }
         await requireRow("row-handle")
         let host = controller.host
-        let retainedBinding = controller.model.navigationBinding
+        let requestBack = { controller.model.requestPath([], from: controller.model.projection) }
         controller.model.choose = { [weak controller] _, _, _ in controller?.model.pendingSequence = 10; return true }
         XCTAssertTrue(controller.model.choice("row", row: "row-handle"))
         controller.update(account)
@@ -905,8 +904,8 @@ final class NativeSupportTests: XCTestCase {
             if action == "back" { backs += 1; controller?.model.pendingSequence = backs }
             return true
         }
-        retainedBinding.wrappedValue = []
-        retainedBinding.wrappedValue = []
+        requestBack()
+        requestBack()
         XCTAssertEqual(backs, 1)
         XCTAssertFalse(controller.model.allowsPageInteraction)
         XCTAssertEqual(controller.model.navigationPath, [], "SwiftUI's Back binding must synchronously reflect the presented pop")
@@ -934,7 +933,7 @@ final class NativeSupportTests: XCTestCase {
         await requireRow("edit-name")
         controller.model.requestPath([], from: returned)
         XCTAssertEqual(backs, 1, "A retained old setter cannot dispatch a fresh Back")
-        retainedBinding.wrappedValue = []
+        requestBack()
         XCTAssertEqual(backs, 2)
         controller.model.settle(sequence: 1, success: false)
         XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "An old refusal cannot release a newer Back")
@@ -942,21 +941,28 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(backs, 2)
         controller.model.settle(sequence: 2, success: false)
         XCTAssertEqual(controller.model.navigationPath, ["account"], "An explicit refusal restores the current authored page without replaying Back")
+        await requireRow("edit-name")
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.model.choice("row", row: "edit-name"))
         controller.model.clearDetails()
         XCTAssertFalse(controller.model.choicePending)
         controller.setFormCoverage(true)
-        retainedBinding.wrappedValue = []
+        requestBack()
         XCTAssertEqual(backs, 2, "Covered presentation bindings cannot invoke Back")
         XCTAssertFalse(controller.model.interactionEnabled)
         XCTAssertFalse(controller.allowsInteraction("back", row: nil))
         XCTAssertFalse(controller.allowsInteraction("close", row: nil))
         controller.setFormCoverage(false)
         XCTAssertTrue(controller.allowsInteraction("back", row: nil))
+        let navigation = try XCTUnwrap(controller.model.profileNavigationController)
+        navigation.popViewController(animated: true)
+        XCTAssertEqual(backs, 2, "A native pop cannot commit React Back before UIKit completes")
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in backs == 3 }, object: nil)], timeout: 3)
+        XCTAssertEqual(controller.model.navigationPath, [])
+        XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"])
         controller.retire()
-        retainedBinding.wrappedValue = []
-        XCTAssertEqual(backs, 2, "A retained retired binding cannot invoke a route operation")
+        requestBack()
+        XCTAssertEqual(backs, 3, "A retained retired callback cannot invoke a route operation")
     }
 
     @MainActor

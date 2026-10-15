@@ -33,32 +33,25 @@ final class NativeDrawerModel: ObservableObject {
     @Published var panelCornerRadius: CGFloat = 0
     @Published private(set) var navigationPath: [String] = []
     @Published private var backPending = false
-    var allowsPageInteraction: Bool { !backPending }
+    var navigationTransitioning = false
+    var allowsPageInteraction: Bool { !backPending && !navigationTransitioning }
+    weak var profileNavigationController: NativeProfileNavigationController?
     private var navigationPages = [String: NativeProfilePage]()
     #if DEBUG
     var profileAccountAppeared = false
     #endif
     func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
-    var navigationBinding: Binding<[String]> {
-        // This is a native presentation binding, not an external action token.
-        // SwiftUI can retain it across renders; capture the model, never an
-        // expired render's update sequence or destination incarnation.
-        Binding(get: { self.navigationPath }, set: { path, transaction in
-            withTransaction(transaction) { self.requestPath(path, from: self.projection) }
-        })
-    }
     func requestPath(_ path: [String], from state: NativeDrawerProjection) {
-        // SwiftUI owns presentation/pop motion. The authored React Back owner
+        // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
-        guard interactionEnabled, !choicePending, !backPending, projection.identity == state.identity,
+        guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId, path.count + 1 == navigationPath.count,
               Array(navigationPath.prefix(path.count)) == path else { return }
         guard choice("back") else { return }
         backPending = true
-        // Honor SwiftUI's pop in its original transaction. React still owns
-        // the committed projection/route and confirms the existing Back event.
-        // Waiting for that bridge round trip here causes a second native pop.
+        // The native pop has committed. React still owns the route and
+        // confirms the existing Back event; never replay UIKit's transition.
         navigationPath = path
     }
     var pendingSequence: Int?
@@ -103,7 +96,7 @@ final class NativeDrawerModel: ObservableObject {
         if let pages = projection.profileStack {
             pages.forEach { navigationPages[$0.id] = $0 }
             let next = pages.map(\.id)
-            if !backPending, next != navigationPath { withAnimation { navigationPath = next } }
+            if !backPending, next != navigationPath { navigationPath = next }
         } else {
             navigationPath = []; navigationPages.removeAll()
         }
@@ -127,7 +120,7 @@ final class NativeDrawerModel: ObservableObject {
     private func rejectBack() {
         backPending = false
         let committed = projection.profileStack?.map(\.id) ?? []
-        if committed != navigationPath { withAnimation { navigationPath = committed } }
+        if committed != navigationPath { navigationPath = committed }
     }
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
@@ -147,12 +140,117 @@ final class NativeDrawerModel: ObservableObject {
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
-        guard action != "row" || !backPending else { return false }
+        guard action != "row" || allowsPageInteraction else { return false }
         guard action == "open" || action == "close" || interactionEnabled else { return false }
         guard (action != "row" || !choicePending), choose?(action, row, text) == true else { return false }
         if action == "row" { choicePending = true }
         return true
     }
+}
+
+/// UIKit owns the complete push/pop transition. The model projects React's
+/// route and emits the existing Back intent only after a user pop commits.
+/// No asynchronous bridge receipt decides whether UIKit finished animating.
+@MainActor
+final class NativeProfileNavigationController: UINavigationController, UINavigationControllerDelegate {
+    private let model: NativeDrawerModel
+    private let rootPage: UIHostingController<NativeProfilePageBody>
+    private let accountPage: UIHostingController<NativeProfilePageBody>
+    private var transitioning = false
+    private var applyingProjection = false
+    private var retired = false
+
+    init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
+        self.model = model
+        rootPage = UIHostingController(rootView: NativeProfilePageBody(model: model, account: false, observer: observer))
+        accountPage = UIHostingController(rootView: NativeProfilePageBody(model: model, account: true, observer: observer))
+        super.init(rootViewController: rootPage)
+        delegate = self
+        model.profileNavigationController = self
+        for page in [rootPage, accountPage] {
+            let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak model] _ in model?.close?() })
+            close.accessibilityLabel = "Close Profile"
+            close.accessibilityIdentifier = "native-profile-drawer-close"
+            page.navigationItem.rightBarButtonItem = close
+        }
+        rootPage.navigationItem.backButtonDisplayMode = .default
+        reconcile()
+    }
+    required init?(coder: NSCoder) { fatalError("Native Profile navigation is programmatic") }
+
+    func reconcile() {
+        guard !retired, model.profileNavigationController === self else { return }
+        rootPage.title = model.projection.title
+        rootPage.navigationItem.backButtonTitle = model.projection.title
+        accountPage.title = model.page("account")?.title
+        navigationBar.tintColor = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
+        reconcileInteraction()
+        guard !transitioning else { return } // didShow reconciles the latest projection.
+        let destination: UIViewController = model.navigationPath.isEmpty ? rootPage : accountPage
+        guard topViewController !== destination else { return }
+        applyingProjection = true
+        let animated = viewIfLoaded?.window != nil && model.projection.open && !UIAccessibility.isReduceMotionEnabled
+        setViewControllers(destination === rootPage ? [rootPage] : [rootPage, accountPage], animated: animated)
+    }
+
+    func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
+        guard !retired, model.profileNavigationController === self else { return }
+        transitioning = true
+        model.navigationTransitioning = true
+        reconcileInteraction()
+    }
+    func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
+        guard !retired, model.profileNavigationController === self else { return }
+        let projected = applyingProjection
+        applyingProjection = false
+        transitioning = false
+        model.navigationTransitioning = false
+        #if DEBUG
+        model.profileAccountAppeared = viewController === accountPage
+        #endif
+        // An interrupted edge swipe returns to Account and emits no Back.
+        // Programmatic projection changes are never echoed as user operations.
+        if !projected, viewController === rootPage, !model.navigationPath.isEmpty {
+            model.requestPath([], from: model.projection)
+        }
+        reconcile()
+    }
+    private func reconcileInteraction() {
+        let admitted = model.interactionEnabled && model.allowsPageInteraction
+        for page in [rootPage, accountPage] {
+            page.viewIfLoaded?.isUserInteractionEnabled = admitted
+            page.viewIfLoaded?.accessibilityElementsHidden = !admitted
+        }
+    }
+    func retire() {
+        guard !retired else { return }
+        retired = true
+        delegate = nil
+        if model.profileNavigationController === self {
+            model.profileNavigationController = nil
+            model.navigationTransitioning = false
+        }
+    }
+}
+
+private struct NativeProfilePageBody: View {
+    @ObservedObject var model: NativeDrawerModel
+    let account: Bool
+    var observer: ((String, CGRect, Bool) -> Void)?
+    var body: some View {
+        NativeDrawerContent(model: model, profileRowObserver: observer)
+            .profileContent(account ? model.page("account")?.sections ?? [] : model.projection.sections)
+    }
+}
+
+private struct NativeProfileNavigation: UIViewControllerRepresentable {
+    let model: NativeDrawerModel
+    var observer: ((String, CGRect, Bool) -> Void)?
+    func makeUIViewController(context: Context) -> NativeProfileNavigationController {
+        NativeProfileNavigationController(model: model, observer: observer)
+    }
+    func updateUIViewController(_ controller: NativeProfileNavigationController, context: Context) { controller.reconcile() }
+    static func dismantleUIViewController(_ controller: NativeProfileNavigationController, coordinator: ()) { controller.retire() }
 }
 
 /// Native body, moving header, scrim and motion share one presentation owner.
@@ -573,39 +671,10 @@ struct NativeDrawerContent: View {
         }
     }
     private var profileNavigation: some View {
-        return NavigationStack(path: model.navigationBinding) {
-            profileContent(model.projection.sections)
-                .navigationTitle(model.projection.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { profileClose }
-                .navigationDestination(for: String.self) { id in
-                    if let page = model.page(id) {
-                        profileContent(page.sections)
-                            .navigationTitle(page.title)
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar { profileClose }
-                            .onAppear {
-                                #if DEBUG
-                                model.profileAccountAppeared = true
-                                #endif
-                            }
-                            .onDisappear {
-                                #if DEBUG
-                                model.profileAccountAppeared = false
-                                #endif
-                            }
-                    }
-                }
-        }
+        NativeProfileNavigation(model: model, observer: profileRowObserver)
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
             .allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)
-    }
-    @ToolbarContentBuilder private var profileClose: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            control("xmark", "Close Profile", identifier: "native-profile-drawer-close") { model.close?() }
-                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: "profile-close"))
-        }
     }
     private var legacyContent: some View {
         VStack(spacing: 0) {
@@ -736,7 +805,7 @@ struct NativeDrawerContent: View {
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
     /// scroll/presentation. Dynamic Type may grow rows beyond the 56pt minimum.
-    private func profileContent(_ sections: [NativeDrawerSection]) -> some View {
+    fileprivate func profileContent(_ sections: [NativeDrawerSection]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 ForEach(sections) { section in

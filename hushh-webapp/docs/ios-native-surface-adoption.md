@@ -13,6 +13,27 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Profile transition owner and single custom-shell switch — candidate
+
+Profile's bounded Account stack now uses an owned `UINavigationController`
+containing retained SwiftUI page hosts. UIKit owns push/pop and actual completion;
+React retains route, operation and authorization ownership. Pending native
+transitions quarantine page touch/accessibility, coalesce compatible projection
+updates, and emit user Back only after a completed pop. A cancelled edge swipe
+does not emit Back. Retired controllers cannot revive presentation or callbacks.
+The drawer, WebView, private editor and session are not recreated by page Back.
+This replaces the experimental SwiftUI path binding, not the React router.
+Physical integrated acceptance remains pending for this replacement.
+
+The complete custom shell has one build-time kill switch:
+`NativeDrawerQualificationPolicy.customPresentationAllowed` in
+`ios/App/App/Plugins/HushhNativeDrawersPlugin.swift`. Set it to `false` and
+rebuild/reinstall to select established web controls before reveal. It gates
+bootstrap, dock, chrome, drawers and legacy Debug opt-ins together. It does not
+disable the independently owned standard `UITabBar` or switch live documents
+between renderers. `true` permits the existing qualification policy; it is not
+blanket production qualification or iPad acceptance.
+
 ### Current-main sync and Account navigation investigation — 2026-10-15
 
 Merge `f7f38e6236` includes main `85831a2595`, including Wallet capture,
