@@ -7,6 +7,7 @@ import {
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
   LIVE_MIRROR_SOURCE_LABELS,
   LIVE_MIRROR_STALE_GRACE_MS,
+  type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorHistoryEntry,
   type LiveMirrorKind,
@@ -85,6 +86,18 @@ const build = (input: LiveMirrorView | null, patch: Partial<Parameters<typeof bu
 
 const withSource = (kind: LiveMirrorKind, patch: Partial<LiveMirrorSource>) =>
   LIVE_MIRROR_KINDS.map((each) => source(each, each === kind ? patch : {}));
+
+/** A Soul-versus-profile name conflict beside a record conflict, each with its claims. */
+const CONFLICTS: LiveMirrorConflict[] = [
+  { predicate: "profile.name", label: "Name", claims: [
+    { source: "soul", label: "Memory (you wrote)", value: "Ankit K", revision: 9, sourceUpdatedAt: at(-45 * MIN), verifiedAt: null },
+    { source: "profile", label: "Profile", value: "Ankit Synthetic", revision: 3, sourceUpdatedAt: at(-30 * MIN), verifiedAt: T },
+  ] },
+  { predicate: "consent.scope", label: "Scope", claims: [
+    { source: "consent", label: "Consent 2", value: "CANDIDATE_A", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
+    { source: "consent", label: "Consent 2", value: "CANDIDATE_B", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
+  ] },
+];
 
 describe("Live Mirror agent allowlist (B-R5)", () => {
   it("admits a reviewed subset of the fact index, never other people's ids or the photo", () => {
@@ -176,8 +189,19 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
       overall: "updating", sources: withSource("consent", { state: "updating", pendingChanges: 2 }),
     }, ["[update pending, last verified 2026-10-15T10:00Z; revision 5]", "consent update pending (last verified 2026-10-15T10:00Z)"],
     ["status=\"active\" [verified"]],
-    ["name conflict", { nameConflict: true },
+    ["name conflict without claims", { nameConflict: true },
       ["Name conflict: the owner-authored Soul name differs from the verified profile.name."], []],
+    ["name conflict with both names and the profile claim's provenance only", {
+      nameConflict: true, overall: "conflict", conflicts: CONFLICTS,
+      facts: [...BASE_FACTS.filter((each) => each.kind === "profile"),
+        fact("consent", "Consent 2", "scope", null, { state: "conflicted" })],
+    }, [
+      'Name conflict: memory says "Ankit K"; verified profile says "Ankit Synthetic" [profile r3, verified 2026-10-15T10:00Z]',
+      "- Consent 2: conflicting revisions, no value selected",
+    ], ["the owner-authored Soul name differs", "CANDIDATE_A", "CANDIDATE_B", "Memory (you wrote)", "09:15Z", "09:30Z", "r9"]],
+    ["name conflict while Profile is withheld, without either name", {
+      nameConflict: true, overall: "conflict", conflicts: CONFLICTS, sources: withSource("profile", { state: "withheld" }),
+    }, ["Name conflict: the owner-authored Soul name differs from the verified profile.name."], ["Ankit K", "Ankit Synthetic"]],
     ["retained history window", { history }, [
       "History: retained changes #120-#131; earlier changes not retained (cutoff 2026-10-01T00:00Z); only changes seen while the app was open.",
       "Recent: #131 Consent 131 upsert r1",

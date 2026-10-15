@@ -15,6 +15,7 @@ import type {
   LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
+import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -83,7 +84,41 @@ function withSessionVerification(userId: string, projection: LiveMirrorProjectio
     const verifiedAt = refreshed.get(fact.kind);
     return verifiedAt && newer(fact.kind, fact.verifiedAt) ? { ...fact, verifiedAt } : fact;
   });
-  return { ...projection, sources, facts };
+  // A source claim's provenance moves with its source; an owner-authored one has none.
+  const conflicts = projection.conflicts?.map((conflict) => ({
+    ...conflict,
+    claims: conflict.claims.map((claim) => {
+      const verifiedAt = claim.source !== "soul" && refreshed.has(claim.source) ? newer(claim.source, claim.verifiedAt) : null;
+      return verifiedAt ? { ...claim, verifiedAt } : claim;
+    }),
+  }));
+  return { ...projection, sources, facts, ...(conflicts ? { conflicts } : {}) };
+}
+
+/**
+ * The owner-authored display and preferred names that differ from the
+ * verified profile name, found by the rules buildMemoryDocument uses for its
+ * name conflict (same labels, deletions and comparison), so the mirror shows
+ * every side of the conflict the document reports. Empty when none differs
+ * or the Soul was not read.
+ */
+function soulNameClaims(soul: unknown, verifiedName: string | null): string[] {
+  const canonical = verifiedName?.trim();
+  if (!canonical || !soul || typeof soul !== "object") return [];
+  const { markdown, _deleted_fact_labels: deletedLabels } = soul as { markdown?: unknown; _deleted_fact_labels?: unknown };
+  const deleted = new Set((Array.isArray(deletedLabels) ? deletedLabels : [])
+    .filter((label): label is string => typeof label === "string").map(soulFactKey));
+  const labelled = readLabelledSoulFacts(typeof markdown === "string" ? markdown : null);
+  const normalized = (value: string) => value.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  const seen = new Set([normalized(canonical)]);
+  const names: string[] = [];
+  for (const label of ["display name", "preferred name"]) {
+    const fact = labelled.get(label);
+    if (!fact || deleted.has(soulFactKey(fact.label)) || seen.has(normalized(fact.value))) continue;
+    seen.add(normalized(fact.value));
+    names.push(fact.value);
+  }
+  return names;
 }
 
 /** Document-level status, without the per-source verification-age check. */
@@ -273,6 +308,7 @@ export async function refreshMemoryDocument(
     email: profileValue("profile.email"),
     photoUrl: profileValue("profile.photo"),
   } : null);
+  const verifiedProfileName = profileValue("profile.name");
   let document = buildMemoryDocument({
     snapshot: buildPkmMemorySnapshot({ metadata: null, fullBlob }),
     ownerUserId: params.userId,
@@ -281,7 +317,7 @@ export async function refreshMemoryDocument(
     audience: "self",
     builtAt,
     account,
-    verifiedProfileName: profileValue("profile.name"),
+    verifiedProfileName,
   });
   if (document.complete && networkVerified && livingPrivate) {
     const stable = JSON.stringify([document.markdown.replace(builtAt, ""), document.sourceLinks]);
@@ -354,6 +390,9 @@ export async function refreshMemoryDocument(
       document,
       sessionVerifiedAt: getLivingSourceSessionVerification(params.userId, epoch),
       nameConflict: document.freshness.some(entry => entry.domain === "one_memory" && entry.status === "conflicted"),
+      // The sides of that conflict, read from the same Soul and verified name
+      // the document compared, so the mirror shows them instead of choosing.
+      nameClaims: { soul: soulNameClaims(fullBlob.one_memory, verifiedProfileName), profile: verifiedProfileName },
       inventoryReadFailed: mirrorReadFailed,
       excludeSavedDomains: ["one_living_sources"],
     });

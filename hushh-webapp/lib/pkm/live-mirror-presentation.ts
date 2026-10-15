@@ -1,5 +1,7 @@
 import { consentInformationLabel, parseConsentInstant } from "@/lib/consent/consent-owner-copy";
-import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { buildProfileRoute, connectorDetailTitle } from "@/lib/navigation/profile-routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
@@ -402,10 +404,28 @@ export function liveMirrorPreviewRows(facts: readonly LiveMirrorFact[]): LiveMir
 }
 
 /**
- * Where the owner corrects or removes a source's values, for "Fix at source".
- * Null until a kind has a reachable authority surface. Never a mirror write path.
+ * Where each living source is changed, built only from existing route
+ * helpers. Account edits the name (the photo editor is on the Profile page one
+ * step back), consents and connections have their own workspaces, Connectors
+ * is a Profile section, earnings and wallet activity are managed under
+ * Payouts (/one/wallet holds payment cards, not earnings), and paid document
+ * requests are the consent center's sent requests. Every kind has a surface.
+ */
+const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
+  profile: { href: buildProfileRoute({ panel: "account" }), label: "Edit profile" },
+  consent: { href: ROUTES.CONSENTS, label: "Open consents" },
+  connection: { href: ROUTES.CONNECT, label: "Open connections" },
+  curated_oauth_connector: { href: buildProfileRoute({ panel: "connectors" }), label: "Open connectors" },
+  document_earning: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
+  payout_activity: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
+  document_request_payment: { href: buildConsentCenterHref("pending", { requestView: "sent" }), label: "Open sent requests" },
+};
+
+/**
+ * Where the owner corrects or removes a source's values, for "Fix at source"
+ * and the preview's section links; null for an unknown kind. Never a mirror
+ * write path: the source changes there and both mirrors refresh from it.
  */
 export function liveMirrorSourceRoute(kind: LiveMirrorKind): LiveMirrorSourceRoute | null {
-  void kind;
-  return null;
+  return Object.hasOwn(SOURCE_ROUTES, kind) ? { ...SOURCE_ROUTES[kind] } : null;
 }

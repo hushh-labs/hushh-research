@@ -13,6 +13,7 @@ import {
 } from "@/lib/pkm/living-source-fact-index";
 import type { MemoryDocument } from "@/lib/pkm/memory-document";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
+import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import {
   LIVE_MIRROR_FRESHNESS_MS,
   LIVE_MIRROR_HIDDEN_PREDICATES,
@@ -20,6 +21,8 @@ import {
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
   LIVE_MIRROR_SOURCE_LABELS,
   LIVE_MIRROR_STALE_GRACE_MS,
+  type LiveMirrorClaim,
+  type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorFactValue,
   type LiveMirrorGap,
@@ -41,6 +44,7 @@ import {
   liveMirrorHistoryAction,
   liveMirrorHistoryDetail,
   liveMirrorRecordCurrency,
+  liveMirrorSourceRoute,
   liveMirrorSourceStateLabel,
   liveMirrorWaitingText,
 } from "@/lib/pkm/live-mirror-presentation";
@@ -68,6 +72,12 @@ export interface BuildLiveMirrorProjectionParams {
   sessionVerifiedAt?: Partial<Record<LiveMirrorKind, string>> | null;
   /** The owner-authored Soul name differs from the verified account name. */
   nameConflict?: boolean;
+  /**
+   * The sides of that name conflict: each name the owner wrote in chat memory
+   * that differs, and the verified profile name. Read only while
+   * `nameConflict` is true; a side that is not known stays null.
+   */
+  nameClaims?: { soul?: readonly string[] | null; profile?: string | null } | null;
   /** The inventory could not be read, as opposed to not existing yet. */
   inventoryReadFailed?: boolean;
   /** Saved-detail domains already represented by the living sources. */
@@ -81,6 +91,8 @@ const KINDS = new Set<string>(LIVE_MIRROR_KINDS);
 const MAX_VALUE_LENGTH = 2_048;
 const PREVIEW_HISTORY_LIMIT = 20;
 const PREVIEW_RECORDS_PER_SOURCE = 100;
+/** Where an owner-authored name claim comes from: what they wrote in chat memory. */
+const SOUL_CLAIM_LABEL = "Memory (you wrote)";
 const RECORD_LABELS: Record<LiveMirrorKind, string> = {
   profile: "Profile",
   consent: "Consent",
@@ -253,6 +265,120 @@ function recordRefs(recordNodes: readonly LivingFactNode[], changes: readonly Li
 
 function admittedValue(value: unknown): LiveMirrorFactValue | null {
   return value !== null && value !== undefined && isFactValue(value) ? value : null;
+}
+
+/** A claim's value: presence for a URL-valued field, else the admitted value or null. */
+function claimValue(predicate: string, value: unknown): LiveMirrorFactValue | null {
+  if (PRESENCE_ONLY_PREDICATES.has(predicate)) return value !== null && value !== undefined;
+  return admittedValue(value);
+}
+
+function claimText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() && value.length <= MAX_VALUE_LENGTH ? value : null;
+}
+
+/**
+ * A conflicted record's claims by predicate: every distinct value an admitted
+ * field holds across the versions at the record's latest revision, each with
+ * that revision. A deleted version claims no value, a photo claims presence
+ * only, and other people's identifiers never become claims.
+ */
+function recordClaims(params: {
+  kind: LiveMirrorKind;
+  sourceId: string;
+  revision: number;
+  ref: string;
+  records: readonly unknown[];
+  verifiedAt: string | null;
+}): Map<string, LiveMirrorClaim[]> {
+  const versions: { value: Record<string, unknown>; deleted: boolean; updatedAt: string | null }[] = [];
+  for (const version of params.records) {
+    if (!isObject(version) || version.kind !== params.kind || version.id !== params.sourceId ||
+        version.revision !== params.revision || !isObject(version.value)) continue;
+    versions.push({
+      value: version.value,
+      deleted: version.deletedAt !== null && version.deletedAt !== undefined,
+      updatedAt: isIso(version.updatedAt) ? version.updatedAt : null,
+    });
+  }
+  const claims = new Map<string, LiveMirrorClaim[]>();
+  for (const field of LIVING_SOURCE_FACT_FIELDS[params.kind]) {
+    const predicate = `${params.kind}.${field}`;
+    if (HIDDEN_PREDICATES.has(predicate)) continue;
+    const seen = new Set<string>();
+    const sides: LiveMirrorClaim[] = [];
+    for (const version of versions) {
+      const value = claimValue(predicate, version.deleted ? undefined : version.value[field]);
+      const key = JSON.stringify(value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sides.push({
+        source: params.kind, label: params.ref, value, revision: params.revision,
+        sourceUpdatedAt: version.updatedAt, verifiedAt: params.verifiedAt,
+      });
+    }
+    if (sides.length > 1) claims.set(predicate, sides);
+  }
+  return claims;
+}
+
+/**
+ * The sides of the name conflict the memory document reports: each name the
+ * owner wrote in chat memory (memory.md's revision and time) and the verified
+ * profile name (the profile record's revision and times). A side that is not
+ * known stays null; nothing is chosen or overwritten.
+ */
+function nameConflictClaims(
+  params: BuildLiveMirrorProjectionParams,
+  profileName: LivingFactNode | undefined,
+  verifiedAt: string | null,
+): LiveMirrorClaim[] {
+  const given = isObject(params.nameClaims) ? params.nameClaims : {};
+  const memory = (Array.isArray(params.document?.freshness) ? params.document.freshness : [])
+    .find(entry => isObject(entry) && entry.domain === "one_memory");
+  const soul = (value: string | null): LiveMirrorClaim => ({
+    source: "soul", label: SOUL_CLAIM_LABEL, value,
+    revision: typeof memory?.contentRevision === "number" ? memory.contentRevision : null,
+    sourceUpdatedAt: isIso(memory?.updatedAt) ? memory.updatedAt : null, verifiedAt: null,
+  });
+  const written = [...new Set((Array.isArray(given.soul) ? given.soul : []).map(claimText))]
+    .filter((name): name is string => name !== null);
+  return [
+    ...(written.length ? written.map(soul) : [soul(null)]),
+    {
+      source: "profile", label: LIVE_MIRROR_SOURCE_LABELS.profile,
+      value: claimText(profileName?.value) ?? claimText(given.profile),
+      revision: profileName?.provenance.revision ?? null,
+      sourceUpdatedAt: profileName?.provenance.updatedAt ?? null, verifiedAt,
+    },
+  ];
+}
+
+/**
+ * One conflict per predicate, in display order (source kind, then admitted
+ * field), so each is listed once. The name conflict's claims come first,
+ * then each conflicted record's in ref order, each claim naming its record.
+ */
+function liveMirrorConflicts(
+  named: readonly LiveMirrorClaim[] | null,
+  records: readonly { ref: string; claims: ReadonlyMap<string, LiveMirrorClaim[]> }[],
+): LiveMirrorConflict[] {
+  const byPredicate = new Map<string, LiveMirrorClaim[]>();
+  const add = (predicate: string, claims: readonly LiveMirrorClaim[]) =>
+    byPredicate.set(predicate, [...(byPredicate.get(predicate) ?? []), ...claims]);
+  if (named) add("profile.name", named);
+  const rank = (ref: string) => Number(/(\d+)$/.exec(ref)?.[1] ?? 0);
+  for (const record of [...records].sort((a, b) => rank(a.ref) - rank(b.ref) || byCodeUnit(a.ref, b.ref))) {
+    for (const [predicate, claims] of record.claims) add(predicate, claims);
+  }
+  const conflicts = [...byPredicate].map(([predicate, claims]) => {
+    const kind = predicate.slice(0, predicate.indexOf(".")) as LiveMirrorKind;
+    const field = predicate.slice(kind.length + 1);
+    const order = [LIVE_MIRROR_KINDS.indexOf(kind), LIVING_SOURCE_FACT_FIELDS[kind].indexOf(field)] as const;
+    return { conflict: { predicate, label: fieldLabel(kind, field), claims }, order };
+  });
+  conflicts.sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
+  return conflicts.map(({ conflict }) => conflict);
 }
 
 /**
@@ -450,6 +576,7 @@ export function buildLiveMirrorProjection(params: BuildLiveMirrorProjectionParam
   const sourceByKind = new Map(living.map(source => [source.kind!, source]));
   const refs = recordRefs(recordNodes, ownerMismatch ? [] : history.changes);
   const facts: LiveMirrorFact[] = [];
+  const conflicted: { ref: string; claims: Map<string, LiveMirrorClaim[]> }[] = [];
   for (const node of ownerMismatch ? [] : index?.nodes ?? []) {
     const { kind, sourceId, revision, updatedAt, capturedAt } = node.provenance;
     const source = sourceByKind.get(kind)!;
@@ -485,8 +612,17 @@ export function buildLiveMirrorProjection(params: BuildLiveMirrorProjectionParam
         label: fieldLabel(kind, candidate), value: null, state: "conflicted", sourceUpdatedAt: null,
       });
     }
+    conflicted.push({
+      ref: common.ref,
+      claims: recordClaims({ kind, sourceId, revision, ref: common.ref, records: inventory!.records, verifiedAt: source.verifiedAt }),
+    });
   }
   facts.sort((a, b) => byCodeUnit(a.key, b.key));
+  // A mirror that fails closed reports no conflict either.
+  const nameConflict = params.nameConflict === true && !ownerMismatch;
+  const named = nameConflict
+    ? nameConflictClaims(params, index?.byPredicate.get("profile.name")?.[0], sourceByKind.get("profile")!.verifiedAt)
+    : null;
   const projection: Omit<LiveMirrorProjection, "markdown"> = {
     schemaVersion: "live_mirror.v1",
     ownerId: params.ownerId,
@@ -495,7 +631,8 @@ export function buildLiveMirrorProjection(params: BuildLiveMirrorProjectionParam
     inventoryObservedAt: ownerMismatch ? null : inventory?.observedAt ?? null,
     inventoryComplete: !ownerMismatch && inventory?.complete === true,
     issues: [...issues].sort(byCodeUnit),
-    nameConflict: params.nameConflict === true,
+    nameConflict,
+    conflicts: liveMirrorConflicts(named, conflicted),
     sources: [...living, ...savedSources(params.document, builtAt, new Set(params.excludeSavedDomains ?? []))],
     facts,
     history: ownerMismatch ? emptyHistory() : buildHistory({ ...history, refs, recordNodes }),
@@ -553,9 +690,10 @@ export function applyLiveMirrorReadTime(
   // "Partial" names sources that could not be checked. A conflict also leaves
   // the document incomplete, so a failed refresh alone means "may be out of
   // date" and never hides a conflict behind "Some sources unavailable".
+  const conflicts = Array.isArray(projection.conflicts) ? projection.conflicts : [];
   const overall: LiveMirrorOverall =
     sources.some(source => source.state === "unavailable") ? "partial"
-      : projection.nameConflict || projection.issues.includes("conflict") ||
+      : projection.nameConflict || conflicts.length > 0 || projection.issues.includes("conflict") ||
           sources.some(source => source.state === "conflict") || facts.some(fact => fact.state === "conflicted") ? "conflict"
         : viewStatus === "refresh_pending" || sources.some(source => source.state === "updating") ? "updating"
           : viewStatus === "stale" || viewStatus === "refresh_failed" || sources.some(source => source.state === "stale") ? "stale"
@@ -567,6 +705,8 @@ export function applyLiveMirrorReadTime(
     .sort((a, b) => Date.parse(a) - Date.parse(b));
   const view: Omit<LiveMirrorView, "markdown"> = {
     ...projection,
+    // Read time changes no claim: both sides stay until the owner acts at the source.
+    conflicts,
     sources,
     facts,
     evaluatedAt: new Date(nowMs).toISOString(),
@@ -584,10 +724,13 @@ export function applyLiveMirrorReadTime(
 
 const MARKDOWN_SPECIALS = /\r\n|[\n\r\t\v\f\u2028\u2029]|[&<>]|[!"#$%'()*+,\-./:;=?@[\\\]^_`{|}~]/g;
 const HTML_ENTITIES: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+// GFM turns "www.", "http(s)://" and email text into links even after escapes
+// are resolved, so an invisible word joiner (U+2060) goes where each starts.
+const AUTOLINK_STARTS = /www(?=\.)|(?=:\/\/|@)/gi;
 
-/** Inline text that cannot open any Markdown or HTML construct, or a new line. */
+/** Inline text that cannot open a Markdown or HTML construct, a link, a table cell or a new line. */
 function escapeLiveMirrorText(value: string): string {
-  return value.replace(MARKDOWN_SPECIALS, (match) =>
+  return value.replace(AUTOLINK_STARTS, "$&\u2060").replace(MARKDOWN_SPECIALS, (match) =>
     Object.hasOwn(HTML_ENTITIES, match) ? HTML_ENTITIES[match]! : /^[!-~]$/.test(match) ? `\\${match}` : " ");
 }
 
@@ -619,11 +762,68 @@ function historyLine(entry: LiveMirrorHistoryEntry, facts: readonly LiveMirrorFa
   return `${ref} · ${liveMirrorHistoryAction(entry)} · ${timeText(entry.capturedAt)}${detail ? ` · ${escapeLiveMirrorText(detail)}` : ""}`;
 }
 
+interface FinanceTable {
+  amount: string;
+  /** The first of these the record has; adjustments carry a type instead of a status. */
+  status: readonly string[];
+  when: string;
+  mode: string;
+  /** What the activity was, named beside the record. */
+  activity?: string;
+}
+
+/** Money sources read as a table with one row per record. */
+const FINANCE_TABLES: Partial<Record<LiveMirrorKind, FinanceTable>> = {
+  document_earning: { amount: "grossCents", status: ["status"], when: "createdAt", mode: "stripeMode" },
+  payout_activity: { amount: "amountCents", status: ["status", "type"], when: "occurredAt", mode: "mode", activity: "kind" },
+  document_request_payment: { amount: "amountCents", status: ["status"], when: "paidAt", mode: "mode" },
+};
+const FINANCE_TABLE_HEAD = ["| Record | Amount | Status | When |", "| --- | --- | --- | --- |"];
+const EMPTY_CELL = "—";
+
+/**
+ * One table row. Every cell is escaped like a list value, so a pipe, a line
+ * break or a link in an owner value can neither split the row nor become a
+ * link. The record cell also says what the activity was, test mode and any
+ * read-time state; a disagreeing record shows no value.
+ */
+function financeRow(table: FinanceTable, ref: string, record: readonly LiveMirrorFact[]): string {
+  const cell = (...parts: (string | null)[]): string => {
+    const text = parts.filter((part): part is string => part !== null).map(escapeLiveMirrorText);
+    return text.length ? text.join(" · ") : EMPTY_CELL;
+  };
+  const row = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
+  if (record.some(fact => fact.state === "conflicted")) {
+    return row([cell(ref, liveMirrorFactStateLabel("conflicted")), EMPTY_CELL, EMPTY_CELL, EMPTY_CELL]);
+  }
+  const currency = liveMirrorRecordCurrency(record);
+  const shown = (field?: string): string | null => {
+    const fact = field ? record.find(each => each.field === field) : undefined;
+    return fact ? formatLiveMirrorValue(fact.predicate, fact.value, { currency }) : null;
+  };
+  const testMode = record.find(each => each.field === table.mode)?.value === "test";
+  return row([
+    cell(ref, shown(table.activity), testMode ? shown(table.mode) : null, liveMirrorFactStateLabel(record[0]!.state)),
+    cell(shown(table.amount)),
+    cell(table.status.map(shown).find(text => text !== null) ?? null),
+    cell(shown(table.when)),
+  ]);
+}
+
+/** The section's one generated link, to where its source is changed. Only a canonical in-app route qualifies. */
+function sourceLink(kind: LiveMirrorKind): string | null {
+  const route = liveMirrorSourceRoute(kind);
+  if (!route || normalizeInternalRouteHref(route.href) !== route.href || /[\s()<>]/.test(route.href)) return null;
+  return `[${escapeLiveMirrorText(route.label)}](${route.href})`;
+}
+
 /**
  * Deterministic preview of the model. Every value is Markdown- and
- * HTML-escaped. It starts at level two and leaves out what the surrounding
- * panel already says (title, status, boundary and history footer). Sources
- * with nothing recorded share one line.
+ * HTML-escaped and can never form a link. It starts at level two and leaves
+ * out what the surrounding panel already says (title, status, boundary and
+ * history footer). Money sources render as GFM tables, the others as lists,
+ * and each section ends with one link to where its source is changed.
+ * Sources with nothing recorded share one line.
  */
 function renderLiveMirrorMarkdown(input: Omit<LiveMirrorProjection, "markdown">): string {
   const lines: string[] = [];
@@ -638,16 +838,27 @@ function renderLiveMirrorMarkdown(input: Omit<LiveMirrorProjection, "markdown">)
     }
     lines.push(`## ${source.label}`, "", `_${sourceStatusText(source)}_`, "");
     const refs = [...new Set(own.map(fact => fact.ref))];
-    for (const ref of refs.slice(0, PREVIEW_RECORDS_PER_SOURCE)) {
-      const record = own.filter(fact => fact.ref === ref);
-      if (source.kind === "profile") {
-        for (const fact of record) lines.push(`- ${factLine(fact, record)}`);
-        continue;
+    const shown = refs.slice(0, PREVIEW_RECORDS_PER_SOURCE);
+    const more = refs.length - shown.length;
+    const table = FINANCE_TABLES[source.kind];
+    if (table) {
+      lines.push(...FINANCE_TABLE_HEAD, ...shown.map(ref => financeRow(table, ref, own.filter(fact => fact.ref === ref))));
+      // GFM continues a table until a blank line, so anything after one follows a blank line.
+      if (more > 0) lines.push("", `_${more} more not shown._`);
+    } else {
+      for (const ref of shown) {
+        const record = own.filter(fact => fact.ref === ref);
+        if (source.kind === "profile") {
+          for (const fact of record) lines.push(`- ${factLine(fact, record)}`);
+          continue;
+        }
+        lines.push(`- ${escapeLiveMirrorText(ref)}`);
+        for (const fact of record) lines.push(`  - ${factLine(fact, record)}`);
       }
-      lines.push(`- ${escapeLiveMirrorText(ref)}`);
-      for (const fact of record) lines.push(`  - ${factLine(fact, record)}`);
+      if (more > 0) lines.push(`- _${more} more not shown._`);
     }
-    if (refs.length > PREVIEW_RECORDS_PER_SOURCE) lines.push(`- _${refs.length - PREVIEW_RECORDS_PER_SOURCE} more not shown._`);
+    const link = sourceLink(source.kind);
+    if (link) lines.push("", link);
     lines.push("");
   }
   const unreadable = empty.filter(source => source.state === "unavailable").map(source => source.label);

@@ -357,6 +357,33 @@ describe("persisted source-linked Profile memory.md", () => {
     expect(deleted.document?.markdown).not.toContain("Ankit");
   });
 
+  it("passes both names into the mirror when the Soul disagrees with the verified profile name", async () => {
+    const state = sources();
+    state.soul = { ...state.soul, markdown: "# Facts\n- Preferred name: Ava S\n" };
+    mountSources(state);
+    expect((await refreshSources()).status).toBe("refresh_failed");
+    const mirror = peekLiveMirror(USER)!;
+    expect(mirror.overall).toBe("conflict");
+    expect(mirror.nameConflict).toBe(true);
+    const profileClaim = expect.objectContaining({ source: "profile", label: "Profile", value: "Synthetic Ava", revision: 2 });
+    expect(mirror.conflicts).toEqual([{ predicate: "profile.name", label: "Name", claims: [
+      { source: "soul", label: "Memory (you wrote)", value: "Ava S", revision: 9, sourceUpdatedAt: null, verifiedAt: null },
+      profileClaim,
+    ] }]);
+    expect(mirror.facts.find(fact => fact.predicate === "profile.name")).toMatchObject({ value: "Synthetic Ava", state: "verified" });
+    // Every differing name the owner wrote is a side; one written like the verified name is not.
+    state.soul = { ...state.soul, markdown: "# Facts\n- Display name: Ava S\n- Preferred name: Avi\n" };
+    await refreshSources(true);
+    expect(peekLiveMirror(USER)?.conflicts?.[0]?.claims.map(claim => claim.value)).toEqual(["Ava S", "Avi", "Synthetic Ava"]);
+    // Negative controls: the same name written differently, or a deleted claim, raises nothing.
+    state.soul = { ...state.soul, markdown: "# Facts\n- Preferred name:  synthetic   ava \n" };
+    expect((await refreshSources(true)).status).toBe("current");
+    expect(peekLiveMirror(USER)).toMatchObject({ nameConflict: false, conflicts: [] });
+    state.soul = { ...state.soul, markdown: "# Facts\n- Preferred name: Ava S\n", _deleted_fact_labels: ["preferred name"] };
+    expect((await refreshSources(true)).status).toBe("current");
+    expect(peekLiveMirror(USER)).toMatchObject({ nameConflict: false, conflicts: [] });
+  });
+
   it("reuses the persisted document after session cache clear and does not loop on its own PKM write revision", async () => {
     const state = sources();
     mountSources(state);
