@@ -84,6 +84,7 @@ test.beforeAll(async () => {
           "@/lib/pkm/pkm-domain-resource",
           "@/lib/kai/plaid-vault/vault-sync",
           "@/lib/connections/custom-connector-configuration",
+          "@/lib/pkm/use-live-mirror-view",
           "next/navigation",
         ].map((find) => ({
           // Vite string aliases match subpaths; every boundary mock is exact.
@@ -2070,7 +2071,7 @@ test.describe("One profile artwork and animated presence", () => {
       for (let i = 0; i < 3; i += 1) {
         if (i === 2) await page.evaluate(() => document.documentElement.classList.add("dark"));
         await panel.getByRole("tab", { name: "Profile", exact: true }).click();
-        await expect(panel.getByRole("link", { name: "Open memory.md in Memory" })).toBeVisible();
+        await expect(panel.getByRole("heading", { name: "Live memory" })).toBeVisible();
         expect((await rail.boundingBox())!.y).toBeCloseTo(initial.y, 1);
         await panel.getByRole("tab", { name: "Feed", exact: true }).click();
         await expect(panel.getByTestId("feed-row").first()).toBeVisible();

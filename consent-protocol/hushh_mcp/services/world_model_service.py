@@ -160,6 +160,9 @@ async def offer(
 
 
 class WorldModelJobs(ProfileResearchJobs):
+    log_event = "one.pwm_"
+    search_slots = MAX_SEARCHES
+
     async def start(self, user_id, consent_token, *, inputs: dict | None = None):
         require_access = content_access(user_id, consent_token)
         await require_access()
@@ -186,6 +189,7 @@ class WorldModelJobs(ProfileResearchJobs):
         return {"consent_generation": str(consent["generation"])}
 
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
+        enrolled = False
         require_access = content_access(user_id, consent_token)
         await require_access()
         # Preserve existing opt-outs; placement admission precedes enrollment.
@@ -197,9 +201,11 @@ class WorldModelJobs(ProfileResearchJobs):
                 await require_access()
                 if resolved:
                     await enroll_default(user_id, consent_token)
+                    enrolled = True
                     await require_access()
         refused, _ = await admission(user_id, consent_token)
         if refused:
+            self.decision("ensure", "refused", refused, None)
             return refused
         consent = await preferences(user_id)
         await require_access()
@@ -225,14 +231,18 @@ class WorldModelJobs(ProfileResearchJobs):
             if completed:
                 # A recently finished draft aged out. Unfinished purged work
                 # resumes below instead of buying a new preparation interval.
-                return {"status": "saved", "pkm_written": False}
+                result = {"status": "saved", "pkm_written": False}
+                self.decision("ensure", "recently_prepared", result, None)
+                return result
         await require_access()
         if (
             state
             and state["status"] == "saved"
             and state.get("consent_generation") == str(consent["generation"])
         ):
+            self.decision("ensure", "saved", state["result"], state)
             return state["result"]
+        self.decision("ensure", "enrolled_start" if enrolled else "start", None, state)
         inputs = None if owner_decisions is None else {"owner_decisions": owner_decisions}
         return await self.start(user_id, consent_token, inputs=inputs)
 

@@ -3869,3 +3869,39 @@ ratchet baseline. All 2,663 previous occurrences remain represented, alongside
 unchanged detector behavior, exclusions, history and 500/250/80 size budgets.
 The resulting candidate must rerun canonical core and hosted CI before deployment.
 No new scope purchase or provider OAuth completion is established by this review.
+
+
+### 2026-10-15 Live Mirror and Drive integration checkpoint
+
+The same infrastructure branch integrates main `4542531afb75` through a normal
+merge. Migration 346 fills an unused number; task migrations 349–355, their SQL
+bodies and the preservation receipt remain intact. All three schema projections
+and the canonical manifest agree on head 355. A deployed head number alone will
+not establish that the new additive migration was applied.
+
+The union preserves private-processing admission after Drive fold-lock waits and
+before enqueue, model work and publication. Closed style settings remain separate
+from the owner/epoch-bound Live Mirror packet. Automatic SOS clear migration now
+respects restricted reviewer policy and owner/token/vault retirement; explicit
+Clear remains available. Three incoming Drive security test groups were restored.
+Focused checks pass 317 backend, 161 frontend, 67 real-PostgreSQL Drive, 27 SOS/Feed
+and all 462 Back cases. Earlier failing runs remain recorded; no timeout or
+authorization assertion was weakened. Back/Search and owned projections were
+regenerated together. Exactly 65 independently reviewed size occurrences retain
+visible incoming/composed debt with unchanged detector and 500/250/80 budgets.
+
+The first core attempt for `df3848da286a` was interrupted when the newer main
+integration superseded it; its owned process group exited. It is not a core pass.
+The completed candidate still requires canonical core, exact-head hosted CI and
+Dev/pod release. No scope purchase, refund, term maturity, bank payout or private
+agent Stripe OAuth receipt has been added at this checkpoint. Both reviewer
+funding totals remain $10.50 and cumulative Sandbox capital remains $15.
+
+Memory Saved already mounts exact-section price review, with server-side paid
+readiness enforcement and independent free sharing. Chat currently has canonical
+financial status reads and Memory navigation; exact-scope price review from chat
+is a remaining interface gap. Stripe MCP OAuth is separate from payment readiness.
+After a host restart ended the debugging client, repeated reconnect probes were
+stopped. The shared Chrome browser remains intact; further rehearsal uses headless
+sessions or the explicitly authorized AppleScript interface without fresh debugger
+connections. Physical-device acceptance remains with its separate device owner.

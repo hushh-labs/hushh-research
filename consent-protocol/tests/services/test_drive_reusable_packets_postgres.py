@@ -756,22 +756,47 @@ async def test_semantic_worker_uses_default_on_preference_but_preserves_explicit
     assert await reusable.facts.due_owners() == []
 
 
-async def test_rejected_model_evidence_retains_safe_failure_code_without_publishing(reusable):
+async def test_rejected_model_evidence_retries_with_backoff_then_fails_without_publishing(
+    reusable,
+):
+    from hushh_mcp.services.drive_document_facts_store import FACTS_MAX_ATTEMPTS
     from hushh_mcp.services.drive_packet_intelligence import EvidenceValidationError
 
     await originals(reusable)
     reusable.worker.page_assessor = AsyncMock(
         side_effect=EvidenceValidationError("model_citation_invalid")
     )
+    delays = []
+    for attempt in range(1, FACTS_MAX_ATTEMPTS + 1):
+        assert await reusable.worker.run_facts_one(user_id="owner") == "facts_unavailable"
+        with reusable.facts.db.engine.begin() as connection:
+            row = connection.execute(
+                text("""SELECT status,error_code,facts_envelope,lease_id,
+                  extract(epoch FROM next_at-updated_at) AS delay FROM drive_document_facts""")
+            ).one()
+            # A sampled model answer can differ next time; host-rejected
+            # evidence is never stored, and retries stay bounded.
+            assert row.status == ("failed" if attempt == FACTS_MAX_ATTEMPTS else "pending")
+            assert row.error_code == "model_citation_invalid"
+            assert row.facts_envelope is None and row.lease_id is None
+            delays.append(round(row.delay))
+            connection.execute(text("UPDATE drive_document_facts SET next_at=clock_timestamp()"))
+    assert delays[:2] == [60, 120]
+    assert await reusable.worker.run_facts_one(user_id="owner") == "idle"
+    assert reusable.worker.page_assessor.await_count == FACTS_MAX_ATTEMPTS
+    with reusable.facts.db.engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM drive_packet_heads")).scalar_one() == 0
+
+
+async def test_deterministic_facts_integrity_failure_is_terminal_at_once(reusable):
+    await originals(reusable)
+    reusable.worker.page_assessor = AsyncMock(side_effect=ValueError("private detail"))
     assert await reusable.worker.run_facts_one(user_id="owner") == "facts_unavailable"
     with reusable.facts.db.engine.connect() as connection:
         failure = connection.execute(
-            text("SELECT status,error_code,facts_envelope FROM drive_document_facts")
+            text("SELECT status,error_code FROM drive_document_facts")
         ).one()
-        assert failure.status == "failed"
-        assert failure.error_code == "model_citation_invalid"
-        assert failure.facts_envelope is None
-        assert connection.execute(text("SELECT count(*) FROM drive_packet_heads")).scalar_one() == 0
+    assert (failure.status, failure.error_code) == ("failed", "facts_integrity_invalid")
 
 
 @pytest.mark.parametrize(
@@ -1173,7 +1198,9 @@ async def test_completed_document_fold_receives_owner_canonical_context(reusable
     }
 
 
-async def test_same_owner_fact_folds_serialize_and_expired_lease_recovers(reusable):
+async def test_same_owner_fact_folds_serialize_and_expired_lease_recovers(reusable, monkeypatch):
+    # Under a single-lease cap, an owner's facts jobs still run one at a time.
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "1")
     await originals(reusable, count=2)
     assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 2
     claims = await asyncio.gather(
@@ -1344,7 +1371,10 @@ async def test_late_old_policy_membership_is_reconciled_from_current_facts(reusa
         )
 
 
-async def test_request_priority_facts_use_exact_targets_and_reuse_complete_evidence(reusable):
+async def test_request_priority_facts_use_exact_targets_and_reuse_complete_evidence(
+    reusable, monkeypatch
+):
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "1")
     await originals(reusable, count=3)
     with reusable.collection.db.engine.connect() as connection:
         ids = [
@@ -1410,3 +1440,390 @@ async def test_targeted_facts_enqueue_scopes_membership_reconciliation(reusable,
             ).scalars()
         ]
     assert rows == [ids[0]]
+
+
+@pytest.mark.parametrize("cap,leased", [(4, 4), (1, 1)])
+async def test_facts_claims_lease_up_to_owner_cap_on_distinct_documents(
+    reusable, monkeypatch, cap, leased
+):
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", str(cap))
+    await originals(reusable, count=6)
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 6
+
+    jobs = await asyncio.gather(
+        *(reusable.facts.claim(user_id="owner", policy_version=POLICY) for _ in range(5))
+    )
+
+    won = [job for job in jobs if job]
+    assert len(won) == leased
+    assert len({job["document_id"] for job in won}) == leased
+    # A committed job frees exactly one slot.
+    pages = [{"page": 1, "text": "Synthetic statement evidence"}]
+    await reusable.facts.commit_batch(
+        won[0], page_facts=page_facts(pages), document_facts=document_facts(pages)
+    )
+    following = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert following and following["document_id"] not in {job["document_id"] for job in won}
+    assert await reusable.facts.claim(user_id="owner", policy_version=POLICY) is None
+
+
+async def test_running_document_is_not_claimed_again_after_its_source_changes(
+    reusable, monkeypatch
+):
+    from dataclasses import replace
+
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    await originals(reusable)
+    await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)
+    running = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert running
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    changed = replace(source("synthetic-source-0"), version="2")
+    sync = await reusable.collection.claim(user_id="owner")
+    await reusable.collection.commit_page(
+        sync, checkpoint={"changes_token": "changed-mid-facts"}, files=[changed], phase="changes"
+    )
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    await reusable.ingestion.publish_pages(job, metadata=changed, batch=collection_pages())
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 1
+    # Never two running facts jobs for one document, even across its versions.
+    assert await reusable.facts.claim(user_id="owner", policy_version=POLICY) is None
+    await reusable.facts.release(running)
+    current = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert current and current["document_id"] == running["document_id"]
+    assert current["source_version"] == "2"
+
+
+async def test_semantic_sweep_runs_parallel_facts_with_one_enqueue_per_owner(reusable, monkeypatch):
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    await originals(reusable, count=6)
+    enqueue = AsyncMock(side_effect=reusable.facts.enqueue)
+    monkeypatch.setattr(reusable.facts, "enqueue", enqueue)
+    in_flight = peak = 0
+
+    async def observed_pages(**kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        return await assess_pages(**kwargs)
+
+    reusable.worker.page_assessor = observed_pages
+
+    result = await reusable.worker.run(max_jobs=6)
+
+    assert result["facts_complete"] == 4
+    assert peak == 4
+    enqueue.assert_awaited_once()
+
+
+async def test_semantic_sweep_gives_every_owner_work_before_parallel_facts(monkeypatch):
+    from collections import Counter
+
+    admission = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_packet_worker.admit_hub_content", admission)
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    facts = SimpleNamespace(
+        due_owners=AsyncMock(return_value=["a", "b", "c"]), enqueue=AsyncMock(return_value=0)
+    )
+    worker = DrivePacketWorker(
+        facts_store=facts, packet_store=SimpleNamespace(), policy=lambda: POLICY
+    )
+    calls = []
+
+    async def facts_one(*, user_id, enqueue):
+        calls.append(("facts", user_id))
+        return "facts_queued"
+
+    async def packet_one(*, user_id):
+        calls.append(("packet", user_id))
+        return "idle"
+
+    worker.run_facts_one, worker.run_packet_one = facts_one, packet_one
+
+    assert await worker.run(max_jobs=8) == {"facts_queued": 5, "idle": 3}
+    assert {call.args for call in admission.await_args_list} == {
+        (owner, "drive_packet_facts_enqueue") for owner in ("a", "b", "c")
+    }
+    # Owner B is never starved by owner A: every owner gets a facts and a
+    # packet job before any owner gets a second facts job.
+    assert Counter(calls) == {
+        ("facts", "a"): 2,
+        ("facts", "b"): 2,
+        ("facts", "c"): 1,
+        ("packet", "a"): 1,
+        ("packet", "b"): 1,
+        ("packet", "c"): 1,
+    }
+    assert [call.kwargs["user_id"] for call in facts.enqueue.await_args_list] == ["a", "b", "c"]
+
+
+async def test_parallel_final_folds_see_each_others_new_canonical_keys(reusable, monkeypatch):
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    await originals(reusable, count=3)
+    assert await reusable.facts.enqueue(user_id="owner", policy_version=POLICY) == 3
+    contexts, in_flight, peak = [], 0, 0
+
+    async def keyed_fold(**kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        contexts.append({item["key"] for item in kwargs["canonical_context"]["packets"]})
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        result = await fold(**kwargs)
+        result["canonical_packets"][0]["key"] = f"invented-group-{len(contexts)}"
+        return result
+
+    reusable.worker.consolidator = keyed_fold
+
+    outcomes = await asyncio.gather(
+        *(reusable.worker.run_facts_one(user_id="owner", enqueue=False) for _ in range(3))
+    )
+
+    assert outcomes == ["facts_complete"] * 3
+    # Page facts ran in parallel; each keying fold saw every earlier new key.
+    assert peak == 1
+    assert sorted(len(keys) for keys in contexts) == [0, 1, 2]
+
+
+async def test_new_issuer_creates_its_own_packet_and_same_key_joins_existing_packet(reusable):
+    await originals(reusable, count=3)
+    keys = iter(
+        [
+            "issuer-a-account-1-statement-2026",
+            "issuer-b-account-9-statement-2026",
+            "issuer-a-account-1-statement-2026",
+        ]
+    )
+
+    async def keyed(**kwargs):
+        result = await fold(**kwargs)
+        result["canonical_packets"][0]["key"] = next(keys)
+        return result
+
+    reusable.worker.consolidator = keyed
+    for _ in range(3):
+        assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    with reusable.facts.db.engine.connect() as connection:
+        sizes = connection.execute(
+            text("SELECT count(*) FROM drive_packet_members GROUP BY packet_id")
+        ).scalars()
+        assert sorted(sizes) == [1, 2]
+    outcomes = []
+    while outcomes.count("ready") < 2 and len(outcomes) < 10:
+        outcomes.append(await reusable.worker.run_packet_one(user_id="owner"))
+    assert outcomes.count("ready") == 2
+    listed = (await reusable.packets.list_packets(user_id="owner"))["packets"]
+    assert sorted(item["documentCount"] for item in listed) == [1, 2]
+    assert {item["state"] for item in listed} == {"ready"}
+
+
+async def test_source_change_builds_next_version_and_listing_needs_a_new_allow(reusable):
+    from dataclasses import replace
+
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    with reusable.facts.db.engine.begin() as connection:
+        frozen = connection.execute(
+            text("SELECT manifest_envelope,digest FROM drive_packet_versions WHERE version=1")
+        ).one()
+        connection.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    changed = replace(source("synthetic-source-0"), version="2")
+    sync = await reusable.collection.claim(user_id="owner")
+    await reusable.collection.commit_page(
+        sync, checkpoint={"changes_token": "changed-source"}, files=[changed], phase="changes"
+    )
+    with reusable.facts.db.engine.connect() as connection:
+        assert connection.execute(text("SELECT dirty FROM drive_packet_heads")).scalar_one()
+        assert not connection.execute(
+            text("SELECT available FROM drive_packet_versions WHERE version=1")
+        ).scalar_one()
+    stale = (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ]
+    assert [item["canRequest"] for item in stale] == [False]
+
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    await reusable.ingestion.publish_pages(job, metadata=changed, batch=collection_pages())
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    for _ in range(3):
+        outcome = await reusable.worker.run_packet_one(user_id="owner")
+    assert outcome == "ready"
+
+    with reusable.facts.db.engine.connect() as connection:
+        versions = connection.execute(
+            text("""SELECT version,digest,manifest_envelope,available
+              FROM drive_packet_versions ORDER BY version""")
+        ).all()
+    assert [row.version for row in versions] == [1, 2]
+    assert (versions[0].manifest_envelope, versions[0].digest) == (
+        frozen.manifest_envelope,
+        frozen.digest,
+    )
+    assert versions[1].digest != versions[0].digest
+    assert versions[1].available and not versions[0].available
+    # The Allow belonged to version 1. Buyers see nothing until the owner
+    # allows version 2, and the old Allow cannot be re-applied.
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.set_listing(
+            user_id="owner",
+            packet_id=packet["packetId"],
+            version=1,
+            decision="allow",
+            price_cents=125,
+            expected_revision=1,
+            disclosure=LISTING_DISCLOSURE,
+        )
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=2,
+        decision="allow",
+        price_cents=150,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    buyer = (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ]
+    assert [(item["version"], item["priceCents"], item["canRequest"]) for item in buyer] == [
+        (2, 150, True)
+    ]
+
+
+async def test_failed_member_batch_check_is_never_ready_even_if_final_check_passes(reusable):
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+
+    async def overconfident_final(**kwargs):
+        if kwargs["batch_scope"]["mode"] == "member_batch":
+            return {
+                **await check(**kwargs),
+                "state": "incomplete",
+                "correct_coverage": False,
+                "issues": ["Member batch evidence is unresolved."],
+            }
+        return await check(**{**kwargs, "complete": True})
+
+    reusable.worker.checker = overconfident_final
+    for _ in range(3):
+        outcome = await reusable.worker.run_packet_one(user_id="owner")
+    assert outcome == "incomplete"
+    view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert view["state"] == "incomplete" and view["gaps"] and not view["canList"]
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.set_listing(
+            user_id="owner",
+            packet_id=view["packetId"],
+            version=1,
+            decision="allow",
+            price_cents=125,
+            expected_revision=0,
+            disclosure=LISTING_DISCLOSURE,
+        )
+
+
+async def test_incomplete_packet_reports_every_gap_and_cannot_be_listed(reusable):
+    await originals(reusable)
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    gaps = ["Statement for 2026-02 is missing.", "Page 3 of one statement is unreadable."]
+
+    async def incomplete(**kwargs):
+        return {**await construct(**kwargs), "state": "incomplete", "gaps": gaps}
+
+    reusable.worker.constructor = incomplete
+    for _ in range(3):
+        outcome = await reusable.worker.run_packet_one(user_id="owner")
+    assert outcome == "incomplete"
+    view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert view["state"] == "incomplete" and view["gaps"] == gaps and not view["canList"]
+
+
+async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):
+    await originals(reusable)
+    await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)
+    old = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_document_facts SET lease_expires_at=clock_timestamp()-interval '1 second'"
+            )
+        )
+    new = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert old["lease_id"] != new["lease_id"]
+    pages = [{"page": 1, "text": "Synthetic statement evidence"}]
+    with pytest.raises(DriveReadError, match="facts_superseded"):
+        await reusable.facts.commit_batch(
+            old, page_facts=page_facts(pages), document_facts=document_facts(pages)
+        )
+    await reusable.facts.commit_batch(
+        new, page_facts=page_facts(pages), document_facts=document_facts(pages)
+    )
+
+
+async def test_listing_deny_and_connection_revocation_remove_buyer_access(reusable):
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="deny",
+        price_cents=125,
+        expected_revision=1,
+        disclosure=None,
+    )
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("UPDATE connections SET status='revoked'"))
+    with pytest.raises(DriveSharingError, match="connection_required"):
+        await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner")
+
+
+@pytest.mark.parametrize("change", ["pause", "generation"])
+async def test_packet_lease_fences_late_construction_after_authority_change(reusable, change):
+    await originals(reusable)
+    await reusable.worker.run_facts_one(user_id="owner")
+    job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert job
+    if change == "pause":
+        await reusable.collection.set_processing(user_id="owner", enabled=False)
+    else:
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE user_external_connector_connections SET connection_generation=connection_generation+1 WHERE user_id='owner'"
+                )
+            )
+    with pytest.raises(DriveReadError):
+        await reusable.packets.commit_build(
+            job, build={"assessment": {}}, after_document_id=None, phase="verify"
+        )
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() == 0
+        )

@@ -7,6 +7,7 @@ vi.mock("@/lib/consent/export-builder", () => ({ createConsentExportReadSession:
 vi.mock("@/lib/pkm/markdown-memory", () => ({ loadMarkdownMemory: transport.soul, peekMarkdownMemory: transport.peek }));
 
 import { retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
+import { answerScopeAvailability } from "@/lib/answers/answer-scope-availability";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { CacheService } from "@/lib/services/cache-service";
@@ -286,6 +287,41 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
       vi.setSystemTime(new Date("2026-10-13T00:00:00Z"));
       await expect(prepared.assertCurrent()).rejects.toThrow("Age changed before staging");
     } finally { vi.useRealTimers(); }
+  });
+
+  it("Live Memory inventory cannot make a paid scope chargeable", async () => {
+    // The owner-only inventory, its observed history and the derived preview
+    // share the encrypted projection that stores paid slices. Only identity
+    // and Soul may supply a paid value or its completeness.
+    const at = "2026-10-15T08:00:00.000Z";
+    const owned = projection._private as Record<string, Record<string, unknown>>;
+    owned.inventory = { complete: false, unavailable: ["consent"], observedAt: at, verifiedAt: { profile: at },
+      records: [{ kind: "profile", id: USER, value: { display_name: "Inventory Ava" }, revision: 3, createdAt: null, updatedAt: at, capturedAt: at, deletedAt: null }] };
+    owned.observed_history = { nextSequence: 2, firstRetainedSequence: 1, truncatedAt: null,
+      changes: [{ sequence: 1, kind: "profile", id: USER, revision: 3, operation: "upsert", capturedAt: at, sourceUpdatedAt: at, value: { display_name: "Inventory Ava" } }] };
+    owned.memory_document.document = { markdown: "- Name: Inventory Ava\n- Sex: inventory value\n", complete: false };
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.full_name", "identity_profile.sex"], value: { identity_profile: { full_name: "Identity Ava", sex: "identity value" } } };
+    const ordinaryExport = transport.export.getMockImplementation()!;
+    const ordinarySoul = transport.soul.getMockImplementation()!;
+    transport.export.mockRejectedValue(new Error("identity read failed"));
+    transport.soul.mockRejectedValue(new Error("Soul read failed"));
+    const failed = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX] });
+    // The inventory was in the same read, so this cannot pass vacuously.
+    expect(transport.load).toHaveBeenCalledWith(expect.objectContaining({ domain: "one_living_sources" }));
+    expect(failed).toMatchObject({ complete: false, unavailableScopes: [NAME, SEX], projections: [] });
+    expect(JSON.stringify(failed)).not.toContain("Inventory Ava");
+    expect(answerScopeAvailability({ scopes: [NAME, SEX], retrieval: failed }).available).toEqual([]);
+
+    // Positive control: the same incomplete inventory neither blocks nor feeds a healthy identity read.
+    transport.export.mockImplementation(ordinaryExport);
+    transport.soul.mockImplementation(ordinarySoul);
+    const served = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME, SEX] });
+    expect(served.complete).toBe(true);
+    expect(resultValue(served, NAME, "identity_profile.full_name")).toBe("Identity Ava");
+    expect(resultValue(served, SEX, "identity_profile.sex")).toBe("identity value");
+    expect(JSON.stringify(served)).not.toContain("Inventory Ava");
+    expect(Object.values(served.sourceFreshness).flatMap(entry => entry.sources.map(source => source.domain))).not.toContain("one_living_sources");
+    expect(answerScopeAvailability({ scopes: [NAME, SEX], retrieval: served }).available).toEqual([NAME, SEX]);
   });
 });
 

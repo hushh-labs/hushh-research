@@ -930,3 +930,114 @@ async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old
     assert instance.offer.await_count == (1 if expected == "pending" else 0)
     if active_draft is not None:
         finished.assert_awaited_once_with("owner", active_draft)
+
+
+class ProviderDenied(Exception):
+    """Shape of google.genai ClientError: numeric code and status enum."""
+
+    code = 403
+    status = "PERMISSION_DENIED"
+
+
+class TurnFailed(RuntimeError):
+    pass
+
+
+def failing_provider_research(calls):
+    async def research(**kwargs):
+        calls.append(kwargs["attempts_used"])
+        await kwargs["on_attempts_start"]((33 + len(calls),))
+        try:
+            raise ProviderDenied("private provider text for alex@example.test")
+        except ProviderDenied as denied:
+            raise TurnFailed("turn failed") from denied
+
+    return research
+
+
+def paused_with_evidence(now):
+    return {
+        "job_id": "00000000-0000-4000-8000-0000000000aa",
+        "status": "paused",
+        "started_at": now - 300,
+        "finished_at": now - 30,
+        "identity_binding": "owner-bound-identity",
+        "starts": [now - 300],
+        "attempted_combinations": [1, 33],
+        "discovery_started_at": now - 300,
+        "work": {"attempts": {"1": {"state": "received"}}},
+        "consent_generation": "00000000-0000-4000-8000-000000000001",
+        "result": {"status": "paused", "pkm_written": False, "restart_required": True},
+        "revision": 1,
+        "fence": "seed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_pwm_failed_retries_with_saved_evidence_spend_the_hourly_start_budget(
+    monkeypatch, caplog
+):
+    # UAT: one search had been saved, then every run failed with a provider 403.
+    # Saved evidence exempted every retry from the 3-an-hour start budget, so a
+    # run was bought every 60 s cooldown for hours.
+    caplog.set_level("INFO")
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls),
+        clock=lambda: now[0],
+    )
+    instance.store.rows["owner"] = paused_with_evidence(now[0])
+    # Continuing the paused slice is free and keeps the draft.
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    row = instance.store.rows["owner"]
+    assert row["status"] == "unavailable"
+    assert row["job_id"] == "00000000-0000-4000-8000-0000000000aa"
+    assert row["starts"] == [now[0] - 300]
+    results = []
+    for _ in range(20):
+        now[0] += jobs.FAILURE_COOLDOWN_SECONDS + 10
+        results.append(await instance.start("owner", "fixture-token"))
+        await settle(instance)
+    assert len(calls) == 3
+    assert results[2:] == [{"status": "unavailable", "pkm_written": False}] * 18
+    assert len(instance.store.rows["owner"]["starts"]) == 3
+    assert "provider_code=403 provider_status=PERMISSION_DENIED" in caplog.text
+    assert "one.pwm_decision op=start decision=budget_starts" in caplog.text
+    # Match the event and flag, not the full line: the CI worker's log
+    # formatting of the job id differs from a local run.
+    started = [r.getMessage() for r in caplog.records if "pwm_started" in r.getMessage()]
+    assert any("resumed=True" in message for message in started), started
+    for private in ("alex@example.test", "private provider text", "fixture-token"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_pwm_failure_is_reported_not_masked_as_pending_restart(monkeypatch):
+    # UAT: GET /jobs answered a failed run with pending, then restart_required,
+    # so every open client restarted research after each cooldown, forever.
+    now = [10_000.0]
+    calls = []
+    instance = pwm_manager(
+        monkeypatch,
+        progressive=True,
+        offer=failing_provider_research(calls),
+        clock=lambda: now[0],
+    )
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    draft_id = instance.store.rows["owner"]["job_id"]
+    failed = {"status": "unavailable", "pkm_written": False, "draft_id": draft_id}
+    assert await instance.status("owner", "fixture-token") == failed
+    # A second client inside the cooldown is told the outcome, not pending.
+    assert await instance.start("owner", "fixture-token") == failed
+    now[0] += jobs.FAILURE_COOLDOWN_SECONDS + 1
+    assert await instance.status("owner", "fixture-token") == failed
+    assert len(calls) == 1
+    # A fresh owner request after the cooldown may still retry.
+    assert (await instance.start("owner", "fixture-token"))["status"] == "pending"
+    await settle(instance)
+    assert len(calls) == 2

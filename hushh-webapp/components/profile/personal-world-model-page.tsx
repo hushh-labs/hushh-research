@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AppPageShell,
   AppPageHeaderRegion,
@@ -21,7 +21,6 @@ import {
 } from "@/components/profile/world-model-fact-sheet";
 import { WorldModelOptions } from "@/components/profile/world-model-options";
 import { SearchSuggestions } from "@/components/profile/world-model-search-suggestions";
-import { ProfilePaneWorldModelIcon } from "@/components/profile/profile-pane-icons";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -132,7 +131,6 @@ export function PersonalWorldModelPage({
   /** Opens the owner's data, where details saved from added sources are managed. */
   onManageDetails?: () => void;
 }) {
-  const router = useRouter();
   const pathname = usePathname() || ROUTES.PROFILE_WORLD_MODEL;
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
@@ -141,7 +139,7 @@ export function PersonalWorldModelPage({
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  // mounted is false only when this page renders outside the app provider.
+  // mounted is false only while no app-level reader is attached.
   const { mounted, result, preferences, failed, reload, refresh } =
     useWorldModelResearch();
   const { user, loading, sessionVerificationRequired } = useAuth();
@@ -520,20 +518,17 @@ export function PersonalWorldModelPage({
           </div>
         </SettingsGroup>
       ) : !mounted ? (
+        // Only before the app-level reader attaches. Never a link to the
+        // route: proxy.ts presents that route as this same pane.
         <SettingsGroup>
-          <SettingsRow
-            icon={ProfilePaneWorldModelIcon}
-            iconTone="capability"
-            title="Open Personal World Model"
-            chevron
-            voiceControlId="pwm_open_page"
-            onClick={() => router.push(ROUTES.PROFILE_WORLD_MODEL)}
-          />
+          <div className="px-4 py-3">
+            <HelperText role="status">Checking your model…</HelperText>
+          </div>
         </SettingsGroup>
       ) : (
         <>
           <WorldModelClaimInvitation
-            key={`${user!.uid}:${vaultOwnerToken}`}
+            key={`claim:${user!.uid}:${vaultOwnerToken}`}
             ownerId={user!.uid}
             vaultKey={vaultKey!}
             vaultOwnerToken={vaultOwnerToken!}
@@ -671,7 +666,7 @@ export function PersonalWorldModelPage({
             </SettingsGroup>
           ) : null}
           <WorldModelOptions
-            key={`${user!.uid}:${vaultOwnerToken}`}
+            key={`options:${user!.uid}:${vaultOwnerToken}`}
             ownerId={user!.uid}
             vaultKey={vaultKey!}
             vaultOwnerToken={vaultOwnerToken!}

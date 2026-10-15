@@ -184,6 +184,7 @@ GET /api/one/connections/{counterpart_user_id}/scope-catalog
 GET /api/one/feed
 GET /api/one/feed/events
 POST /api/one/feed/read
+POST /api/one/feed/sos-cards/clear
 GET /api/one/feed/unread-count
 POST /api/one/information-requests
 GET /api/one/information-requests/shared-with-me

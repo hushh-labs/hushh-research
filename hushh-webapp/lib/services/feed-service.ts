@@ -159,6 +159,17 @@ export type FeedListResponse = {
   unread_count: number;
 };
 
+/** A removal the server stored for this account. */
+export type FeedDismissal = {
+  /** The Undo version; a later Clear replaces it. */
+  token: string;
+  /**
+   * Every row the server hid with this removal, including Drive rows the Feed
+   * was folding behind the removed row. Null from a server that predates it.
+   */
+  itemIds: string[] | null;
+};
+
 type ErrorPayload = {
   detail?: string | { message?: unknown; code?: unknown };
   error?: string;
@@ -209,14 +220,23 @@ export class FeedService {
     idToken: string;
     userId: string;
     itemId: string;
-  }): Promise<string | null> {
-    const result = await this.postMutation<{ dismissal_token?: unknown }>({
+  }): Promise<FeedDismissal | null> {
+    const result = await this.postMutation<{
+      dismissal_token?: unknown;
+      dismissed_ids?: unknown;
+    }>({
       ...options,
       path: `/api/one/feed/${encodeURIComponent(options.itemId)}/dismiss`,
     });
-    return typeof result.dismissal_token === "string"
-      ? result.dismissal_token
-      : null;
+    if (typeof result.dismissal_token !== "string") return null;
+    return {
+      token: result.dismissal_token,
+      itemIds: Array.isArray(result.dismissed_ids)
+        ? result.dismissed_ids.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : null,
+    };
   }
 
   static async restore(options: {
@@ -245,6 +265,39 @@ export class FeedService {
       // Preserve the full Postgres bigint on the wire.
       body: { up_to_id: options.upToId },
     });
+  }
+
+  /**
+   * Clear ended SOS cards from this account's Feed on every device. SOS cards
+   * come from vault-gated Location state, so this takes the vault owner token.
+   * Resolves with the ids the server holds as cleared; a live share is never
+   * cleared.
+   */
+  static async clearSosCards(options: {
+    vaultOwnerToken: string;
+    grantIds: string[];
+    isEffectCurrent?: () => boolean;
+  }): Promise<string[]> {
+    const response = await ApiService.apiFetch("/api/one/feed/sos-cards/clear", {
+      method: "POST",
+      ...(options.isEffectCurrent ? { isEffectCurrent: options.isEffectCurrent } : {}),
+      headers: {
+        ...(await authHeader(options.vaultOwnerToken)),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ grant_ids: options.grantIds }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      cleared_grant_ids?: unknown;
+    } & ErrorPayload;
+    if (!response.ok) {
+      throw feedRequestError(payload, response.status);
+    }
+    return Array.isArray(payload.cleared_grant_ids)
+      ? payload.cleared_grant_ids.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [];
   }
 
   /**

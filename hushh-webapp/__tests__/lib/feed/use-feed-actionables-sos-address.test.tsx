@@ -2,6 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let receivedGrantsFixture: unknown[] = [];
+const mocks = vi.hoisted(() => ({
+  clearSosCards: vi.fn(),
+  vaultOwnerToken: "test-vault-token" as string | null,
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -18,12 +22,14 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
+vi.mock("@/lib/vault/vault-context", () => {
+  const getVaultOwnerToken = () => mocks.vaultOwnerToken;
+  return { useVault: () => ({
     vaultKey: "test-vault-key",
-    vaultOwnerToken: "test-vault-token",
-  }),
-}));
+    vaultOwnerToken: mocks.vaultOwnerToken,
+    getVaultOwnerToken,
+  }) };
+});
 
 vi.mock("@/lib/services/cache-service", () => ({
   CACHE_KEYS: {
@@ -42,6 +48,7 @@ vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
     getInstance: () => ({
       set: () => undefined,
+      invalidate: () => undefined,
     }),
   },
 }));
@@ -130,11 +137,39 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
+vi.mock("@/lib/services/feed-service", () => ({
+  FeedService: { clearSosCards: mocks.clearSosCards },
+}));
+
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+
+function revokedSos(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "sos-grant-1",
+    ownerUserId: "sender-user",
+    recipientUserId: "receiver-user",
+    ownerDisplayName: "Test contact",
+    status: "revoked",
+    shareKind: "sos",
+    shareMessage: null,
+    createdAt: "2026-08-10T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function emergencyCard(current: ReturnType<typeof useFeedActionables>) {
+  return current.actionables.find((item) => item.id === "sms-emergency:sos-grant-1");
+}
 
 describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    delete window.__HUSHH_NATIVE_TEST__;
+    mocks.vaultOwnerToken = "test-vault-token";
+    mocks.clearSosCards.mockReset();
+    mocks.clearSosCards.mockImplementation(
+      async ({ grantIds }: { grantIds: string[] }) => grantIds,
+    );
     receivedGrantsFixture = [
       {
         id: "sos-grant-1",
@@ -150,6 +185,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   });
 
   afterEach(() => {
+    delete window.__HUSHH_NATIVE_TEST__;
     window.localStorage.clear();
   });
 
@@ -268,42 +304,218 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     expect(emergency?.actions).toEqual([]);
   });
 
-  it("removes a revoked SOS card once clearSmsEmergencies() runs, and persists the clear", async () => {
-    receivedGrantsFixture = [
-      {
-        id: "sos-grant-1",
-        ownerUserId: "sender-user",
-        recipientUserId: "receiver-user",
-        ownerDisplayName: "Test contact",
-        status: "revoked",
-        shareKind: "sos",
-        shareMessage: null,
-        createdAt: "2026-08-10T00:00:00.000Z",
-      },
-    ];
-
+  it("saves the clear on the server first and hides the card only after the server confirms", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    let confirm: ((ids: string[]) => void) | undefined;
+    mocks.clearSosCards.mockImplementationOnce(
+      () => new Promise<string[]>((resolve) => { confirm = resolve; }),
+    );
     const { result } = renderHook(() => useFeedActionables());
-
     await waitFor(() => {
       expect(result.current.hasClearableSmsEmergencies).toBe(true);
     });
 
+    let clearing: Promise<void> | undefined;
     act(() => {
-      result.current.clearSmsEmergencies();
+      clearing = result.current.clearSmsEmergencies();
+    });
+
+    expect(mocks.clearSosCards).toHaveBeenCalledWith({
+      vaultOwnerToken: "test-vault-token",
+      grantIds: ["sos-grant-1"],
+    });
+    expect(emergencyCard(result.current)).toBeDefined();
+
+    await act(async () => {
+      confirm?.(["sos-grant-1"]);
+      await clearing;
+    });
+    expect(emergencyCard(result.current)).toBeUndefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(false);
+    // The server is the record now; nothing is kept on this device.
+    expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toBeNull();
+  });
+
+  it("keeps the clear on this device when an older backend has no SOS route, then saves it on a later visit", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    // A backend that predates the route answers 404.
+    mocks.clearSosCards.mockRejectedValueOnce(
+      Object.assign(new Error("Not Found"), { status: 404 }),
+    );
+    const firstVisit = renderHook(() => useFeedActionables());
+    await waitFor(() => {
+      expect(firstVisit.result.current.hasClearableSmsEmergencies).toBe(true);
+    });
+
+    await act(async () => {
+      await expect(firstVisit.result.current.clearSmsEmergencies()).resolves.toBeUndefined();
+    });
+
+    // The card leaves now, and the clear waits on this device, as it did before.
+    expect(emergencyCard(firstVisit.result.current)).toBeUndefined();
+    expect(firstVisit.result.current.hasClearableSmsEmergencies).toBe(false);
+    expect(
+      JSON.parse(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user") ?? "[]"),
+    ).toEqual(["sos-grant-1"]);
+    expect(mocks.clearSosCards).toHaveBeenCalledTimes(1);
+    firstVisit.unmount();
+
+    // A later visit, once the backend has the route, saves it and forgets it here.
+    const laterVisit = renderHook(() => useFeedActionables());
+    await waitFor(() => {
+      expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toBeNull();
+    });
+    expect(mocks.clearSosCards).toHaveBeenCalledTimes(2);
+    expect(mocks.clearSosCards).toHaveBeenLastCalledWith({
+      vaultOwnerToken: "test-vault-token",
+      grantIds: ["sos-grant-1"],
+      isEffectCurrent: expect.any(Function),
+    });
+    expect(emergencyCard(laterVisit.result.current)).toBeUndefined();
+  });
+
+  it("keeps the clear on this device while the vault is locked", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    mocks.vaultOwnerToken = null;
+    const { result } = renderHook(() => useFeedActionables());
+    await waitFor(() => {
+      expect(result.current.hasClearableSmsEmergencies).toBe(true);
+    });
+
+    await act(async () => {
+      await expect(result.current.clearSmsEmergencies()).resolves.toBeUndefined();
+    });
+
+    expect(mocks.clearSosCards).not.toHaveBeenCalled();
+    expect(emergencyCard(result.current)).toBeUndefined();
+    expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toContain(
+      "sos-grant-1",
+    );
+  });
+
+  it("does not drop a clear kept on this device while an older copy is still saving", async () => {
+    receivedGrantsFixture = [revokedSos(), revokedSos({ id: "sos-grant-2" })];
+    window.localStorage.setItem(
+      "hushh:feed-sms-dismissed:receiver-user",
+      JSON.stringify(["sos-grant-1"]),
+    );
+    let finishCopy: ((ids: string[]) => void) | undefined;
+    mocks.clearSosCards
+      .mockImplementationOnce(
+        () => new Promise<string[]>((resolve) => { finishCopy = resolve; }),
+      )
+      .mockRejectedValueOnce(new Error("backend unavailable"));
+    const { result } = renderHook(() => useFeedActionables());
+    await waitFor(() => expect(finishCopy).toBeTypeOf("function"));
+
+    // The second card's server clear fails while the first card's copy runs.
+    await act(async () => {
+      await result.current.clearSmsEmergencies();
+    });
+    await act(async () => {
+      finishCopy?.(["sos-grant-1"]);
     });
 
     await waitFor(() => {
       expect(
-        result.current.actionables.find(
-          (item) => item.id === "sms-emergency:sos-grant-1",
-        ),
-      ).toBeUndefined();
-      expect(result.current.hasClearableSmsEmergencies).toBe(false);
+        JSON.parse(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user") ?? "[]"),
+      ).toEqual(["sos-grant-2"]);
     });
-
     expect(
-      window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user"),
-    ).toContain("sos-grant-1");
+      result.current.actionables.find((item) => item.id === "sms-emergency:sos-grant-2"),
+    ).toBeUndefined();
+  });
+
+  it("keeps an ended SOS card cleared on a fresh device", async () => {
+    // Cleared on another device: this browser has no record of it.
+    receivedGrantsFixture = [revokedSos({ recipientClearedAt: "2026-10-15T04:00:00.000Z" })];
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(emergencyCard(result.current)).toBeUndefined();
+    expect(result.current.hasClearableSmsEmergencies).toBe(false);
+    expect(mocks.clearSosCards).not.toHaveBeenCalled();
+  });
+
+  it("never hides a live SOS share, even if a clear was recorded", async () => {
+    receivedGrantsFixture = [
+      revokedSos({ status: "active", recipientClearedAt: "2026-10-15T04:00:00.000Z" }),
+    ];
+    window.localStorage.setItem(
+      "hushh:feed-sms-dismissed:receiver-user",
+      JSON.stringify(["sos-grant-1"]),
+    );
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(emergencyCard(result.current)?.emphasis).toBe("emergency");
+    });
+    expect(result.current.hasClearableSmsEmergencies).toBe(false);
+  });
+
+  it.each([null, "read_only", "preparation_only", "bounded_mutation"] as const)("copies device-only clears only outside restricted automation: %s", async reviewerMutationPolicy => {
+    if (reviewerMutationPolicy) window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    receivedGrantsFixture = [revokedSos()];
+    window.localStorage.setItem(
+      "hushh:feed-sms-dismissed:receiver-user",
+      JSON.stringify(["sos-grant-1", "grant-no-longer-listed"]),
+    );
+    const { result, rerender } = renderHook(() => useFeedActionables());
+
+    if (reviewerMutationPolicy) {
+      await act(async () => {});
+      expect(mocks.clearSosCards).not.toHaveBeenCalled();
+      expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toContain("sos-grant-1");
+      expect(emergencyCard(result.current)).toBeUndefined();
+      return;
+    }
+    await waitFor(() => {
+      expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toBeNull();
+    });
+    expect(mocks.clearSosCards).toHaveBeenCalledExactlyOnceWith({
+      vaultOwnerToken: "test-vault-token",
+      grantIds: ["sos-grant-1"],
+      isEffectCurrent: expect.any(Function),
+    });
+    expect(emergencyCard(result.current)).toBeUndefined();
+    rerender();
+    expect(mocks.clearSosCards).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the device marker when its owner session retires during upload", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    const key = "hushh:feed-sms-dismissed:receiver-user";
+    window.localStorage.setItem(key, JSON.stringify(["sos-grant-1"]));
+    let settle!: (ids: string[]) => void;
+    mocks.clearSosCards.mockImplementationOnce(() => new Promise<string[]>(resolve => { settle = resolve; }));
+    const view = renderHook(() => useFeedActionables());
+    await waitFor(() => expect(mocks.clearSosCards).toHaveBeenCalledTimes(1));
+    const current = mocks.clearSosCards.mock.calls[0][0].isEffectCurrent;
+    expect(current()).toBe(true);
+    view.unmount();
+    expect(current()).toBe(false);
+    await act(async () => { settle(["sos-grant-1"]); });
+    expect(window.localStorage.getItem(key)).toContain("sos-grant-1");
+  });
+
+  it("keeps an old device-only clear when copying it fails", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    window.localStorage.setItem(
+      "hushh:feed-sms-dismissed:receiver-user",
+      JSON.stringify(["sos-grant-1"]),
+    );
+    mocks.clearSosCards.mockRejectedValueOnce(new Error("backend unavailable"));
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(mocks.clearSosCards).toHaveBeenCalledTimes(1);
+    });
+    expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toContain(
+      "sos-grant-1",
+    );
+    expect(emergencyCard(result.current)).toBeUndefined();
   });
 
   it("does NOT offer a clear for a live (still-active) SOS share", async () => {

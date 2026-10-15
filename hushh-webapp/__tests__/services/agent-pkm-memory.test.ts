@@ -24,11 +24,12 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 
 const pkmGetManyStaleFirstMock = vi.fn();
 const pkmGetStaleFirstMock = vi.fn();
+const pkmPeekMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
     getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
     getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
-    peek: () => null,
+    peek: (...args: unknown[]) => pkmPeekMock(...args),
   },
 }));
 
@@ -39,6 +40,11 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
     savePreparedDomain: (...args: unknown[]) => pkmSavePreparedDomainMock(...args),
     saveMergedDomain: (...args: unknown[]) => pkmSaveMergedDomainMock(...args),
   },
+}));
+
+const peekLiveMirrorMock = vi.fn();
+vi.mock("@/lib/pkm/memory-refresh", () => ({
+  peekLiveMirror: (...args: unknown[]) => peekLiveMirrorMock(...args),
 }));
 
 import {
@@ -59,7 +65,8 @@ import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { prepareProfileReview } from "@/lib/agent/profile-research-review";
 import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { LiveMirrorFact, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
 import { peekMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
@@ -80,6 +87,28 @@ const FAKE_CARD = "4111 1111 1111 1111";
 const FAKE_PASSPORT = "X1234567";
 const SECRET_PASSAGE = `openai key ${FAKE_API_KEY}, bank password is ${FAKE_PASSWORD}!\ncard ${FAKE_CARD}\npassport number ${FAKE_PASSPORT}`;
 const FAKE_VALUES = [FAKE_API_KEY, FAKE_PASSWORD, FAKE_CARD, FAKE_CARD.replace(/ /g, ""), FAKE_PASSPORT];
+
+// A read-time Live Mirror view whose records also hold fields that must never
+// reach a model: a token, a birth date and another person's id.
+function liveMirrorView(ownerId: string, vaultEpoch: number): LiveMirrorView {
+  const now = new Date().toISOString();
+  const fact = (ref: string, predicate: string, value: LiveMirrorFact["value"]): LiveMirrorFact => {
+    const [kind, field] = predicate.split(".") as [LiveMirrorFact["kind"], string];
+    return { key: `["${kind}","src-raw-${ref}","${field}"]`, predicate, kind, sourceId: `src-raw-${ref}`, ref, field,
+      label: field, value, state: "verified", revision: 2, sourceUpdatedAt: now, capturedAt: now, verifiedAt: now };
+  };
+  return {
+    schemaVersion: "live_mirror.v1", ownerId, vaultEpoch, builtAt: now, inventoryObservedAt: now, inventoryComplete: true,
+    issues: [], nameConflict: false, sources: [], markdown: "", evaluatedAt: now, overall: "current", lastVerifiedAt: now,
+    facts: [
+      fact("Profile", "profile.name", "Synthetic Owner"),
+      fact("Profile", "profile.accessToken", "ya29.SYNTH"),
+      fact("Profile", "profile.dateOfBirth", "1990-01-01"),
+      fact("Connection 1", "connection.counterpartId", "uid-other"),
+    ],
+    history: { entries: [], firstRetainedSequence: 1, droppedCount: 0, truncatedAt: null, coverage: "open_app_only" },
+  };
+}
 
 it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
   publishValidatedAuthSessionOwner("owner-a");
@@ -201,6 +230,8 @@ describe("agent PKM memory helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearAgentPkmContext();
+    peekLiveMirrorMock.mockReset().mockReturnValue(null);
+    pkmPeekMock.mockReset().mockReturnValue(null);
     pkmGetStaleFirstMock.mockReset().mockResolvedValue({ data: { markdown: "# Soul.md\n\n## Preferences\n- concise summaries\n" } });
     pkmGetMetadataMock.mockResolvedValue(METADATA);
     pkmBlob = {
@@ -936,9 +967,46 @@ describe("agent PKM memory helpers", () => {
     expect(pkmGetStaleFirstMock.mock.calls.filter(([params]) => params.domain === "one_memory")).toHaveLength(1);
   });
 
+  it("supplies Soul, then only the owner's allowlisted Live Mirror packet, on the peek and load paths", async () => {
+    const settings = { preferred_name: "STYLE_ONLY_CANARY", tone: "executive" };
+    const read = pkmGetStaleFirstMock.getMockImplementation()!;
+    pkmGetStaleFirstMock.mockImplementation((params) => params.domain === "identity"
+      ? Promise.resolve({ data: { communication_preferences: settings } }) : read(params));
+    pkmPeekMock.mockImplementation(({ domain }) => domain === "identity"
+      ? { data: { data: { communication_preferences: settings } } } : null);
+    // Without a mirror the context is exactly Soul, as before.
+    const soul = (await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" })).text;
+    expect(soul).toContain("- concise summaries");
+    peekLiveMirrorMock.mockImplementation((userId: string) => liveMirrorView(userId, snapshotVaultSessionEpoch()));
+    const loaded = await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" });
+    const peeked = peekAgentPkmContext({ userId: "user_1" });
+
+    for (const context of [loaded, peeked]) {
+      expect(context?.communicationPreferences).toEqual(settings);
+      expect(context?.text).not.toContain("STYLE_ONLY_CANARY");
+      expect(context?.text.startsWith(`${soul}\n\nLIVE MIRROR FACTS v1 (`)).toBe(true);
+      expect(context?.text).toContain('name="Synthetic Owner"');
+      expect(context?.text.endsWith("\nEND LIVE MIRROR FACTS")).toBe(true);
+      // Debug and telemetry get counts, never the packet.
+      expect(context?.liveMirror).toEqual({ shownFacts: 2, omittedFacts: 0 });
+      for (const forbidden of ["ya29.SYNTH", "1990-01-01", "uid-other", "src-raw"])
+        expect(context?.text).not.toContain(forbidden);
+    }
+    expect(peekLiveMirrorMock).toHaveBeenCalledWith("user_1");
+
+    // Negative control: another owner's projection adds nothing to Soul.
+    peekLiveMirrorMock.mockImplementation(() => liveMirrorView("user_2", snapshotVaultSessionEpoch()));
+    expect(peekAgentPkmContext({ userId: "user_1" })?.text).toBe(soul);
+    // A mirror fault only drops the packet; the turn keeps its Soul.
+    peekLiveMirrorMock.mockImplementation(() => { throw new Error("mirror unavailable"); });
+    await expect(loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" }))
+      .resolves.toMatchObject({ text: soul });
+  });
+
   it("drops an in-flight context load when the vault session clears", async () => {
     let finish!: (value: unknown) => void;
     pkmGetStaleFirstMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    peekLiveMirrorMock.mockImplementation((userId: string) => liveMirrorView(userId, snapshotVaultSessionEpoch()));
 
     const pending = loadAgentPkmContext({
       userId: "user_1",
@@ -951,6 +1019,18 @@ describe("agent PKM memory helpers", () => {
     await expect(pending).resolves.toMatchObject({ text: "", domains: [] });
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+
+    // A lock that lands while the packet is being read discards the whole
+    // context, on both paths, instead of returning a prior session's facts.
+    await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" });
+    peekLiveMirrorMock.mockImplementation((userId: string) => {
+      const view = liveMirrorView(userId, snapshotVaultSessionEpoch());
+      advanceVaultSessionEpoch();
+      return view;
+    });
+    expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+    await expect(loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" }))
+      .resolves.toMatchObject({ text: "" });
   });
 
   it("supplies no memory or metadata when the vault key is unavailable", async () => {

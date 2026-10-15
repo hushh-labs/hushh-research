@@ -389,47 +389,6 @@
       "speaker_persona": "one"
     },
     {
-      "action_id": "profile.world_model.open",
-      "label": "Open Personal World Model",
-      "meaning": "Open the dedicated Personal World Model page.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_open_page"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/personal-world-model-page.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
       "action_id": "profile.world_model.sources",
       "label": "Add a public source",
       "meaning": "Read independently supplied permitted public URLs for owner review.",

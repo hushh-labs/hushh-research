@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2667,
+  "finding_count": 2691,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2821,7 +2821,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "DriveIngestionStore",
-      "value": 546
+      "value": 548
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3055,7 +3055,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 1042
+      "value": 1101
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3370,7 +3370,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10320
+      "value": 10357
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3955,7 +3955,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 560
+      "value": 616
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5134,7 +5134,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/agent_chat.py",
       "symbol": "_extract_state",
-      "value": 235
+      "value": 239
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9589,7 +9589,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "list_state",
-      "value": 433
+      "value": 435
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16087,7 +16087,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/agent_chat.py",
       "symbol": null,
-      "value": 1153
+      "value": 1156
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16393,7 +16393,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": null,
-      "value": 2884
+      "value": 2927
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17095,7 +17095,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1391
+      "value": 1500
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17383,7 +17383,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": null,
-      "value": 11457
+      "value": 11496
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18535,7 +18535,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_ingestion.py",
       "symbol": null,
-      "value": 1580
+      "value": 1695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18706,7 +18706,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_feed_service.py",
       "symbol": null,
-      "value": 1039
+      "value": 1418
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18895,7 +18895,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9200
+      "value": 9228
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19633,7 +19633,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6332
+      "value": 6464
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20506,7 +20506,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/feed-page-clear.test.tsx",
       "symbol": null,
-      "value": 695
+      "value": 788
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20848,7 +20848,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts",
       "symbol": null,
-      "value": 588
+      "value": 617
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20983,7 +20983,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1715
+      "value": 1795
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21703,7 +21703,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/feed/feed-page.tsx",
       "symbol": null,
-      "value": 1247
+      "value": 1272
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22594,7 +22594,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2156
+      "value": 2157
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22702,7 +22702,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
       "symbol": null,
-      "value": 1099
+      "value": 1125
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22855,7 +22855,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
       "symbol": null,
-      "value": 2335
+      "value": 2420
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23188,7 +23188,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/types.ts",
       "symbol": null,
-      "value": 951
+      "value": 956
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24575,7 +24575,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "ProfileResearchJobs",
-      "value": 385
+      "value": 467
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24611,7 +24611,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "_run",
-      "value": 152
+      "value": 188
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24647,7 +24647,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "start",
-      "value": 116
+      "value": 131
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24719,7 +24719,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_profile_research_jobs.py",
       "symbol": null,
-      "value": 932
+      "value": 1043
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25124,7 +25124,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": "DriveDocumentFactsStore",
-      "value": 626
+      "value": 656
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25268,7 +25268,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
       "symbol": "run",
-      "value": 143
+      "value": 154
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25466,7 +25466,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": null,
-      "value": 691
+      "value": 737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25475,7 +25475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1412
+      "value": 1829
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25484,7 +25484,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_document_processor.py",
       "symbol": null,
-      "value": 583
+      "value": 652
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25813,7 +25813,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
       "symbol": null,
-      "value": 858
+      "value": 1237
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25822,7 +25822,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
       "symbol": null,
-      "value": 890
+      "value": 1164
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25867,7 +25867,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 297
+      "value": 344
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25939,7 +25939,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "claim",
-      "value": 121
+      "value": 123
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25948,7 +25948,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "operation",
-      "value": 110
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25975,7 +25975,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_facts_one",
-      "value": 82
+      "value": 91
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26209,7 +26209,7 @@
       "limit": 80,
       "path": "scripts/ci/live-memory-source-gate.py",
       "symbol": "self_test",
-      "value": 98
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26272,7 +26272,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": null,
-      "value": 608
+      "value": 613
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26308,7 +26308,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
       "symbol": null,
-      "value": 1011
+      "value": 1041
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26353,7 +26353,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
       "symbol": null,
-      "value": 510
+      "value": 595
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26435,6 +26435,222 @@
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
       "value": 578
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+      "symbol": "TestGmailEmailDraftDirective",
+      "value": 315
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py|build|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py",
+      "symbol": "build",
+      "value": 210
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/cli.py|_label|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
+      "symbol": "_label",
+      "value": 171
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|scorecard|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/batch.py",
+      "symbol": "scorecard",
+      "value": 163
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/journey.py|run_journey|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/journey.py",
+      "symbol": "run_journey",
+      "value": 152
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|materialize|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/batch.py",
+      "symbol": "materialize",
+      "value": 139
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/sampling.py|plan_batch|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/sampling.py",
+      "symbol": "plan_batch",
+      "value": 135
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|one|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/batch.py",
+      "symbol": "one",
+      "value": 107
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/cli.py|_run|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
+      "symbol": "_run",
+      "value": 104
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|_process|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_service.py",
+      "symbol": "_process",
+      "value": 94
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/deterministic.py|check_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/deterministic.py",
+      "symbol": "check_packet",
+      "value": 93
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/judge.py|judge_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/judge.py",
+      "symbol": "judge_packet",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/sources.py|snapshot|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/sources.py",
+      "symbol": "snapshot",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_eval/drive_packets/served.py|current_packets|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_eval/drive_packets/served.py",
+      "symbol": "current_packets",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_source_change_builds_next_version_and_listing_needs_a_new_allow|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "symbol": "test_source_change_builds_next_version_and_listing_needs_a_new_allow",
+      "value": 82
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_eval/drive_packets/cli.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
+      "symbol": null,
+      "value": 883
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
+      "symbol": null,
+      "value": 831
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/pkm/live-mirror-projection.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
+      "symbol": null,
+      "value": 673
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/live-memory-source-gate.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/live-memory-source-gate.py",
+      "symbol": null,
+      "value": 598
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
+      "symbol": null,
+      "value": 584
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_eval/drive_packets/batch.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_eval/drive_packets/batch.py",
+      "symbol": null,
+      "value": 571
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_eval/drive_packets/sources.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_eval/drive_packets/sources.py",
+      "symbol": null,
+      "value": 556
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx",
+      "symbol": null,
+      "value": 534
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_eval/drive_packets/metrics.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_eval/drive_packets/metrics.py",
+      "symbol": null,
+      "value": 502
     }
   ],
   "inspected_files": 6625,
@@ -46994,6 +47210,676 @@
       "independent_reviewer": "ci_registry_review",
       "proof": "The complete runtime ASTs and all test bodies equal incoming main after mandatory formatting. One imported pytest fixture is explicitly aliased back to its existing public fixture name so the lint gate does not mistake dependency injection for unused-import redefinition. No budgets, assertions or gates changed."
     }
+  },
+  "scope_commerce_live_mirror_drive_eval_main_union_20261015": {
+    "boundary": "Exactly 41 rank-zero value replacements and 24 new occurrences; all 2,667 prior occurrences and history remain represented. Scanner, exclusions, 500/250/80 budgets and future-growth rejection remain unchanged. Incoming main source was reviewed, not assumed previously ratchet-approved.",
+    "entries": [
+      {
+        "accepted_ceiling": 10357,
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 10320,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "aededc6725f629d3ddfa47e0e09ee7c12bd99d94",
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882"
+      },
+      {
+        "accepted_ceiling": 1101,
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1042,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "dbe8b70c5599888dbbeae26dc5727bcbd851ad6d",
+        "source_sha256": "9f83121e6b5719715b58fafa42f1edb0ea80b3f0d4d39a127c96acdb089dfa51"
+      },
+      {
+        "accepted_ceiling": 656,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|DriveDocumentFactsStore|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 626,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "9ccb89f8b33827339021f0ea1431e1741e29e6e1",
+        "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e"
+      },
+      {
+        "accepted_ceiling": 616,
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestAgentTreeShape|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 560,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5a50bfff9c2d4eddeddbe735251f5b328f117978",
+        "source_sha256": "d6951cf9cc95560a0d670a3dc6a8195c15c0ce162e5127132e7ec8c33c2b4b62"
+      },
+      {
+        "accepted_ceiling": 548,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|DriveIngestionStore|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 546,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "2d60fe1a4d3d55cf71788eb14e294b74b417ff77",
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041"
+      },
+      {
+        "accepted_ceiling": 467,
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 385,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "459f4ed2ccf78bf7dc6a0d1a461776b3909507ff",
+        "source_sha256": "4647b128f729ea7d320c259ce0348d6ec440e60a0848fa537aa5b0aa75995eba"
+      },
+      {
+        "accepted_ceiling": 344,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 297,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "0bc436139e8a72503f703ab143f80e504096bfbd",
+        "source_sha256": "138d32fcdded6eaee55b5293748cd811cc51d34c795d496d722d0a2aa9877a26"
+      },
+      {
+        "accepted_ceiling": 315,
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5a50bfff9c2d4eddeddbe735251f5b328f117978",
+        "source_sha256": "d6951cf9cc95560a0d670a3dc6a8195c15c0ce162e5127132e7ec8c33c2b4b62"
+      },
+      {
+        "accepted_ceiling": 435,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|list_state|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 433,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "aededc6725f629d3ddfa47e0e09ee7c12bd99d94",
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882"
+      },
+      {
+        "accepted_ceiling": 239,
+        "key": "function_size|consent-protocol/api/routes/one/agent_chat.py|_extract_state|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 235,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "e8d7311c5f30c2583677a0e2e0a23fa807164811",
+        "source_sha256": "bfeb99bb4aa0d92da7e339be170a6895f50a5106e5727ee9eced8bdc8ef54042"
+      },
+      {
+        "accepted_ceiling": 210,
+        "key": "function_size|consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py|build|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "99299fdfbcc6513c9af4d4b26ac1adf36418cd62",
+        "source_sha256": "dbf8c60321b93e30694cde8b48f48fe7810c8d9b263361b5ee3d0336503b1d52"
+      },
+      {
+        "accepted_ceiling": 188,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 152,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "459f4ed2ccf78bf7dc6a0d1a461776b3909507ff",
+        "source_sha256": "4647b128f729ea7d320c259ce0348d6ec440e60a0848fa537aa5b0aa75995eba"
+      },
+      {
+        "accepted_ceiling": 171,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/cli.py|_label|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "615cc51f5e70efe0f6307b8c480e99ab555cac01",
+        "source_sha256": "c88f9945346e03248b89ce8dc059dc3fe6d474ffa6d658689088f251e2135478"
+      },
+      {
+        "accepted_ceiling": 163,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|scorecard|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "e9b862e72916a782700d6324c7e11a5101d10aba",
+        "source_sha256": "2a4ebf2ee68ac7254f94d520d79303e230fca83e19f6c39abfb74108518f7e9e"
+      },
+      {
+        "accepted_ceiling": 154,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 143,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "a67ef6675f5adaf45cba72fafe5e26ad77d6e7c0",
+        "source_sha256": "faf824bcdfc81aecee67587ed32f2dd905e47f6a303584b9505c1a406223bea6"
+      },
+      {
+        "accepted_ceiling": 152,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/journey.py|run_journey|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "506a53b475ad0f292fde25e7065d9e24a3019a21",
+        "source_sha256": "9483b306d26aa5c02fd438b5293661e5af3d7ba74b57e4d53e85b44ea7d93555"
+      },
+      {
+        "accepted_ceiling": 139,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|materialize|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "e9b862e72916a782700d6324c7e11a5101d10aba",
+        "source_sha256": "2a4ebf2ee68ac7254f94d520d79303e230fca83e19f6c39abfb74108518f7e9e"
+      },
+      {
+        "accepted_ceiling": 135,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/sampling.py|plan_batch|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "030c41f9311bb8a86e8c2f0de4f42f7cbf17c443",
+        "source_sha256": "306ed5e611af689ea5ee18d76767212bfd7b9a38e9391f5ce08dd3b189dc36a6"
+      },
+      {
+        "accepted_ceiling": 131,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|start|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 116,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "459f4ed2ccf78bf7dc6a0d1a461776b3909507ff",
+        "source_sha256": "4647b128f729ea7d320c259ce0348d6ec440e60a0848fa537aa5b0aa75995eba"
+      },
+      {
+        "accepted_ceiling": 123,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|claim|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 121,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "2d60fe1a4d3d55cf71788eb14e294b74b417ff77",
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041"
+      },
+      {
+        "accepted_ceiling": 112,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 110,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "2d60fe1a4d3d55cf71788eb14e294b74b417ff77",
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041"
+      },
+      {
+        "accepted_ceiling": 107,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/batch.py|one|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "e9b862e72916a782700d6324c7e11a5101d10aba",
+        "source_sha256": "2a4ebf2ee68ac7254f94d520d79303e230fca83e19f6c39abfb74108518f7e9e"
+      },
+      {
+        "accepted_ceiling": 104,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/cli.py|_run|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "615cc51f5e70efe0f6307b8c480e99ab555cac01",
+        "source_sha256": "c88f9945346e03248b89ce8dc059dc3fe6d474ffa6d658689088f251e2135478"
+      },
+      {
+        "accepted_ceiling": 100,
+        "key": "function_size|scripts/ci/live-memory-source-gate.py|self_test|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 98,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "65f7ae2a3002b1ef1ce2b00da55e4f1b9b96b914",
+        "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8"
+      },
+      {
+        "accepted_ceiling": 94,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|_process|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "2fbfaa2218fa07ebb47ed973bea74a1bb9736c64",
+        "source_sha256": "57ef9d3934fa4b55a58e2e39a48686a3e2a38cd26b0e387a5aaa13ecee7f6c7e"
+      },
+      {
+        "accepted_ceiling": 93,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/deterministic.py|check_packet|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "182affda4826336d123ec38c926635481527f612",
+        "source_sha256": "a911a375a39887a32477177dcac0768270e14eb58582bcd476d32aeff94c32e7"
+      },
+      {
+        "accepted_ceiling": 91,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 82,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "0bc436139e8a72503f703ab143f80e504096bfbd",
+        "source_sha256": "138d32fcdded6eaee55b5293748cd811cc51d34c795d496d722d0a2aa9877a26"
+      },
+      {
+        "accepted_ceiling": 88,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/judge.py|judge_packet|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "914e4bb58c6d99453eb4a289b43012878fef4615",
+        "source_sha256": "75e552046e5e804f0459cc93a16173f94003e293d877ca26db6c58879a008182"
+      },
+      {
+        "accepted_ceiling": 85,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/sources.py|snapshot|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "b10ae135e2cadc659487f7683dc051958869720a",
+        "source_sha256": "6a172126e5a8e92cc3a0885b6d358655f190d594ca7d94f001e167df48f9fed8"
+      },
+      {
+        "accepted_ceiling": 82,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/served.py|current_packets|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "54466e5ccbd751ef3046e71b23c9dec0bc1ea86a",
+        "source_sha256": "24c71878755cb1eff7fbe6c1e48081162128c43e0020aea5ad9deacb47198eaf"
+      },
+      {
+        "accepted_ceiling": 82,
+        "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_source_change_builds_next_version_and_listing_needs_a_new_allow|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Restore three exact incoming deny/revocation, pause/generation and expired-claim cohorts before qualification; real PostgreSQL67/67 pass. Existing connector/reset erasure proof retained. Synthetic fairness fixture admits/asserts its three owners explicitly.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "b4382f65bd09ac263f113529f5f3566d9dfcd1c6",
+        "source_sha256": "9da1c88eb098b046b3092a71fad720156d146fe19e7defcefcaacb3aa01fa95c"
+      },
+      {
+        "accepted_ceiling": 11496,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 11457,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "aededc6725f629d3ddfa47e0e09ee7c12bd99d94",
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882"
+      },
+      {
+        "accepted_ceiling": 9228,
+        "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 9200,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "a994340d2dc2921aabf633b6d961a0a86e81436f",
+        "source_sha256": "c823b1cb3efb04b761a3351599cbf5c6c99f57e20fa8e5dbd28d5ea5546348e7"
+      },
+      {
+        "accepted_ceiling": 6464,
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 6332,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5a50bfff9c2d4eddeddbe735251f5b328f117978",
+        "source_sha256": "d6951cf9cc95560a0d670a3dc6a8195c15c0ce162e5127132e7ec8c33c2b4b62"
+      },
+      {
+        "accepted_ceiling": 2927,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2884,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "de609c77ee5814e7fb2a3fa82dbe955353820930",
+        "source_sha256": "95d007f2cd114701adf7ba9be160f03961113aa8f2948c02b50503a15adc8837"
+      },
+      {
+        "accepted_ceiling": 2420,
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2335,
+        "review": "Correct inherited background SOS write before qualification: restricted reviewer policy, mounted-owner identity, vault epoch and live-token predicates fence dispatch and settlement through the canonical ApiService port; explicit Clear unchanged.27/27 nearest tests pass.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "451ba2d69d4e0d872d36ad8d7bfd803a27eac725",
+        "source_sha256": "3765d83ed8b7630573b454ae94dae4c3ff8739f3450f445ab8aa8578485b39c3"
+      },
+      {
+        "accepted_ceiling": 2157,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2156,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "fe41f698bdeffa44b3c735d20e1f1811fd4b1e83",
+        "source_sha256": "588d19dfc3dad9769b1e85957921fb3b90743b36356864e35d66b0f4e56877bb"
+      },
+      {
+        "accepted_ceiling": 1829,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1412,
+        "review": "Restore three exact incoming deny/revocation, pause/generation and expired-claim cohorts before qualification; real PostgreSQL67/67 pass. Existing connector/reset erasure proof retained. Synthetic fairness fixture admits/asserts its three owners explicitly.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "b4382f65bd09ac263f113529f5f3566d9dfcd1c6",
+        "source_sha256": "9da1c88eb098b046b3092a71fad720156d146fe19e7defcefcaacb3aa01fa95c"
+      },
+      {
+        "accepted_ceiling": 1795,
+        "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1715,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "ff57fe1aed658355e5c0e00cbe72c95213be2ec6",
+        "source_sha256": "81a6969581f1e43ec8954b3317b33fbd2942594e3b01ff1f182180e194a9a784"
+      },
+      {
+        "accepted_ceiling": 1695,
+        "key": "module_size|consent-protocol/tests/services/test_drive_ingestion.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1580,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "616efacb1974dd3c5f72b3fae2e1f43e9a27057e",
+        "source_sha256": "1f47260d06059558447b711c397439bb2592b242c4f957d70a358fe6f0a6d28e"
+      },
+      {
+        "accepted_ceiling": 1500,
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1391,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "dbe8b70c5599888dbbeae26dc5727bcbd851ad6d",
+        "source_sha256": "9f83121e6b5719715b58fafa42f1edb0ea80b3f0d4d39a127c96acdb089dfa51"
+      },
+      {
+        "accepted_ceiling": 1418,
+        "key": "module_size|consent-protocol/tests/services/test_feed_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1039,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "399f018449fbe60640e85effa28d4a8994507cac",
+        "source_sha256": "8855a413d42c29b6f72602c90c6786dca6c4451e3f28ba49b24f2489796bcad0"
+      },
+      {
+        "accepted_ceiling": 1272,
+        "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1247,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "efc466417c643316de67bb4627c217754082c4eb",
+        "source_sha256": "bca5b5e64b40b397614fec9c3f816bfa0194030680ed6e2b057833cfe54e3cca"
+      },
+      {
+        "accepted_ceiling": 1237,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 858,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "e18e49f02e13af48c78fad52ed1560e4c2defb50",
+        "source_sha256": "8dfbfe3f9388058f27c0673cdb4347411371ef49703666ccd859ef74b2acd4c6"
+      },
+      {
+        "accepted_ceiling": 1164,
+        "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 890,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "935ef4c57799f74714059513dcb1ef19af73bc89",
+        "source_sha256": "92b489fb6cbd8df1595513116480eecec7a49996e2d02aeaa6b381502d199a18"
+      },
+      {
+        "accepted_ceiling": 1156,
+        "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1153,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "e8d7311c5f30c2583677a0e2e0a23fa807164811",
+        "source_sha256": "bfeb99bb4aa0d92da7e339be170a6895f50a5106e5727ee9eced8bdc8ef54042"
+      },
+      {
+        "accepted_ceiling": 1125,
+        "key": "module_size|hushh-webapp/lib/agent/agent-pkm-memory.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1099,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "3a9bd2a7282610c5a7fd27b394a947debb2a8feb",
+        "source_sha256": "b87e28c07ffe88a9518027642cc1c488d8e3cafa9c95aaf7ba91e0289e6f9390"
+      },
+      {
+        "accepted_ceiling": 1043,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 932,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "dd16b2e9ed2265da4f9dbb618517b2840280e1c8",
+        "source_sha256": "a35186dfd34854b818fce192071943f7c51de726db4dd04fa80e5d5b0dab448a"
+      },
+      {
+        "accepted_ceiling": 1041,
+        "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1011,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "9153aa1a1ce27ab8f70fba77b6d9c8d9bbe6af41",
+        "source_sha256": "1fbce269a41cced46b0a2804ed8f3e8dabc24cdf94e249bf71bf63ee4a8c036e"
+      },
+      {
+        "accepted_ceiling": 956,
+        "key": "module_size|hushh-webapp/lib/one-location/types.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 951,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "c724f4db6a12894e586976cf80edb6159ee198a8",
+        "source_sha256": "3c4c94bd7e0d00a5a69354da6229a6ecb3162cda8a2767cfa1dc32ac34bc5f20"
+      },
+      {
+        "accepted_ceiling": 883,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/cli.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "615cc51f5e70efe0f6307b8c480e99ab555cac01",
+        "source_sha256": "c88f9945346e03248b89ce8dc059dc3fe6d474ffa6d658689088f251e2135478"
+      },
+      {
+        "accepted_ceiling": 831,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "565d12e7ddb2a23424f320a512b348a2bcc37d29",
+        "source_sha256": "71f47367d7194cc7cf5e22b2395119ecbdfa772146837229944954b5c48da8f5"
+      },
+      {
+        "accepted_ceiling": 788,
+        "key": "module_size|hushh-webapp/__tests__/components/feed-page-clear.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 695,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "2d22f614d814f19421950d8646bd4d8e1df83152",
+        "source_sha256": "f010475cf07f0e663d7d08974d02faf47a064e2c49af88d206fff376703cbfed"
+      },
+      {
+        "accepted_ceiling": 737,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 691,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "9ccb89f8b33827339021f0ea1431e1741e29e6e1",
+        "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e"
+      },
+      {
+        "accepted_ceiling": 673,
+        "key": "module_size|hushh-webapp/lib/pkm/live-mirror-projection.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "0eb0676c3b226b5ea5cce58b0ce8ebc077e43d9d",
+        "source_sha256": "596688273dc928e11c07b18d780c680f7f3f1aef0171f82a10cff8073372d4ee"
+      },
+      {
+        "accepted_ceiling": 652,
+        "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 583,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "11ba2cf1b8ef3097e3a8dc9345e151986895bb23",
+        "source_sha256": "2c21bb8fa6ba0af4d735c15e60b7e3d854a14e225aebe588ac21e9fe4f687bcd"
+      },
+      {
+        "accepted_ceiling": 617,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 588,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "7643915406b20080eef8deaacec14c8705c3199e",
+        "source_sha256": "8ad446a253351f750e7f18ce7ab7f8755b107588b92a3026fe22bdd6bda7dd56"
+      },
+      {
+        "accepted_ceiling": 613,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 608,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "2d60fe1a4d3d55cf71788eb14e294b74b417ff77",
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041"
+      },
+      {
+        "accepted_ceiling": 598,
+        "key": "module_size|scripts/ci/live-memory-source-gate.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "65f7ae2a3002b1ef1ce2b00da55e4f1b9b96b914",
+        "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8"
+      },
+      {
+        "accepted_ceiling": 595,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 510,
+        "review": "Retain real security, owner/epoch, concurrency, restore and rejection controls in the nearest existing test owner.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "250ee7eda88dc166a507e5e4dff45d1de265cb72",
+        "source_sha256": "6f938acd44a2b779884ec25eb56ed0def95d948727a94be1476f91611b1999f2"
+      },
+      {
+        "accepted_ceiling": 584,
+        "key": "module_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Preserve incoming feature behavior alongside local private-placement, owner/token/epoch, publication and consent fences; no added financial authority.",
+        "reviewer": "backend_context",
+        "source_git_blob": "459f4ed2ccf78bf7dc6a0d1a461776b3909507ff",
+        "source_sha256": "4647b128f729ea7d320c259ce0348d6ec440e60a0848fa537aa5b0aa75995eba"
+      },
+      {
+        "accepted_ceiling": 571,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/batch.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "e9b862e72916a782700d6324c7e11a5101d10aba",
+        "source_sha256": "2a4ebf2ee68ac7254f94d520d79303e230fca83e19f6c39abfb74108518f7e9e"
+      },
+      {
+        "accepted_ceiling": 556,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/sources.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "b10ae135e2cadc659487f7683dc051958869720a",
+        "source_sha256": "6a172126e5a8e92cc3a0885b6d358655f190d594ca7d94f001e167df48f9fed8"
+      },
+      {
+        "accepted_ceiling": 534,
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Preserve all incoming clear/fallback cases, add restricted-policy zero-call and retired-session settlement negative controls; stable getter fixture.27/27 nearest tests pass.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "dbde94422d837dbbf311386271a55bcc98b493da",
+        "source_sha256": "1443935abcd0f38dc73f611067dcb80a1ff84ead2512aaddc15aaf4515dcfdd0"
+      },
+      {
+        "accepted_ceiling": 502,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/metrics.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact incoming evaluation/control source; cohesive commands and typed pipeline stages. No live journey/provider authorization implied.",
+        "reviewer": "azure_default_review",
+        "source_git_blob": "38d76376e1f7729d6fdd32f3d69a47381980de60",
+        "source_sha256": "a368843ac21099f2d73ab0a984cb630f168993fc0b99055345bdbd09220aa07a"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "4542531afb75fd285cdb31bc2c1474f0cad8f2b0",
+    "prior_baseline_sha256": "8bad41e7e8cac9855b64640b77301e063b2e0de35572c56dfaf9d335d868e672",
+    "retained_parent_revision": "df3848da286ab1963f0175ea10759277eea3c21e",
+    "reviewed_report_sha256": "c354f00ced539c0d785ab1e7ba8e2559e9e8c891ad01bd4b5389fef22b490bf2",
+    "reviewed_source_map_sha256": "a2a7aaec79a79f0fe8344409b6fac7d9fb255aee2e747091a46f712e96a04181",
+    "reviewers": [
+      "backend_context",
+      "main_frontend_reconciliation",
+      "ci_registry_review",
+      "azure_default_review",
+      "architecture_review"
+    ],
+    "source_qualification_kind": "reviewed_working_tree_union_before_merge_commit",
+    "verification": "317 backend, 161 frontend, 67 real-PostgreSQL Drive, 27 SOS/Feed and 462 Back cases pass. Prior failed and interrupted runs retained. Full canonical core, hosted CI, Dev/pod release and payment/OAuth acceptance remain required."
   },
   "scope_commerce_main20d_integration_review_20261014": {
     "composed_revision": "48e303b902bae31836b300c8bfcf0df0d2683600",

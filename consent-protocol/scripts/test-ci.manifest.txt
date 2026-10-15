@@ -1153,6 +1153,11 @@ tests/services/test_chat_notification_state.py
 # Grouped Feed pagination/read authority and authenticated chat route boundaries.
 tests/services/test_feed_service.py
 tests/routes/test_feed_route.py
+# Feed removal and the ended-SOS clear belong to the account: a new session or
+# device reads the same server state, another account is untouched, and account
+# deletion leaves no Feed. PostgreSQL runs in the serial lane.
+tests/test_feed_account_session_postgres.py
+tests/test_one_location_recipient_feed_clear_migration.py
 tests/services/test_direct_messages_service.py
 tests/routes/test_direct_messages_route.py
 
@@ -1256,6 +1261,24 @@ tests/services/test_drive_packet_intelligence.py
 tests/services/test_drive_document_pages_postgres.py
 
 tests/services/test_drive_pipeline_evaluation.py
+# Drive packet batch eval: synthetic fixtures only, fixture model and judge, no network.
+tests/eval_drive_packets/test_cli_smoke_fixtures.py
+tests/eval_drive_packets/test_contracts.py
+tests/eval_drive_packets/test_deterministic_checks.py
+tests/eval_drive_packets/test_gates.py
+tests/eval_drive_packets/test_guard_regression_suite.py
+tests/eval_drive_packets/test_journey.py
+tests/eval_drive_packets/test_judge_protocol.py
+tests/eval_drive_packets/test_labels.py
+tests/eval_drive_packets/test_metrics_definitions.py
+tests/eval_drive_packets/test_package_boundary.py
+tests/eval_drive_packets/test_partition.py
+tests/eval_drive_packets/test_privacy_boundary.py
+tests/eval_drive_packets/test_replay_no_label_leakage.py
+tests/eval_drive_packets/test_report.py
+tests/eval_drive_packets/test_sampling.py
+tests/eval_drive_packets/test_sources_read_only.py
+tests/eval_drive_packets/test_stats.py
 
 tests/services/test_drive_reusable_packets_postgres.py
 

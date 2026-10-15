@@ -280,6 +280,17 @@ def owner_client(monkeypatch, jobs):
     return TestClient(app), routes
 
 
+def test_ensure_busy_or_unexpected_failure_is_a_retryable_503(monkeypatch):
+    ensure = AsyncMock(side_effect=RuntimeError("Discovery capacity is temporarily busy"))
+    client, _ = owner_client(monkeypatch, SimpleNamespace(ensure=ensure))
+    response = client.post("/api/one/world-model/ensure")
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "60"
+    assert "capacity" not in response.text
+    ensure.side_effect = PermissionError("Owner session ended")
+    assert client.post("/api/one/world-model/ensure").status_code == 403
+
+
 def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
     ensure = AsyncMock(return_value={"status": "pending", "pkm_written": False})
     start = AsyncMock(return_value={"status": "pending", "pkm_written": False})

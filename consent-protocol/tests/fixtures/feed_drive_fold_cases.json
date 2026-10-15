@@ -1,0 +1,85 @@
+{
+  "description": "One request's Drive rows and the rows the Feed shows. Read by the web fold test (hushh-webapp/__tests__/lib/feed/feed-drive-grouping.test.ts) and the server mirror test (consent-protocol/tests/services/test_feed_service.py), so the two folds cannot drift.",
+  "cases": [
+    {
+      "name": "a confirmed outcome hides a stale no-match outcome",
+      "rows": [
+        {"id": "outcome-completed", "event_type": "document_share_outcome", "request_id": "request-1", "status": "completed"},
+        {"id": "decision", "event_type": "document_share_decided", "request_id": "request-1", "status": "pending"},
+        {"id": "outcome-no-match", "event_type": "document_share_outcome", "request_id": "request-1", "status": "no_match"},
+        {"id": "payment", "event_type": "document_share_payment_confirmed", "request_id": "request-1", "status": "paid"}
+      ],
+      "visible": ["outcome-completed", "decision", "payment"]
+    },
+    {
+      "name": "a no-files outcome hides the availability decision",
+      "rows": [
+        {"id": "decision", "event_type": "document_share_decided", "request_id": "request-1", "status": "pending"},
+        {"id": "outcome-no-match", "event_type": "document_share_outcome", "request_id": "request-1", "status": "no_match"}
+      ],
+      "visible": ["outcome-no-match"]
+    },
+    {
+      "name": "different requests never fold together",
+      "rows": [
+        {"id": "request-a", "event_type": "document_share_outcome", "request_id": "request-a", "status": "no_match"},
+        {"id": "request-b", "event_type": "document_share_decided", "request_id": "request-b", "status": "pending"},
+        {"id": "request", "event_type": "document_share_request", "request_id": "request-1", "status": "pending"}
+      ],
+      "visible": ["request-a", "request-b", "request"]
+    },
+    {
+      "name": "an unknown outcome is not a no-match outcome",
+      "rows": [
+        {"id": "available", "event_type": "document_share_decided", "request_id": "request-1", "status": "pending"},
+        {"id": "unknown", "event_type": "document_share_outcome", "request_id": "request-1", "status": ""},
+        {"id": "success", "event_type": "document_share_outcome", "request_id": "request-1", "status": "completed"}
+      ],
+      "visible": ["available", "unknown", "success"]
+    },
+    {
+      "name": "an unknown outcome alone hides nothing",
+      "rows": [
+        {"id": "available", "event_type": "document_share_decided", "request_id": "request-1", "status": "pending"},
+        {"id": "unknown", "event_type": "document_share_outcome", "request_id": "request-1", "status": ""}
+      ],
+      "visible": ["available", "unknown"]
+    },
+    {
+      "name": "partial success folds in any order and keeps an expired payment",
+      "rows": [
+        {"id": "empty", "event_type": "document_share_outcome", "request_id": "request-1", "status": "no_files_shared"},
+        {"id": "payment-expired", "event_type": "document_share_payment_ready", "request_id": "request-1", "status": "expired"},
+        {"id": "partial", "event_type": "document_share_outcome", "request_id": "request-1", "status": "partial"},
+        {"id": "unidentified", "event_type": "document_share_outcome", "request_id": "", "status": "no_match"}
+      ],
+      "visible": ["payment-expired", "partial", "unidentified"]
+    },
+    {
+      "name": "a settled payment hides only its own request's Pay row",
+      "rows": [
+        {"id": "request-a-paid", "event_type": "document_share_payment_confirmed", "request_id": "request-a", "status": "pending"},
+        {"id": "request-b-pay", "event_type": "document_share_payment_ready", "request_id": "request-b", "status": "pending"},
+        {"id": "request-a-pay", "event_type": "document_share_payment_ready", "request_id": "request-a", "status": "pending"},
+        {"id": "request-a-sent", "event_type": "document_share_request_sent", "request_id": "request-a", "status": "pending"}
+      ],
+      "visible": ["request-a-paid", "request-b-pay", "request-a-sent"]
+    },
+    {
+      "name": "a Pay row whose checkout expired stays beside an outcome",
+      "rows": [
+        {"id": "pay", "event_type": "document_share_payment_ready", "request_id": "request-1", "status": "pending", "current_payment_status": "expired"},
+        {"id": "success", "event_type": "document_share_outcome", "request_id": "request-1", "status": "completed"}
+      ],
+      "visible": ["pay", "success"]
+    },
+    {
+      "name": "a paid Pay row is hidden even when its own line reads expired",
+      "rows": [
+        {"id": "pay", "event_type": "document_share_payment_ready", "request_id": "request-1", "status": "expired", "current_payment_status": "paid"},
+        {"id": "success", "event_type": "document_share_outcome", "request_id": "request-1", "status": "completed"}
+      ],
+      "visible": ["success"]
+    }
+  ]
+}

@@ -311,6 +311,7 @@
     "343_hosted_memory_pilot_review.sql",
     "344_hosted_memory_scoped_source_envelope.sql",
     "345_live_memory_source_journal.sql",
+    "346_one_location_recipient_feed_clear.sql",
     "349_vault_environment_enrollment.sql",
     "350_consumer_scope_commerce.sql",
     "351_one_shared_hosting_choice.sql",
@@ -672,6 +673,7 @@
     "352_public_profile_bridge.sql": "rollback/352_public_profile_bridge.rollback.sql",
     "353_one_placement_reader_foundation.sql": "rollback/353_one_placement_reader_foundation.rollback.sql",
     "354_one_legacy_shared_continuity.sql": "rollback/354_one_legacy_shared_continuity.rollback.sql",
-    "355_stripe_payout_source_binding.sql": "rollback/355_stripe_payout_source_binding.rollback.sql"
+    "355_stripe_payout_source_binding.sql": "rollback/355_stripe_payout_source_binding.rollback.sql",
+    "346_one_location_recipient_feed_clear.sql": "rollback/346_one_location_recipient_feed_clear.rollback.sql"
   }
 }

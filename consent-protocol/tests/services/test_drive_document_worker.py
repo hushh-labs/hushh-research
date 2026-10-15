@@ -106,16 +106,48 @@ async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(
     monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
     result = await worker.run(max_jobs=8, deadline_seconds=160)
     assert service.run_one.await_count == 4
-    assert [call.kwargs["prefer_profile_upgrade"] for call in service.run_one.await_args_list] == [
-        True,
-        False,
-        False,
-        False,
-    ]
+    flags = [call.kwargs["prefer_profile_upgrade"] for call in service.run_one.await_args_list]
+    # At least half of the owner's slots prefer the profile-upgrade lane, and
+    # the ordinary queue keeps a slot of its own.
+    assert flags.count(True) >= len(flags) / 2 and False in flags
     discovery.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=100)
     packet_worker.run.assert_awaited_once()
     assert result["outcomes"] == {"ready": 4, "synced": 2, "queued": 2}
     wake.assert_awaited_once_with("documents")
+
+
+@pytest.mark.parametrize("slots", [1, 4])
+async def test_single_owner_keeps_owner_slots_in_flight_and_discovery_still_runs(
+    monkeypatch, slots
+):
+    """One large Drive must not process one file at a time per sweep."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_EXTRACTION_OWNER_SLOTS", str(slots))
+    in_flight, peak = 0, 0
+
+    async def extraction(**kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return {"status": "queued"}
+
+    service = SimpleNamespace(run_one=AsyncMock(side_effect=extraction))
+    discovery = SimpleNamespace(run=AsyncMock(return_value={"outcomes": {"synced": 1}}))
+    packet_worker = SimpleNamespace(run=AsyncMock(return_value={"idle": 1}))
+    worker = DriveDocumentWorker(service, collection_sync=discovery, packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", AsyncMock())
+
+    result = await worker.run(max_jobs=20, deadline_seconds=160)
+
+    assert service.run_one.await_count == 12
+    assert peak == slots
+    assert result["outcomes"]["queued"] == 12
+    discovery.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=100)
 
 
 async def test_unsupported_live_file_does_not_block_next_file_for_same_owner(monkeypatch):
