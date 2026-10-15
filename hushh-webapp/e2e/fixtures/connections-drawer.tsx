@@ -18,6 +18,7 @@ import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
