@@ -37,6 +37,11 @@ for (const dark of [false, true]) {
           const heading = preview.getByRole("heading", { name: "Your private AI agent for everyday life." });
           await expect(heading).toBeVisible();
           await expect(heading).toHaveCSS("font-family", /Plus Jakarta Sans/);
+          await expect(heading).toHaveCSS("font-weight", "600");
+          if (viewport.width === 393 || viewport.width === 1440) {
+            const size = await heading.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+            expect(size).toBeCloseTo(viewport.width === 393 ? 30 : 48, 0);
+          }
         }
         const story = preview.locator(".ao-slide");
         const cta = step === 1
