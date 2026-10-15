@@ -16,8 +16,18 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hushh_mcp.services import one_referral_activity_service as activity_service
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard_service
+
+
+@pytest.fixture(autouse=True)
+def snapshot_publication(monkeypatch):
+    from hushh_mcp.services import one_referral_scoring_service
+
+    monkeypatch.setattr(one_referral_scoring_service, "publish_leaderboard_snapshot", lambda: None)
+
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"
 GENERATED_AT = datetime(2026, 11, 9, tzinfo=timezone.utc)
@@ -305,3 +315,47 @@ def test_get_milestone_progress_has_no_next_milestone_once_everything_is_earned(
         )
 
     assert progress["next_milestone"] is None
+
+
+@pytest.mark.parametrize(
+    "joined,threshold",
+    [
+        (2, 10),
+        (9, 10),
+        (10, 100),
+        (99, 100),
+        (100, 500),
+        (499, 500),
+        (500, 10000),
+        (9999, 10000),
+        (10000, None),
+    ],
+)
+def test_featured_reward_uses_joined_threshold_even_when_entitlements_lag(joined, threshold):
+    conn = MagicMock()
+
+    def execute(query, params=None):
+        sql = str(query)
+        if "COUNT(DISTINCT" in sql:
+            return _Result([SimpleNamespace(total=joined)])
+        if "FROM one_referral_relationships" in sql:
+            return _Result([SimpleNamespace(total=0)])
+        return _Result([])
+
+    conn.execute.side_effect = execute
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = leaderboard_service.get_milestone_progress(
+            "owner",
+            settings_milestones=[
+                {"milestone_key": str(n), "threshold": n, "reward": str(n)}
+                for n in (10, 100, 500, 10000)
+            ],
+        )
+    assert result["joined_referral_count"] == joined
+    assert result["lifetime_qualified_count"] == 0
+    assert result["earned"] == []
+    assert (
+        result["next_milestone"]["threshold"] if result["next_milestone"] else None
+    ) == threshold
+    if threshold:
+        assert result["next_milestone"]["progress"] == joined

@@ -21,12 +21,14 @@ DECLARE
   v_manifest_v2 JSONB;
   v_segments_v3 JSONB;
   v_manifest_v3 JSONB;
+  v_events JSONB := '[{"operation_type":"content_write","metadata":{"provenance":{"mutation_plan_id":"rehearsal-plan","confirmation_receipt_id":"rehearsal-confirmation"}}}]'::JSONB;
 BEGIN
   INSERT INTO vault_keys (
     user_id, vault_status, primary_method, created_at, updated_at
   ) VALUES (
     v_user_id, 'placeholder', 'passphrase', 0, 0
   );
+  INSERT INTO actor_profiles (user_id) VALUES (v_user_id);
 
   INSERT INTO pkm_blobs (
     user_id, domain, segment_id, ciphertext, iv, tag, algorithm,
@@ -129,7 +131,7 @@ BEGIN
 
   v_result := commit_pkm_domain_mutation_v4(
     v_user_id, v_domain, 1, 2, v_segments_v2, v_manifest_v2,
-    '[]'::JSONB, '[]'::JSONB, '{}'::JSONB, '[]'::JSONB, FALSE,
+    '[]'::JSONB, '[]'::JSONB, '{}'::JSONB, v_events, FALSE,
     ARRAY[]::TEXT[], '[]'::JSONB, v_mutation_commit, 'mutation', NULL, '{}'::JSONB,
     repeat('1', 64)
   );
@@ -141,12 +143,22 @@ BEGIN
 
   v_replay := commit_pkm_domain_mutation_v4(
     v_user_id, v_domain, 1, 2, v_segments_v2, v_manifest_v2,
-    '[]'::JSONB, '[]'::JSONB, '{}'::JSONB, '[]'::JSONB, FALSE,
+    '[]'::JSONB, '[]'::JSONB, '{}'::JSONB, v_events, FALSE,
     ARRAY[]::TEXT[], '[]'::JSONB, v_mutation_commit, 'mutation', NULL, '{}'::JSONB,
     repeat('1', 64)
   );
   IF COALESCE((v_replay->>'idempotent_replay')::BOOLEAN, FALSE) IS NOT TRUE THEN
     RAISE EXCEPTION 'exact_idempotent_replay_failed';
+  END IF;
+  IF (SELECT COUNT(*) FROM one_referral_score_events
+      WHERE user_id = v_user_id AND event_type = 'pkm_daily') <> 1
+     OR NOT EXISTS (
+       SELECT 1 FROM one_referral_score_events e
+       JOIN one_referral_program_settings s ON s.version = e.settings_version
+       WHERE e.user_id = v_user_id AND e.event_type = 'pkm_daily'
+         AND e.points = (s.points->>'pkm_daily_points')::INTEGER AND e.coins = 0
+     ) THEN
+    RAISE EXCEPTION 'confirmed_memory_daily_reward_rehearsal_failed';
   END IF;
   v_caught := FALSE;
   BEGIN

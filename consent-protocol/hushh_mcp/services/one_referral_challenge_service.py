@@ -47,6 +47,10 @@ def get_challenge_status() -> dict:
             {"start": window.week_started_at, "rid": round_row["id"]},
         )
     return {
+        "calendar_active": True,
+        "campaign_active": settings.feature_active
+        and round_row["status"] == "scheduled"
+        and now < window.cutoff_at,
         "active": round_row["status"] == "scheduled" and now < window.cutoff_at,
         "status": round_row["status"],
         "round_id": round_row["id"],
