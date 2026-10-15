@@ -150,6 +150,9 @@ def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
                 "deployment_target",
                 "model_credential_mode",
                 "user_cloud_project",
+                "user_cloud_tenant_id",
+                "user_cloud_subscription_id",
+                "user_cloud_resource_group",
                 "user_cloud_region",
                 "user_cloud_bootstrap_sa",
                 "user_cloud_authorized_at",
@@ -1954,69 +1957,23 @@ class PersonalAgentRegistryRepo:
         return list(response.data or [])
 
     async def claim_image_upgrade(
-        self, *, user_id: str, target_image: str, observed: Optional[dict]
+        self,
+        *,
+        user_id: str,
+        target_image: str,
+        observed: Optional[dict],
+        model_enablement_plan: Optional[dict] = None,
     ) -> Optional[str]:
-        """Take the single-flight lease for moving THIS pod to ``target_image``.
+        """Preserve the registry's atomic upgrade reservation/publication contract."""
+        from hushh_mcp.services.personal_agent_upgrade_reservations import claim_image_upgrade
 
-        One conditional UPDATE, so two hub workers cannot both win: the reconcile
-        loop runs in every gunicorn worker, and on 2026-09-02 both replaced the
-        founder's pod within thirty seconds of each other and each counted the
-        other pod's copy failure, so the three-attempt cap was reached in two
-        passes. The lease is a timestamp inside ``backend_metadata`` (no new
-        column), cleared only after a known terminal result. Worker death and elapsed
-        time never release admission: the provider may still be executing. The
-        returned exact token owns result publication and uncertain retries remain
-        reserved until provider reconciliation proves a terminal outcome.
-        """
-        snapshot = upgrade_host_snapshot(observed)
-        if (
-            snapshot is None
-            or snapshot["user_id"] != user_id
-            or snapshot["status"] != "provisioned"
-        ):
-            return None
-        observed_params = _upgrade_snapshot_params(snapshot)
-        now = datetime.now(timezone.utc)
-        lease = f"{now.isoformat()}|{uuid.uuid4().hex}|{target_image}"
-        result = self._db().execute_raw(
-            """
-            UPDATE personal_agent_registry AS registry
-            SET backend_metadata = jsonb_set(
-                    coalesce(backend_metadata, '{}'::jsonb),
-                    '{upgradeLease}',
-                    to_jsonb(CAST(:lease AS text)),
-                    true
-                )
-            WHERE user_id = :user_id
-              AND status = 'provisioned'
-              AND NOT EXISTS (
-                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
-                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
-                  )
-              AND user_cloud_authorized_at IS NOT DISTINCT FROM
-                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
-              AND (
-                    CAST(:publishing AS boolean)
-                    OR (
-                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
-                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
-                    )
-                  )
-              AND NOT EXISTS (
-                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
-                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
-                          IS DISTINCT FROM observed.value
-                  )
-              AND backend_metadata->>'upgradeLease' IS NULL
-            RETURNING user_id
-            """,
-            {
-                **observed_params,
-                "user_id": user_id,
-                "lease": lease,
-            },
+        return await claim_image_upgrade(
+            self._db(),
+            user_id=user_id,
+            target_image=target_image,
+            observed=observed,
+            model_enablement_plan=model_enablement_plan,
         )
-        return lease if result.data else None
 
     async def record_image_upgrade(
         self,
@@ -2029,80 +1986,23 @@ class PersonalAgentRegistryRepo:
         liveness_mode: Optional[str] = None,
         retain_lease: bool = False,
         require_unchanged_metadata: bool = False,
+        model_credential_mode: Optional[str] = None,
     ) -> bool:
-        """Fence lease/host and optionally metadata; callers must separately prove
-        executor termination and provider outcome before recovery."""
-        if not isinstance(expected_lease, str) or not expected_lease:
-            return False
-        snapshot = upgrade_host_snapshot(observed)
-        if (
-            snapshot is None
-            or snapshot["user_id"] != user_id
-            or snapshot["status"] != "provisioned"
-        ):
-            return False
-        observed_params = _upgrade_snapshot_params(
-            snapshot, publishing=not require_unchanged_metadata
+        """Preserve the registry's atomic upgrade reservation/publication contract."""
+        from hushh_mcp.services.personal_agent_upgrade_reservations import record_image_upgrade
+
+        return await record_image_upgrade(
+            self._db(),
+            user_id=user_id,
+            backend_metadata=backend_metadata,
+            expected_lease=expected_lease,
+            previous_metadata=previous_metadata,
+            observed=observed,
+            liveness_mode=liveness_mode,
+            retain_lease=retain_lease,
+            require_unchanged_metadata=require_unchanged_metadata,
+            model_credential_mode=model_credential_mode,
         )
-        changes = {
-            key: value
-            for key, value in backend_metadata.items()
-            if key != "upgradeLease"
-            and (key not in previous_metadata or previous_metadata[key] != value)
-        }
-        removed = {
-            key: True
-            for key in previous_metadata
-            if key != "upgradeLease" and key not in backend_metadata
-        }
-        result = self._db().execute_raw(
-            """
-            UPDATE personal_agent_registry AS registry
-            SET backend_metadata = (
-                    SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{}'::jsonb)
-                    FROM jsonb_each(COALESCE(registry.backend_metadata, '{}'::jsonb)) AS item
-                    WHERE (item.key <> 'upgradeLease' OR CAST(:retain_lease AS boolean))
-                      AND NOT (
-                          CAST(:removed AS jsonb) ? item.key
-                          AND CAST(:previous AS jsonb)->item.key IS NOT DISTINCT FROM item.value
-                      )
-                ) || CAST(:changes AS jsonb),
-                liveness_mode = COALESCE(:liveness_mode, liveness_mode),
-                updated_at = NOW()
-            WHERE user_id = :user_id AND status = 'provisioned'
-              AND backend_metadata->>'upgradeLease' = :expected_lease
-              AND NOT EXISTS (
-                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
-                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
-                  )
-              AND user_cloud_authorized_at IS NOT DISTINCT FROM
-                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
-              AND (
-                    CAST(:publishing AS boolean)
-                    OR (
-                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
-                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
-                    )
-                  )
-              AND NOT EXISTS (
-                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
-                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
-                          IS DISTINCT FROM observed.value
-                  )
-            RETURNING user_id
-            """,
-            {
-                **observed_params,
-                "user_id": user_id,
-                "expected_lease": expected_lease,
-                "retain_lease": retain_lease,
-                "removed": json.dumps(removed),
-                "previous": json.dumps(previous_metadata),
-                "changes": json.dumps(changes),
-                "liveness_mode": liveness_mode,
-            },
-        )
-        return bool(result.data)
 
     async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
         """How many rows currently hold (or are standing up) a pod. The cap's denominator.

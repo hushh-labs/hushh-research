@@ -67,6 +67,7 @@ def pg():
             "905_personal_agent_liveness.sql",
             "906_personal_agent_user_cloud.sql",
             "914_personal_agent_billing_space_id.sql",
+            "948_personal_agent_user_azure.sql",
         ):
             server.apply_file(_REGISTRY_SCHEMA.parent / name)
         yield server

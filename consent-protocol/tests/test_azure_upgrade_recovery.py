@@ -125,6 +125,20 @@ async def test_an_activating_revision_keeps_the_lease(crashed):
     assert result["skipped"] == "in_progress" and registry.writes == []
 
 
+@pytest.mark.parametrize("acknowledgement", ["absent", "previous_image"])
+async def test_model_maintenance_cannot_be_completed_by_image_recovery(crashed, acknowledgement):
+    arm, backend, row, _revision, uid = crashed
+    metadata = row["backend_metadata"]
+    metadata["modelEnablement"] = {"status": "pending", "planDigest": "synthetic-plan"}
+    if acknowledgement == "absent":
+        metadata.pop("upgradeAcknowledgement")
+    else:
+        metadata["upgradeAcknowledgement"]["attemptId"] = "previous-image-attempt"
+    result, registry = await _reconcile(arm, backend, row, uid)
+    assert result["skipped"] == "in_progress" and registry.writes == []
+    assert registry.row["backend_metadata"]["upgradeLease"] == LEASE
+
+
 @pytest.mark.parametrize("configuration", ["legacy", "frozen", "missing", "malformed"])
 async def test_the_new_revision_serving_settles_the_update_and_releases_the_lease(
     crashed, monkeypatch, configuration
