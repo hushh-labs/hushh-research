@@ -337,6 +337,16 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert "npm run test:layout-editor-performance" in editor_perf
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
+    # Absolute motion timing remains mandatory on macOS in both engines;
+    # Linux keeps the companion semantic/geometry case, not a disabled test.
+    motion = scripts["test:layout-editor-performance"]
+    assert "e2e/history-motion.layout.spec.ts" in motion
+    assert "100 KB paste|@motion-performance" in motion
+    assert "--project=chromium --project=webkit" in motion
+    assert "--workers=1" in motion
+    playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
+    assert r"/history-motion\.layout\.spec\.ts/" in playwright
+    assert "e2e/history-motion.layout.spec.ts" not in scripts["test:connections-layout"]
 
     full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
     shards = re.search(r"shard: \[([0-9, ]+)\]", full)

@@ -100,6 +100,15 @@ trailing slash that an authored href does not, so any comparison between the
 two normalises first, or a re-tap of the current tab runs an exit beat with
 no enter to pair with it (B51).
 
+## Browser CI ownership
+
+Absolute editor latency and History drawer timing run in the mandatory serial macOS
+performance lane in Chromium and WebKit. History retains the 100 ms first-movement
+limit and 360/260 ms entry/exit observation windows. The Linux layout lane retains
+open/close endpoints, whole-panel displacement, stationary chat, interrupted pulls
+and touch cancellation. Its software compositor is not the latency authority.
+Neither runner replaces the physical-device frame-pacing checks above.
+
 ## Measuring
 
 ### The in-app probe
