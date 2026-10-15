@@ -19,8 +19,10 @@ class DrivePacketCatalogService:
 
     async def list_packets(self, *, user_id, owner_user_id=None, cursor=None):
         await self._current()
+        # The owner's own list says what is inside each packet; the store
+        # withholds it from every other viewer.
         result = await self.packets.list_packets(
-            user_id=user_id, owner_user_id=owner_user_id, cursor=cursor
+            user_id=user_id, owner_user_id=owner_user_id, cursor=cursor, owner_contents=True
         )
         await self._current()
         return result
