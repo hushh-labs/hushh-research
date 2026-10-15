@@ -258,6 +258,35 @@ async function mount(page: Page, enter = true) {
   if (enter) { await expect(next).toBeVisible(); await next.click(); }
 }
 
+for (const width of [390, 1024]) {
+  test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
+    await mount(page);
+    await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
+    const frames = await page.getByRole("tab", { name: "Add", exact: true }).evaluate(async (tab) => {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
+      const viewport = panel.closest('[data-swipe-views-root="true"]')!;
+      const started = performance.now();
+      const frames: { time: number; offset: number }[] = [];
+      (tab as HTMLElement).click();
+      return new Promise<typeof frames>((resolve) => {
+        const sample = (time: number) => {
+          frames.push({ time: time - started, offset: panel.getBoundingClientRect().x - viewport.getBoundingClientRect().x });
+          if (time - started < 800) requestAnimationFrame(sample);
+          else resolve(frames);
+        };
+        requestAnimationFrame(sample);
+      });
+    });
+    const arrived = frames.find((frame, index) => Math.abs(frame.offset) < 3 && frames.slice(index).every((later) => Math.abs(later.offset) < 3));
+    expect(arrived, "the selected pane must arrive").toBeDefined();
+    expect(arrived!.time, "tab presses should not wait out the drag spring").toBeLessThan(400);
+    expect(Math.min(...frames.map((frame) => frame.offset)), "the pane must not overshoot its snap").toBeGreaterThanOrEqual(-3);
+    expect(errors).toEqual([]);
+  });
+}
+
 for (const width of [320, 393, 1440]) {
   test(`Wallet keeps compact mobile spacing and shared desktop geometry at ${width}px`, async ({ page }, testInfo) => {
     const source = fs.readFileSync(path.join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
