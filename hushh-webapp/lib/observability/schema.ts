@@ -1,7 +1,11 @@
 import {
+  COUNT_BUCKETS,
   GMAIL_CONNECT_RESULT_ACTIONS,
   GMAIL_CONNECT_STARTED_ACTIONS,
   GMAIL_SYNC_RESULT_ACTIONS,
+  LIVE_MEMORY_SOURCE_KINDS,
+  LIVE_MEMORY_SOURCE_OUTCOMES,
+  MINUTE_DURATION_BUCKETS,
   ONE_CALENDAR_ACTIONS,
   ONE_CRM_ACTIONS,
   ONE_KYC_ACTIONS,
@@ -43,6 +47,23 @@ const GOVERNED_RESULTS_BY_EVENT: Partial<Record<ObservabilityEventName, Readonly
   one_calendar_action: GOVERNED_RESULTS,
   one_kyc_action: GOVERNED_RESULTS,
   one_crm_action: GOVERNED_RESULTS,
+};
+/*
+ * Events whose every dimension is a closed set. Each listed key is required,
+ * and a missing key or a value outside its set drops the whole event: a stray
+ * record id in `kind` or a raw count in a bucket can never reach analytics.
+ */
+const COUNT_BUCKET_SET: ReadonlySet<string> = new Set(COUNT_BUCKETS);
+const GOVERNED_VALUES_BY_EVENT: Partial<
+  Record<ObservabilityEventName, ReadonlyMap<string, ReadonlySet<string>>>
+> = {
+  live_memory_source_verified: new Map([
+    ["kind", new Set(LIVE_MEMORY_SOURCE_KINDS)],
+    ["outcome", new Set(LIVE_MEMORY_SOURCE_OUTCOMES)],
+    ["lag_bucket", new Set(MINUTE_DURATION_BUCKETS)],
+    ["pending_bucket", COUNT_BUCKET_SET],
+    ["retry_bucket", COUNT_BUCKET_SET],
+  ]),
 };
 
 const BASE_ALLOWED_KEYS = [
@@ -299,6 +320,14 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "failed_count_bucket",
     "has_active_recipients",
   ],
+  live_memory_source_verified: [
+    ...BASE_ALLOWED_KEYS,
+    "kind",
+    "outcome",
+    "lag_bucket",
+    "pending_bucket",
+    "retry_bucket",
+  ],
   one_location_foreground_retry: [
     ...BASE_ALLOWED_KEYS,
     "operation",
@@ -416,10 +445,13 @@ function isGovernedLongString(
   key: string,
   value: PrimitiveEventValue,
 ): boolean {
+  if (typeof value !== "string") return false;
+  // A declared closed-set value, such as `document_request_payment`, is not
+  // an opaque id, however long.
+  if (GOVERNED_VALUES_BY_EVENT[eventName]?.get(key)?.has(value)) return true;
   return (
     eventName === "one_location_journey_action" &&
     key === "action" &&
-    typeof value === "string" &&
     ONE_LOCATION_JOURNEY_ACTION_SET.has(value)
   );
 }
@@ -429,6 +461,8 @@ function isInvalidGovernedEnum(
   key: string,
   value: PrimitiveEventValue,
 ): boolean {
+  const governedValues = GOVERNED_VALUES_BY_EVENT[eventName]?.get(key);
+  if (governedValues) return typeof value !== "string" || !governedValues.has(value);
   if (typeof value !== "string") return key === "action" || key === "result";
   if (key === "action") {
     const actions = GOVERNED_ACTIONS_BY_EVENT[eventName];
@@ -443,7 +477,7 @@ function isInvalidGovernedEnum(
 
 export interface EventValidationResult {
   ok: boolean;
-  /** Invalid governed action/result values make the whole event unsafe to emit. */
+  /** Invalid governed action/result values, or a closed-set value outside its set, make the whole event unsafe to emit. */
   fatal: boolean;
   sanitized: Record<string, PrimitiveEventValue>;
   droppedKeys: string[];
@@ -465,6 +499,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   const requiredGovernedKeys = [
     ...(GOVERNED_ACTIONS_BY_EVENT[eventName] ? ["action"] : []),
     ...(GOVERNED_RESULTS_BY_EVENT[eventName] ? ["result"] : []),
+    ...(GOVERNED_VALUES_BY_EVENT[eventName]?.keys() ?? []),
   ];
   for (const key of requiredGovernedKeys) {
     if (typeof rawPayload[key] !== "string") {

@@ -5633,6 +5633,12 @@ body:has([data-testid="one-location-onboarding"])
   .soul-memory-document pre { overflow-x: auto; padding: 1rem; background: var(--muted); }
   .soul-memory-document code { font-family: var(--font-app-mono); }
   .soul-memory-document hr { margin-block: 2rem; }
+  /* Live memory's preview borrows these reading styles, but its money tables
+     must not inherit "anywhere" wrapping: on a phone the table would shrink and
+     break amounts mid-number, and its swipe-scroll wrapper would never scroll.
+     Cells keep one line and the table scrolls instead. Soul's tables are unchanged. */
+  .live-mirror-markdown table { overflow-wrap: normal; }
+  .live-mirror-markdown :is(th, td) { white-space: nowrap; }
 
   .app-page-shell .font-black,
   .app-page-shell .font-extrabold,
