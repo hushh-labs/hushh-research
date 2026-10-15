@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveMirrorFact } from "@/lib/pkm/live-mirror-contract";
 import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 
 const mocks = vi.hoisted(() => ({
@@ -91,6 +92,39 @@ describe("memory.md editor", () => {
     render(<SoulMemoryPanel {...props} verified={false} />);
     expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
     expect(screen.queryByText("SYNTHETIC_OWNER")).toBeNull();
+  });
+
+  it("shows both claims of a disagreement once, above the facts, with no fix link until a source has a route", async () => {
+    const at = "2026-10-15T10:00:00.000Z";
+    const fact = (field: "name" | "email", label: string, value: string): LiveMirrorFact => ({
+      key: `profile.${field}`, predicate: `profile.${field}`, kind: "profile", sourceId: "owner-a", ref: "Profile", field, label, value,
+      state: "verified", revision: 1, sourceUpdatedAt: at, capturedAt: at, verifiedAt: at,
+    });
+    mocks.mirror = { status: "ready", view: {
+      schemaVersion: "live_mirror.v1", ownerId: "owner-a", vaultEpoch: 0, builtAt: at, inventoryObservedAt: at,
+      inventoryComplete: true, issues: [], nameConflict: true, sources: [], markdown: "", evaluatedAt: at,
+      overall: "conflict", lastVerifiedAt: at,
+      history: { entries: [], firstRetainedSequence: 1, droppedCount: 0, truncatedAt: null, coverage: "open_app_only" },
+      facts: [fact("name", "Name", "SYNTHETIC_OWNER"), fact("email", "Email", "owner@example.test")],
+      conflicts: [{ predicate: "profile.name", label: "Name", claims: [
+        { source: "soul", label: "Memory", value: "SYNTHETIC_SOUL", revision: 2, sourceUpdatedAt: at, verifiedAt: null },
+        { source: "profile", label: "Profile", value: "SYNTHETIC_OWNER", revision: 1, sourceUpdatedAt: at, verifiedAt: at },
+      ] }],
+    } };
+    render(<SoulMemoryPanel {...props} />);
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
+    const preview = within(screen.getByRole("region", { name: "Live memory preview" }));
+    expect(preview.getByRole("status")).toHaveTextContent("Needs your review");
+    const conflict = preview.getByTestId("live-mirror-conflict");
+    expect(within(conflict).getByText("Name")).toBeInTheDocument();
+    expect(within(conflict).getByText("Memory: SYNTHETIC_SOUL · Profile: SYNTHETIC_OWNER")).toBeInTheDocument();
+    expect(within(conflict).getByText("Needs review")).toBeInTheDocument();
+    expect(preview.getAllByTestId(/^live-mirror-(conflict|fact)$/).map(row => row.dataset.testid))
+      .toEqual(["live-mirror-conflict", "live-mirror-fact"]);
+    expect(within(preview.getByTestId("live-mirror-fact")).getByText("owner@example.test")).toBeInTheDocument();
+    // No source has a reachable authority route yet, so See all stays the preview's only link.
+    expect(preview.queryByRole("link", { name: /^Fix at source/ })).toBeNull();
+    expect(preview.getAllByRole("link").map(link => link.textContent)).toEqual(["See all"]);
   });
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {

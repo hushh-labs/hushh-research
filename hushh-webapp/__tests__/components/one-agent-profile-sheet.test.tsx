@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
-import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorConflict, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import {
   appendVerifiedLivingSourceChanges,
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   close: vi.fn(),
   peekLiveMirror: vi.fn(),
+  route: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -34,6 +35,10 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 vi.mock("@/lib/pkm/memory-refresh", () => ({
   peekLiveMirror: (uid: string) => mocks.peekLiveMirror(uid),
+}));
+vi.mock("@/lib/pkm/live-mirror-presentation", async (original) => ({
+  ...(await original<typeof import("@/lib/pkm/live-mirror-presentation")>()),
+  liveMirrorSourceRoute: (kind: string) => mocks.route(kind),
 }));
 vi.mock("@/lib/vault/session-epoch", async (original) => ({
   ...(await original<typeof import("@/lib/vault/session-epoch")>()),
@@ -95,8 +100,10 @@ function mirrorView(ownerId: string, options: {
   });
   return applyLiveMirrorReadTime(projection, options.readAt ?? READ, "current");
 }
-const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact")
-  .find(row => row.querySelector('[data-slot="settings-row-title"]')?.textContent === title)!;
+const rowTitle = (row: HTMLElement) => row.querySelector('[data-slot="settings-row-title"]')?.textContent;
+const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact").find(row => rowTitle(row) === title)!;
+const claim = (source: LiveMirrorConflict["claims"][number]["source"], label: string, value: string): LiveMirrorConflict["claims"][number] =>
+  ({ source, label, value, revision: 1, sourceUpdatedAt: T0, verifiedAt: null });
 const openProfileTab = () =>
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
 const mirrorStatus = () => within(screen.getByTestId("live-mirror-status"));
@@ -107,6 +114,7 @@ describe("One agent profile feed preview", () => {
     mocks.uid = "viewer";
     mocks.epoch = 0;
     mocks.peekLiveMirror.mockReset().mockReturnValue(null);
+    mocks.route.mockReset().mockReturnValue(null);
     mocks.revision = 0;
     mocks.refresh.mockResolvedValue(null);
     mocks.unlocked = true;
@@ -333,5 +341,57 @@ describe("One agent profile feed preview", () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { epoch: mocks.epoch - 1 }));
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(screen.queryByTestId("live-mirror-fact")).toBeNull();
+  });
+
+  it("shows both claims of a disagreement above the facts and routes one fix to that source", async () => {
+    const nameConflict: LiveMirrorConflict = { predicate: "profile.name", label: "Name",
+      claims: [claim("soul", "Memory", "SYNTHETIC_SOUL_NAME"), claim("profile", "Profile", "SYNTHETIC_A")] };
+    mocks.route.mockImplementation((kind: string) => kind === "profile" ? { href: "/one/profile/account", label: "Account" } : null);
+    mocks.peekLiveMirror.mockImplementation((uid: string) => ({ ...mirrorView(uid), overall: "conflict" as const, conflicts: [nameConflict] }));
+    const view = render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    openProfileTab();
+    await screen.findByTestId("live-mirror-status");
+    // The headline and its line are Profile's, from the shared presentation module.
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
+    expect(mirrorStatus().getByText("Two sources disagree")).toBeInTheDocument();
+    const conflict = screen.getByTestId("live-mirror-conflict");
+    expect(rowTitle(conflict)).toBe("Name");
+    expect(within(conflict).getByText("Memory: SYNTHETIC_SOUL_NAME · Profile: SYNTHETIC_A")).toBeInTheDocument();
+    expect(within(conflict).getByText("Needs review")).toBeInTheDocument();
+    // Above the facts, and the disputed name is not repeated as a plain fact row.
+    expect(screen.getAllByTestId(/^live-mirror-(conflict|fact)$/).map(row => row.dataset.testid))
+      .toEqual(["live-mirror-conflict", "live-mirror-fact"]);
+    expect(screen.getAllByTestId("live-mirror-fact").map(rowTitle)).toEqual(["Email"]);
+    const preview = within(screen.getByRole("region", { name: "Live memory preview" }));
+    const fix = preview.getByRole("link", { name: /^Fix at source/ });
+    expect(fix).toHaveAttribute("href", "/one/profile/account");
+    expect(within(fix).getByText("Account")).toBeInTheDocument();
+    expect(mocks.route).toHaveBeenCalledWith("profile");
+    // One extra action only.
+    expect(preview.getAllByRole("link").map(link => link.textContent)).toEqual(["See all", expect.stringContaining("Fix at source"), "Open Memory"]);
+    fix.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(fix);
+    expect(mocks.close).toHaveBeenCalledWith(false);
+
+    // The first conflict's source wins over the first fact's.
+    const statusConflict: LiveMirrorConflict = { predicate: "consent.status", label: "Status",
+      claims: [claim("consent", "Consents", "active"), claim("consent", "Consents", "revoked")] };
+    mocks.route.mockImplementation((kind: string) => kind === "consent"
+      ? { href: "/one/consent", label: "Consents" } : { href: "/one/profile/account", label: "Account" });
+    mocks.peekLiveMirror.mockImplementation((uid: string) => ({ ...mirrorView(uid), overall: "conflict" as const, conflicts: [statusConflict] }));
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(preview.getByRole("link", { name: /^Fix at source/ })).toHaveAttribute("href", "/one/consent");
+    expect(within(screen.getByTestId("live-mirror-conflict")).getByText("Consents: Active · Consents: Revoked")).toBeInTheDocument();
+    expect(screen.getAllByTestId("live-mirror-fact").map(rowTitle)).toEqual(["Name", "Email"]);
+
+    // Negative controls: without conflicts there is no conflict row and the
+    // name is a plain fact; without a route there is no fix link.
+    mocks.route.mockReturnValue(null);
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid));
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(screen.queryByTestId("live-mirror-conflict")).toBeNull();
+    expect(preview.queryByRole("link", { name: /^Fix at source/ })).toBeNull();
+    expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("SYNTHETIC_SOUL_NAME");
   });
 });
