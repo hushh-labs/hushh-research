@@ -781,7 +781,7 @@ test.describe("One compact header: phone regression", () => {
   test("keeps presence, name, activity and controls on one aligned reachable row", async ({
     page,
   }) => {
-    for (const width of [320, 360, 393, 430, 640, 767]) {
+    for (const width of [320, 332, 360, 393, 430, 640, 767]) {
       for (const canPickOneModel of [false, true]) {
         const safeTop = width === 393 ? 64 : width === 360 ? 0 : 32;
         const variant = {
@@ -856,6 +856,11 @@ test.describe("One compact header: phone regression", () => {
           expect(picker.height).toBeGreaterThanOrEqual(44);
           expect(picker.x + picker.width).toBeLessThanOrEqual(width);
         }
+        await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
+        const longName = await box(page, "agent-name");
+        expect(longName.x).toBeGreaterThanOrEqual(0);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(width);
+        expect(Math.abs(longName.y + longName.height / 2 - avatar.y - avatar.height / 2)).toBeLessThanOrEqual(1);
       }
     }
   });

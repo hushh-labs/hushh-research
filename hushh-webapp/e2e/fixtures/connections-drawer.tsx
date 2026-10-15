@@ -9,6 +9,8 @@ import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-s
 import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
 
 declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
+declare const __ONE_HEADER_IDENTITY_CLASS__: string;
+declare const __ONE_HEADER_NAME_CLASS__: string;
 
 import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
 import { DriveRecentSharing } from "../../components/agent/drive-background-search";
@@ -18,7 +20,6 @@ import { HistoryConnectorsPage } from "../../components/agent/history-connectors
 import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
-import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
@@ -267,7 +268,7 @@ function Fixture() {
           if (trigger) triggerRef.current = trigger;
           changeOpen(!open);
         }} />
-      <button
+      {!new URLSearchParams(window.location.search).has("one-profile") ? <button
         className="h-11 shrink-0"
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
@@ -279,12 +280,15 @@ function Fixture() {
         }}
       >
         Open drawer
-      </button>
-      {new URLSearchParams(window.location.search).has("one-profile") ? <ShellActionSurface
-        variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger aria-label="Open One profile"
+      </button> : null}
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div
+        data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}>
+        <div data-agent-chat-brand-tile className="grid h-11 w-11 shrink-0 place-items-center"><button
+        type="button" data-testid="one-presence-header" data-agent-chat-one-profile-trigger aria-label="Open One profile"
         ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__} onClick={() => setOneProfileOpen(true)}>
         <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-      </ShellActionSurface> : null}
+      </button></div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div>
+      </div> : null}
       </header>
       <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer

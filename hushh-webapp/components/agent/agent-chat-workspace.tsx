@@ -9159,7 +9159,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  <ShellActionSurface
+                  <button
                     type="button"
                     data-agent-chat-one-profile-trigger
                     aria-label="Open One profile"
@@ -9167,10 +9167,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 !border-transparent !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="inline-flex size-11 shrink-0 touch-manipulation items-center justify-center border-0 bg-transparent p-0 shadow-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-[color:var(--app-accent-deep)] focus-visible:outline-offset-2"
                   >
                     <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-                  </ShellActionSurface>
+                  </button>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about

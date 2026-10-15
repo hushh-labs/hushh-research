@@ -111,7 +111,7 @@ describe("agent chat header layout", () => {
     expect(header).toContain(
       'className="size-8 shrink-0"',
     );
-    expect(header).toContain('className="!size-11');
+    expect(header).toContain('className="inline-flex size-11');
     expect(header).not.toContain("🤫");
   });
 
