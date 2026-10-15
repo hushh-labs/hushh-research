@@ -71,8 +71,11 @@ Independent review qualifies exact size-only integration debt under unchanged
 Setup semantic retirements name only incoming revision `5dd05b725c815199` for
 three hosting-aware descriptions; all eight predecessor refs and prior retirements
 remain. The unused Tavily runtime getter/map was removed to preserve main's native
-research provider path. Optional Tavily deployment wiring remains unused compatibility
-debt owned by repository operations; no active backend caller was found.
+research provider path. A subsequent deployment-coverage check exposed its
+remaining packed selector, parser case and optional secret mount. These unused
+bindings are retired together; no active backend caller was found. The existing
+empty-default omission negative control now uses the declared Drive Picker
+binding, preserving coverage enforcement without adding exceptions.
 The subsequent normal merge also preserves root `a2b1e87d6e89` and its three
 browser-test corrections without replacing the broader main integration.
 UI-contract verification and the architecture ratchet pass on the composed source.
@@ -99,9 +102,17 @@ than repeating mutations. Only the paired model environment and revision suffix
 may change. Mode publication requires authenticated runtime recovery and actual
 managed-identity inference. Ordinary image upgrades cannot settle this lease.
 The focused maintenance, real-Postgres fencing, recovery and transport pack passes
-140 cases. Machine-route admission is checked before reservation or provider
-writes. The current admin preflight fails Google machine-token permission with
-HTTP 403; no Azure model, IAM, billing or financial mutation has occurred.
+140 cases, and explicit type checking passes all four maintenance/transport
+modules. Machine-route admission is checked before reservation or provider writes.
+The initial admin preflight failed Google machine-token permission with HTTP 403.
+After explicit authorization, a one-hour OIDC-only grant admitted the existing
+runtime identity once provider permissions propagated. At `2026-10-15T06:06:32Z`,
+the primary's existing Azure pod completed the model repair and verified actual
+managed-identity inference; its mode is `user_azure_mi`, using paired OpenAI
+`gpt-5-mini` version `2025-08-07`. Runtime recovery and registry publication passed.
+The temporary permission was removed immediately afterward. No subscription
+upgrade or Stripe financial mutation occurred. Encrypted synthetic Memory
+preparation has resumed through the existing unlocked owner session.
 
 The composed core's subsequent blockers were a main-imported implicit Mermaid
 node and an outdated platform-skill inventory hash. The diagram now declares its

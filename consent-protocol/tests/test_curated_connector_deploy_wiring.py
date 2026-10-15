@@ -117,7 +117,7 @@ def test_the_coverage_check_sees_the_generic_binding():
 def test_empty_default_secret_binding_retains_missing_lane_enforcement(
     tmp_path, monkeypatch, capsys
 ):
-    secret = "_PWM_TAVILY_API_KEY_SECRET"
+    secret = "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET"
     assert secret in coverage_check.bound_substitutions()
     assert coverage_check.main() == 0
 
