@@ -3,12 +3,19 @@ const api = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: api,
   ApiError: class extends Error {
-    status = 503;
+    constructor(
+      message = "unavailable",
+      public status = 503,
+      public payload?: unknown,
+    ) {
+      super(message);
+    }
   },
 }));
 vi.mock("@/lib/vault/one-chat-key", () => ({
   oneChatKeyHeaders: vi.fn(async () => ({ "X-Hussh-Chat-Key": "synthetic" })),
 }));
+import { ApiError } from "@/lib/services/api-client";
 import {
   WorldModelResearchService,
   pwmResultSchema,
@@ -235,5 +242,149 @@ describe("PWM service authority and request recovery", () => {
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ token });
     api.mockResolvedValueOnce({ has_preview: false, introduction: "invented" });
     await expect(WorldModelInvitationsService.preview(token)).rejects.toThrow();
+  });
+});
+
+describe("PWM research driver never storms the server", () => {
+  const restart = {
+    status: "pending",
+    pkm_written: false,
+    restart_required: true,
+  };
+  type Call = { at: number; method: string; path: string; tab: string };
+  let calls: Call[];
+  const record = (path: string, init: RequestInit) => {
+    const call = {
+      at: Date.now(),
+      method: String(init.method),
+      path: path.replace("/api/one/world-model/", ""),
+      tab: String(
+        (init.headers as Record<string, string>).Authorization,
+      ).replace("Bearer ", ""),
+    };
+    calls.push(call);
+    return call;
+  };
+  const posts = (tab?: string) =>
+    calls.filter(
+      (call) => call.method === "POST" && (!tab || call.tab === tab),
+    );
+  const gaps = (rows: Call[]) =>
+    rows.slice(1).map((row, index) => row.at - rows[index].at);
+  beforeEach(() => {
+    api.mockReset();
+    calls = [];
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (navigator as { locks?: unknown }).locks;
+  });
+
+  it("backs off after 429 on ensure, keeps reading, and never gives up", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      const call = record(path, init);
+      if (call.method === "POST" && posts().length > 1)
+        throw new ApiError("Too many requests", 429);
+      return restart;
+    });
+    const controller = new AbortController();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: controller.signal,
+      onResult: vi.fn(),
+    });
+    let settled = false;
+    run.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    // Old loop: ensure, 429, read, ensure ... every ~11 s (about 160 POSTs).
+    expect(posts().length).toBeLessThanOrEqual(4);
+    expect(Math.min(...gaps(posts()))).toBeGreaterThanOrEqual(60_000);
+    expect(calls.filter((call) => call.method === "GET").length).toBeGreaterThan(
+      20,
+    );
+    expect(settled).toBe(false);
+    controller.abort();
+    await expect(run).rejects.toThrow();
+  });
+
+  it("posts at most once a minute while the server keeps asking to restart", async () => {
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      record(path, init);
+      return restart;
+    });
+    const controller = new AbortController();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      ownerId: "owner-without-web-locks",
+      signal: controller.signal,
+      onResult: vi.fn(),
+    });
+    run.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(posts().length).toBeGreaterThanOrEqual(2);
+    expect(posts().length).toBeLessThanOrEqual(6);
+    expect(Math.min(...gaps(posts()))).toBeGreaterThanOrEqual(60_000);
+    controller.abort();
+    await expect(run).rejects.toThrow();
+  });
+
+  it("lets one tab drive per owner; another tab only reads, then takes over", async () => {
+    const held = new Set<string>();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: {
+        async request(
+          name: string,
+          options: { ifAvailable?: boolean },
+          callback: (lock: unknown) => Promise<unknown>,
+        ) {
+          expect(options).toEqual({ ifAvailable: true });
+          if (held.has(name)) return callback(null);
+          held.add(name);
+          try {
+            return await callback({ name });
+          } finally {
+            held.delete(name);
+          }
+        },
+      },
+    });
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      record(path, init);
+      return restart;
+    });
+    const first = new AbortController();
+    const second = new AbortController();
+    const observe = (tab: string, signal: AbortSignal) =>
+      WorldModelResearchService.observe({
+        vaultKey: "synthetic-key",
+        vaultOwnerToken: tab,
+        ownerId: "owner-1",
+        signal,
+        onResult: vi.fn(),
+      });
+    const runs = [observe("tab-a", first.signal), observe("tab-b", second.signal)];
+    runs.forEach((run) => run.catch(() => undefined));
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(held).toEqual(new Set(["pwm-research:owner-1"]));
+    expect(posts("tab-a").length).toBeGreaterThan(0);
+    expect(posts("tab-b")).toEqual([]);
+    const reads = calls.filter((call) => call.tab === "tab-b");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(Math.min(...gaps(reads))).toBeGreaterThanOrEqual(15_000);
+    // The driving tab closes: the reader becomes the only driver.
+    first.abort();
+    await expect(runs[0]).rejects.toThrow();
+    const handover = Date.now();
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(posts("tab-a").every((call) => call.at <= handover)).toBe(true);
+    expect(posts("tab-b").length).toBeGreaterThan(0);
+    expect(Math.min(...gaps(posts("tab-b")))).toBeGreaterThanOrEqual(60_000);
+    second.abort();
+    await expect(runs[1]).rejects.toThrow();
   });
 });

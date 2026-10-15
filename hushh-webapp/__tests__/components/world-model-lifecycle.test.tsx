@@ -242,9 +242,42 @@ describe("PWM owner and request isolation", () => {
     expect(screen.getByText("failed")).toBeInTheDocument();
     expect(mock.preferences).toHaveBeenCalledTimes(1);
   });
-  it("tells a page rendered outside the provider", () => {
+  it("tells a page when no provider is mounted", () => {
     render(<Probe />);
     expect(screen.getByText("outside")).toBeInTheDocument();
+  });
+  it("publishes to a reader mounted beside the provider, as the Profile pane is", async () => {
+    mock.observe.mockImplementation(async ({ onResult }) => onResult(pending));
+    // app/providers.tsx renders the Profile pane as a sibling of the provider.
+    const view = (provider: boolean) => (
+      <>
+        {provider ? (
+          <WorldModelProvider>
+            <span>app</span>
+          </WorldModelProvider>
+        ) : null}
+        <section>
+          <Probe />
+        </section>
+      </>
+    );
+    const { rerender } = render(view(true));
+    await screen.findByText("enrolled");
+    expect(screen.getByText("mounted")).toBeInTheDocument();
+    // Its actions reach the one reader; the sibling never starts another.
+    expect(mock.observe).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+    expect(mock.observe.mock.calls[1][0].refresh).toBe(true);
+    // A renewed vault token hides the previous token's switches at once.
+    mock.preferences.mockReturnValue(new Promise(() => {}));
+    mock.token = "token-renewed";
+    rerender(view(true));
+    expect(screen.getByText("no preferences")).toBeInTheDocument();
+    // Without a provider the sibling is told so, and keeps nothing.
+    rerender(view(false));
+    expect(screen.getByText("outside")).toBeInTheDocument();
+    expect(screen.getByText("no preferences")).toBeInTheDocument();
   });
   it("does not let an old initial read replace a newly prepared draft", async () => {
     let finish!: (value: unknown) => void;
