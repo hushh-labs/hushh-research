@@ -18247,7 +18247,7 @@
         "requires_trusted_tap": true,
         "surface": "render.confirmation_card"
       },
-      "description": "Deletes investor/ria persona or full account depending on selected target.",
+      "description": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "execution": {
         "binding_ref": "semantic_action:profile.delete_account",
         "executor": {
@@ -42696,7 +42696,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "4a6734fe03fd479e2ce1f60e09e649e885a8ba8defe60e57caace67af790c340",
+      "projection_digest": "5e14dee7e8f5e7496058b6db38fed75847f260f824b88d0714474c41bf76ee8d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42706,7 +42706,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "ba41197fe6a3cacf2b59487fb3bc017aa840aab9e368b440874352a5a3f533a7",
+        "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -42715,7 +42715,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "9bce17c8a5ad739b",
+      "source_revision": "1392ab26935f010b",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44233,7 +44233,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9bce17c8a5ad739b",
+    "source_revision": "1392ab26935f010b",
     "web": {
       "actions": [
         {
@@ -44276,7 +44276,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "80ac1d58318e282ef337270095329ea771f60cb044701781f72ef84858fad8e0",
+      "projection_digest": "f9e46170c74c7a077aba19e88b9d6397ff44fec4f33bfd38e2d023cca001fcc2",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44286,7 +44286,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "ba41197fe6a3cacf2b59487fb3bc017aa840aab9e368b440874352a5a3f533a7",
+        "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -44295,7 +44295,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "9bce17c8a5ad739b",
+      "source_revision": "1392ab26935f010b",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45852,7 +45852,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9bce17c8a5ad739b",
+  "revision": "1392ab26935f010b",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -47795,6 +47795,7 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:profile.delete_account",
       "actions:route.one_pkm",
       "actions:route.profile_payouts",
       "actions:setup.finish_connections",
@@ -47808,6 +47809,7 @@
       "actions:route.profile_payouts"
     ],
     "deprecated": [
+      "actions:profile.delete_account",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
       "workflows:workflow.setup.connections"
@@ -50102,10 +50104,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "ba41197fe6a3cacf2b59487fb3bc017aa840aab9e368b440874352a5a3f533a7",
+    "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "295a0949dfe4f3023e0ad8db3f0e1415a15acfddb6b56d2801a2ab5477580b09",
+    "kai_action_gateway": "f9696b99b0a695acdcc1e5fe3e24ac626a715a8a145776070d912ae120419d4e",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -50114,9 +50116,9 @@
     "route_orchestration_index": "04dad59e1e38884822f0d04b5026bad48bd3f0ad3fa7da6441e8daefb43532c9",
     "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
   },
-  "source_revision": "9bce17c8a5ad739b",
+  "source_revision": "1392ab26935f010b",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9bce17c8a5ad739b",
+    "current_graph_revision": "1392ab26935f010b",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50253,6 +50255,7 @@
           "99f8c9ff56a09d49",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
@@ -50375,6 +50378,7 @@
           "8afa7c0f35f622a7",
           "9683f26dff3798f0",
           "9b520324ac39c69f",
+          "9bce17c8a5ad739b",
           "9e76e7495565063d",
           "bf818f0b3141079a",
           "ce5392b8bb1c6e80",
@@ -50397,6 +50401,7 @@
         "compatible_graph_revisions": [
           "101c32b70ab14a4d",
           "8afa7c0f35f622a7",
+          "9bce17c8a5ad739b",
           "e72a95655f220acd",
           "e746225912756998",
           "f0c409450ab444ad"
@@ -50689,6 +50694,7 @@
           "9901faaed410026a",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e76e7495565063d",
@@ -50961,6 +50967,7 @@
           "99f8c9ff56a09d49",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
@@ -51201,6 +51208,7 @@
           "99f8c9ff56a09d49",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
@@ -51441,6 +51449,7 @@
           "99f8c9ff56a09d49",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
@@ -51681,6 +51690,7 @@
           "99f8c9ff56a09d49",
           "9b520324ac39c69f",
           "9b9069c8c60c02f9",
+          "9bce17c8a5ad739b",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",

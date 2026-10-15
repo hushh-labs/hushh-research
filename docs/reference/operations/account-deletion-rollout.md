@@ -56,10 +56,26 @@ cancellation joins the actual local execution, including queued and repeated
 cancellation, before reporting interruption. That exit is not proof that a cloud
 operation has settled; teardown remains refused until provider operations settle.
 
-Current Azure erasure revokes access but does not delete all subscription
-resources. Full teardown needs fresh owner authorization, qualified inventory
-and final absence receipts through the existing erasure operation. Until those
-exist, account deletion stays pending. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
+The local owner flow now composes read-only inspection, exact resource/retention
+approval, fresh Microsoft authorization and the existing joined cleanup worker.
+Ordinary account deletion refuses before pod erasure when this backend needs that
+review. Checkpoint-only pod erasure precedes cloud cleanup; every subsequent ARM
+DELETE, including Hussh’s own role removal, uses the fresh delegated grant and the
+same durable request/acknowledgement/settlement journal. No synthetic legacy
+revocation receipt is created. Retained legacy receipts remain validated.
+The checkpoint-only port receives that exact delegated backend explicitly;
+general placement resolution must not replace it with standing federation.
+Admin ADC can independently verify cloud IAM and resource state during rehearsal;
+it never substitutes for the provider's owner OAuth revocation receipt. Unknown
+revocation preserves encrypted retry custody and blocks final key destruction.
+
+The callback cannot approve terms or fall through into setup. Execution records a
+bounded, nonce-hashed authorization outcome before spawning; early failure and
+expiry remain visible without retaining tokens or provider bodies. Inspection
+failures return directly. Settings retains the account until the independent
+finalization transaction passes. The new flow is source-qualified only: 962 stays
+unselected until dev release/acceptance; it requires 963’s complete archive
+projection before destructive admission. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
 ## OAuth-project Gmail cleanup
 
@@ -116,8 +132,8 @@ runner fences cancelled dispatch and waits for exit-receipt persistence before
 closing its dedicated session, including repeated cancellation. An exit may
 truthfully be failed or cancelled with unresolved provider work. Receipt writes
 can finish after approval expires; new mutations cannot. Neither receipt proves
-provider-retained copies were purged, and the public full-cleanup callback stays
-disabled until archival, retention and final account-deletion gates are composed.
+provider-retained copies were purged, and source composition keeps public cleanup unavailable unless the complete
+archive, retention and final account-deletion schema is installed.
 
 The local full-inventory path additionally compares every canonical resource's
 kind, API version, parent coverage and expected identity/configuration before
@@ -138,8 +154,8 @@ observations retain only exact resource identities and provider dates/policy.
 Storage recovery handles and raw response bodies are excluded. A missing record
 never establishes physical purge; no Storage purge date is invented. Read-only
 observations may finish after mutation approval expires. Final active-resource
-receipts bind the retention observations; these source checks still do not enable
-the public cleanup callback or establish account-finalization acceptance.
+receipts bind the retention observations; source checks alone do not establish live cleanup or account-finalization
+acceptance.
 
 If replacement polling fails, only the existing exact incarnation/revision/image
 verdict may settle that original request. Timeout remains unresolved. The explicit
@@ -153,7 +169,8 @@ stop old writers and upgrades, establish exact resource ownership and obtain
 fresh owner authority through the existing deletion attempt. Preserve unrelated
 resources. Record soft-delete and purge-protection retention separately from
 logical erasure; never report cleanup solely from key destruction or an accepted
-DELETE. The full Azure cleanup callback remains refused until that path exists.
+DELETE. The dev offer remains unavailable until the selected schema, owner interface and
+disposable live cleanup have qualified together.
 
 ## Forward rollout authority gate
 

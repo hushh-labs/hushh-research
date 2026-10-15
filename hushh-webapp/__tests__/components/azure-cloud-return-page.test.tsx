@@ -343,3 +343,28 @@ describe("the Microsoft sign-in return", () => {
     expect(deriveVoiceRouteScreen(ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN).screen).toBe("one_setup_cloud");
   });
 });
+
+describe("account cleanup return", () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); mocks.user.value = { uid: "owner" }; mocks.search.value = "code=c0de&state=st4te";
+  });
+it.each(["cleanup_pending", "cleanup_review_required"] as const)("keeps %s in account cleanup, never provisioning", async (status) => {
+  complete.mockResolvedValue({ status, operationId: "attempt-1" });
+  render(<AzureCloudReturnPage />);
+  expect(await screen.findByTestId("azure-cleanup-return")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Return to Account settings" }).getAttribute("href")).toBe(ROUTES.PROFILE_ACCOUNT);
+  expect(ApiService.beginAzureByocAuthorize).not.toHaveBeenCalled();
+});
+
+it("returns a failed cleanup to Account settings without restarting setup", async () => {
+  const payload = btoa("owner|teardown|subscription|tenant|nonce|attempt-1|digest");
+  mocks.search.value = `code=synthetic&state=azure.123.${payload}.unsigned-ui-hint`;
+  complete.mockRejectedValue(new Error("synthetic lost response"));
+  render(<AzureCloudReturnPage />);
+  expect(await screen.findByText(/Cloud cleanup could not be confirmed/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Account settings" }));
+  await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(ROUTES.PROFILE_ACCOUNT));
+  expect(ApiService.beginAzureByocAuthorize).not.toHaveBeenCalled();
+});
+
+});

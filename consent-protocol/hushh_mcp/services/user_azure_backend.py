@@ -377,6 +377,14 @@ class UserAzureBackend(RegistryPruneHook):
             self, spec, observer=self._observer(), crypto_erase=crypto_erase
         )
 
+    async def checkpoint_owner_access(
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> None:
+        """Destroy pod keys only; the joined teardown worker journals every ARM effect."""
+        await azure_agent_erasure.erase_through_backend(
+            self, spec, observer=self._observer(), crypto_erase=crypto_erase, checkpoint_only=True
+        )
+
     async def resume_owner_access_revocation(
         self, spec: PodSpec, *, agent_erased: dict[str, Any], resume: dict[str, str]
     ) -> dict[str, Any]:

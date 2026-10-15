@@ -45,6 +45,7 @@ import type {
  */
 
 type ReturnView =
+  | { kind: "cleanup"; operationId: string; review: boolean }
   | { kind: "completing" }
   | { kind: "continuing"; authorizationUrl: string }
   | { kind: "redirecting" }
@@ -67,6 +68,7 @@ const RETURN_MESSAGES = {
 } as const;
 
 const TITLES: Record<ReturnView["kind"], string> = {
+  cleanup: "Cloud cleanup",
   completing: "Connecting Azure",
   continuing: "Connecting Azure",
   redirecting: "Connecting Azure",
@@ -91,6 +93,9 @@ function returnLinkProblem(input: {
 }
 
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
+  if (result.status === "cleanup_pending" || result.status === "cleanup_review_required") return {
+    kind: "cleanup", operationId: result.operationId, review: result.status === "cleanup_review_required",
+  };
   if (result.status === "continue") return { kind: "continuing", authorizationUrl: result.authorizationUrl };
   if (result.status === "setup_started") return { kind: "redirecting" };
   if (result.status === "upgrade_started") return { ...result, kind: "upgrading" };
@@ -100,6 +105,14 @@ function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
     reason: result.reason,
     filesEnabled: result.filesEnabled,
   };
+}
+
+function isCleanupReturn(state: string | null): boolean {
+  try {
+    if (!state || state.length > 4096 || !state.startsWith("azure.")) return false;
+    const payload = state.split(".")[2];
+    return !!payload && atob(payload.replace(/-/g, "+").replace(/_/g, "/")).split("|")[1] === "teardown";
+  } catch { return false; }
 }
 
 function useAzureCompletion(): ReturnView {
@@ -118,7 +131,7 @@ function useAzureCompletion(): ReturnView {
     if (!flow.current) {
       const problem = returnLinkProblem({ providerError, code, state });
       if (problem || !code || !state) {
-        setView({ kind: "error", message: problem ?? RETURN_MESSAGES.incomplete });
+        setView({ kind: "error", message: isCleanupReturn(state) ? "Microsoft sign-in did not finish. Continue cloud cleanup from Account settings." : problem ?? RETURN_MESSAGES.incomplete });
         return;
       }
       if (!userId) {
@@ -142,7 +155,7 @@ function useAzureCompletion(): ReturnView {
       })
       .catch((cause: unknown) => {
         if (current) {
-          setView({ kind: "error", message: azureSignInErrorMessage(cause, "complete") });
+          setView({ kind: "error", message: isCleanupReturn(state) ? "Cloud cleanup could not be confirmed. Check Account settings before retrying." : azureSignInErrorMessage(cause, "complete") });
         }
       });
     return () => {
@@ -157,10 +170,12 @@ function ReturnError({
   message,
   onRetry,
   retrying,
+  cleanup = false,
 }: {
   message: string;
   onRetry: () => void;
   retrying: boolean;
+  cleanup?: boolean;
 }) {
   return (
     <div
@@ -171,13 +186,13 @@ function ReturnError({
       <p className="text-sm text-destructive">{message}</p>
       <div className="flex flex-wrap items-center gap-4">
         <Button type="button" disabled={retrying} onClick={onRetry} data-testid="azure-return-retry">
-          {retrying ? "Opening Microsoft sign-in…" : "Try again"}
+          {cleanup ? "Account settings" : retrying ? "Opening Microsoft sign-in…" : "Try again"}
         </Button>
         <Link
           className="min-h-11 content-center text-sm underline underline-offset-4"
-          href={ROUTES.ONE_SETUP_CLOUD}
+          href={cleanup ? ROUTES.PROFILE_ACCOUNT : ROUTES.ONE_SETUP_CLOUD}
         >
-          Back to cloud setup
+          {cleanup ? "Return to your account" : "Back to cloud setup"}
         </Link>
       </div>
     </div>
@@ -230,6 +245,9 @@ function useReturnHandBack(view: ReturnView) {
 }
 
 export function AzureCloudReturnPage() {
+  const router = useRouter();
+  const search = useSearchParams();
+  const cleanup = isCleanupReturn(search.get("state"));
   const view = useAzureCompletion();
   // This page may itself be the sign-in popup: every restart stays in this window.
   const signIn = useAzureSignIn({ inPlace: true });
@@ -245,9 +263,10 @@ export function AzureCloudReturnPage() {
   }, [view]);
 
   const retry = useCallback(async () => {
+    if (cleanup) { router.replace(ROUTES.PROFILE_ACCOUNT); return; }
     const status = await ApiService.getPersonalAgentStatus().catch(() => null);
     await start(azureRetryKind(status));
-  }, [start]);
+  }, [start, cleanup, router]);
 
   return (
     <AppPageShell as="main" width="reading">
@@ -258,7 +277,12 @@ export function AzureCloudReturnPage() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
-        {shown.kind === "handed_off" ? (
+        {shown.kind === "cleanup" ? (
+          <div className="space-y-3" data-testid="azure-cleanup-return">
+            <p className="text-sm text-muted-foreground">{shown.review ? "Your cloud cleanup plan is ready to review." : "Your cleanup request was received. Follow its verified progress in Account settings."} Your account remains until you finish deletion.</p>
+            <Link className="inline-flex min-h-11 items-center underline underline-offset-4" href={ROUTES.PROFILE_ACCOUNT}>Return to Account settings</Link>
+          </div>
+        ) : shown.kind === "handed_off" ? (
           <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">
             {shown.update ? "Your agent is being updated." : "Your agent is being set up."} You can
             close this window and follow along in Hussh.
@@ -291,6 +315,7 @@ export function AzureCloudReturnPage() {
         ) : view.kind === "error" ? (
           <ReturnError
             message={view.message}
+            cleanup={cleanup}
             onRetry={() => void retry()}
             retrying={signIn.starting}
           />

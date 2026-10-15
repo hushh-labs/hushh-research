@@ -428,3 +428,26 @@ def test_rollback_leaves_a_retained_receipt_fail_closed_and_its_project_fenced(p
         pg.execute("SELECT assert_project_grant_admission(%s)", (PROJECT,))
     pg.apply_file(MIGRATION)
     assert _complete(pg) is True
+
+
+@_needs_pg
+async def test_azure_completion_composition_preserves_the_existing_gcp_never_hosted_path(
+    pg, monkeypatch
+):
+    _seed_owner(pg)
+    _reserve(pg)
+    service, backend = _service(pg, monkeypatch)
+    assert (await service.deprovision(user_id=OWNER))["status"] == "unprovisioned"
+    # This bounded pre-955 fixture predates the canonical 029 vault column.
+    pg.execute("ALTER TABLE vault_keys ADD COLUMN setup_capability_ids TEXT")
+    for name in (
+        "955_one_hosting_choice.sql",
+        "956_personal_agent_notification_checkpoint.sql",
+        "960_owner_erasure_provider_outcomes.sql",
+        "961_azure_setup_erasure_binding.sql",
+        "962_azure_owner_cleanup_admission.sql",
+        "963_personal_agent_operator_mail_custody.sql",
+    ):
+        pg.apply_file(PARKED / name)
+    assert _complete(pg) is True
+    assert backend.released == ["100147202419652465065"]

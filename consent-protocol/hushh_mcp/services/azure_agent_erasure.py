@@ -183,6 +183,7 @@ async def erase_through_backend(
     *,
     observer: ArmClient,
     crypto_erase: Callable[[dict[str, str]], Awaitable[dict]],
+    checkpoint_only: bool = False,
 ) -> dict[str, Any]:
     """Bind the four steps to the agent ARM reads back as THIS person's, then run them."""
     observation = await backend.observe()
@@ -204,6 +205,7 @@ async def erase_through_backend(
         observer=observer,
         verify_fence=fence,
         crypto_erase=crypto_erase,
+        checkpoint_only=checkpoint_only,
     )
 
 
@@ -229,6 +231,7 @@ async def erase_owner_access(
     observer: ArmClient,
     verify_fence: Callable[[], Awaitable[None]],
     crypto_erase: Callable[[dict[str, str]], Awaitable[dict]],
+    checkpoint_only: bool = False,
 ) -> dict[str, Any]:
     """Run the four steps in order; any refusal stops before Hussh revokes itself."""
     await verify_fence()
@@ -238,6 +241,8 @@ async def erase_owner_access(
             "the agent did not confirm its crypto-erase; nothing was revoked",
             code="AGENT_ERASE_UNCONFIRMED",
         )
+    if checkpoint_only:
+        return pod_receipt
     return await asyncio.to_thread(revoke_access, inputs, observer, pod_receipt)
 
 

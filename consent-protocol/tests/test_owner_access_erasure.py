@@ -379,3 +379,95 @@ def test_only_a_backend_with_the_capability_takes_this_path(arm):
     assert owner_access_backend(service, {**owner_gcp, "deployment_target": None}) is None
     gcp = UserGcpBackend(user_project="p-1")
     assert not isinstance(gcp, (OwnerAccessErasableBackend, RestartableBackend))
+
+
+async def test_explicit_cleanup_checkpoints_before_journalled_resource_revocation(arm, monkeypatch):
+    from hushh_mcp.services.personal_agent_owner_access_erasure import (
+        checkpoint_reserved_owner_access,
+    )
+
+    registry, calls = _Registry(_snapshot(arm)), []
+    monkeypatch.setattr(pod_migration_transport, "crypto_erase_for_erasure", _pod(arm, calls))
+    service = _service(registry)
+    # Global provider routing must not replace this fresh delegated observer.
+    backend = UserAzureBackend(
+        tenant_id=_TENANT,
+        subscription_id=_SUB,
+        resource_group=_group(),
+        location="eastus2",
+        observer=lambda: arm,
+    )
+
+    def delegated_only(selected):
+        if selected._observer_factory is None:
+            raise AssertionError("standing authority unavailable")
+        return selected._observer_factory()
+
+    monkeypatch.setattr(
+        UserAzureBackend,
+        "_observer",
+        delegated_only,
+    )
+    checkpointed = await checkpoint_reserved_owner_access(
+        service, user_id=OWNER, reservation=registry.reservation, backend=backend
+    )
+    assert checkpointed["agentCryptoErase"]["agentErased"]["erased"] is True
+    assert len(calls) == 1 and arm.writes() == []
+    assert not registry.retained, "no self-revocation or resource-removal receipt is fabricated"
+    # A retry does not depend on the federated observer whose grants may now be gone.
+    assert (
+        await checkpoint_reserved_owner_access(
+            service, user_id=OWNER, reservation=checkpointed, backend=backend
+        )
+        == checkpointed
+    )
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("compatible", [False, True])
+async def test_cleanup_checks_old_image_before_reserving_it_away_from_updates(
+    monkeypatch, compatible
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import azure_owner_cleanup, personal_agent_owner_access_erasure
+    from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
+
+    row = {"user_id": OWNER, "status": "provisioned"}
+    store = SimpleNamespace(
+        registry=SimpleNamespace(get=AsyncMock(return_value=row)),
+        require_completion_contract=AsyncMock(),
+        candidate_digest=AsyncMock(return_value="a" * 64),
+        reserve=AsyncMock(),
+        authorization=AsyncMock(
+            return_value={
+                "context": {"subscriptionId": "s", "tenantId": "t", "attemptId": "attempt"},
+                "digest": "b" * 64,
+            }
+        ),
+    )
+    check = AsyncMock()
+    if not compatible:
+        check.side_effect = PodMigrationTransportError(
+            "POD_ERASURE_COMPATIBILITY_REQUIRED", "Update first"
+        )
+    monkeypatch.setattr(
+        personal_agent_owner_access_erasure, "verify_owner_access_compatibility", check
+    )
+
+    def sign_in(*args, **kwargs):
+        return "https://login.microsoftonline.com/t/oauth2/v2.0/authorize"
+
+    monkeypatch.setattr(azure_owner_cleanup.entra, "begin", sign_in)
+    if not compatible:
+        with pytest.raises(PodMigrationTransportError, match="Update first"):
+            await azure_owner_cleanup.begin(store, OWNER, "inspect")
+        store.reserve.assert_not_awaited()
+        store.authorization.assert_not_awaited()
+    else:
+        assert (await azure_owner_cleanup.begin(store, OWNER, "inspect"))[
+            "status"
+        ] == "authorization_required"
+        store.reserve.assert_awaited_once_with(OWNER, "a" * 64)
+    check.assert_awaited_once()

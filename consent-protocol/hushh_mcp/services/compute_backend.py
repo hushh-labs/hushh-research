@@ -364,6 +364,15 @@ class OwnerAccessErasableBackend(Protocol):
     ) -> dict[str, Any]: ...
 
 
+@runtime_checkable
+class OwnerAccessCheckpointBackend(OwnerAccessErasableBackend, Protocol):
+    """Checkpoint pod key erasure before separately journalled owner-cloud teardown."""
+
+    async def checkpoint_owner_access(
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> None: ...
+
+
 class NullBackend:
     """The inert default: provisions nothing, tears down nothing, calls out nowhere.
 

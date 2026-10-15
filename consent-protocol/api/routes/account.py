@@ -45,6 +45,7 @@ from api.middleware import (
     require_firebase_auth_read_only,
     require_vault_owner_token,
 )
+from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
@@ -1457,6 +1458,7 @@ class DeleteAccountRequest(BaseModel):
         default="both",
         description="Delete only the investor persona, only the RIA persona, or the full account.",
     )
+    cleanup: AccountCloudCleanupRequest | None = None
 
 
 class LostVaultDeleteRequest(BaseModel):
@@ -2061,6 +2063,10 @@ async def delete_account(
     """Delete an account or persona after vault unlock (VAULT_OWNER authority)."""
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
+    if payload and payload.cleanup:
+        if target != "both":
+            raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
+        return await account_cloud_cleanup(user_id, payload.cleanup)
     return await _perform_account_deletion(user_id, target=target)
 
 
@@ -2085,6 +2091,11 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 detail={
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+                    **(
+                        {"cleanupProvider": "azure"}
+                        if result.get("cleanup_provider") == "user_azure"
+                        else {}
+                    ),
                 },
             )
         if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:

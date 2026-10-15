@@ -44,6 +44,8 @@ const SUBSCRIPTION_REASONS: readonly AzureSubscriptionReason[] = [
 ];
 
 export type AzureAuthorizeCompletion =
+  | { status: "cleanup_pending"; operationId: string }
+  | { status: "cleanup_review_required"; operationId: string }
   | { status: "setup_started"; jobId: string }
   | { status: "upgrade_started"; jobId: string; operationId?: string; releaseId?: string }
   /** The account was identified; sign in again in its own directory for Azure. */
@@ -196,6 +198,10 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
       return { status, jobId, operationId, releaseId };
     }
     return { status, jobId };
+  }
+  if (status === "cleanup_pending" || status === "cleanup_review_required") {
+    if (typeof payload.operationId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(payload.operationId)) throw invalidResponse();
+    return { status, operationId: payload.operationId };
   }
   if (status === "continue") {
     // The browser navigates here next: the same Microsoft-only check as a begin.

@@ -211,3 +211,9 @@ describe("Connect Azure contract parsing", () => {
     }
   });
 });
+
+it.each(["cleanup_pending", "cleanup_review_required"] as const)("requires operation binding for %s", (status) => {
+  expect(parseAzureAuthorizeCompletion({ status, operationId: "attempt-1" })).toEqual({ status, operationId: "attempt-1" });
+  expect(() => parseAzureAuthorizeCompletion({ status })).toThrow();
+  expect(() => parseAzureAuthorizeCompletion({ status, operationId: "a/b" })).toThrow();
+});

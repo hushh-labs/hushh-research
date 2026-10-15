@@ -72,7 +72,14 @@ class AzureSubscription(BaseModel):
 class AzureAuthorizeCompleteResponse(BaseModel):
     #: ``continue``: the account was identified; sign in again at ``authorizationUrl``
     #: (its own directory) for Azure. Microsoft usually completes that without asking.
-    status: Literal["setup_started", "needs_subscription", "upgrade_started", "continue"]
+    status: Literal[
+        "setup_started",
+        "needs_subscription",
+        "upgrade_started",
+        "continue",
+        "cleanup_pending",
+        "cleanup_review_required",
+    ]
     jobId: Optional[str] = None
     operationId: Optional[str] = None
     releaseId: Optional[str] = None
@@ -407,12 +414,10 @@ async def complete_azure_authorize(
             row = await _require_setup_admission(firebase_uid)
             _require_files_available(selection.files_enabled)
         if selection.kind == "teardown":
-            # Teardown must have its own durable erasure admission; never let a
-            # valid new-purpose state fall through into provisioning.
-            raise _refuse(
-                409,
-                "AZURE_ERASURE_AUTHORIZATION_REQUIRED",
-                "Continue deletion from your account settings.",
+            from api.routes.account_cloud_cleanup import complete_azure_cleanup
+
+            return await complete_azure_cleanup(
+                firebase_uid, body.state, selection, body.code, _spawn
             )
         if selection.kind == "discover":
             return await _continue_in_home_directory(firebase_uid, body.state, selection, body.code)

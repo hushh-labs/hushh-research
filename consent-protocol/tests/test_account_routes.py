@@ -2030,3 +2030,32 @@ def test_local_phone_fixture_requires_isolated_database(monkeypatch):
     monkeypatch.setenv("DB_NAME", "hushh_profile_fixture_test")
     monkeypatch.setenv("DB_HOST", "remote.example.org")
     assert not account._phone_test_enabled()
+
+
+@pytest.mark.parametrize(
+    "request_body,expected",
+    [
+        ({"cleanup": {"action": "approve"}}, 409),
+        ({"target": "ria", "cleanup": {"action": "inspect"}}, 422),
+        ({"cleanup": {"action": "approve", "allContentsAccepted": "true"}}, 422),
+        ({"cleanup": {"action": "execute", "resources": ["unapproved"]}}, 422),
+    ],
+)
+def test_cloud_cleanup_requires_full_vault_owner_request_and_exact_terms(
+    monkeypatch, request_body, expected
+):
+    from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+
+    async def available(self):
+        return None
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("incomplete terms must not approve, authorize, or delete")
+
+    monkeypatch.setattr(AzureTeardownStore, "require_completion_contract", available)
+    monkeypatch.setattr(AzureTeardownStore, "approve", forbidden)
+    monkeypatch.setattr(account, "_perform_account_deletion", forbidden)
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "synthetic-owner"}
+    response = TestClient(app).request("DELETE", "/api/account/delete", json=request_body)
+    assert response.status_code == expected

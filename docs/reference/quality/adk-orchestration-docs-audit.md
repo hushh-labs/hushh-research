@@ -54,7 +54,7 @@ owner approval and complete cleanup composition remain required.
 | Cleanup boundary | Local evidence | Remaining release condition |
 | --- | --- | --- |
 | GCP operator-project Gmail | 476 affected checks pass, including real PostgreSQL full-topic admission/acknowledgement/deletion, retained creation/IAM history and attached-identity separation. Missing-proof and dropped-history negative controls fail | Dev-only963 schema and hub must serve before new notification plans; live disposable owner cleanup still required |
-| Azure | Exact canonical inventory, explicit model-deployment cleanup, original setup-history archival and typed provider-retention receipts now have focused and real PostgreSQL evidence, alongside cancellation and joined exit | Complete JIT callback, reviewed retention terms and common account finalization; live full cleanup remains refused |
+| Azure | Owner inspection, exact resource/retention approval, fresh JIT callback and journalled teardown compose locally. 358 backend and 92 UI cases pass; removing the completion gate fails its negative control. The explicit checkpoint backend preserves fresh delegated authority; default-observer substitution fails its regression control | Generated UI contracts and typecheck pass. Responsive live review, combined core/hosted validation and disposable dev cleanup remain required; no personal account deletion was attempted |
 
 Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
 are candidate migrations, and962 remains unselected. Provider retention is not

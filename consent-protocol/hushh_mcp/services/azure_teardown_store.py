@@ -34,6 +34,78 @@ class AzureTeardownStore:
             raise AzureTeardownRefused("AZURE_CLEANUP_AUTHORIZATION_UNAVAILABLE")
         return value
 
+    async def require_completion_contract(self) -> None:
+        exists = await self._value(
+            "SELECT to_regprocedure('public.azure_account_cleanup_ready()') IS NOT NULL AS value",
+            {},
+        )
+        ready = exists is True and await self._value(
+            "SELECT public.azure_account_cleanup_ready() AS value", {}
+        )
+        if ready is not True:
+            raise AzureTeardownRefused("AZURE_CLEANUP_NOT_AVAILABLE")
+
+    async def candidate_digest(self, owner: str, row: dict) -> str:
+        value = await self._value(
+            "SELECT public.azure_cleanup_candidate_digest(to_jsonb(p)) AS value "
+            "FROM public.personal_agent_registry p WHERE user_id=:owner AND status='provisioned' "
+            "AND deployment_target='user_azure' AND backend_metadata->>'serviceUid'=:uid "
+            "AND coalesce(backend_metadata->>'image_digest','')=:image",
+            {
+                "owner": owner,
+                "uid": (row.get("backend_metadata") or {}).get("serviceUid"),
+                "image": str((row.get("backend_metadata") or {}).get("image_digest") or ""),
+            },
+        )
+        if not isinstance(value, str):
+            raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
+        return value
+
+    async def reserve(self, owner: str, snapshot_digest: str | None) -> dict:
+        value = await self._value(
+            "SELECT public.reserve_azure_account_cleanup(:owner,:snapshot) AS value",
+            {"owner": owner, "snapshot": snapshot_digest},
+        )
+        if not isinstance(value, dict):
+            raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_UNAVAILABLE")
+        return value
+
+    async def match_authorization(self, owner: str, *, attempt: str, digest: str) -> dict:
+        for purpose in ("inspect", "execute"):
+            value = await self._value(
+                "SELECT public.azure_erasure_authorization(:owner,:purpose) AS value",
+                {"owner": owner, "purpose": purpose},
+            )
+            if (
+                isinstance(value, dict)
+                and value.get("digest") == digest
+                and value.get("context", {}).get("attemptId") == attempt
+                and value.get("purpose") == purpose
+            ):
+                return value
+        raise AzureTeardownRefused("AZURE_CLEANUP_AUTHORIZATION_CHANGED")
+
+    async def mark_authorization(
+        self, owner: str, selection: Any, purpose: str, status: str, code: str
+    ) -> None:
+        from hashlib import sha256
+
+        retained = await self._value(
+            "SELECT public.retain_azure_cleanup_authorization_outcome("
+            ":owner,:attempt,:nonce,:purpose,:digest,:outcome,:code) AS value",
+            {
+                "owner": owner,
+                "attempt": selection.erasure_attempt,
+                "nonce": sha256(selection.nonce.encode()).hexdigest(),
+                "purpose": purpose,
+                "digest": selection.erasure_digest,
+                "outcome": status,
+                "code": code,
+            },
+        )
+        if retained is not True:
+            raise AzureTeardownRefused("AZURE_CLEANUP_STATUS_UNCONFIRMED")
+
     async def reservation(self, owner: str) -> dict:
         row = await self.registry.get(owner)
         value = ((row or {}).get("backend_metadata") or {}).get("erasure")
@@ -102,10 +174,31 @@ class AzureTeardownStore:
             raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_UNAVAILABLE")
         state = observed.get("state") or {}
         resources = state.get("plan", {}).get("resources", {})
+        worker = state.get("worker") or {}
+        exited = state.get("workerExits", {}).get(worker.get("executionId"), {})
+        complete = await self._value(
+            "SELECT public.azure_erasure_resources_complete(:owner,backend_metadata->'erasure') AS value "
+            "FROM public.personal_agent_registry WHERE user_id=:owner AND status='suspended'",
+            {"owner": owner},
+        )
+        authorized = await self._value(
+            "SELECT public.azure_erasure_authorization(:owner,'execute') AS value", {"owner": owner}
+        )
+        observations = list(state.get("authorizationAttempts", {}).values())
+        latest = max(observations, key=lambda value: value.get("startedAt", 0), default=None)
         return {
             "operationId": observed["attemptId"],
             "planDigest": observed["digest"],
             "termsVersion": state.get("plan", {}).get("termsVersion"),
+            "canFinalize": complete is True,
+            "workerOutcome": exited.get("outcome"),
+            "approvalRequired": complete is not True and not isinstance(authorized, dict),
+            "authorizationOutcome": latest,
+            "retention": [
+                value["retention"]
+                for value in state.get("resources", {}).values()
+                if "retention" in value
+            ],
             "resources": [
                 {"id": path, "kind": value["kind"], "scope": value["deletionScope"]}
                 for path, value in resources.items()

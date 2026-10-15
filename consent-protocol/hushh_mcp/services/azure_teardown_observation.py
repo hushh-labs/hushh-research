@@ -133,7 +133,7 @@ def inspect_plan(arm: ArmClient, *, context: dict, reservation: dict, hub_princi
         "version": 1,
         "context": context,
         "resources": values,
-        "termsVersion": "azure-exact-parent-v1",
+        "termsVersion": "azure-exact-parent-retention-v2",
     }
 
 
@@ -188,3 +188,22 @@ def execution_inventory(
             raise AzureTeardownRefused("AZURE_CLEANUP_INVENTORY_CHANGED")
     frozen = {path: value["identity"] for path, value in values.items() if not value["coveredBy"]}
     return inputs, canonical, frozen
+
+
+def bound_execution_inventory(
+    arm: ArmClient, *, plan: dict, reservation: dict, hub_principal: str
+) -> tuple[PlanInputs, tuple[TeardownResource, ...], dict]:
+    """Resolve principals from verified provider identity and the immutable owner snapshot."""
+    context = plan["context"]
+    if context.get("ownerId") != reservation.get("ownerId") or context.get(
+        "attemptId"
+    ) != reservation.get("attemptId"):
+        raise AzureTeardownRefused("AZURE_CLEANUP_RESERVATION_CHANGED")
+    metadata = (reservation.get("registrySnapshot") or {}).get("backend_metadata") or {}
+    inputs = _inputs(context, metadata, arm)
+    return execution_inventory(
+        plan,
+        pod_principal=_principal(arm, inputs, metadata, hub_principal),
+        hub_principal=hub_principal,
+        pod_incarnation=metadata.get("serviceUid"),
+    )

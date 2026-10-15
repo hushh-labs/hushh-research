@@ -238,4 +238,80 @@ DROP FUNCTION public.azure_erasure_writers_drained(text);
 DROP FUNCTION public.azure_erasure_context(text);
 DROP FUNCTION public.valid_azure_retention_receipt(jsonb,text,jsonb);
 DROP FUNCTION public.azure_erasure_setup_history(text);
+
+CREATE OR REPLACE FUNCTION public.personal_agent_erasure_complete(owner_id text)
+RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+DECLARE row_state public.personal_agent_registry%ROWTYPE; setup public.byoc_setup_jobs%ROWTYPE;
+ r jsonb; release jsonb; expected_release jsonb; item record; stages jsonb; wanted jsonb;
+ archive jsonb; table_name text; never_hosted boolean;
+BEGIN
+ IF owner_id IS NULL OR btrim(owner_id)='' OR current_setting('transaction_isolation')<>'read committed' THEN RETURN false; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ SELECT * INTO row_state FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
+ IF NOT FOUND OR row_state.status IS DISTINCT FROM 'suspended' THEN RETURN false; END IF;
+ -- Own setup writers acquire their tuple before project205. Prelock it here,
+ -- before project exclusivity, because finalization will delete it later.
+ SELECT * INTO setup FROM public.byoc_setup_jobs WHERE user_id=owner_id FOR UPDATE;
+ IF NOT FOUND OR setup.status IS DISTINCT FROM 'recorded' THEN RETURN false; END IF;
+ r:=row_state.backend_metadata->'erasure'; release:=r->'bootstrapGrantRelease';
+ -- 954: a never-hosted reservation completes only on its SQL-re-derived evidence.
+ never_hosted:=coalesce(r ? 'neverHosted',false);
+ IF never_hosted AND public.erasure_never_hosted_admitted(owner_id,r) IS DISTINCT FROM true THEN RETURN false; END IF;
+ IF r->>'ownerId' IS DISTINCT FROM owner_id OR r->'registrySnapshot'->>'user_id' IS DISTINCT FROM owner_id
+ OR r->>'hushhId' IS DISTINCT FROM row_state.hushh_id OR row_state.hushh_id IS NULL OR row_state.hushh_id=''
+ OR r->>'attemptId' IS NULL OR r->>'attemptId'=''
+ OR jsonb_typeof(release) IS DISTINCT FROM 'object'
+ OR r ?| ARRAY['lateUpgradeAcknowledgement','lateProvisionAcknowledgement']
+ OR nullif(r->'registrySnapshot'->'backend_metadata'->>'upgradeLease','') IS NOT NULL
+ OR (NOT never_hosted AND r->'registrySnapshot'->'backend_metadata'->'provisionAttempt'->>'phase' IS DISTINCT FROM 'provisioned')
+ OR setup.project_id IS DISTINCT FROM r->'registrySnapshot'->>'user_cloud_project' THEN RETURN false; END IF;
+ IF public.project_grant_release_is_exclusive(owner_id,r->'grantRelease'->>'project') IS DISTINCT FROM true THEN RETURN false; END IF;
+ -- The canonical identity barrier must cover late registry/setup/log/migration insertion.
+ FOREACH table_name IN ARRAY ARRAY['personal_agent_registry','byoc_setup_jobs','pod_lifecycle_events','pod_migration_jobs'] LOOP
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid=('public.'||table_name)::regclass
+   AND tgname='trg_reject_deleted_account_insert' AND tgtype=7 AND tgenabled IN ('O','A')
+   AND tgfoid='public.reject_deleted_account_identity_write()'::regprocedure
+   AND tgnargs=1 AND tgargs=decode('757365725f696400','hex') AND tgqual IS NULL) THEN RETURN false; END IF;
+ END LOOP;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.personal_agent_deletion_tombstones'::regclass
+  AND tgname='zz_personal_agent_erasure_archive' AND tgtype=31 AND tgenabled IN ('O','A')
+  AND tgfoid='public.guard_personal_agent_erasure_archive()'::regprocedure AND tgqual IS NULL AND tgnargs=0) THEN RETURN false; END IF;
+ IF EXISTS (SELECT 1 FROM public.pod_migration_jobs WHERE user_id=owner_id)
+ OR EXISTS (SELECT 1 FROM public.pod_lifecycle_events WHERE user_id=owner_id AND hushh_id IS NOT NULL AND hushh_id<>row_state.hushh_id)
+ OR jsonb_typeof(setup.authorization_attempts) IS DISTINCT FROM 'object'
+ OR EXISTS (SELECT 1 FROM jsonb_each(setup.authorization_attempts) h
+   WHERE h.value->'intent'->>'project' IS DISTINCT FROM setup.project_id OR NOT h.value ? 'receipt') THEN RETURN false; END IF;
+ IF NOT never_hosted AND (public.erasure_planned_resources_covered(r) IS DISTINCT FROM true
+ OR public.valid_erasure_repository_grant_receipt(r,'deletion',r->'repositoryGrantErasure'->'deletion') IS DISTINCT FROM true
+ OR public.valid_erasure_repository_retention(r,r->'repositoryRetention') IS DISTINCT FROM true) THEN RETURN false; END IF;
+ expected_release:=public.expected_erasure_bootstrap_release(owner_id,r,release->>'recoveryMember');
+ IF expected_release IS NULL OR release IS DISTINCT FROM expected_release
+ OR jsonb_typeof(r->'bootstrapGrantErasure') IS DISTINCT FROM 'object'
+ OR (SELECT array_agg(key ORDER BY key) FROM jsonb_each(r->'bootstrapGrantErasure')) IS DISTINCT FROM
+    (SELECT array_agg(key ORDER BY key) FROM jsonb_each(release->'groups')) THEN RETURN false; END IF;
+ FOR item IN SELECT * FROM jsonb_each(release->'groups') LOOP
+  stages:=r->'bootstrapGrantErasure'->item.key;
+  wanted:=jsonb_build_object('ownerId',owner_id,'attemptId',r->>'attemptId',
+   'bootstrapIdentity',item.value->'bootstrapIdentity','bindingObservation',item.value->'bindingObservation');
+  IF jsonb_typeof(stages) IS DISTINCT FROM 'object' OR stages-ARRAY['admission','acknowledgement','deletion']<>'{}'::jsonb
+   OR stages->'admission' IS DISTINCT FROM wanted||jsonb_build_object('status','admitted')
+   OR stages->'deletion' IS DISTINCT FROM wanted||jsonb_build_object('status','observed_absent')
+   OR (stages ? 'acknowledgement' AND stages->'acknowledgement' IS DISTINCT FROM wanted||jsonb_build_object('status','acknowledged')) THEN RETURN false; END IF;
+ END LOOP;
+ archive:=public.personal_agent_erasure_archive(r,setup.authorization_attempts);
+ IF octet_length(archive::text)>2097152 THEN RETURN false; END IF;
+ IF EXISTS (SELECT 1 FROM public.personal_agent_deletion_tombstones t WHERE
+  (t.hushh_id=row_state.hushh_id OR t.metadata->>'ownerId'=owner_id OR t.metadata->>'user_id'=owner_id)
+  AND (t.status IS DISTINCT FROM 'erasure_completed' OR t.metadata IS DISTINCT FROM archive
+       OR t.external_agent_id IS DISTINCT FROM row_state.external_agent_id)) THEN RETURN false; END IF;
+ RETURN true;
+END;
+$$;
+DROP FUNCTION IF EXISTS public.retain_azure_cleanup_authorization_outcome(text,text,text,text,text,text,text);
+DROP FUNCTION IF EXISTS public.valid_azure_cleanup_authorization_append(text,jsonb,jsonb);
+DROP FUNCTION IF EXISTS public.azure_account_cleanup_ready();
+DROP FUNCTION IF EXISTS public.reserve_azure_account_cleanup(text,text);
+DROP FUNCTION IF EXISTS public.azure_cleanup_candidate_digest(jsonb);
+DROP FUNCTION IF EXISTS public.azure_erasure_resources_complete(text,jsonb);
 COMMIT;

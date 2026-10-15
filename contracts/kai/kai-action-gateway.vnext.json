@@ -15520,7 +15520,7 @@
       "search_keywords": [
         "delete account"
       ],
-      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "meaning": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "speaker_persona": "nav",
       "delegate_agent_id": null,
       "reachability": {
@@ -15555,7 +15555,11 @@
         "path": "local_handler",
         "target": "profile.delete_account"
       },
-      "control_ids": [],
+      "control_ids": [
+        "cloud-cleanup-refresh",
+        "cloud-cleanup-continue",
+        "cloud-cleanup-approve"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

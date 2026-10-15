@@ -109,6 +109,8 @@ import {
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
 import { Brain } from "@/components/icons";
+import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
+import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
@@ -581,6 +583,8 @@ function ProfilePageContent({
     "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  useEffect(() => { setCloudCleanupRequired(false); }, [user?.uid]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -1572,6 +1576,7 @@ function ProfilePageContent({
   const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
     if (!user) return "auth_failed";
 
+    let needsCloudReview = false;
     setIsDeleting(true);
 
     // Resolve auth first so a vault-unlock requirement is handled as a guard
@@ -1639,6 +1644,8 @@ function ProfilePageContent({
       });
       return "deleted";
     } catch (error) {
+      needsCloudReview = azureAccountCleanupRequired(error);
+      if (needsCloudReview) setCloudCleanupRequired(true);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "Delete account error:",
         error,
@@ -1646,7 +1653,7 @@ function ProfilePageContent({
       return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
+      setShowDeleteConfirm(needsCloudReview);
     }
   };
 
@@ -4841,12 +4848,13 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
-            accountStyles.accountDialogCompact,
-            isPanePresentation && accountStyles.accountDialog,
-            isPanePresentation && accountStyles.dangerDialog,
+            cloudCleanupRequired && "max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain",
+            !cloudCleanupRequired && accountStyles.accountDialogCompact,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.accountDialog,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.dangerDialog,
           )}
           overlayClassName={
-            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+            !cloudCleanupRequired && isPanePresentation ? accountStyles.accountDialogOverlay : undefined
           }
         >
           <AlertDialogHeader>
@@ -4855,15 +4863,18 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {deleteDialogDescription}
+              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {cloudCleanupRequired && user ? <AccountCloudCleanup key={user.uid} userId={user.uid} token={vaultOwnerToken ?? null}
+            onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
+            onFinish={handleDeleteAccount} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
               disabled={isDeleting}
             >
-              Cancel
+              {cloudCleanupRequired ? "Close" : "Cancel"}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
@@ -4872,7 +4883,8 @@ function ProfilePageContent({
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
-              disabled={isDeleting}
+              disabled={isDeleting || cloudCleanupRequired}
+              hidden={cloudCleanupRequired}
             >
               {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>

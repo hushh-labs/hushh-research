@@ -101,6 +101,7 @@ def cleanup_pg(monkeypatch, request):
             "960_owner_erasure_provider_outcomes.sql",
             "961_azure_setup_erasure_binding.sql",
             "962_azure_owner_cleanup_admission.sql",
+            "963_personal_agent_operator_mail_custody.sql",
         ):
             server.apply_file(parked / name)
         group = f"/subscriptions/{SUB}/resourceGroups/{_resource_group()}"
@@ -126,6 +127,9 @@ def cleanup_pg(monkeypatch, request):
                     OWNER,
                 ),
             )
+            if getattr(request, "param", True) == "unreserved":
+                yield server, OWNER, None, None
+                return
             reservation = server.execute(
                 "SELECT reserve_personal_agent_erasure(%s,'attempt-1')", (OWNER,)
             )[0][0]
@@ -158,7 +162,7 @@ def cleanup_state(cleanup_pg):
     plan = {
         "version": 1,
         "context": context,
-        "termsVersion": "azure-exact-parent-v1",
+        "termsVersion": "azure-exact-parent-retention-v2",
         "resources": {
             group: {
                 "apiVersion": "2021-04-01",
@@ -550,7 +554,7 @@ def _canonical_cleanup_plan(context):
             "version": 1,
             "context": context,
             "resources": values,
-            "termsVersion": "azure-exact-parent-v1",
+            "termsVersion": "azure-exact-parent-retention-v2",
         },
     )
 
@@ -635,3 +639,194 @@ async def test_full_inventory_retains_original_setup_and_bounded_provider_retent
         pg.apply_file(root / "rollback/963_personal_agent_operator_mail_custody.rollback.sql")
     pg.execute("ROLLBACK")
     assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is False
+
+
+@pytest.fixture
+async def settled_cleanup(cleanup_state, cleanup_connection, request):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.azure_resource_teardown import execute
+    from hushh_mcp.services.azure_teardown_authority import azure_teardown_authority
+    from tests.test_owner_access_erasure_migration import _receipt, _retain
+
+    pg, owner, reservation, prior, state, retain = cleanup_state
+    inputs, resources, plan = _canonical_cleanup_plan(prior["context"])
+    state["plan"] = plan
+    assert retain(state) is True
+    assert _approve_cleanup(pg, owner, reservation, plan)
+    current = pg.execute(
+        "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s", (owner,)
+    )[0][0]
+    if getattr(request, "param", False):
+        assert _retain(pg, current, _receipt()) is True
+
+    class AbsentAzure:
+        def request(self, method, *args, **kwargs):
+            assert method == "GET", "an already-absent inventory must not issue another DELETE"
+            return SimpleNamespace(status_code=404, headers={}, json=lambda: {})
+
+    # Real transport, executor, durable SQL and joined worker, synthetic provider.
+    arm = ArmClient("synthetic-memory-only", session=AbsentAzure())
+    async with azure_teardown_authority(
+        owner=owner, attempt=reservation["attemptId"], connection_factory=cleanup_connection
+    ) as authority:
+        await authority.run_worker(
+            lambda **_kwargs: execute(
+                arm,
+                inputs,
+                resources,
+                authority,
+                {p: v["identity"] for p, v in plan["resources"].items() if not v["coveredBy"]},
+            )
+        )
+    pg.apply_file(
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/parked/963_personal_agent_operator_mail_custody.sql"
+    )
+    current = pg.execute(
+        "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s", (owner,)
+    )[0][0]
+    assert (
+        pg.execute(
+            "SELECT azure_erasure_resources_complete(%s,%s::jsonb)", (owner, json.dumps(current))
+        )[0][0]
+        is True
+    )
+    return pg, owner, current, cleanup_connection
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "old_terms",
+        "missing_parent",
+        "missing_retention",
+        "stale_final",
+        "other_exit",
+        "failed_exit",
+        "legacy_coverage",
+        "writer_changed",
+    ],
+)
+async def test_account_completion_rechecks_current_same_execution_and_retained_coverage(
+    settled_cleanup, change
+):
+    pg, owner, current, _ = settled_cleanup
+    changed = copy.deepcopy(current)
+    state = changed["azureTeardown"]
+    execution = state["worker"]["executionId"]
+    if change == "old_terms":
+        state["plan"]["termsVersion"] = "azure-exact-parent-v1"
+    elif change == "missing_parent":
+        path = next(p for p in state["plan"]["resources"] if "/containerApps/" in p)
+        del state["plan"]["resources"][path]
+    elif change == "missing_retention":
+        path = next(p for p, v in state["resources"].items() if "retention" in v)
+        del state["resources"][path]["retention"]
+    elif change == "stale_final":
+        state["finalReadbacks"][execution]["resourcesSha256"] = "a" * 64
+    elif change == "other_exit":
+        state["workerExits"][str(uuid.uuid4())] = state["workerExits"].pop(execution)
+    elif change == "failed_exit":
+        state["workerExits"][execution]["outcome"] = "failed"
+    elif change == "legacy_coverage":
+        changed["agentCryptoErase"]["agentErased"].pop("providerCoverage")
+    elif change == "writer_changed":
+        state["setupHistory"].append({"stage": "azure_worker_started", "executionId": "late"})
+    assert bool(
+        pg.execute(
+            "SELECT azure_erasure_resources_complete(%s,%s::jsonb)", (owner, json.dumps(changed))
+        )[0][0]
+    ) is (change is None)
+    assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is True
+
+
+@pytest.mark.parametrize("settled_cleanup", [True], indirect=True)
+async def test_account_finalization_waits_for_actual_worker_and_preserves_crypto_receipts(
+    settled_cleanup,
+):
+    pg, owner, current, connection = settled_cleanup
+    async with connection() as other:
+        await other.execute("SELECT pg_advisory_lock(hashtextextended($1,206))", owner)
+        assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is False
+    assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is True
+    pg.execute(
+        "INSERT INTO account_deletion_tombstones(user_id_hash,firebase_uid,cleanup_status) "
+        "VALUES ('sha256:'||encode(sha256(convert_to(%s,'UTF8')),'hex'),%s,'pending')",
+        (owner, owner),
+    )
+    assert pg.execute("SELECT finalize_personal_agent_erasure(%s)", (owner,))[0][0] is True
+    archive = pg.execute(
+        "SELECT metadata FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'"
+    )[0][0]
+    assert archive["receipts"]["agentCryptoErase"] == current["agentCryptoErase"]
+    assert archive["receipts"]["ownerAccessErasure"] == current["ownerAccessErasure"]
+    assert archive["receipts"]["azureCleanup"] == current["azureTeardown"]
+    assert (
+        pg.execute("SELECT count(*) FROM personal_agent_registry WHERE user_id=%s", (owner,))[0][0]
+        == 0
+    )
+
+
+async def test_cleanup_readiness_and_early_failure_are_observable_without_credentials(
+    cleanup_state,
+):
+    from hushh_mcp.services.azure_entra_authorizer import AuthorizationState
+    from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+    from tests.test_byoc_setup_job_azure_admission_postgres import _Client
+    from tests.test_personal_agent_never_hosted_erasure_postgres import _repo
+
+    pg, owner, reservation, plan, state, retain = cleanup_state
+    assert retain(state) is True
+    assert _approve_cleanup(pg, owner, reservation, plan)
+    store = AzureTeardownStore(_repo(_Client(pg)))
+    await store.require_completion_contract()
+    grant = await store.authorization(owner, "execute")
+    selection = AuthorizationState(
+        owner,
+        "teardown",
+        plan["context"]["subscriptionId"],
+        plan["context"]["tenantId"],
+        "opaque-synthetic-nonce",
+        erasure_attempt=reservation["attemptId"],
+        erasure_digest=grant["digest"],
+    )
+    await store.mark_authorization(owner, selection, "execute", "running", "STARTED")
+    await store.mark_authorization(
+        owner, selection, "execute", "attention_required", "RETRY_REQUIRED"
+    )
+    view = await store.view(owner)
+    assert view["canFinalize"] is False
+    assert view["authorizationOutcome"]["status"] == "attention_required"
+    assert view["authorizationOutcome"]["code"] == "RETRY_REQUIRED"
+    assert "opaque-synthetic-nonce" not in json.dumps(view)
+    # 962 alone must not enable destruction against the older lossy archive.
+    older = (
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/parked/954_personal_agent_never_hosted_erasure.sql"
+    )
+    source = older.read_text()
+    start = source.index("CREATE OR REPLACE FUNCTION public.personal_agent_erasure_archive(")
+    pg.execute(source[start : source.index("$$;", start) + 3])
+    assert pg.execute("SELECT azure_account_cleanup_ready()")[0][0] is False
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+def test_compatibility_preflight_snapshot_cannot_reserve_a_changed_or_different_pod(cleanup_pg):
+    pg, owner, _, _ = cleanup_pg
+    digest = pg.execute(
+        "SELECT azure_cleanup_candidate_digest(to_jsonb(p)) FROM personal_agent_registry p WHERE user_id=%s",
+        (owner,),
+    )[0][0]
+    assert (
+        pg.execute("SELECT reserve_azure_account_cleanup(%s,%s)", (owner, "f" * 64))[0][0] is None
+    )
+    assert (
+        pg.execute("SELECT status FROM personal_agent_registry WHERE user_id=%s", (owner,))[0][0]
+        == "provisioned"
+    )
+    reserved = pg.execute("SELECT reserve_azure_account_cleanup(%s,%s)", (owner, digest))[0][0]
+    assert reserved["registrySnapshot"]["user_id"] == owner
+    assert "agentCryptoErase" not in reserved

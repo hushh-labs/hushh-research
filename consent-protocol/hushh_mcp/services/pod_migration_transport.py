@@ -243,7 +243,7 @@ def _valid_erase_counts(result: dict[str, Any]) -> tuple[str, ...] | None:
     return (*_ERASE_COUNTS, *_PROVIDER_ERASE_COUNTS, *(("providerCoverage",) if coverage else ()))
 
 
-def _require_current_erasure(
+def verify_erasure_compatibility(
     *, pod_url: str, payload: dict[str, Any], session: Any, token_minter: Any
 ) -> None:
     from api.routes.one.pod_migration import erasure_proof_audience
@@ -283,7 +283,7 @@ def crypto_erase_for_erasure(
     """
     from api.routes.one.pod_migration import erasure_proof_audience
 
-    _require_current_erasure(
+    verify_erasure_compatibility(
         pod_url=pod_url, payload=payload, session=session, token_minter=token_minter
     )
     result = _post(

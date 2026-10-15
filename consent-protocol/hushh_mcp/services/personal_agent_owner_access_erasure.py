@@ -27,6 +27,7 @@ import logging
 from typing import Any, Optional
 
 from hushh_mcp.services.compute_backend import (
+    OwnerAccessCheckpointBackend,
     OwnerAccessErasableBackend,
     PodSpec,
     adoption_expectations,
@@ -73,6 +74,33 @@ def owner_access_backend(
     if not isinstance(backend, OwnerAccessErasableBackend):
         return None
     return backend, spec
+
+
+async def verify_owner_access_compatibility(service: Any, *, user_id: str, row: dict) -> None:
+    """Read-only, before reserving an old pod away from its normal update flow."""
+    from uuid import uuid4
+
+    from hushh_mcp.services.pod_migration_transport import verify_erasure_compatibility
+
+    resolved = owner_access_backend(service, row)
+    if row.get("user_id") != user_id or row.get("status") != "provisioned" or resolved is None:
+        raise RuntimeError("owner-access compatibility unavailable")
+    backend, spec = resolved
+    target = await backend.observe_erasure_target(spec)
+    metadata = row.get("backend_metadata") or {}
+    if target.get("serviceUid") != metadata.get("serviceUid") or target.get("podUrl") != str(
+        metadata.get("url") or ""
+    ).rstrip("/"):
+        raise RuntimeError("owner-access compatibility observation mismatch")
+    payload = {key: target[key] for key in ("service", "serviceUid", "revision")}
+    payload.update(hushhId=row["hushh_id"], attemptId=uuid4().hex)
+    await asyncio.to_thread(
+        verify_erasure_compatibility,
+        pod_url=target["podUrl"],
+        payload=payload,
+        session=None,
+        token_minter=None,
+    )
 
 
 def _require_reserved(
@@ -131,7 +159,8 @@ async def _erase(
     row: dict[str, Any],
     backend: OwnerAccessErasableBackend,
     spec: PodSpec,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    checkpoint_only: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The first pass: fence, pod crypto-erase, checkpoint, revoke. (reservation, receipt)."""
     from hushh_mcp.services.pod_migration_transport import crypto_erase_for_erasure
 
@@ -171,7 +200,13 @@ async def _erase(
         )
         return confirmation
 
-    receipt = await backend.erase_owner_access(spec, crypto_erase=crypto_erase)
+    if checkpoint_only:
+        if not isinstance(backend, OwnerAccessCheckpointBackend):
+            raise RuntimeError("owner-access checkpoint capability unavailable")
+        await backend.checkpoint_owner_access(spec, crypto_erase=crypto_erase)
+        receipt = None
+    else:
+        receipt = await backend.erase_owner_access(spec, crypto_erase=crypto_erase)
     if CHECKPOINT_FIELD not in checkpointed:
         raise RuntimeError("the backend revoked without the agent's retained confirmation")
     return checkpointed, receipt
@@ -223,9 +258,12 @@ async def _revoked(
     preflight = getattr(service._registry, "verify_erasure_owner_access_preflight", None)
     if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
         raise RuntimeError("owner-access erasure receipt storage unavailable")
-    return await _erase(
+    checkpointed, receipt = await _erase(
         service, user_id=user_id, reservation=reservation, row=row, backend=backend, spec=spec
     )
+    if receipt is None:
+        raise RuntimeError("owner-access revocation receipt unavailable")
+    return checkpointed, receipt
 
 
 async def prepare_reserved_owner_access(
@@ -254,6 +292,41 @@ async def prepare_reserved_owner_access(
         )
 
     return True
+
+
+async def checkpoint_reserved_owner_access(
+    service: Any,
+    *,
+    user_id: str,
+    reservation: dict,
+    backend: OwnerAccessCheckpointBackend,
+) -> dict:
+    """Irreversible, owner-approved pod erasure; cloud mutations belong to its journalled worker."""
+    row = reservation.get("registrySnapshot")
+    if (
+        not isinstance(row, dict)
+        or not is_owner_cloud_target(row.get("deployment_target"))
+        or not isinstance(backend, OwnerAccessCheckpointBackend)
+    ):
+        raise RuntimeError("owner-access checkpoint capability unavailable")
+    spec = _snapshot_spec(row)
+    _require_reserved(reservation, user_id=user_id, row=row, backend=backend)
+    if reservation.get(CHECKPOINT_FIELD) is not None:
+        return reservation  # SQL worker admission revalidates exact historical coverage.
+    if not await service._registry.verify_erasure_owner_access_preflight(
+        user_id=user_id, reservation=reservation
+    ):
+        raise RuntimeError("owner-access erasure receipt storage unavailable")
+    checkpointed, _ = await _erase(
+        service,
+        user_id=user_id,
+        reservation=reservation,
+        row=row,
+        backend=backend,
+        spec=spec,
+        checkpoint_only=True,
+    )
+    return checkpointed
 
 
 async def erase_reserved_owner_access(
