@@ -122,15 +122,16 @@ describe("ReferralDashboardPage", () => {
     expect(screen.queryByRole("button", { name: "Claim reward" })).toBeNull();
     expect(screen.queryByText("All rewards unlocked")).toBeNull();
   });
-  it("keeps the invitation gift and agent glyphs free of interior shading", async () => {
+  it("keeps progress and earning glyphs free of interior shading", async () => {
     const { container } = render(<ReferralDashboardPage />);
     await screen.findByRole("button", { name: "Invite & earn $" });
-    const gift = container.querySelector(".referral-share-gift svg");
-    expect(gift).not.toBeNull();
-    expect(gift!.querySelector('[opacity="0.2"]')).toBeNull();
-    const agents = container.querySelectorAll(".referral-agent-example svg, .referral-orbit-upright svg");
-    expect(agents).toHaveLength(18);
-    for (const icon of agents) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+    const progress = container.querySelectorAll('.referral-stat-icon svg, .referral-streak-card [role="img"] svg');
+    expect(progress).toHaveLength(4);
+    for (const icon of progress) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "How it works" }));
+    const earnings = container.querySelectorAll('[data-earning] > span:first-child svg');
+    expect(earnings).toHaveLength(6);
+    for (const icon of earnings) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
   });
 
   it("renders a configured catalogue without imposing frontend thresholds", async () => {
@@ -477,7 +478,7 @@ describe("ReferralDashboardPage", () => {
     render(<ReferralDashboardPage />);
 
     expect(await screen.findByText("2,450")).toBeInTheDocument();
-    const rankLabel = screen.getByText("Published rank");
+    const rankLabel = within(screen.getByRole("region", { name: "Your progress" })).getByText("Rank");
     const rankCell = rankLabel.parentElement as HTMLElement;
     expect(within(rankCell).getByText("Unable to load")).toBeInTheDocument();
   });

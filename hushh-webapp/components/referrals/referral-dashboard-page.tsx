@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { preload } from "react-dom";
 import Image from "next/image";
 import { AppPageShell, AppPageHeaderRegion, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { ReferralJourney } from "./referral-journey";
 import { ReferralInviteActions } from "./referral-invite-actions";
-import { ReferralHeroArtwork } from "./referral-hero-artwork";
+import { ReferralHeroArtwork, REFERRAL_HERO_ARTWORK_SRC } from "./referral-hero-artwork";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
 import { Coins, Users, Trophy, Flame } from "@/components/icons";
@@ -230,6 +231,8 @@ function Section<T>({
 }
 
 export function ReferralDashboardPage() {
+  // Start the hero request before the summary API gates the You tab.
+  preload(REFERRAL_HERO_ARTWORK_SRC, { as: "image", fetchPriority: "high" });
   const { user } = useAuth();
   const ownerId = user?.uid ?? null;
   // Keep cached reads and local UI state isolated when the signed-in owner changes.
@@ -465,6 +468,7 @@ function ShellRoot({
       <AppPageHeaderRegion>
         <PageHeader
           title={showHowItWorks ? "How it works" : "Referrals"}
+          titleRole={showHowItWorks ? "page" : "agent"}
           actionsInlineMobile
           actions={!showHowItWorks ? (
             <button onClick={onHowItWorks} className="referral-how-it-works">
@@ -554,17 +558,19 @@ function YouTab({
   return (
     <>
       <div className="referral-overview-layout">
-        <section className="referral-hero" aria-label="Invite friends to One">
+        <section className="referral-hero" aria-labelledby="referral-hero-heading">
+          <div className="referral-hero-copy">
+            <h2 id="referral-hero-heading" className="referral-hero-heading">
+              <span>Good things</span>{" "}<span>grow together</span>
+            </h2>
+            {link ? (
+              <ReferralInviteActions key={link} active={active} link={link} onShare={onShare} />
+            ) : null}
+          </div>
           <div className="referral-hero-media">
             <ReferralHeroArtwork active={active} />
           </div>
         </section>
-
-        <div className="referral-overview-invite">
-          {link ? (
-            <ReferralInviteActions key={link} active={active} link={link} onShare={onShare} />
-          ) : null}
-        </div>
 
         <section className="referral-progress-region" aria-labelledby="referral-progress-heading">
           <header className="referral-progress-header">
@@ -780,13 +786,13 @@ function StatsGrid({
     onRetry?: () => void;
   }[] = [
     {
-      label: "Your coins",
+      label: "Coins",
       value: statText(pointsRes, (p) => fmt(p.coins)),
       sub: statSub(pointsRes, (p) => `${fmt(p.points)} total points`),
       onRetry: pointsRes.status === "error" ? onRetryPoints : undefined,
     },
     {
-      label: "Published rank",
+      label: "Rank",
       value: statText(leaderboardRes, (lb) => {
         const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
         return v ? `#${v.rank}` : "—";
@@ -1185,9 +1191,9 @@ function RewardsTab({
                     <h3 className="referral-reward-title ui-text-section-title">
                       {rewardDisplayTitle(nextLabel[0] ?? next.reward)}
                     </h3>
-                    <p className="referral-reward-description">
-                      {awaitingAward ? "Your reward is being confirmed." : `${fmt(next.threshold - next.progress)} ${next.threshold - next.progress === 1 ? "referral" : "referrals"} to go.`}
-                    </p>
+                    {awaitingAward ? (
+                      <p className="referral-reward-description">Your reward is being confirmed.</p>
+                    ) : null}
                   </div>
                   <div className="referral-reward-stage">
                     <RewardArtwork milestoneKey={next.milestone_key} title={nextLabel[0] ?? next.reward} priority />
@@ -1238,11 +1244,12 @@ function RewardsTab({
                           <span className="referral-product-tile-art grid shrink-0 place-items-center">
                             <RewardArtwork milestoneKey={entry.milestone_key} title={label[0] ?? entry.reward} />
                           </span>
-                          <span
-                            className="referral-milestone-status referral-type-caption"
-                            aria-hidden={!earned && !isNext ? true : undefined}
-                            style={{ color: earned ? "#137a35" : "#006dcc", visibility: earned || isNext ? "visible" : "hidden" }}
-                          >{earned ? "Unlocked" : isNext && awaitingAward ? "Confirming" : "Up next"}</span>
+                          {earned || (isNext && awaitingAward) ? (
+                            <span
+                              className="referral-milestone-status referral-type-caption"
+                              style={{ color: earned ? "#137a35" : "#006dcc" }}
+                            >{earned ? "Unlocked" : "Confirming"}</span>
+                          ) : null}
                         </div>
                         <h4 className="ui-text-headline">{rewardDisplayTitle(label[0] ?? entry.reward)}</h4>
                         <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? "#137a35" : COLORS.text2 }}>
