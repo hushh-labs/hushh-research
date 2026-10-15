@@ -182,14 +182,65 @@ class AuthorityTests(unittest.TestCase):
 
     def test_rerun_guard_rejects_a_changed_target_before_cloud_auth(self) -> None:
         run = workflow_run(attempt=2)
+        first_attempt = {
+            "Select UAT target": job("Select UAT target", "success", [("Save selected UAT target", "success")]),
+            "Wait for UAT capacity outside the mutation lock": job(
+                "Wait for UAT capacity outside the mutation lock", "failure",
+                [("Wait for scope-aware UAT capacity", "failure"),
+                 ("Save exact capacity deferral evidence", "success")],
+            ),
+            "Deploy UAT Scope": job("Deploy UAT Scope", "skipped", []),
+        }
         with patch.object(resume, "run_identity", return_value={
             "run_id": 123, "run_attempt": 2,
             "actor": "ankitkumarsingh1702", "dispatch_sha": DISPATCH,
         }), patch.object(resume, "api", return_value=run), patch.object(
+            resume, "jobs_for", return_value=first_attempt
+        ), patch.object(
             resume, "matching_receipts", return_value=(receipt("target"), receipt("deferred"))
         ):
             with self.assertRaisesRegex(resume.UnsafeResume, "changed the original target"):
                 resume.verify_original_on_rerun(NEWER, SCOPE, False)
+
+    def test_manual_rerun_of_unrelated_deploy_failure_is_preserved(self) -> None:
+        run = workflow_run(attempt=2)
+        first_attempt = {
+            "Select UAT target": job("Select UAT target", "success", []),
+            "Wait for UAT capacity outside the mutation lock": job(
+                "Wait for UAT capacity outside the mutation lock", "success",
+                [("Wait for scope-aware UAT capacity", "success")],
+            ),
+            "Deploy UAT Scope": job("Deploy UAT Scope", "failure", []),
+        }
+        with patch.object(resume, "run_identity", return_value={
+            "run_id": 123, "run_attempt": 2,
+            "actor": "ankitkumarsingh1702", "dispatch_sha": DISPATCH,
+        }), patch.object(resume, "api", return_value=run), patch.object(
+            resume, "jobs_for", return_value=first_attempt
+        ) as jobs, patch.object(resume, "matching_receipts") as receipts:
+            resume.verify_original_on_rerun(TARGET, SCOPE, True)
+            jobs.assert_called_once_with(run, attempt=1)
+            receipts.assert_not_called()
+
+    def test_legacy_capacity_failure_without_receipt_requires_fresh_dispatch(self) -> None:
+        run = workflow_run(attempt=2)
+        first_attempt = {
+            "Select UAT target": job("Select UAT target", "success", [("Save selected UAT target", "success")]),
+            "Wait for UAT capacity outside the mutation lock": job(
+                "Wait for UAT capacity outside the mutation lock", "failure",
+                [("Wait for scope-aware UAT capacity", "failure"),
+                 ("Save exact capacity deferral evidence", "success")],
+            ),
+            "Deploy UAT Scope": job("Deploy UAT Scope", "skipped", []),
+        }
+        with patch.object(resume, "run_identity", return_value={
+            "run_id": 123, "run_attempt": 2,
+            "actor": "ankitkumarsingh1702", "dispatch_sha": DISPATCH,
+        }), patch.object(resume, "api", return_value=run), patch.object(
+            resume, "jobs_for", return_value=first_attempt
+        ), patch.object(resume, "matching_receipts", return_value=None):
+            with self.assertRaisesRegex(resume.UnsafeResume, "receipts are missing"):
+                resume.verify_original_on_rerun(TARGET, SCOPE, True)
 
     def test_controller_never_posts_when_capacity_remains_blocked(self) -> None:
         original = workflow_run()

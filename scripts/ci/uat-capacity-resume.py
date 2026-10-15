@@ -209,8 +209,13 @@ def validate_run(run: dict[str, Any], workflow: str) -> None:
     require(positive_int(run.get("run_attempt")), "workflow attempt is invalid")
 
 
-def jobs_for(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    result = api(f"runs/{run['id']}/jobs?filter=latest&per_page=100")
+def jobs_for(run: dict[str, Any], *, attempt: int | None = None) -> dict[str, dict[str, Any]]:
+    selected_attempt = attempt if attempt is not None else run["run_attempt"]
+    endpoint = (
+        f"runs/{run['id']}/attempts/{selected_attempt}/jobs?per_page=100"
+        if attempt is not None else f"runs/{run['id']}/jobs?filter=latest&per_page=100"
+    )
+    result = api(endpoint)
     jobs = result.get("jobs")
     require(
         isinstance(jobs, list) and len(jobs) <= 100
@@ -222,7 +227,7 @@ def jobs_for(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
         require(isinstance(job, dict), "workflow job is invalid")
         name = job.get("name")
         require(isinstance(name, str) and name not in by_name, "workflow job names are ambiguous")
-        require(job.get("run_attempt") == run["run_attempt"], "workflow jobs span attempts")
+        require(job.get("run_attempt") == selected_attempt, "workflow jobs span attempts")
         by_name[name] = job
     return by_name
 
@@ -397,15 +402,9 @@ def no_superseding_run(run: dict[str, Any], selected_sha: str) -> None:
         require(ancestor(other_sha, selected_sha), "UAT targets lack a main ancestry order")
 
 
-def verify_deferred_failure(run: dict[str, Any]) -> dict[str, Any]:
-    validate_run(run, DEPLOY_WORKFLOW)
-    require(run["event"] == "workflow_dispatch", "UAT request was not manual")
-    require(
-        run["run_attempt"] == 1 and run.get("status") == "completed"
-        and run.get("conclusion") == "failure",
-        "UAT request is not a first-attempt failure",
-    )
-    jobs = jobs_for(run)
+def checked_capacity_receipt(
+    run: dict[str, Any], jobs: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     require(
         set(jobs) == {
             "Select UAT target", "Wait for UAT capacity outside the mutation lock", "Deploy UAT Scope"
@@ -432,6 +431,17 @@ def verify_deferred_failure(run: dict[str, Any]) -> dict[str, Any]:
     pair = matching_receipts(run)
     require(pair is not None, "capacity deferral receipts are missing")
     return pair[1]
+
+
+def verify_deferred_failure(run: dict[str, Any]) -> dict[str, Any]:
+    validate_run(run, DEPLOY_WORKFLOW)
+    require(run["event"] == "workflow_dispatch", "UAT request was not manual")
+    require(
+        run["run_attempt"] == 1 and run.get("status") == "completed"
+        and run.get("conclusion") == "failure",
+        "UAT request is not a first-attempt failure",
+    )
+    return checked_capacity_receipt(run, jobs_for(run))
 
 
 def verify_maintenance(run_id: int) -> bool:
@@ -507,9 +517,23 @@ def verify_original_on_rerun(selected_sha: str, requested_scope: str, check_supe
     run = api(f"runs/{identity['run_id']}")
     validate_run(run, DEPLOY_WORKFLOW)
     require(run["run_attempt"] == identity["run_attempt"], "rerun attempt changed")
-    pair = matching_receipts({**run, "run_attempt": 1})
-    require(pair is not None, "original capacity deferral proof is absent")
-    receipt = pair[1]
+    require(run["event"] == "workflow_dispatch", "UAT request was not manual")
+    initial = jobs_for(run, attempt=1)
+    require(
+        set(initial) == {
+            "Select UAT target", "Wait for UAT capacity outside the mutation lock", "Deploy UAT Scope"
+        },
+        "first-attempt UAT job graph is incomplete",
+    )
+    waiting = initial["Wait for UAT capacity outside the mutation lock"]
+    if waiting.get("conclusion") != "failure":
+        return  # A manual retry of an unrelated failure keeps its normal path.
+    steps = waiting.get("steps")
+    require(isinstance(steps, list), "first-attempt capacity wait steps are unavailable")
+    failed_steps = [step.get("name") for step in steps if step.get("conclusion") == "failure"]
+    if "Wait for scope-aware UAT capacity" not in failed_steps:
+        return  # The wait job failed before the capacity admission decision.
+    receipt = checked_capacity_receipt({**run, "run_attempt": 1}, initial)
     require(
         receipt["selected_sha"] == selected_sha
         and receipt["requested_scope"] == requested_scope
