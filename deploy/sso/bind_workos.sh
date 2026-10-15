@@ -17,3 +17,18 @@ add_secret WORKOS_WEBHOOK_SECRET WORKOS_WEBHOOK_SECRET
 add_env WORKOS_SSO_ENABLED "${_WORKOS_SSO_ENABLED:-}"
 add_env WORKOS_REDIRECT_URI "${_WORKOS_REDIRECT_URI:-}"
 add_env WORKOS_REDIRECT_ORIGINS "${_WORKOS_REDIRECT_ORIGINS:-}"
+
+# Fail closed: with SSO switched on, a missing secret would deploy a sign-in that silently does not
+# work (the secrets are otherwise optional and skipped when absent).
+if [[ "${_WORKOS_SSO_ENABLED:-}" == true ]]; then
+  for required in WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET; do
+    if [[ "${secrets}" != *",${required}="* ]]; then
+      echo "WorkOS SSO is enabled but the secret ${required} does not exist in ${PROJECT_ID}." >&2
+      exit 1
+    fi
+  done
+  if [[ -z "${_WORKOS_REDIRECT_URI:-}" ]]; then
+    echo "WorkOS SSO is enabled but no redirect URI is configured." >&2
+    exit 1
+  fi
+fi
