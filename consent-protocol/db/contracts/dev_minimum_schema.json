@@ -113,8 +113,8 @@
       "user_id_hash"
     ],
     "account_identity_presence": [
-      "first_observed_at",
-      "user_id_hash"
+      "user_id_hash",
+      "first_observed_at"
     ],
     "actor_identity_cache": [
       "created_at",
@@ -437,11 +437,11 @@
       "wrapped_key_bundle"
     ],
     "contact_sync_lookup_budgets": [
+      "user_id",
       "bucket_kind",
       "bucket_start",
       "lookup_count",
-      "updated_at",
-      "user_id"
+      "updated_at"
     ],
     "conversations": [
       "created_at",

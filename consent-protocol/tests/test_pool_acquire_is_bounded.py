@@ -302,3 +302,78 @@ def test_the_deadline_is_far_below_the_cloud_run_request_timeout(monkeypatch):
     """
     monkeypatch.delenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", raising=False)
     assert _get_acquire_timeout_seconds() <= 120
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_failure", [None, RuntimeError, asyncio.CancelledError])
+async def test_dedicated_budget_reserves_before_connect_and_releases_after_teardown(
+    monkeypatch, close_failure
+):
+    from contextlib import AsyncExitStack
+    from unittest.mock import AsyncMock, MagicMock
+
+    from db import connection as database
+
+    monkeypatch.setattr(database, "_is_offline_mode", lambda: False)
+    monkeypatch.setattr(database, "_get_database_url", lambda: "postgresql://fixture.invalid/db")
+    monkeypatch.setattr(database, "get_database_ssl", lambda: False)
+    connecting = asyncio.Event()
+    finish_connect = asyncio.Event()
+    calls = []
+
+    async def connect(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.close = AsyncMock()
+        calls.append(conn)
+        if len(calls) == database._DEDICATED_CONNECTION_LIMIT:
+            connecting.set()
+        await finish_connect.wait()
+        return conn
+
+    monkeypatch.setattr(database.asyncpg, "connect", connect)
+    stack = AsyncExitStack()
+    pending = [
+        asyncio.create_task(stack.enter_async_context(database.dedicated_connection()))
+        for _ in range(database._DEDICATED_CONNECTION_LIMIT)
+    ]
+    try:
+        await asyncio.wait_for(connecting.wait(), 1)
+        with pytest.raises(database.DedicatedConnectionCapacityError):
+            async with asyncio.timeout(1), database.dedicated_connection():
+                pytest.fail("dedicated budget admitted an extra connection")
+        assert len(calls) == database._DEDICATED_CONNECTION_LIMIT
+        finish_connect.set()
+        await asyncio.gather(*pending)
+        if close_failure:
+            calls[-1].close.side_effect = close_failure()
+            with pytest.raises(close_failure):
+                await stack.aclose()
+            calls[-1].terminate.assert_called_once()
+        else:
+            await stack.aclose()
+        for conn in calls:
+            conn.close.assert_awaited_once_with(timeout=5)
+        async with database.dedicated_connection():
+            pass
+        assert database._dedicated_connection_count == 0
+    finally:
+        finish_connect.set()
+        await asyncio.gather(*pending, return_exceptions=True)
+        await stack.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [OSError, asyncio.CancelledError])
+async def test_failed_dedicated_connect_returns_its_budget(monkeypatch, failure):
+    from unittest.mock import AsyncMock
+
+    from db import connection as database
+
+    monkeypatch.setattr(database, "_is_offline_mode", lambda: False)
+    monkeypatch.setattr(database, "_get_database_url", lambda: "postgresql://fixture.invalid/db")
+    monkeypatch.setattr(database, "get_database_ssl", lambda: False)
+    monkeypatch.setattr(database.asyncpg, "connect", AsyncMock(side_effect=failure()))
+    with pytest.raises(failure):
+        async with database.dedicated_connection():
+            pytest.fail("failed connection was admitted")
+    assert database._dedicated_connection_count == 0

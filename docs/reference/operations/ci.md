@@ -44,6 +44,13 @@ on the completed candidate; GitHub owns full web and browser validation. The
 dedicated pre-PR workflow retains its exhaustive local gate. Dev can deploy an
 exact CI-green branch SHA without merging application content to main.
 
+The database connection budget inventories every dedicated caller. All share
+a process-wide ceiling of three in `db.connection`, reserved before connecting
+and released after session teardown. Saturation returns a retryable receipt-scan
+busy state or defers background sweeps to their next interval; it never borrows
+from the request pool. Per-caller limits still apply. The source-bound budget
+and concurrency/failure checks must agree before changing this ceiling.
+
 The canonical state-changing operator procedure is the
 [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
 This page defines CI behavior; it does not redefine Admin bypass or deployment

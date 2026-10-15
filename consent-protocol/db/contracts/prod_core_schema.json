@@ -114,8 +114,8 @@
       "user_id_hash"
     ],
     "account_identity_presence": [
-      "first_observed_at",
-      "user_id_hash"
+      "user_id_hash",
+      "first_observed_at"
     ],
     "account_legal_acceptances": [
       "accepted_at",
@@ -544,11 +544,11 @@
       "wrapped_key_bundle"
     ],
     "contact_sync_lookup_budgets": [
+      "user_id",
       "bucket_kind",
       "bucket_start",
       "lookup_count",
-      "updated_at",
-      "user_id"
+      "updated_at"
     ],
     "conversations": [
       "created_at",
@@ -1687,24 +1687,24 @@
       "user_id"
     ],
     "kai_run_state": [
-      "cancel_requested_at",
-      "completed_at_iso",
-      "created_at",
-      "expires_at",
-      "finished_at",
-      "heartbeat_at",
-      "progress",
-      "relay_ciphertext",
-      "relay_public_key",
       "run_id",
+      "user_id",
       "run_kind",
       "session_id",
-      "started_at_iso",
+      "ticker",
       "status",
       "terminal_event",
       "terminal_receipt",
-      "ticker",
-      "user_id"
+      "progress",
+      "started_at_iso",
+      "completed_at_iso",
+      "heartbeat_at",
+      "finished_at",
+      "cancel_requested_at",
+      "relay_public_key",
+      "relay_ciphertext",
+      "created_at",
+      "expires_at"
     ],
     "live_memory_connector_events": [
       "event_id",

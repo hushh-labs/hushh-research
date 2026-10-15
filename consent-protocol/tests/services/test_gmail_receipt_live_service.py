@@ -1773,3 +1773,21 @@ async def test_durable_source_locator_is_sealed_owner_account_and_connection_bou
                 require_access=_allowed,
             )
         assert rejected.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+async def test_dedicated_capacity_refusal_is_busy_and_releases_owner_scan(monkeypatch):
+    service = _service([])
+    admitted = live_receipts_module.dedicated_connection
+
+    @asynccontextmanager
+    async def busy():
+        raise live_receipts_module.DedicatedConnectionCapacityError("busy")
+        yield  # pragma: no cover - context manager must refuse before yielding
+
+    monkeypatch.setattr(live_receipts_module, "dedicated_connection", busy)
+    with pytest.raises(GmailApiError) as refused:
+        await _scan(service)
+    assert refused.value.code == "GMAIL_RECEIPT_SCAN_BUSY"
+    assert refused.value.status_code == 503
+    monkeypatch.setattr(live_receipts_module, "dedicated_connection", admitted)
+    assert (await _scan(service))["items"] == []

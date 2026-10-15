@@ -28,7 +28,7 @@ import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
-from db.connection import dedicated_connection
+from db.connection import DedicatedConnectionCapacityError, dedicated_connection
 from hushh_mcp.agents.email.runtime import (
     EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA,
     run_email_gene,
@@ -1677,6 +1677,12 @@ class GmailLiveReceiptsService:
                         per_page=per_page,
                         cursor=cursor,
                     )
+        except DedicatedConnectionCapacityError:
+            raise GmailApiError(
+                "Receipt scanning is busy. Please try again shortly.",
+                status_code=503,
+                code="GMAIL_RECEIPT_SCAN_BUSY",
+            ) from None
         except TimeoutError:
             raise GmailApiError(
                 "The Gmail receipt scan timed out. Please try again.",
