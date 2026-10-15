@@ -6483,10 +6483,10 @@
     "data_plane": "96c52feb774903409872bc86209af09935f534f1bb0d66ca3a517871d766d257",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "09cd47d384d720e3b98fd277a3ae509aaec613f106a74d5bb4ea3bb1f8911897",
+    "route_index": "3f316a65f78eb81375b00fda5fe4dae3a66e86896b96afb043e897a653f44915",
     "route_layout": "221edb2adc3b2427ecff44d910215e2220648714cbcc57522cd8f477e340bead",
-    "surface_map": "685df2ed30d04da272f39d99e61174f830ab1b56073eb7f1a405a94e6d74e2fb",
-    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
+    "surface_map": "e6f74b26b211d504ba43ef2cf86f9697b302664b097b525f24efb1536963a32f",
+    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {

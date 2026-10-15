@@ -24,7 +24,7 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `d0aa65b638`, preserving the compact shared header and native draft ports
+through `e5240e4ab4`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
 the shared Live Memory preview and upstream referral/schema corrections. The
 four-state HD mascot assets and playback safeguards are integrated without
@@ -47,6 +47,10 @@ their SwiftUI bodies inside UIKit-owned page controllers, keeping Back/Close
 navigation items outside SwiftUI body ownership. Four nearest native tests pass
 at `ade38e4fb6`; local iOS 26.2 does not substitute for older-runtime CI evidence.
 Dock capability discovery also dispatches UIKit host reads to the main queue.
+The Calendar Invitations and working-presence integrations retain the shared
+composer and response-owned Retry cleanup. Main's deliberate terminal-close and
+automatic preferred-name rollback is preserved; Calendar's owner/conversation
+fences remain in place. These source integrations are not device qualification.
 No main landing or release acceptance is implied by the experimental flag.
 Custom native descriptions below refer to qualification builds, not the
 ordinary Capacitor/React default. After verified landing, complete the remaining
