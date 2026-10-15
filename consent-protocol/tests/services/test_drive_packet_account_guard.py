@@ -463,3 +463,74 @@ async def test_final_checker_reads_the_file_time_but_never_shows_it():
     assert result.state == "incomplete" and SAME_STATEMENT in result.issues
     prompt = checker.await_args.kwargs["prompt"]
     assert "created_time" not in prompt and "2026-09-14T" not in prompt
+
+
+def claim_record(document_id, *, service, amount, wording="Amount billed"):
+    """One claim's record from an insurer that issues several on one day."""
+    member = statement(document_id, account="Member ID XXXX4321", holder=None)
+    facts = member["facts"]
+    facts["document_type"] = cited("Explanation of benefits")
+    facts["issuer"] = cited("Example Health Plan")
+    facts["periods"] = []
+    facts["facts"] = [cited(f"{wording} {amount}")]
+    facts["date_evidence"] = [
+        {
+            "role": role,
+            "start": day,
+            "end": day,
+            "meaning": f"Synthetic {role} date",
+            "citations": [{"page": 1, "quote": f"{role} {day}"}],
+        }
+        for role, day in (("publication", "2026-09-08"), ("event", service))
+    ]
+    return member
+
+
+@pytest.mark.parametrize(
+    ("members", "same"),
+    [
+        # Two claims processed on one day: different service dates and totals.
+        (
+            [
+                claim_record("claim-a", service="2026-08-10", amount="$240.00"),
+                claim_record("claim-b", service="2026-08-22", amount="$95.00"),
+            ],
+            False,
+        ),
+        # Two visits on one day, told apart by their totals.
+        (
+            [
+                claim_record("claim-a", service="2026-08-10", amount="$240.00"),
+                claim_record("claim-b", service="2026-08-10", amount="$95.00"),
+            ],
+            False,
+        ),
+        # Two originals of one claim's record agree on what they date and total.
+        (
+            [
+                claim_record("claim-a", service="2026-08-10", amount="$240.00"),
+                claim_record(
+                    "claim-a-copy", service="2026-08-10", amount="$240.00", wording="Billed:"
+                ),
+            ],
+            True,
+        ),
+    ],
+    ids=["two_claims", "two_visits_one_day", "two_originals"],
+)
+async def test_records_issued_on_one_day_are_one_record_only_when_they_agree(members, same):
+    result = manuals_proposal(members)
+    result.update(
+        title="Example Health Plan claim records",
+        description="Claim records from one insurer.",
+        coverage_summary="Claim records; no reporting period is claimed.",
+    )
+    packet = await construct_packet(
+        user_id="owner",
+        key="example-health-claims",
+        documents=members,
+        complete=True,
+        interpret=AsyncMock(return_value=result),
+    )
+    assert packet.gaps == ([SAME_STATEMENT] if same else [])
+    assert packet.state == ("incomplete" if same else "ready")

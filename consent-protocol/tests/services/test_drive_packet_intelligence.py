@@ -1930,3 +1930,83 @@ async def test_final_checker_cannot_certify_complete_coverage_over_a_missing_mon
         **arguments, packet=exact, interpret=AsyncMock(return_value=ready_verdict())
     )
     assert checked.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "quote", "ready"),
+    [
+        (
+            "2026-07-01",
+            "2026-09-30",
+            "For the quarter ended September 30, 2026, account value as of September 30, 2026",
+            True,
+        ),
+        (
+            "2025-01-01",
+            "2025-12-31",
+            "Annual statement for the year ended 12/31/2025; balance as of 12/31/2025",
+            True,
+        ),
+        # The stated unit must match the window: one month is not a quarter.
+        (
+            "2026-07-01",
+            "2026-09-30",
+            "For the month ended September 30, 2026, account value as of September 30, 2026",
+            False,
+        ),
+    ],
+    ids=["quarter_ended", "year_ended", "month_unit_for_a_quarter"],
+)
+async def test_window_stated_by_its_unit_and_end_date_stands_beside_a_snapshot(
+    start, end, quote, ready
+):
+    facts = statement_facts()
+    period = window(start, end, quote)
+    facts.update(periods=[period], date_evidence=[dated("as_of", end, quote)])
+    arguments = dict(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[statement_member("statement", facts)],
+        interpret=AsyncMock(return_value=statement_packet(["statement"], [period])),
+    )
+    if ready:
+        assert (await construct_packet(**arguments)).state == "ready"
+        return
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments)
+    assert info.value.issues == [{"field": "periods", "item": 0, "date_role": "as_of"}]
+
+
+@pytest.mark.parametrize(
+    ("months", "copy", "ready"),
+    [
+        # A quarter names its three months, not its whole year.
+        ([7, 8, 9], {"title": "Complete Q3 2026 statements"}, True),
+        ([7, 8, 9], {"title": "Complete third-quarter 2026 statements"}, True),
+        ([7, 8, 9], {"title": "Complete Q2 and Q3 2026 statements"}, False),
+        # Year-to-date runs from January through the packet's last month.
+        ([1, 2, 3], {"coverage_summary": "Complete year-to-date 2026 statements"}, True),
+        ([2, 3], {"coverage_summary": "Complete YTD 2026 statements"}, False),
+        # The modal verb is not the month May.
+        ([9, 11], {"utility_rationale": "All statements may help a lender"}, True),
+        ([9], {"title": "Complete May 2026 statement"}, False),
+    ],
+    ids=[
+        "one_quarter",
+        "ordinal_quarter",
+        "missing_quarter",
+        "year_to_date",
+        "year_to_date_gap",
+        "modal_may",
+        "month_may",
+    ],
+)
+async def test_completeness_claims_name_quarters_year_to_date_and_may(months, copy, ready):
+    members = [month_member(f"m{month}", month) for month in months]
+    if ready:
+        assert (await build_months(members, **copy)).state == "ready"
+        return
+    with pytest.raises(EvidenceValidationError) as info:
+        await build_months(members, **copy)
+    assert info.value.code == "model_readiness_invalid"

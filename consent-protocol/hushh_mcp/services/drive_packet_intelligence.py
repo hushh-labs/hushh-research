@@ -13,7 +13,7 @@ import logging
 import re
 import time
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -94,6 +94,7 @@ _SOURCE_REASONS = frozenset(
 # Host-side member fields the model is never shown: a file's creation time
 # tells two undated originals of one record apart, but never dates coverage.
 _HOST_ONLY_FIELDS = frozenset({"created_time"})
+_AMOUNT = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?![\d.])")
 
 
 class EvidenceValidationError(ValueError):
@@ -460,6 +461,8 @@ def _citation_key(citation):
 
 
 _OTHER_DATE_ROLES = frozenset({"as_of", "publication", "planned_action", "transaction", "event"})
+_ENDED_UNIT = re.compile(r"\b(month|quarter|year)(?:ly)?\s+(?:ended|ending)\b", re.I)
+_UNIT_MONTHS = {"month": 1, "quarter": 3, "year": 12}
 
 
 def _period_date_role(period, date_evidence):
@@ -468,10 +471,12 @@ def _period_date_role(period, date_evidence):
     Facts can date one quoted line twice: as a snapshot, due, print,
     transaction or event date, and as a coverage window. The window stands
     when its quotes, or snapshot dates on them (opening and closing
-    balances), state both its endpoints, or when a quote carries an in-window
-    date those other dates do not account for. Otherwise the window was read
-    from the other date: a due date, print date or benchmark month taken as
-    the statement period. Evidence equal to the window only restates it.
+    balances), state both its endpoints, when a quote states a whole-month
+    window by its unit and end date (the quarter ended September 30), or
+    when a quote carries an in-window date those other dates do not account
+    for. Otherwise the window was read from the other date: a due date, print
+    date or benchmark month taken as the statement period. Evidence equal to
+    the window only restates it.
     Compact evidence carries no citations, so only full member facts are
     checked.
     """
@@ -494,6 +499,19 @@ def _period_date_role(period, date_evidence):
     days = {day for _, found in quoted for candidates in found.values() for day in candidates}
     days |= {date.fromisoformat(item["start"]) for item in others if item["role"] == "as_of"}
     if start < end and {start, end} <= days:
+        return None
+    # A calendar window its quote states by unit and end date (the quarter
+    # ended September 30) stands beside a snapshot quoted on the same line.
+    if (
+        start.day == 1
+        and (end + timedelta(days=1)).day == 1
+        and any(
+            _UNIT_MONTHS[unit.casefold()] == len(window)
+            and any(end in candidates for candidates in found.values())
+            for citation, found in quoted
+            for unit in _ENDED_UNIT.findall(citation["quote"])
+        )
+    ):
         return None
     if len(window) > 1:
         named = set()
@@ -595,9 +613,29 @@ _TEMPORAL_WORDS = frozenset(
         "calendar",
         "fiscal",
         "ytd",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
     }
 )
 _NEGATIONS = frozenset({"no", "not", "never", "without", "nor", "cannot"})
+# "may" is the month only beside a day or year number (May 2026, May 5).
+_MODAL_MAY = re.compile(r"\bmay\b(?!\.?\s*\d)", re.I)
+_QUARTER = re.compile(
+    r"\bq([1-4])\b|\b(first|second|third|fourth|1st|2nd|3rd|4th)[\s-]+quarter\b", re.I
+)
+_QUARTER_WORDS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "1st": 1,
+    "2nd": 2,
+    "3rd": 3,
+    "4th": 4,
+}
+_YEAR_TO_DATE = re.compile(r"\bytd\b|\byear[\s-]+to[\s-]+date\b", re.I)
 _COPY_FIELDS = ("title", "description", "coverage_summary", "utility_rationale")
 
 
@@ -616,15 +654,30 @@ def _temporal_word(word):
 
 def _claimed_months(clause, periods):
     """The months a completeness claim covers: those its clause names (a bare
-    year is the whole year), else the span of the packet's own periods."""
+    year is the whole year, a quarter its three months, year-to-date January
+    through the packet's last month that year), else the span of the
+    packet's own periods."""
     pairs, months, years = _quoted_dates(clause)
     pairs = {pair for pair in pairs if _calendar_year(pair[0])}
     years = {year for year in years if _calendar_year(year)} | {year for year, _ in pairs}
+    months |= {
+        month
+        for number, word in _QUARTER.findall(clause)
+        for quarter in (int(number) if number else _QUARTER_WORDS[word.casefold()],)
+        for month in range(3 * quarter - 2, 3 * quarter + 1)
+    }
+    to_date = bool(_YEAR_TO_DATE.search(clause))
     claimed = set()
     for year in years:
         stated = {month for pair_year, month in pairs if pair_year == year}
         if len(years) == 1:
             stated |= months
+        if to_date:
+            stated |= {1} | {
+                date.fromisoformat(period["end"]).month
+                for period in periods
+                if date.fromisoformat(period["end"]).year == year
+            }
         first, last = (min(stated), max(stated)) if stated else (1, 12)
         claimed.update(_month_span(date(year, first, 1), date(year, last, 1)))
     if claimed or not periods:
@@ -642,10 +695,11 @@ def _unsupported_completeness(packet):
 
     A claim is a complete, all, full or similar word followed within three
     words by a period word, a month or a year, with no negation in the three
-    words before it. Every month it names, or else every month of the
-    packet's span, needs a dated period. A packet without periods supports
-    no such claim. Calling bounded content complete (a complete 9-page
-    draft) names no months and is left to the model checker.
+    words before it. Every month it names (a quarter names three, a bare
+    year twelve), or else every month of the packet's span, needs a dated
+    period. A packet without periods supports no such claim. Calling bounded
+    content complete (a complete 9-page draft) names no months and is left to
+    the model checker.
     """
     periods = [period.model_dump() for period in packet.periods]
     covered = {
@@ -661,7 +715,8 @@ def _unsupported_completeness(packet):
     unsupported = []
     for field, text in copy:
         for clause in re.split(r"[.;!?\n]+", text):
-            words = re.findall(r"[a-z]+|\d+", clause.casefold())
+            clause = _MODAL_MAY.sub(" ", clause)
+            words = re.findall(r"q[1-4]\b|[a-z]+|\d+", clause.casefold())
             claimed = any(
                 word in _COMPLETE_WORDS
                 and not _NEGATIONS & set(words[max(0, index - 3) : index])
@@ -938,8 +993,9 @@ def _owner_mismatch(selected_facts, owner):
 
 def _record_identity(facts, created_time):
     """What says which record a member is: issuer, type, account, and its
-    periods, else its own publication or snapshot dates, else (when it states
-    no date at all) the day its file was created."""
+    periods, else its own publication or snapshot dates with what else it
+    dates or totals, else (when it states no date at all) the day its file
+    was created."""
     issuer = _holder_name(_fact_value(facts, "issuer"))
     kind = _holder_name(_fact_value(facts, "document_type"))
     if not issuer or not kind:
@@ -960,6 +1016,22 @@ def _record_identity(facts, created_time):
         if item.get("role") in {"publication", "as_of"} and item.get("end") == item["start"]
     )
     undated = not periods and not dated and isinstance(created_time, str)
+    # What a record dates or totals besides its issue date: a claim's service
+    # date, a trade date, a due date, an amount with cents.
+    details = (
+        frozenset(
+            (item["start"], item.get("end"))
+            for item in dated
+            if item.get("role") in {"event", "transaction", "planned_action"}
+        ),
+        frozenset(
+            f"{int(whole.replace(',', ''))}.{cents}"
+            for item in facts.get("facts") or []
+            for value in ((item.get("value") if isinstance(item, dict) else item),)
+            if isinstance(value, str)
+            for whole, cents in _AMOUNT.findall(value)
+        ),
+    )
     return (
         issuer,
         kind,
@@ -967,12 +1039,15 @@ def _record_identity(facts, created_time):
         periods,
         days,
         created_time[:10] if undated and len(created_time) >= 10 else None,
+        details,
     )
 
 
 def _one_record(first, second):
-    issuer, kind, account, periods, days, created = first
-    other_issuer, other_kind, other_account, other_periods, other_days, other_created = second
+    issuer, kind, account, periods, days, created, details = first
+    other_issuer, other_kind, other_account, other_periods, other_days, other_created, theirs = (
+        second
+    )
     if kind != other_kind or not (issuer <= other_issuer or other_issuer <= issuer):
         return False
     if account and other_account and account != other_account:
@@ -980,7 +1055,11 @@ def _one_record(first, second):
     if periods or other_periods:
         return periods == other_periods
     if days or other_days:
-        return bool(days & other_days)
+        # Claims, trades or invoices issued on one day are different records
+        # when they date or total different things; two originals agree.
+        return bool(days & other_days) and not any(
+            mine and other and not mine & other for mine, other in zip(details, theirs, strict=True)
+        )
     return created is not None and created == other_created
 
 
@@ -988,8 +1067,10 @@ def _same_statement(members):
     """Two selected members with one issuer, type and account (when both name
     one) and the same periods, own document date or, for documents stating no
     date, file creation day are one statement in two originals that are not
-    byte copies. A member the model excluded as the other's duplicate is not
-    selected, so keeping one stays Ready; the host never picks which."""
+    byte copies. Records issued on one day that date or total different
+    things (two claims, two trades) are two records. A member the model
+    excluded as the other's duplicate is not selected, so keeping one stays
+    Ready; the host never picks which."""
     records = [record for facts, created in members if (record := _record_identity(facts, created))]
     if any(_one_record(first, second) for first, second in itertools.combinations(records, 2)):
         return SAME_STATEMENT
