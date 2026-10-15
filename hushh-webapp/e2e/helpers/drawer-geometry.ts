@@ -12,56 +12,83 @@ export async function expectPaneMotionReleased(pane: Locator) {
   });
 }
 
-/** Observe actual CSS geometry through RAF and a timer; this is not an FPS measurement. */
+type HistoryMotion = {
+  frames: { elapsed: number; x: number; source: "raf" | "timer" }[];
+  transitions: { type: string; property: string; elapsed: number }[];
+  width: number;
+  restingX: number;
+  before: number[];
+  after: number[];
+  shadowClearance: number;
+  rendering: { visibility: string; state: string | undefined; translate: string; delay: string };
+};
+
+type MotionWindow = Window & { historyMotion?: { result: Promise<HistoryMotion>; stop: () => void } };
+
+/** Collect real CSS geometry while Playwright delivers native input outside evaluation. */
 export async function sampleHistoryMotion(page: Page, action: "open" | "close") {
-  return page.evaluate(async action => {
+  await page.evaluate(action => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     const main = document.querySelector("main")!;
     const nav = document.querySelector("[data-fixture-bottom-bar]")!;
     const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
     const width = panel.offsetWidth;
-    const frames: { elapsed: number; x: number }[] = [];
-    const start = performance.now();
-    const transitions: { type: string; property: string; elapsed: number }[] = [];
-    const observeTransition = (event: TransitionEvent) => {
-      if (event.target === panel && ["translate", "transform", "visibility"].includes(event.propertyName))
-        transitions.push({ type: event.type, property: event.propertyName, elapsed: performance.now() - start });
-    };
-    panel.addEventListener("transitionrun", observeTransition);
-    panel.addEventListener("transitionstart", observeTransition);
+    const frames: HistoryMotion["frames"] = [];
+    const transitions: HistoryMotion["transitions"] = [];
+    let start: number | undefined;
     let frameId = 0;
     let timerId = 0;
-    let done = false;
-    const finished = new Promise<void>(resolve => {
-      const sample = () => {
-        if (done) return;
-        const elapsed = performance.now() - start;
-        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
-        if (elapsed >= (action === "open" ? 360 : 260)) { done = true; resolve(); }
-      };
-      const onFrame = () => { sample(); if (!done) frameId = requestAnimationFrame(onFrame); };
-      frameId = requestAnimationFrame(onFrame);
-      timerId = window.setInterval(sample, 8);
-    });
-    try {
-      if (action === "open") {
-        Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-          .find(button => button.textContent === "Open drawer")!.click();
-      } else {
-        panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      }
-      await finished;
-      return { frames, transitions, width, restingX: panel.offsetLeft, before,
-        after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
-        shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
-    } finally {
-      done = true;
+    let finishId = 0;
+    let resolve!: (result: HistoryMotion) => void;
+    const result = new Promise<HistoryMotion>(done => { resolve = done; });
+    const observeTransition = (event: TransitionEvent) => {
+      if (start !== undefined && event.target === panel && ["translate", "transform", "visibility"].includes(event.propertyName))
+        transitions.push({ type: event.type, property: event.propertyName, elapsed: performance.now() - start });
+    };
+    const sample = (source: "raf" | "timer") => {
+      if (start !== undefined) frames.push({ elapsed: performance.now() - start, x: panel.getBoundingClientRect().x, source });
+    };
+    const onFrame = () => { sample("raf"); frameId = requestAnimationFrame(onFrame); };
+    const stop = () => {
       cancelAnimationFrame(frameId);
       clearInterval(timerId);
+      clearTimeout(finishId);
+      document.removeEventListener("click", onInput, true);
+      document.removeEventListener("keydown", onInput, true);
       panel.removeEventListener("transitionrun", observeTransition);
       panel.removeEventListener("transitionstart", observeTransition);
-    }
+    };
+    const onInput = (event: Event) => {
+      if (start !== undefined || !event.isTrusted) return;
+      if (action === "open" ? !(event.target as Element).closest("button")?.textContent?.includes("Open drawer")
+        : !(event instanceof KeyboardEvent && event.key === "Escape")) return;
+      start = performance.now();
+      sample("timer");
+      finishId = window.setTimeout(() => {
+        sample("timer");
+        const style = getComputedStyle(panel);
+        resolve({ frames, transitions, width, restingX: panel.offsetLeft, before,
+          after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
+          shadowClearance: Number.parseFloat(style.getPropertyValue("--agent-history-shadow-clearance")) || 0,
+          rendering: { visibility: document.visibilityState, state: panel.dataset.state, translate: style.translate, delay: style.transitionDelay } });
+        stop();
+      }, action === "open" ? 360 : 260);
+    };
+    document.addEventListener("click", onInput, true);
+    document.addEventListener("keydown", onInput, true);
+    panel.addEventListener("transitionrun", observeTransition);
+    panel.addEventListener("transitionstart", observeTransition);
+    frameId = requestAnimationFrame(onFrame);
+    timerId = window.setInterval(() => sample("timer"), 8);
+    (window as MotionWindow).historyMotion = { result, stop };
   }, action);
+  try {
+    if (action === "open") await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    else await page.keyboard.press("Escape");
+    return await page.evaluate(() => (window as MotionWindow).historyMotion!.result);
+  } finally {
+    await page.evaluate(() => { (window as MotionWindow).historyMotion?.stop(); delete (window as MotionWindow).historyMotion; });
+  }
 }
 
 export async function expectPaneRestingAtFrame(page: Page, pane: Locator, leftSafeInset = 0) {

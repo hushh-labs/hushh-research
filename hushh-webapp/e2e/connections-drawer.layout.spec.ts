@@ -374,11 +374,16 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const reference = await profileFrame(page);
     await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const closeBox = (await close.boundingBox())!;
-    expect(closeBox.width).toBeGreaterThanOrEqual(44);
-    expect(closeBox.height).toBeGreaterThanOrEqual(44);
+    const target = await close.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { width: parseFloat(style.width), height: parseFloat(style.height) };
+    });
+    expect(target.width).toBeGreaterThanOrEqual(44);
+    expect(target.height).toBeGreaterThanOrEqual(44);
+    // Preserve rendered hitbox coverage without treating matrix roundoff as shrinkage.
+    expect(closeBox.width).toBeCloseTo(target.width, 4);
+    expect(closeBox.height).toBeCloseTo(target.height, 4);
     expect(closeBox.x - (await chats.boundingBox())!.x).toBeCloseTo((width < 640 ? 16 : width < 1024 ? 20 : 24) + 1, 0);
-    // Layout width, not WebKit's fractional translated DOMRect rounding.
-    expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
     const title = chats.getByText("A weekend idea", { exact: true });
     const age = chats.locator("time");
