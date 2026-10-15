@@ -13,8 +13,12 @@ const mock = vi.hoisted(() => ({
   pathname: "/one/profile/world-model",
   preferences: vi.fn(),
   observe: vi.fn(),
+  load: vi.fn(),
+  ownerDecisions: vi.fn(),
   read: vi.fn(),
   prepare: vi.fn(),
+  /** Every preferences state the page rendered, in order. */
+  seen: [] as string[],
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mock.pathname }));
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -52,6 +56,12 @@ vi.mock("@/lib/services/world-model-research-service", () => ({
     observe: mock.observe,
   },
 }));
+vi.mock("@/lib/services/world-model-decision-service", () => ({
+  WorldModelDecisionService: {
+    load: mock.load,
+    ownerDecisions: mock.ownerDecisions,
+  },
+}));
 vi.mock("@/lib/services/world-model-source-service", () => ({
   WorldModelSourceService: { read: mock.read, prepare: mock.prepare },
 }));
@@ -68,17 +78,52 @@ import {
 } from "@/components/profile/world-model-provider";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
 function Probe() {
-  const { refresh } = useWorldModelResearch();
-  return <button onClick={refresh}>Refresh</button>;
+  const { refresh, reload, mounted, preferences, failed } =
+    useWorldModelResearch();
+  const switches = preferences
+    ? preferences.enabled
+      ? "enrolled"
+      : "opted out"
+    : "no preferences";
+  mock.seen.push(switches);
+  return (
+    <>
+      <button onClick={refresh}>Refresh</button>
+      <button onClick={() => reload()}>Reload</button>
+      <button
+        onClick={() =>
+          reload({
+            enabled: false,
+            email_enabled: true,
+            consent_version: "pwm-native-v1",
+          })
+        }
+      >
+        Turn off
+      </button>
+      <span>{mounted ? "mounted" : "outside"}</span>
+      <span>{switches}</span>
+      <span>{failed ? "failed" : "not failed"}</span>
+    </>
+  );
 }
+const pending = {
+  status: "pending",
+  pkm_written: false,
+  restart_required: false,
+} as const;
+const decisions = { confirmed: ["Saved."], rejected: ["Declined."] };
 beforeEach(() => {
   vi.clearAllMocks();
   mock.user = { uid: "owner-a" };
   mock.key = "key-a";
   mock.token = "token-a";
   mock.pathname = "/one/profile/world-model";
+  mock.seen.length = 0;
   mock.preferences.mockResolvedValue({ enabled: true });
   mock.observe.mockResolvedValue(undefined);
+  mock.load.mockResolvedValue({});
+  mock.ownerDecisions.mockReturnValue(decisions);
 });
 describe("PWM owner and request isolation", () => {
   it("consumes refresh before another account or vault token takes over", async () => {
@@ -109,6 +154,97 @@ describe("PWM owner and request isolation", () => {
     );
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(4));
     expect(mock.observe.mock.calls[3][0].refresh).not.toBe(true);
+  });
+  it("starts research for an owner with no preferences row and forwards decisions", async () => {
+    mock.preferences.mockResolvedValue({
+      enabled: true,
+      email_enabled: true,
+      consent_version: "pwm-native-v1",
+    });
+    mock.observe.mockImplementation(async ({ onResult }) => {
+      expect(mock.preferences).not.toHaveBeenCalled();
+      onResult({
+        status: "pending",
+        pkm_written: false,
+        restart_required: false,
+      });
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    await screen.findByText("enrolled");
+    expect(screen.getByText("mounted")).toBeInTheDocument();
+    expect(mock.load.mock.calls[0][0].userId).toBe("owner-a");
+    expect(mock.observe).toHaveBeenCalledTimes(1);
+    expect(mock.observe.mock.calls[0][0].ownerDecisions).toEqual(decisions);
+  });
+  it("keeps researching when memory is unreadable, and never during setup", async () => {
+    mock.load.mockRejectedValue(new Error("locked"));
+    const { unmount } = render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+    expect(mock.observe.mock.calls[0][0].ownerDecisions).toBeUndefined();
+    unmount();
+    vi.clearAllMocks();
+    mock.pathname = "/one/setup/profile";
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    await act(async () => {});
+    expect(mock.load).not.toHaveBeenCalled();
+    expect(mock.observe).not.toHaveBeenCalled();
+  });
+  it("keeps the last known switches while research restarts for the same owner", async () => {
+    mock.observe.mockImplementation(async ({ onResult }) => onResult(pending));
+    const view = () => (
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>
+    );
+    const { rerender } = render(view());
+    await screen.findByText("enrolled");
+    // The restarted run's own read never lands.
+    mock.preferences.mockReturnValue(new Promise(() => {}));
+    mock.seen.length = 0;
+    fireEvent.click(screen.getByText("Reload"));
+    await waitFor(() => expect(mock.preferences).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(mock.observe).toHaveBeenCalledTimes(2);
+    expect(mock.seen).not.toContain("no preferences");
+    expect(screen.getByText("enrolled")).toBeInTheDocument();
+    // A confirmed write shows at once and survives the restart.
+    fireEvent.click(screen.getByText("Turn off"));
+    await waitFor(() => expect(mock.preferences).toHaveBeenCalledTimes(3));
+    await act(async () => {});
+    expect(screen.getByText("opted out")).toBeInTheDocument();
+    // Negative control: switches never carry over to another vault token.
+    mock.token = "token-renewed";
+    rerender(view());
+    await waitFor(() => expect(mock.preferences).toHaveBeenCalledTimes(4));
+    await act(async () => {});
+    expect(screen.getByText("no preferences")).toBeInTheDocument();
+  });
+  it("still reads the switches when preparing fails, so research can be turned off", async () => {
+    mock.observe.mockRejectedValue(new Error("ensure failed"));
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("enrolled")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(mock.preferences).toHaveBeenCalledTimes(1);
+  });
+  it("tells a page rendered outside the provider", () => {
+    render(<Probe />);
+    expect(screen.getByText("outside")).toBeInTheDocument();
   });
   it("does not let an old initial read replace a newly prepared draft", async () => {
     let finish!: (value: unknown) => void;

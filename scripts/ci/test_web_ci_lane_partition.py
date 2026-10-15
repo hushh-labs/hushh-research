@@ -307,11 +307,19 @@ def test_full_suite_shards_run_verifiers_once() -> None:
 
 
 def test_workflow_schedules_every_leg_and_shard() -> None:
-    assert_web_lane_topology(
-        WORKFLOW.read_text(encoding="utf-8"),
-        json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"],
-        (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8"),
-    )
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
+    assert_web_lane_topology(workflow, scripts, playwright)
+    shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
+    broken = workflow.replace(shard, shard + shard, 1)
+    assert broken != workflow
+    try:
+        assert_web_lane_topology(broken, scripts, playwright)
+    except AssertionError as error:
+        assert "duplicate PLAYWRIGHT_SHARD" in str(error)
+    else:
+        raise AssertionError("duplicated workflow environment was accepted")
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:

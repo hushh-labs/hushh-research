@@ -47,7 +47,7 @@ def send_ready_email(*, email, draft_id, outcome):
         else "Your research has results that need your review."
     )
     message.set_content(
-        f"{line}\n\nView your model: {link}\n\nYou can change readiness emails in Personal World Model settings.\n"
+        f"{line}\n\nView your model: {link}\n\nYou can turn these emails off in Personal World Model.\n"
     )
     sender._send_email(message)
     return "accepted"

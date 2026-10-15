@@ -42,75 +42,6 @@ def revision(number):
 
 
 class RetentionSafetyTest(unittest.TestCase):
-    def test_uat_frontend_release_keeps_unchanged_backend_drain_clock(self):
-        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
-        plan = MODULE.Plan(
-            serving=frozenset({'consent-protocol-00003-abc'}),
-            protected=frozenset({'consent-protocol-00003-abc'}),
-            remove_tags=(),
-            delete_revisions=('consent-protocol-00001-abc',),
-        )
-        with tempfile.TemporaryDirectory() as temporary:
-            state = pathlib.Path(temporary) / 'consent-protocol.json'
-            with mock.patch.object(MODULE.time, 'time', return_value=10000):
-                self.assertFalse(MODULE.deferred_drain_ready(
-                    state, service='consent-protocol', project='hushh-pda-uat',
-                    region='us-central1', expected=fingerprint, plan=plan,
-                    drain_seconds=3660, release_run_id='123', carry_uat_clock=True,
-                ))
-            with mock.patch.object(MODULE.time, 'time', return_value=11000):
-                self.assertFalse(MODULE.deferred_drain_ready(
-                    state, service='consent-protocol', project='hushh-pda-uat',
-                    region='us-central1', expected=fingerprint, plan=plan,
-                    drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
-                ))
-            carried = json.loads(state.read_text())
-            self.assertEqual(carried['release_run_id'], '124')
-            self.assertEqual(carried['observed_at'], 10000)
-            self.assertEqual(carried['not_before'], 13660)
-            with mock.patch.object(MODULE.time, 'time', return_value=13660):
-                self.assertTrue(MODULE.deferred_drain_ready(
-                    state, service='consent-protocol', project='hushh-pda-uat',
-                    region='us-central1', expected=fingerprint, plan=plan,
-                    drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
-                ))
-
-    def test_uat_cross_release_clock_resets_if_backend_drain_identity_changes(self):
-        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
-        plan = MODULE.Plan(
-            serving=frozenset({'consent-protocol-00003-abc'}),
-            protected=frozenset({'consent-protocol-00003-abc'}),
-            remove_tags=(),
-            delete_revisions=('consent-protocol-00001-abc',),
-        )
-        changed = {
-            'generation': (fingerprint[:2] + (8, fingerprint[3]), plan),
-            'protected': (fingerprint, MODULE.Plan(
-                plan.serving, plan.protected | {'consent-protocol-00002-abc'},
-                (), plan.delete_revisions,
-            )),
-            'expanded_deletions': (fingerprint, MODULE.Plan(
-                plan.serving, plan.protected, (),
-                plan.delete_revisions + ('consent-protocol-00000-abc',),
-            )),
-        }
-        for reason, (new_fingerprint, new_plan) in changed.items():
-            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
-                state = pathlib.Path(temporary) / 'consent-protocol.json'
-                with mock.patch.object(MODULE.time, 'time', return_value=10000):
-                    MODULE.deferred_drain_ready(
-                        state, service='consent-protocol', project='hushh-pda-uat',
-                        region='us-central1', expected=fingerprint, plan=plan,
-                        drain_seconds=3660, release_run_id='123', carry_uat_clock=True,
-                    )
-                with mock.patch.object(MODULE.time, 'time', return_value=11000):
-                    self.assertFalse(MODULE.deferred_drain_ready(
-                        state, service='consent-protocol', project='hushh-pda-uat',
-                        region='us-central1', expected=new_fingerprint, plan=new_plan,
-                        drain_seconds=3660, release_run_id='124', carry_uat_clock=True,
-                    ))
-                self.assertEqual(json.loads(state.read_text())['observed_at'], 11000)
-
     def test_production_release_change_still_resets_drain_clock(self):
         fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
         plan = MODULE.Plan(
@@ -127,6 +58,29 @@ class RetentionSafetyTest(unittest.TestCase):
                         state, service='consent-protocol', project='hushh-pda',
                         region='us-central1', expected=fingerprint, plan=plan,
                         drain_seconds=3660, release_run_id=run_id,
+                    ))
+            self.assertEqual(json.loads(state.read_text())['observed_at'], 11000)
+
+    def test_production_protected_set_change_still_resets_drain_clock(self):
+        fingerprint = ((('consent-protocol-00003-abc', 100, ''),), '[]', 7, 'uid')
+        plan = MODULE.Plan(
+            serving=frozenset({'consent-protocol-00003-abc'}),
+            protected=frozenset({'consent-protocol-00003-abc'}),
+            remove_tags=(),
+            delete_revisions=('consent-protocol-00001-abc',),
+        )
+        widened = MODULE.Plan(
+            plan.serving, plan.protected | {'consent-protocol-00002-abc'},
+            (), plan.delete_revisions,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            state = pathlib.Path(temporary) / 'consent-protocol.json'
+            for now, current in ((10000, plan), (11000, widened)):
+                with mock.patch.object(MODULE.time, 'time', return_value=now):
+                    self.assertFalse(MODULE.deferred_drain_ready(
+                        state, service='consent-protocol', project='hushh-pda',
+                        region='us-central1', expected=fingerprint, plan=current,
+                        drain_seconds=3660, release_run_id='123',
                     ))
             self.assertEqual(json.loads(state.read_text())['observed_at'], 11000)
 
@@ -155,6 +109,9 @@ class RetentionSafetyTest(unittest.TestCase):
                 ('generation', {'fingerprint': [['rev', 100], '[]', 8, 'uid']}),
                 ('protected', {'protected': ['rev', 'rollback']}),
                 ('expanded_deletions', {'revisions': ['old', 'new']}),
+                # Only the helper carries a per-revision clock, against live
+                # Cloud Run.
+                ('revision_clocks', {'clocks': {}}),
             ):
                 with self.subTest(reason=reason):
                     current.write_text(json.dumps({**first, **change}))
@@ -2685,6 +2642,67 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertEqual(cloudrun.call_count, 3)
             for call in cloudrun.call_args_list:
                 self.assertIn("--carry-uat-clock", call.args[0])
+
+    def test_uat_pass_judges_a_revision_clock_receipt_at_its_own_check(self):
+        # Revisions keep separate deadlines, so the next one can fall due (10050)
+        # while later services run (validated at 10100). The receipt is invalid
+        # only if its helper left a revision due at its own check, or claims a
+        # check after the validation.
+        for checked_at, not_before, accepted in (
+            (10000, 10050, True), (10050, 10050, False), (10200, 10250, False),
+        ):
+            with (
+                self.subTest(checked_at=checked_at),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                directory = pathlib.Path(temporary)
+                output, state_dir = directory / "output", directory / "state"
+
+                def run(command, checked_at=checked_at, not_before=not_before,
+                        state_dir=state_dir):
+                    if command[2] == "consent-protocol":
+                        (state_dir / "consent-protocol.json").write_text(json.dumps({
+                            "schema_version": 1, "service": "consent-protocol",
+                            "project": "hushh-pda-uat", "region": "us-central1",
+                            "release_run_id": "123", "checked_at": checked_at,
+                            "clocks": {}, "not_before": not_before,
+                            "revisions": ["consent-protocol-00001-abc"],
+                        }))
+
+                with (
+                    mock.patch.dict(
+                        "os.environ",
+                        {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
+                    ),
+                    mock.patch.object(
+                        sys, "argv",
+                        ["maintenance", "--state-dir", str(state_dir), "--apply"],
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "find_release",
+                        return_value=(123, {"status": "healthy"}),
+                    ),
+                    mock.patch.object(MAINTENANCE, "live_release_matches", return_value=True),
+                    mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                    mock.patch.object(MAINTENANCE, "restore_state"),
+                    mock.patch.object(
+                        MAINTENANCE, "latest_deploy_observation", return_value=123
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "release_protection_flags", return_value=[]
+                    ),
+                    mock.patch.object(MAINTENANCE, "run_retention", side_effect=run),
+                    mock.patch.object(MAINTENANCE.time, "time", return_value=10100),
+                ):
+                    if accepted:
+                        self.assertEqual(MAINTENANCE.main(), 0)
+                        self.assertIn("drain_not_before=10050\n", output.read_text())
+                    else:
+                        with self.assertRaisesRegex(
+                            MAINTENANCE.retention.UnsafeState,
+                            "invalid pending UAT retention state",
+                        ):
+                            MAINTENANCE.main()
 
     def test_wrong_source_run_never_downloads_release_artifacts(self):
         good = {

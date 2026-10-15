@@ -1029,6 +1029,11 @@ def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
     prior = json.loads(older.read_text())
     if not isinstance(latest, dict) or not isinstance(prior, dict):
         raise retention.UnsafeState("invalid UAT drain state history")
+    if "clocks" in latest or "clocks" in prior:
+        # Only the helper carries a per-revision clock, by proving the revision
+        # unchanged in live Cloud Run since the newest receipt. Skipping an
+        # older receipt only restarts a revision's drain.
+        return False
     identity = (
         "schema_version", "service", "project", "region",
         "fingerprint", "protected",
@@ -1870,6 +1875,15 @@ def maintenance_pass() -> int:
             if state_file.is_symlink():
                 raise retention.UnsafeState("deferred UAT retention state is a symlink")
             state = json.loads(state_file.read_text())
+            now = int(time.time())
+            # Revisions keep separate deadlines, so the next one can fall due
+            # while later services run. Judge a per-revision receipt at its
+            # helper's own check, which deleted every revision due by then.
+            checked = (
+                state.get("checked_at")
+                if isinstance(state, dict) and "clocks" in state
+                else now
+            )
             if (
                 not isinstance(state, dict)
                 or state.get("schema_version") != 1
@@ -1877,8 +1891,10 @@ def maintenance_pass() -> int:
                 or state.get("project") != lane_config["project"]
                 or state.get("region") != REGION
                 or state.get("release_run_id") != str(run_id)
+                or type(checked) is not int
+                or checked > now
                 or type(state.get("not_before")) is not int
-                or state["not_before"] <= int(time.time())
+                or state["not_before"] <= checked
                 or not isinstance(state.get("revisions"), list)
                 or not state["revisions"]
             ):

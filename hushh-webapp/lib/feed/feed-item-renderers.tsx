@@ -736,11 +736,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label:
-          outcome === "ready"
-            ? "Your Personal World Model is ready"
-            : outcome === "partial"
-              ? "Your research needs a review"
-              : "Your research needs attention",
+          outcome === "ready" || outcome === "partial"
+            ? "Your Personal World Model is ready to review"
+            : "Personal World Model needs your attention",
         description:
           outcome === "attention"
             ? "Open your model to check the next step."

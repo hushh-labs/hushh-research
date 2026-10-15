@@ -58,6 +58,40 @@ async def update_preferences(user_id, token, *, enabled, email_enabled):
     return public_preferences(row)
 
 
+async def enroll_default(user_id, token):
+    """Default-on research for an owner without a choice on record. The version
+    records the default policy, not proof that a disclosure was seen. Any
+    existing row, including an explicit opt-out, is never modified."""
+    if await validate_first_party_owner_token(user_id, token) is None:
+        raise PermissionError("Owner session ended")
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        await lock_connection_graph_users_async(conn, user_ids=[user_id])
+        if await validate_first_party_owner_token(user_id, token, conn=conn) is None:
+            raise PermissionError("Owner session ended")
+        await conn.execute(
+            """INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation,consent_version)
+            VALUES ($1,TRUE,TRUE,$2,'pwm-default-v1') ON CONFLICT (user_id) DO NOTHING""",
+            user_id,
+            uuid.uuid4(),
+            timeout=5,
+        )
+
+
+async def draft_completed(user_id, draft_id):
+    """True once the draft reached a terminal outcome the owner was told about."""
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as connection:
+        return bool(
+            await connection.fetchval(
+                "SELECT 1 FROM pwm_completion_events WHERE user_id=$1 AND draft_id=$2",
+                user_id,
+                draft_id,
+                timeout=5,
+            )
+        )
+
+
 async def checkpoint_committed(conn, user_id, state):
     """Runs only inside the winning encrypted checkpoint transaction."""
     row = await conn.fetchrow(
@@ -78,8 +112,12 @@ async def checkpoint_committed(conn, user_id, state):
         return
     if not row["enabled"]:
         raise PermissionError("Research consent ended")
+    # A newly active draft restarts the re-preparation interval; resumed
+    # slices of the same draft keep it.
     await conn.execute(
-        "UPDATE pwm_research_preferences SET active_draft_id=$2,auto_started_at=COALESCE(auto_started_at,NOW()) WHERE user_id=$1",
+        """UPDATE pwm_research_preferences SET active_draft_id=$2,
+        auto_started_at=CASE WHEN auto_started_at IS NULL OR active_draft_id IS DISTINCT FROM $2
+        THEN NOW() ELSE auto_started_at END WHERE user_id=$1""",
         user_id,
         draft_id,
         timeout=5,

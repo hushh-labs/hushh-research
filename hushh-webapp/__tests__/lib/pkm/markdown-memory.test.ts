@@ -830,6 +830,29 @@ describe("encrypted Markdown memory", () => {
       .toMatchObject({ markdown: "", persisted: true });
   });
 
+  it("keeps private research decisions through editor saves and chat appends, outside model context", async () => {
+    const key = "a".repeat(64);
+    const claims = { [key]: { key, decision: "rejected", text: "Alice likes blue.", topic: "style",
+      decided_at: "2026-10-01T00:00:00.000Z", basis: "owner_declaration" } };
+    let cloud: Record<string, unknown> = { markdown: "# Memory\n\n## Facts\n- I live in Boston.\n", _pwm_claims: claims };
+    getStaleFirst.mockImplementation(async () => ({ data: cloud }));
+    savePreparedDomain.mockImplementation(async (params) => {
+      const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true };
+    });
+    publishValidatedAuthSessionOwner("user-1");
+    const loaded = await loadMarkdownMemory(syncParams);
+    const saved = await replaceMarkdownMemoryDocument({ ...syncParams, expectedMarkdown: loaded!.markdown, expectedPersisted: true,
+      markdown: "# Memory\n\n## Facts\n- I live in Seattle.\n", beforeEffect: async () => {} });
+    expect(saved.success).toBe(true);
+    expect(cloud._pwm_claims).toEqual(claims);
+    await stageMarkdownMemoryFacts({ ...syncParams, facts: ["I like tea."] });
+    await vi.waitFor(() => expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("synced"));
+    expect(cloud.markdown).toContain("- I like tea.");
+    expect(cloud._pwm_claims).toEqual(claims);
+    expect(peekMarkdownMemory("user-1")?.pwmClaims).toEqual(claims);
+    expect(markdownMemoryToAgentContext(peekMarkdownMemory("user-1")!).text).not.toMatch(/blue/i);
+  });
+
   it("does not publish an edit after the unlocked session changes", async () => {
     let current = true;
     savePreparedDomain.mockImplementation(async (params) => {

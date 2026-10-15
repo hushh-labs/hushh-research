@@ -25,6 +25,8 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
     assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
+    execution = targeted.split("      - name: Run targeted web contract checks\n", 1)[1].split("\n      - name:", 1)[0]
+    assert execution.count("PLAYWRIGHT_SHARD:") == 1, "duplicate PLAYWRIGHT_SHARD environment key"
     assert "timeout-minutes: 30" in targeted
     assert "fail-fast: false" in targeted
 
