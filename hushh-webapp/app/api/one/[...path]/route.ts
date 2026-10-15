@@ -126,6 +126,7 @@ function resolveOneUpstreamTimeoutMs(
   path: string,
   acceptHeader: string | null,
 ): number | null {
+  if (path === "world-model/source-reviews") return 170_000;
   if (path === "pod/lifecycle/stream") {
     return null;
   }

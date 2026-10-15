@@ -15,7 +15,8 @@ Classes:
 * ``AUTHORITY``: consent, grants, approvals, passkeys, scope catalogues; metadata that
   says who may do what, never the information itself. Also an owner's controls over
   their own hub records that read and return no content (erase a conversation;
-  withdraw, check or stop queued input), so an owner whose agent moved keeps them.
+  withdraw, check or stop queued input; read bounded source-reset cursors with
+  no record values or record identifiers), so an owner whose agent moved keeps them.
 * ``NETWORK``: person-to-person and directory features the hub brokers between
   accounts (connections, messages, Location sharing, marketplace, referrals).
 * ``CIPHERTEXT``: sealed records the hub stores and indexes but does not open.
@@ -53,6 +54,13 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/world-model/ensure
+DELETE,GET,POST /api/one/world-model/source-reviews
+POST /api/one/world-model/source-reviews/complete
+POST /api/one/calendar/schedule/today
+POST /api/one/calendar/schedule/availability
+POST /api/one/calendar/attendance/review
+POST /api/one/calendar/attendance/confirm
 POST /api/one/files/analyze
 DELETE,GET,POST /api/one/world-model/jobs
 POST /api/one/world-model/complete
@@ -159,6 +167,10 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET,PUT /api/one/world-model/preferences
+POST /api/one/world-model/invitations/reject
+DELETE,GET,POST /api/one/hosted-memory/pilot
+GET /api/one/source-journal/events
 POST /api/one/files/storage
 GET,POST /api/one/world-model/invitations
 DELETE /api/one/world-model/invitations/{invitation_id}
@@ -195,7 +207,12 @@ POST /api/one/webauthn/register/verify
 POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
+[NETWORK]
+POST /api/one/world-model/invitation-preview
+POST /api/one/calendar/rescheduling/options
+GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
 GET,PUT /api/one/files/objects/{namespace}/{object_id}
@@ -229,6 +246,7 @@ GET /api/pkm/metadata/{user_id}
 POST /api/pkm/store-domain
 POST /api/pkm/store-domain/validate
 [CONNECTOR_ADMIN]
+GET /api/one/source-journal/connectors
 GET /api/connectors/google_drive/collection/status
 POST /api/kai/gmail/connect/complete
 POST /api/kai/gmail/connect/native/complete

@@ -37,6 +37,7 @@ class CalendarConnectComplete(_UserRequest):
 
 
 class CalendarNativeConnectStart(BaseModel):
+    include_calendar_list: bool = False
     access_level: Literal["read", "manage"] = "read"
 
 
@@ -139,6 +140,9 @@ async def start_native_connect(
             user_id=firebase_uid,
             service="calendar",
             access_level=payload.access_level if payload else "read",
+            **(
+                {"include_calendar_list": True} if payload and payload.include_calendar_list else {}
+            ),
         )
     except Exception as exc:
         raise _http(exc) from exc

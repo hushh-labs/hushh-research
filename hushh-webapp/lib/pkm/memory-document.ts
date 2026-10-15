@@ -42,7 +42,7 @@ import {
 /** Who the rendered document is for. Decides which exclusion rule applies. */
 export type MemoryDocumentAudience = "self" | "agent";
 
-export type MemoryDomainFreshnessStatus = "current" | "unavailable";
+export type MemoryDomainFreshnessStatus = "current" | "unavailable" | "conflicted";
 
 export interface MemoryDomainFreshness {
   domain: string;
@@ -92,6 +92,8 @@ export interface MemoryAccountIdentity {
 
 export interface BuildMemoryDocumentParams {
   snapshot: PkmMemorySnapshot;
+  /** Authenticated owner fence for the private living-source fact view. */
+  ownerUserId?: string;
   /**
    * The decrypted domain objects, keyed by domain.
    *
@@ -103,6 +105,8 @@ export interface BuildMemoryDocumentParams {
   domainData?: Record<string, unknown>;
   /** Account-level identity. Omitted entirely when the caller has none. */
   account?: MemoryAccountIdentity | null;
+  /** Canonical display name only after an owner-scoped profile source was verified. */
+  verifiedProfileName?: string | null;
   /**
    * Every domain the owner has, including ones that failed to load. A domain
    * absent from this list but present in the snapshot is still rendered; a
@@ -320,6 +324,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   // complete owner-authored Soul source remains separate and is never copied.
   const soulSource = sourceByDomain.get("one_memory");
   const soul = domainData?.one_memory as { markdown?: string; updated_at?: string; _deleted_fact_labels?: string[] } | undefined;
+  const labelledSoul = readLabelledSoulFacts(soul?.markdown);
   const superseded = new Map<string, Set<string>>();
   const suppress = (domain: string, paths: readonly string[]) => {
     const covered = superseded.get(domain) ?? new Set<string>();
@@ -333,41 +338,60 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   );
   if (audience === "self" && soulSource && (soul || soulSource.unavailableReason)) {
     const scopes = [...SCOPE_PATH_TO_LABEL.map(([path]) => `attr.${path.startsWith("profile.") ? "professional" : "identity"}.${path}`), "attr.identity.identity_profile.declared_age"];
-    const deleted = new Set(soul?._deleted_fact_labels ?? []);
+    const deleted = new Set((soul?._deleted_fact_labels ?? []).map(soulFactKey));
     const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) })
       .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
+    // Legal name is a different field from the account's display name. Only
+    // owner-authored claims about the display/preferred name can contradict a
+    // verified canonical profile display name.
+    const nameClaims = !soulSource.unavailableReason
+      ? ["display name", "preferred name"].map(label => labelledSoul.get(label))
+        .filter((fact): fact is NonNullable<typeof fact> => Boolean(fact && !deleted.has(soulFactKey(fact.label))))
+      : [];
+    const normalizedName = (value: string) => value.normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+    const canonicalName = params.verifiedProfileName?.trim() || null;
+    const nameConflicts = canonicalName
+      ? nameClaims.filter(fact => normalizedName(fact.value) !== normalizedName(canonicalName))
+      : [];
     if (!soulSource.unavailableReason) {
       const paths = [...facts.map(fact => [fact.scope.split(".")[1]!, fact.relativePath] as const),
         ...SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label)))
           .map(([path]) => [path.startsWith("profile.") ? "professional" : "identity", path] as const)];
-      if (deleted.has("date of birth") || (readLabelledSoulFacts(soul?.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) paths.push(["identity", "identity_profile.declared_age"]);
+      if (deleted.has("date of birth") || (labelledSoul.has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) paths.push(["identity", "identity_profile.declared_age"]);
       for (const [domain, path] of paths) {
         suppress(domain, [path]);
       }
-      const labelled = readLabelledSoulFacts(soul?.markdown);
-      if (labelled.has("sex") || deleted.has("sex")) {
+      if (labelledSoul.has("sex") || deleted.has("sex")) {
         suppress("identity", ["profile.sex"]);
         if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
       }
-      if (labelled.has("legal name") || deleted.has("legal name")) suppress("identity", ["full_name", "legal_name", "name", "profile.full_name", "profile.legal_name", "profile.name"]);
+      if (labelledSoul.has("legal name") || deleted.has("legal name")) suppress("identity", ["full_name", "legal_name", "name", "profile.full_name", "profile.legal_name", "profile.name"]);
     } else {
       // The canonical correction/deletion source could not be checked, so an
       // older stored sex value must not appear current beside that failure.
       suppress("identity", ["identity_profile.sex", "profile.sex"]);
       if (hasProfessionalRow("sex")) suppress("professional", ["profile.sex"]);
     }
-    if (facts.length || soulSource.unavailableReason) {
+    if (facts.length || nameClaims.length || soulSource.unavailableReason) {
       excludedDomains.delete("one_memory");
-      freshness.push({ domain: "one_memory", title: "Identity facts", status: soulSource.unavailableReason ? "unavailable" : "current",
-        contentRevision: soulSource.contentRevision, updatedAt: soul?.updated_at ?? null, cardCount: facts.length,
+      freshness.push({ domain: "one_memory", title: "Identity facts", status: soulSource.unavailableReason ? "unavailable" : nameConflicts.length ? "conflicted" : "current",
+        contentRevision: soulSource.contentRevision, updatedAt: soul?.updated_at ?? null, cardCount: facts.length + nameClaims.length,
         ...(soulSource.unavailableReason ? { reason: soulSource.unavailableReason } : {}) });
       body.push("## Identity facts", "", `_memory.md revision ${soulSource.contentRevision ?? "unknown"}._`, "");
       if (soulSource.unavailableReason) body.push(`_Unavailable: ${soulSource.unavailableReason}._`, "");
       else {
+        if (nameConflicts.length) body.push("> **Name conflict.** An owner-authored display or preferred name differs from the verified account profile display name. Review the two sources before treating either as the same fact.", "");
         body.push("| Fact | Value |", "| --- | --- |");
         for (const fact of facts) {
-          body.push(`| ${escapeTableCell(fact.path.replaceAll("_", " "))} | ${escapeTableCell(fact.value)} |`);
+          const label = soulFactKey(fact.sourceLabel) === "legal name"
+            ? "Legal name (owner-authored Soul)" : fact.path.replaceAll("_", " ");
+          body.push(`| ${escapeTableCell(label)} | ${escapeTableCell(fact.value)} |`);
           sourceLinks.push({ domain: "one_memory", path: `markdown.${fact.sourceLabel.toLowerCase()}`, contentRevision: soulSource.contentRevision, manifestRevision: soulSource.manifestRevision ?? null });
+        }
+        for (const fact of nameClaims) {
+          const conflicted = nameConflicts.includes(fact);
+          body.push(`| ${escapeTableCell(`${fact.label} (owner-authored Soul${conflicted ? "; conflicted" : ""})`)} | ${escapeTableCell(fact.value)} |`);
+          sourceLinks.push({ domain: "one_memory", path: `markdown.${soulFactKey(fact.label)}`, contentRevision: soulSource.contentRevision, manifestRevision: soulSource.manifestRevision ?? null });
         }
         body.push("");
       }
@@ -382,7 +406,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     if (hasProfessionalRow("age")) suppress("professional", ["profile.age"]);
     const identitySource = sourceByDomain.get("identity");
     const identity = domainData?.identity as { identity_profile?: { date_of_birth?: unknown } } | undefined;
-    const labelledBirth = readLabelledSoulFacts(soul?.markdown).get("date of birth")?.value;
+    const labelledBirth = labelledSoul.get("date of birth")?.value;
     const birthDeleted = (soul?._deleted_fact_labels ?? []).includes("date of birth");
     const structuredBirth = identity?.identity_profile?.date_of_birth;
     const birth = labelledBirth ?? (!birthDeleted && !soulSource?.unavailableReason && !identitySource?.unavailableReason && typeof structuredBirth === "string" ? structuredBirth : null);
@@ -429,7 +453,8 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
 
     const completeForFreshness: DomainRows | null =
       domainData && domain in domainData
-        ? collectDomainRows({ domain, domainData: domainData[domain], audience })
+        ? collectDomainRows({ domain, domainData: domainData[domain], audience,
+          ownerUserId: params.ownerUserId, now: builtAt })
         : null;
     // Corrected/deleted labelled identity facts come from Soul's revision.
     // Preserve the source blob; omit only its superseded rows in this view.
@@ -471,9 +496,10 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   }
 
   const unavailable = freshness.filter((entry) => entry.status === "unavailable");
+  const conflicted = freshness.filter((entry) => entry.status === "conflicted");
   const truncatedSections = freshness.filter((entry) => entry.truncated);
   // A truncated section is not a complete record, even though it rendered.
-  const complete = unavailable.length === 0 && truncatedSections.length === 0;
+  const complete = unavailable.length === 0 && conflicted.length === 0 && truncatedSections.length === 0;
 
   const header: string[] = [
     "# Memory",
@@ -495,6 +521,9 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
         "This document is not a complete record of what is held.",
       "",
     );
+  }
+  if (conflicted.length > 0) {
+    header.push("> **Conflict.** A verified profile fact disagrees with an owner-authored claim of the same field. Review the sources before relying on this document.", "");
   }
 
   if (excludedDomains.size > 0) {

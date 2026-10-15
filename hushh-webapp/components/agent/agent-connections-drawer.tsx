@@ -132,9 +132,8 @@ export function AgentConnectionsDrawer({
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
     // reference restores focus reliably for both pointer and keyboard users.
     returnFocus.current = triggerRef.current;
-    // The transcript becomes inert in this commit. Move focus now so an
-    // immediate Escape cannot land on the old, inert trigger before a RAF.
-    if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
+    // Entry completion owns autofocus. Avoid forcing layout during the opening
+    // commit; the existing keyboard gap handler admits Escape and Tab meanwhile.
   }, [open, triggerRef, historyRenderer]);
   useEffect(() => {
     if (open) return;
@@ -176,16 +175,17 @@ export function AgentConnectionsDrawer({
       // engines retain the authored trigger until the body's entry completes.
       // An Escape originating in a provider/Radix portal must not also close
       // this drawer when that portal disposes itself during the same event.
-      if (
-        event.key === "Escape" &&
-        !event.defaultPrevented &&
-        !modalActive.current &&
-        (event.target === document.body ||
-          event.target === document.documentElement ||
-          event.target === triggerRef.current ||
-          event.target === returnFocus.current)
-      )
-        onOpenChange(false);
+      if (!historyActive.current || event.defaultPrevented || modalActive.current) return;
+      const inFocusGap = event.target === document.body ||
+        event.target === document.documentElement ||
+        event.target === triggerRef.current || event.target === returnFocus.current;
+      if (!inFocusGap) return;
+      if (event.key === "Escape") onOpenChange(false);
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const elements = focused();
+        (event.shiftKey ? elements.at(-1) : elements[0])?.focus({ preventScroll: true });
+      }
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);

@@ -120,6 +120,7 @@ vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
     GmailReceiptsService: mocks.gmailReceiptsService,
     GmailReceiptRequestError: actual.GmailReceiptRequestError,
     isRetryableReceiptScanPageError: actual.isRetryableReceiptScanPageError,
+    isReceiptScanContinuationExpiredError: actual.isReceiptScanContinuationExpiredError,
     isReceiptConnectionLostError: actual.isReceiptConnectionLostError,
     isReceiptScanInProgressError: (error: unknown) =>
       Boolean(
@@ -1254,6 +1255,29 @@ describe("ProfileReceiptsPage", () => {
     // Read once, never retried; the real connection state is re-read.
     expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
     expect(view.refreshStatus).toHaveBeenCalledWith({ force: true });
+  });
+
+  it.each(["Try again", "hero"])("stops a rejected continuation and %s starts fresh with valid rows still visible", async retryAction => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockResolvedValueOnce({ items: [makeReceipt(1, "Myntra")], page: 1, per_page: 6,
+        total: 1, has_more: true, next_cursor: "rejected-cursor", coverage: makeLiveCoverage(1) })
+      .mockRejectedValueOnce(new GmailReceiptRequestError("Receipt continuation expired. Start a new scan.",
+        409, "GMAIL_RECEIPT_CURSOR_EXPIRED", false))
+      .mockResolvedValueOnce({ items: [makeReceipt(1, "Myntra")], page: 1, per_page: 6,
+        total: 1, has_more: false, coverage: makeLiveCoverage(1) });
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+    await screen.findByRole("button", { name: "Try again" });
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load older receipts" })).toBeNull();
+    if (retryAction === "hero") await startReceiptSync();
+    else fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(GmailReceiptsService.scanReceipts).mock.calls[2][0]).toMatchObject({ page: 1 });
+    expect(vi.mocked(GmailReceiptsService.scanReceipts).mock.calls[2][0].cursor).toBeUndefined();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Scanning" })).toBeNull());
   });
 
   it("stops an empty scan at the fifty-page receipt bound", async () => {
@@ -2556,7 +2580,6 @@ describe("ProfileReceiptsPage", () => {
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
-    await startReceiptSync();
 
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,

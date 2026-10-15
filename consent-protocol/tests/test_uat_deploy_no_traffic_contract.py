@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,14 +24,24 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
     tmp_path: Path, monkeypatch, capsys, flag_value: str, unexpected_key: str | None
 ) -> None:
-    # UAT bootstrap adds this flag before invoking the real strict shape checker.
-    # Reproduce that boundary without cloud credentials or changing local envs.
+    # Exercise the production profile migration without cloud credentials.
     checker_path = REPO_ROOT / "scripts/ops/verify-runtime-profile-env-shape.py"
     spec = importlib.util.spec_from_file_location("runtime_profile_shape", checker_path)
     assert spec is not None and spec.loader is not None
     checker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(checker)
     flag = "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED"
+    bootstrap = _read("scripts/env/bootstrap_profiles.sh")
+    functions = []
+    for name in ("remove_env_keys", "copy_template_if_needed"):
+        match = re.search(rf"(?ms)^{name}\(\) \{{.*?(?=^[a-z_][a-z0-9_]*\(\) \{{|\Z)", bootstrap)
+        assert match is not None
+        functions.append(match.group(0))
+    migration = (
+        "\n".join(functions) + '\nSUMMARY=(); FORCE=false; copy_template_if_needed "$1" "$2"\n'
+    )
+    bash = shutil.which("bash")
+    assert bash is not None
     for templates, runtimes in (
         (checker.BACKEND_TEMPLATE_FILES, checker.BACKEND_RUNTIME_FILES),
         (checker.FRONTEND_TEMPLATE_FILES, checker.FRONTEND_RUNTIME_FILES),
@@ -49,7 +60,30 @@ def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
                     )
                     + f"\n{flag}={flag_value}\n"
                 )
+                runtime_text = re.sub(
+                    r"(?m)^NEXT_PUBLIC_FIREBASE_API_KEY=.*$",
+                    "NEXT_PUBLIC_FIREBASE_API_KEY=cached-test-key",
+                    runtime_text,
+                )
             (tmp_path / runtime).write_text(runtime_text, encoding="utf-8")
+            if template in checker.FRONTEND_TEMPLATE_FILES:
+                subprocess.run(  # noqa: S603 - fixed production helpers, temporary fixture files only.
+                    [
+                        bash,
+                        "-c",
+                        migration,
+                        "profile-migration",
+                        (tmp_path / template).as_posix(),
+                        (tmp_path / runtime).as_posix(),
+                    ],
+                    env={**os.environ, "REPO_ROOT": tmp_path.as_posix()},
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                migrated = (tmp_path / runtime).read_text(encoding="utf-8")
+                assert flag not in migrated
+                assert "NEXT_PUBLIC_FIREBASE_API_KEY=cached-test-key" in migrated
     uat_runtime = tmp_path / "hushh-webapp/.env.uat.local"
     if unexpected_key is not None:
         with uat_runtime.open("a", encoding="utf-8") as runtime_file:
@@ -69,7 +103,7 @@ def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
     else:
         assert result == 0, output.err
         for template in checker.FRONTEND_TEMPLATE_FILES:
-            assert f"{flag}=false" in (tmp_path / template).read_text(encoding="utf-8").splitlines()
+            assert flag not in (tmp_path / template).read_text(encoding="utf-8")
 
 
 def _read(path: str) -> str:
@@ -167,52 +201,67 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 
 
 @pytest.mark.parametrize(
-    ("enabled", "deploy_backend", "allowed"),
-    [
-        ("true", "false", False),
-        ("true", "", False),
-        ("true", "true", True),
-        ("false", "false", True),
-        ("false", "true", True),
-    ],
+    "scope",
+    ["auto", "frontend", "backend"],
 )
-def test_initial_contacts_opt_in_requires_a_paired_backend_before_builds(
-    enabled: str, deploy_backend: str, allowed: bool
+def test_initial_contacts_source_change_requires_paired_scope_before_builds(
+    tmp_path: Path, scope: str
 ) -> None:
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     scope_index = next(index for index, step in enumerate(steps) if step.get("id") == "scope")
-    pairing_index = next(
-        index for index, step in enumerate(steps) if step.get("id") == "initial-contacts-pairing"
-    )
-    pairing = steps[pairing_index]
+    scope_step = steps[scope_index]
     frontend_build_index = next(
         index for index, step in enumerate(steps) if step.get("id") == "start-frontend-image-build"
     )
-    assert scope_index < pairing_index < frontend_build_index
-    assert "if" not in pairing
-    assert "continue-on-error" not in pairing
-    assert pairing["env"]["DEPLOY_BACKEND"] == "${{ steps.scope.outputs.deploy_backend }}"
-    assert workflow["env"]["INITIAL_CONTACTS_ONBOARDING_ENABLED"] == (
-        "${{ inputs.initial_contacts_onboarding && 'true' || 'false' }}"
+    assert scope_index < frontend_build_index
+    assert "scripts/ci/resolve-deploy-scope.py" in scope_step["run"]
+    assert "if" not in scope_step and "continue-on-error" not in scope_step
+    for args in (
+        ("init",),
+        ("config", "user.email", "ci@example.test"),
+        ("config", "user.name", "CI"),
+    ):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)  # noqa: S603 - fixed Git fixture commands.
+    (tmp_path / "README.md").write_text("compatible baseline\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "baseline"], cwd=tmp_path, check=True, capture_output=True
     )
-    bash = shutil.which("bash")
-    assert bash is not None
-    result = subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML.
-        [bash, "-c", pairing["run"]],
-        env={
-            **os.environ,
-            "INITIAL_CONTACTS_ONBOARDING_ENABLED": enabled,
-            "DEPLOY_BACKEND": deploy_backend,
-        },
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    source = tmp_path / "hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts"
+    source.parent.mkdir(parents=True)
+    source.write_text(_read("hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts"))
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "signup source"], cwd=tmp_path, check=True, capture_output=True
+    )
+    result = subprocess.run(  # noqa: S603 - production resolver against a synthetic local Git repository.
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/ci/resolve-deploy-scope.py"),
+            "--requested-scope",
+            scope,
+            "--target-sha",
+            "HEAD",
+            "--backend-base-sha",
+            base,
+            "--frontend-base-sha",
+            base,
+            "--json",
+        ],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         check=False,
     )
-    assert (result.returncode == 0) is allowed
-    if not allowed:
-        assert "paired backend deployment" in result.stderr
-        assert "scope=all" in result.stderr
+    if scope == "auto":
+        assert result.returncode == 0, result.stderr
+        decision = json.loads(result.stdout)
+        assert decision["deploy_backend"] is True and decision["deploy_frontend"] is True
+    else:
+        assert result.returncode != 0
+        assert "choose scope=all" in result.stderr
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
@@ -573,16 +622,21 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         genai_project: str,
         *,
         deny_project_discovery: bool,
+        deploy_project: str = "hushh-pda-uat",
+        image: str = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
+        sha: str = "b" * 40,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603 - fixed bash executes only repository YAML with a fake gcloud
             ["/bin/bash", "-c", script],
             env={
-                "PROJECT_ID": "hushh-pda-uat",
+                "PROJECT_ID": deploy_project,
                 "genai_project_id": genai_project,
                 "_RUNTIME_SERVICE_ACCOUNT": "runtime@hushh-pda-uat.iam.gserviceaccount.com",
                 "_DEPLOY_ENV": deploy_env,
                 "_CLOUD_RUN_NO_TRAFFIC": no_traffic,
                 "_VERIFY_MANAGED_VERTEX_RUNTIME": probe_enabled,
+                "_IMAGE_REFERENCE": image,
+                "_DEPLOY_SHA": sha,
                 "DENY_PROJECT_DISCOVERY": "true" if deny_project_discovery else "false",
             },
             capture_output=True,
@@ -597,8 +651,6 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
     assert "CALL:iam service-accounts describe" in deferred.stderr
 
     for deploy_env, no_traffic, probe_enabled, project in (
-        ("uat", "false", "true", uat),
-        ("uat", "true", "false", uat),
         ("dev", "true", "true", uat),
         ("production", "true", "true", uat),
         ("uat", "true", "true", "hushh-pda-uat"),
@@ -612,6 +664,29 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
         )
         assert denied.returncode != 0, (deploy_env, no_traffic, probe_enabled, project)
         assert "CALL:services list --enabled" in denied.stderr
+
+    # Missing capability-proof prerequisites fail even when administrative
+    # reads would succeed; static IAM must not replace the mandatory probe.
+    for overrides in (
+        {"no_traffic": "false"},
+        {"probe_enabled": "false"},
+        {"deploy_project": "another-project"},
+        {"image": "gcr.io/hushh-pda-uat/consent-protocol:latest"},
+        {"image": "gcr.io/another-project/consent-protocol@sha256:" + "a" * 64},
+        {"sha": "short-sha"},
+    ):
+        rejected = run_case(
+            **{
+                "deploy_env": "uat",
+                "no_traffic": "true",
+                "probe_enabled": "true",
+                "genai_project": uat,
+                "deny_project_discovery": False,
+                **overrides,
+            }
+        )
+        assert rejected.returncode != 0, overrides
+        assert "CALL:services list" not in rejected.stderr
 
     static = run_case("production", "true", "true", uat, deny_project_discovery=False)
     assert static.returncode == 0, static.stderr
@@ -634,6 +709,106 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
         'verdict.get("one_voice_probe_ok") is not True',
     ):
         assert probe.index(required) < advisory
+
+
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    probe = next(
+        step["args"][-1]
+        for step in build["steps"]
+        if step.get("id") == "verify-managed-vertex-runtime"
+    )
+    # Run the owning receipt parser and release decision. The job itself is
+    # represented by its exit status/log line; no provider or gcloud is called.
+    script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
+    project = load_profile("uat")["project"]
+    healthy = {
+        "check": "managed_vertex_runtime",
+        "ok": True,
+        "classification": "dependency_ok",
+        "candidate_models_exercised": True,
+        "config_hash": "checked-profile-hash",
+        "one_chat_project": project,
+        "one_chat_probe_ok": True,
+        "one_voice_project": project,
+        "one_voice_probe_ok": True,
+        "live_model": "reviewed-live-model",
+        "live_location": "reviewed-live-location",
+        "probes": [
+            {"probe": name, "ok": True, "classification": "dependency_ok"}
+            for name in ("one_chat", "embedding", "one_voice_live")
+        ],
+    }
+
+    def run_verdict(
+        report: dict | str,
+        exit_status: int = 0,
+        *,
+        deploy_env: str = "uat",
+        voice_enabled: str = "true",
+    ) -> subprocess.CompletedProcess[str]:
+        line = (
+            "managed_vertex_probe_result " + json.dumps(report)
+            if isinstance(report, dict)
+            else report
+        )
+        return subprocess.run(  # noqa: S603 - fixed shell executes repository verdict logic with synthetic values
+            ["/bin/bash", "-c", script],
+            env={
+                "PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath,
+                "PROJECT_ID": "hushh-pda-uat",
+                "genai_project_id": project,
+                "_DEPLOY_ENV": deploy_env,
+                "_ONE_VOICE_LIVE_ENABLED": voice_enabled,
+                "_MANAGED_AI_CONFIG_HASH": "checked-profile-hash",
+                "_GENAI_PROJECT_ID": project,
+                "_VERTEX_LIVE_MODEL_ID": "reviewed-live-model",
+                "_VERTEX_LIVE_LOCATION": "reviewed-live-location",
+                "probe_line": line,
+                "execute_status": str(exit_status),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    passed = run_verdict(healthy)
+    assert passed.returncode == 0, passed.stderr
+    for invalid in (
+        "",
+        "managed_vertex_probe_result not-json",
+        {**healthy, "config_hash": "different-profile"},
+        {**healthy, "one_chat_project": "different-project"},
+        {**healthy, "one_chat_probe_ok": False},
+        {**healthy, "one_voice_probe_ok": False},
+        {**healthy, "ok": False},
+        {**healthy, "check": "different-check"},
+        {**healthy, "candidate_models_exercised": False},
+        {**healthy, "classification": "provider_unavailable"},
+        {**healthy, "probes": []},
+        {k: v for k, v in healthy.items() if k != "probes"},
+        {**healthy, "probes": ["invalid-probe"]},
+        {**healthy, "probes": [{"probe": "embedding", "ok": False}]},
+    ):
+        rejected = run_verdict(invalid)
+        assert rejected.returncode != 0, invalid
+
+    # Regression: chat success alone used to let a failed full runtime job
+    # enter the provider-outage advisory and green the candidate build.
+    partial = {
+        **healthy,
+        "ok": False,
+        "classification": "provider_unavailable",
+        "probes": [
+            healthy["probes"][0],
+            {"probe": "embedding", "ok": False, "classification": "provider_unavailable"},
+        ],
+    }
+    assert run_verdict(partial, 85).returncode != 0
+    assert run_verdict(healthy, 1).returncode != 0
+    legacy = run_verdict(partial, 85, deploy_env="dev", voice_enabled="false")
+    assert legacy.returncode == 0, legacy.stderr
+    assert "Release CONTINUES" in legacy.stdout
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:

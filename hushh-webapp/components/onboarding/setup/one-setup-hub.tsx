@@ -25,9 +25,10 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { WorldModelResearchService } from "@/lib/services/world-model-research-service";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { isPersonalAgentReadyFromCachedFeed } from "@/lib/feed/personal-agent-readiness";
@@ -101,6 +102,13 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const [pwmConsent, setPwmConsent] = useState<{
+    owner: string;
+    enabled: boolean;
+    email: boolean;
+  } | null>(null);
+  const preparePwm = pwmConsent?.owner === user?.uid && pwmConsent?.enabled;
+  const emailPwm = pwmConsent?.owner === user?.uid && pwmConsent?.email;
   const [finalizationError, setFinalizationError] = useState<string | null>(
     null,
   );
@@ -183,7 +191,7 @@ export function OneSetupHub() {
     const path = raw.split(/[?#]/)[0] ?? raw;
     return isOneSetupSurfaceRoute(path) ? null : raw;
   }, [searchParams]);
-  const completionTarget = returnTo || ROUTES.ONE_HOME;
+  const completionTarget = returnTo || ROUTES.HOME;
 
   useEffect(() => {
     if (!user?.uid) {
@@ -211,7 +219,10 @@ export function OneSetupHub() {
       const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
       if (saved) setPrereqSnapshot(project(saved));
     });
-    const cleanup = () => { active = false; unsubscribe(); };
+    const cleanup = () => {
+      active = false;
+      unsubscribe();
+    };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setPrereqSnapshot(project(cached));
@@ -373,7 +384,7 @@ export function OneSetupHub() {
   });
 
   const shouldShowContactsWelcome = useCallback(() => {
-    if (!user?.uid || !initialContactOnboardingEnabled()) return false;
+    if (!user?.uid) return false;
     const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     return bootstrap?.initialContactsWelcomeAcknowledged === false ||
       InitialContacts.getSnapshot().ownerId === user.uid;
@@ -419,6 +430,13 @@ export function OneSetupHub() {
         vaultOwnerToken,
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
+
+      if (preparePwm) {
+        await WorldModelResearchService.updatePreferences(
+          { vaultKey, vaultOwnerToken },
+          { enabled: true, email_enabled: !!emailPwm },
+        );
+      }
 
       await acknowledgeOneSetupExit({
         userId: user.uid,
@@ -470,6 +488,8 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
+    preparePwm,
+    emailPwm,
     queueEntryWelcome,
     resolveFinalizedSetupTarget,
     shouldShowContactsWelcome,
@@ -873,7 +893,7 @@ export function OneSetupHub() {
                     until there is an agent state to report. */}
                 {runtimeChoiceComplete ? <OneAgentPresence /> : null}
               </SettingsGroup>
-              {initialContactOnboardingEnabled() && initialContacts.ownerId === user?.uid ? (
+              {initialContacts.ownerId === user?.uid ? (
                 <SettingsGroup separatorInset>
                   <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
                     description={initialContacts.status === "ready"
@@ -936,6 +956,46 @@ export function OneSetupHub() {
               ) : null}
             </div>
             <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
+                <div className="mb-4 space-y-2 text-xs text-muted-foreground">
+                  <label className="flex min-h-11 items-start gap-3 py-2">
+                    <Checkbox
+                      checked={!!preparePwm}
+                      disabled={dismissing}
+                      data-voice-control-id="one_setup_pwm_consent"
+                      onCheckedChange={(checked) =>
+                        user &&
+                        setPwmConsent({
+                          owner: user.uid,
+                          enabled: checked === true,
+                          email: !!emailPwm,
+                        })
+                      }
+                    />
+                    <span>
+                      Prepare my Personal World Model. Gemini may search public
+                      sources using my name and verified contact. I’ll review
+                      the results.
+                    </span>
+                  </label>
+                  {preparePwm && (
+                    <label className="flex min-h-11 items-center gap-3">
+                      <Checkbox
+                        checked={!!emailPwm}
+                        disabled={dismissing}
+                        data-voice-control-id="one_setup_pwm_email"
+                        onCheckedChange={(checked) =>
+                          user &&
+                          setPwmConsent({
+                            owner: user.uid,
+                            enabled: true,
+                            email: checked === true,
+                          })
+                        }
+                      />
+                      Email me when it is ready
+                    </label>
+                  )}
+                </div>
               <Button
                 type="button"
                 variant="blue"

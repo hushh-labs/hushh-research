@@ -1,148 +1,212 @@
-"""Research respects provider availability, receipt authority and shared budgets."""
+"""Native SDK evidence and identity regressions; no live provider calls."""
 
+import copy
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from hushh_mcp.one_adk import world_model as pwm
+from hushh_mcp.one_adk.world_model_contracts import TOPICS, IdentityAssessment, WorldModelReport
+
+IDENTITY = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
+PLAN = {
+    "purpose": "identity",
+    "seed_fields": ["full_name", "email"],
+    "anchor_ids": [],
+    "candidate_id": None,
+    "topics": ["career"],
+    "question": "Find the supplied owner's public work.",
+}
 
 
-def test_identity_and_report_must_agree():
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        pwm.WorldModelReport.model_validate(
+def assessment():
+    return {
+        "candidates": [
+            {"id": "c1", "label": "Alex Example", "anchor_ids": ["a1"], "blocking_conflicts": []}
+        ],
+        "anchors": [
             {
-                "identity": {"state": "ambiguous", "reason": "Namesakes", "probability": None},
-                "match_status": "matched",
-                "name": "Alex Example",
-                "summary": "A draft",
-                "sections": [],
-                "checked_topics": [],
-                "gaps": [],
+                "id": "a1",
+                "candidate_id": "c1",
+                "kind": "verified_contact",
+                "seed_field": "email",
+                "assertion": "Publishes the supplied contact.",
+                "source_refs": ["s1"],
+                "temporal_context": "Current public bio",
             }
+        ],
+        "identity": {
+            "state": "owner_linked",
+            "reason": "Exact public contact matches",
+            "probability": None,
+            "selected_candidate_id": "c1",
+            "supporting_anchor_ids": ["a1"],
+            "next_step": "finish",
+        },
+    }
+
+
+def report():
+    return {
+        "identity": assessment()["identity"],
+        "match_status": "matched",
+        "name": "Alex Example",
+        "summary": "Public work",
+        "sections": [
+            {
+                "kind": "career",
+                "facts": [
+                    {
+                        "statement": "Builds software.",
+                        "confidence": "supported",
+                        "sources": [{"title": "Bio", "ref": "s1"}],
+                    }
+                ],
+            }
+        ],
+        "coverage": [
+            {
+                "topic": topic,
+                "status": "findings" if topic == "career" else "not_attempted",
+                "attempt_ids": [1] if topic == "career" else [],
+                "explanation": "Public bio" if topic == "career" else "No attempt in this fixture",
+            }
+            for topic in TOPICS
+        ],
+        "gaps": ["Other topics have not been researched."],
+    }
+
+
+@pytest.mark.asyncio
+async def test_real_adk_native_tools_charge_before_dispatch_and_checkpoint_receipts(monkeypatch):
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    import hushh_mcp.runtime_providers as providers
+
+    charges, snapshots = [], []
+
+    def call(name, args):
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(function_call=types.FunctionCall(name=name, args=args))],
+            )
         )
 
-
-@pytest.mark.asyncio
-async def test_no_key_never_constructs_a_provider_client(monkeypatch):
-    import hushh_mcp.runtime_providers as providers
-
-    monkeypatch.setattr(pwm, "pwm_tavily_api_key", lambda: "")
-    monkeypatch.setattr(
-        providers,
-        "build_managed_regional_gemini_adk_model",
-        lambda *_: pytest.fail("provider dispatched"),
-    )
-    result = await pwm.run_world_model(
-        identity={},
-        user_id="owner",
-        consent_token="fixture",  # noqa: S106 - synthetic authority fixture
-        require_access=AsyncMock(),
-    )
-    assert result == {"status": "unavailable", "pkm_written": False}
-
-
-@pytest.mark.asyncio
-async def test_search_budget_is_charged_before_http_and_unknown_refs_fail(monkeypatch):
-    from google.adk.models.base_llm import BaseLlm
-
-    import hushh_mcp.hushh_adk.turn as turn_module
-    import hushh_mcp.runtime_providers as providers
+    responses = [
+        call("search_public_web", {"plan_json": json.dumps(PLAN)}),
+        LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="Builds software. Publishes alex@example.test.")],
+            ),
+            grounding_metadata=types.GroundingMetadata(
+                web_search_queries=["Alex Example"],
+                grounding_chunks=[{"web": {"title": "Bio", "uri": "https://example.test/alex"}}],
+                search_entry_point={"rendered_content": "<div>Google Search</div>"},
+            ),
+        ),
+        call("assess_identity", {"assessment_json": json.dumps(assessment())}),
+        call("finish_task", report()),
+    ]
 
     class FakeModel(BaseLlm):
-        model: str = "synthetic"
+        model: str = "gemini-3.6-flash"
 
-        async def generate_content_async(self, *args, **kwargs):
-            if False:
-                yield None
+        async def generate_content_async(self, llm_request, stream=False):
+            assert responses, "Unexpected model dispatch"
+            if len(responses) == 3:
+                assert charges == [33, 1, 34]
+                assert snapshots[-1]["attempts"]["1"]["state"] == "started"
+            yield responses.pop(0)
 
-    events = []
-    monkeypatch.setattr(pwm, "pwm_tavily_api_key", lambda: "synthetic-test-key")
     monkeypatch.setattr(
         providers, "build_managed_regional_gemini_adk_model", lambda *_: FakeModel()
     )
 
-    async def charge(indices):
-        events.append(("charge", indices))
+    async def charge(slots):
+        charges.extend(slots)
 
-    async def quota():
-        events.append(("quota",))
-        return True
+    async def progress(value):
+        snapshots.append(copy.deepcopy(value))
 
-    monkeypatch.setattr(pwm, "charge_search_credit", quota)
+    result = await pwm.run_world_model(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="fixture",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+    )
+    assert result["status"] == "offered"
+    assert result["research"]["source_use"] == "google_grounded_display_only"
+    assert (
+        result["report"]["sections"][0]["facts"][0]["sources"][0]["url"]
+        == "https://example.test/alex"
+    )
+    assert charges == [33, 1, 34, 35, 36]
+    assert snapshots[1]["attempts"]["1"]["state"] == "received"
+    assert not responses
 
-    class Client:
-        def __init__(self, **kwargs):
-            pass
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def post(self, *args, **kwargs):
-            events.append(("http",))
-            return SimpleNamespace(
-                status_code=200,
-                json=lambda: {
-                    "results": [
-                        {
-                            "title": "Source",
-                            "url": "https://example.com/alex",
-                            "content": "Alex writes software.",
-                        }
-                    ]
-                },
-            )
-
-    monkeypatch.setattr(pwm.httpx, "AsyncClient", Client)
-
-    async def run(**kwargs):
-        agent = kwargs["agent"]
-        await agent.before_model_callback(None, None)
-        response = await agent.tools[0]("Alex Example")
-        assert response["sources"][0]["ref"] == "s1"
-        assert response["sources"][0]["url"] == "https://example.com/alex"
-        return SimpleNamespace(
-            structured_output={
-                "identity": {
-                    "state": "owner_linked",
-                    "reason": "Exact public contact matches",
-                    "probability": None,
-                },
-                "match_status": "matched",
-                "name": "Alex Example",
-                "summary": "Public work",
-                "sections": [
-                    {
-                        "kind": "career",
-                        "facts": [
-                            {
-                                "statement": "Writes software.",
-                                "confidence": "supported",
-                                "sources": [{"title": "Source", "ref": "s999"}],
-                            }
-                        ],
-                    }
-                ],
-                "checked_topics": ["career"],
-                "gaps": [],
-            }
+@pytest.mark.parametrize(
+    "defect", ["missing_receipt", "wrong_candidate", "conflicting_contact", "empty_anchors"]
+)
+def test_candidate_gate_rejects_unsupported_linkage(defect):
+    value = assessment()
+    if defect == "missing_receipt":
+        value["anchors"][0]["source_refs"] = ["s99"]
+    if defect == "wrong_candidate":
+        value["anchors"][0]["candidate_id"] = "c2"
+    if defect == "conflicting_contact":
+        value["candidates"][0]["blocking_conflicts"] = ["Different person"]
+    if defect == "empty_anchors":
+        value["candidates"][0]["anchor_ids"] = []
+    with pytest.raises(ValueError):
+        IdentityAssessment.model_validate(value).validate_evidence(
+            identity=IDENTITY, source_refs={"s1"}
         )
 
-    monkeypatch.setattr(turn_module, "run_specialist_adk_turn", run)
-    with pytest.raises(KeyError):
-        await pwm.run_world_model(
-            identity={},
-            user_id="owner",
-            consent_token="fixture",  # noqa: S106 - synthetic authority fixture
-            require_access=AsyncMock(),
-            on_attempts_start=charge,
+
+@pytest.mark.parametrize("defect", ["failed_search", "namesake", "unknown_source", "fake_coverage"])
+def test_report_requires_actual_candidate_and_topic_receipts(defect):
+    value = report()
+    attempts = {"1": {"plan": copy.deepcopy(PLAN), "observed": True, "source_refs": ["s1"]}}
+    if defect == "failed_search":
+        attempts["1"]["observed"] = False
+    if defect == "namesake":
+        attempts["1"]["plan"]["candidate_id"] = "c2"
+    if defect == "unknown_source":
+        value["sections"][0]["facts"][0]["sources"][0]["ref"] = "s99"
+    if defect == "fake_coverage":
+        attempts["1"]["plan"]["topics"] = []
+    with pytest.raises(ValueError):
+        WorldModelReport.model_validate(value).validate_receipts(
+            IdentityAssessment.model_validate(assessment()), attempts, {"s1"}
         )
-    assert events == [("charge", (33,)), ("charge", (1,)), ("quota",), ("http",)]
+
+
+@pytest.mark.asyncio
+async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
+    # Model construction does not send a request; the runner must remain unused.
+    import hushh_mcp.hushh_adk.turn as turns
+
+    monkeypatch.setattr(
+        turns, "run_specialist_adk_turn", AsyncMock(side_effect=AssertionError("dispatched"))
+    )
+    result = await pwm.run_world_model(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="fixture",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=AsyncMock(),
+        attempts_used=tuple(range(33, 161)),
+    )
+    assert result["research_exhausted"] is True
 
 
 def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch):

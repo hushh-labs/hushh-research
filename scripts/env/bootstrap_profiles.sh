@@ -404,6 +404,9 @@ PY
 copy_template_if_needed() {
   local template="$1"
   local target="$2"
+  # Retire only the old public rollout key before comparing profile shape, so
+  # cached credentials survive migration to ordinary new-user onboarding.
+  remove_env_keys "$target" NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED
   if [ ! -f "$template" ]; then
     echo "Missing template: $template" >&2
     exit 1
@@ -1011,10 +1014,6 @@ hydrate_frontend_cloud() {
 
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "$env_name"
-  # Deliberate build opt-in; preserve an explicitly enabled local/UAT profile.
-  if ! grep -q '^NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=' "$file"; then
-    upsert_env_value "$file" "NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED" "false"
-  fi
 
   local backend_url=""
   local frontend_url=""

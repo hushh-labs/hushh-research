@@ -364,6 +364,7 @@ Used by:
 | `WORKOS_CLIENT_ID` | same | Only when SSO is on | Not secret; kept beside the key |
 | `WORKOS_WEBHOOK_SECRET` | same | Only when SSO is on | Secret. Verifies `WorkOS-Signature` on `/api/webhooks/workos` |
 | `WORKOS_REDIRECT_URI` | same | Only when SSO is on | Server-side configuration, never client input; must match a Redirect registered in the WorkOS dashboard |
+| `WORKOS_REDIRECT_ORIGINS` | `hushh_mcp/services/enterprise_sso/workos_adapter.py` | No | Comma-separated https origins SSO may return to. The app is served on several hostnames per environment, and the callback must return to the one the person started on. Anything not listed falls back to `WORKOS_REDIRECT_URI`. Each `<origin>/login` must also be registered as a redirect in WorkOS |
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod CORS fallback) | |
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
@@ -566,6 +567,7 @@ See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
 | `WORKOS_CLIENT_ID` | Only when SSO is on | No | Local: `.env`; Deployed: Secret Manager secret named exactly `WORKOS_CLIENT_ID` | Same optional binding |
 | `WORKOS_WEBHOOK_SECRET` | Only when SSO is on | Yes | Local: `.env`; Deployed: Secret Manager secret named exactly `WORKOS_WEBHOOK_SECRET` | Same optional binding. Each environment's webhook endpoint in WorkOS has its own signing secret |
 | `WORKOS_REDIRECT_URI` | Only when SSO is on | No | Local: `.env`; Deployed: Cloud Run env from `_WORKOS_REDIRECT_URI` (UAT: `https://uat.one.hushh.ai/login`) | Must match a Redirect registered in the WorkOS dashboard |
+| `WORKOS_REDIRECT_ORIGINS` | No | No | Deployed: Cloud Run env from `_WORKOS_REDIRECT_ORIGINS`, built by the UAT workflow from the passkey alias list (`hushh-webapp/lib/vault/passkey-domain-aliases.json`) | Every hostname the environment is served on |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment aliases |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |

@@ -11,6 +11,7 @@ import {
 
 import {
   BOOT_RETRY_LABEL,
+  BOOT_STAGE_LINES,
   BOOT_STUCK_TEXT,
   BOOT_TIMING,
   BOOT_TITLE,
@@ -27,6 +28,7 @@ import {
   startBootSurface,
   useBootSurfaceState,
 } from "@/lib/boot/boot-surface-store";
+import { AccentedKeyIcon } from "@/components/icons/ui/accented-key-icon";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 
 /**
@@ -164,7 +166,9 @@ export function BootScene({
               className="boot-line"
               data-boot-line={entry.leaving ? "leaving" : "current"}
             >
-              <span className="boot-line-emoji">{entry.line.emoji}</span>
+              <span className="boot-line-emoji">
+                {entry.line === BOOT_STAGE_LINES.session ? <AccentedKeyIcon size="1em" /> : entry.line.emoji}
+              </span>
               <span>{entry.line.text}</span>
             </p>
           ))}

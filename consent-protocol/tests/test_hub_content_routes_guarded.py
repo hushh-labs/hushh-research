@@ -35,7 +35,11 @@ from api.hub_route_classes import (
     RouteClass,
     is_hub_route,
 )
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_firebase_auth_read_only,
+    require_vault_owner_token,
+)
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from hushh_mcp.services import owner_placement_guard as guard
 from tests.test_external_connector_oauth_routes import (
@@ -164,6 +168,7 @@ def signed_in(monkeypatch):
     monkeypatch.setitem(overrides, require_vault_owner_token, lambda: dict(OWNER_TOKEN))
     monkeypatch.setitem(overrides, require_vault_owner_chat_key, lambda: dict(OWNER_TOKEN))
     monkeypatch.setitem(overrides, require_firebase_auth, lambda: OWNER)
+    monkeypatch.setitem(overrides, require_firebase_auth_read_only, lambda: OWNER)
 
 
 def _single_route_app(route: Any) -> FastAPI:

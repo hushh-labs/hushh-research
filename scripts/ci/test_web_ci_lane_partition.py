@@ -3,17 +3,22 @@
 
 PR Validation runs two web lanes as matrices to shorten the critical path:
 
-* ``Web Targeted Contracts`` as a ``node`` leg and a ``browser`` leg
-  (``WEB_TARGETED_PART``), and
+* ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
+  browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency as a required macOS browser job, outside Linux's
-  software-rendered WebKit layout pack.
+* 100 KB editor latency as a macOS browser job, outside Linux's
+  software-rendered WebKit layout pack, scheduled and required whenever the
+  ``editor`` path filter matches.
 
 A split is only safe while it is a partition: every matched pack runs in exactly
 one leg, the legs together run what a single ``all`` run does, every shard of
 the matrix is scheduled, and the contract verifiers run exactly once. This
 drives the real scripts with a stub ``npm`` that records what would have run,
 so the assertion is about the scripts' behaviour, not about their text.
+
+With web dependencies installed, ``--collect-browser-shards`` also uses native
+Playwright ``--list`` to prove that all three shards partition every browser command
+selected for this diff. It never starts a browser or runs test hooks.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -310,15 +316,18 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
 
     targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
-    legs = re.findall(r'- part: (node|browser)\s+shard: "([0-9/]*?)"', targeted)
-    assert legs == [
-        ("node", ""),
-        ("browser", "1/3"),
-        ("browser", "2/3"),
-        ("browser", "3/3"),
-    ]
+    entries = re.findall(
+        r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
+    )
+    assert [(part, shard) for part, _, shard in entries] == [
+        ("node", ""), ("browser", "1/3"), ("browser", "2/3"), ("browser", "3/3")
+    ], "run node once and all three browser shards"
+    assert len({label for _, label, _ in entries}) == 4, "matrix names must be unique"
+    assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
+    assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
+    assert "timeout-minutes: 30" in targeted
     assert "fail-fast: false" in targeted
 
     editor_perf = _job_block(
@@ -366,6 +375,116 @@ def test_browser_shard_setting_is_validated_before_any_pack() -> None:
             TARGETED, {"PLAYWRIGHT_SHARD": bad, "WEB_TARGETED_PART": "browser"}
         )
         assert code != 0 and not calls, f"invalid browser shard {bad!r} ran a pack"
+def collect_browser_shards() -> None:
+    """Optional native collection proof; normal governance needs no web install."""
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    changed = os.environ.get("WEB_TARGETED_CHANGED_FILES")
+    if not changed:
+        # Include the branch and working tree, even while another lane is editing.
+        changed = subprocess.run(
+            ["git", "diff", "--name-only", "origin/main...HEAD"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout + subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout
+    code, calls, output = _run(
+        TARGETED, {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed}, stub_diagrams=True
+    )
+    assert code == 0 and calls, output[-2000:]
+
+    def commands(name: str, inherited: dict[str, str], stack: tuple[str, ...] = ()):
+        assert name not in stack, f"recursive npm script: {name}"
+        for segment in scripts[name].split(" && "):
+            argv = shlex.split(segment)
+            env = dict(inherited)
+            if argv and argv[0] == "cross-env":
+                argv.pop(0)
+            while argv and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", argv[0]):
+                key, value = argv.pop(0).split("=", 1)
+                env[key] = value
+            if argv[:2] == ["npm", "run"]:
+                assert len(argv) == 3, f"unsupported npm forwarding: {segment}"
+                yield from commands(argv[2], env, (*stack, name))
+            elif argv[:2] == ["playwright", "test"]:
+                yield argv[1:], env
+            else:
+                assert "playwright" not in argv, f"unhandled Playwright command: {segment}"
+
+    web = PACKAGE_JSON.parent
+    cli = web / "node_modules/@playwright/test/cli.js"
+    assert cli.is_file(), "install web dependencies before native collection"
+
+    def collect(argv: list[str], overrides: dict[str, str], shard: str | None):
+        env = dict(os.environ)
+        env.update(overrides)
+        env.pop("PLAYWRIGHT_SHARD", None)
+        env.pop("PLAYWRIGHT_JSON_OUTPUT_FILE", None)
+        env.pop("PLAYWRIGHT_JSON_OUTPUT_NAME", None)
+        env.pop("PLAYWRIGHT_JSON_OUTPUT_DIR", None)
+        if shard is not None:
+            env["PLAYWRIGHT_SHARD"] = shard
+        proc = subprocess.run(
+            ["node", str(cli), *argv, "--list", "--reporter=json"],
+            cwd=web, env=env, capture_output=True, text=True, timeout=60,
+        )
+        return proc
+
+    def identities(proc, shard: str | None) -> set[tuple[str, str, str]]:
+        assert proc.returncode == 0, proc.stderr[-2000:] + proc.stdout[-2000:]
+        report = json.loads(proc.stdout)
+        assert not report["errors"], report["errors"]
+        expected = dict(zip(("current", "total"), map(int, shard.split("/")))) if shard else None
+        assert report["config"]["shard"] == expected
+        found: list[tuple[str, str, str]] = []
+
+        def visit(suite):
+            for spec in suite.get("specs", []):
+                for test in spec["tests"]:
+                    assert test["results"] == [], "collection must not execute tests"
+                    found.append((spec["id"], test["projectName"], test["expectedStatus"]))
+            for child in suite.get("suites", []):
+                visit(child)
+
+        for suite in report["suites"]:
+            visit(suite)
+        assert len(found) == len(set(found)), "duplicate collected test identities"
+        return set(found)
+
+    proof = []
+    first_command = None
+    for call in calls:
+        if not call.startswith("run "):
+            assert call.startswith("node "), f"unexpected direct command: {call}"
+            continue
+        pack = call.split()[1]
+        selected = list(commands(pack, {}))
+        assert selected, f"no native browser command extracted from {pack}"
+        for argv, env in selected:
+            first_command = first_command or (argv, env)
+            baseline = identities(collect(argv, env, None), None)
+            shards = [
+                identities(collect(argv, env, f"{index}/3"), f"{index}/3")
+                for index in (1, 2, 3)
+            ]
+            assert baseline, f"empty baseline: {pack} {argv}"
+            assert sum(map(len, shards)) == len(set().union(*shards)), f"overlapping shards: {pack} {argv}"
+            assert set().union(*shards) == baseline, f"missing or added tests: {pack} {argv}"
+            proof.append({"pack": pack, "argv": argv, "unsharded": len(baseline),
+                          "shards": [len(shard) for shard in shards]})
+
+    assert first_command is not None
+    argv, env = first_command
+    baseline = identities(collect(argv, env, None), None)
+    for valid in ("", "1/1"):
+        assert identities(collect(argv, env, valid), valid) == baseline
+    invalid = ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3", "01/3", "1/3.5",
+               " 1/3", "1/3 ", "1/9007199254740992")
+    for bad in invalid:
+        proc = collect(argv, env, bad)
+        assert proc.returncode != 0 and "PLAYWRIGHT_SHARD must be current/total" in proc.stderr, bad
+    print(json.dumps({"native_browser_collection": proof, "invalid_shards_rejected": list(invalid),
+                      "browser_launches": 0, "partition": "complete and disjoint"}, indent=2))
 
 
 def main() -> int:
@@ -383,6 +502,10 @@ def main() -> int:
     for test in tests:
         test()
         print(f"ok {test.__name__}")
+    if sys.argv[1:] == ["--collect-browser-shards"]:
+        collect_browser_shards()
+    else:
+        assert not sys.argv[1:], "expected no arguments or --collect-browser-shards"
     return 0
 
 

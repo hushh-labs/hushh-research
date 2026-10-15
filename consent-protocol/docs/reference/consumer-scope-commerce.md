@@ -29,6 +29,50 @@ or payout.
 
 ### Current Dev evidence — 2026-10-15 UTC
 
+At `2026-10-15T03:49:23Z`, fresh signed-provider reads confirm both reviewers'
+information-access Connect accounts have completed details, enabled payouts,
+active transfers, manual schedules and an eligible USD bank destination, with
+no remaining due fields. Funding remains $10.50 per reviewer and cumulative
+platform capital remains $15. Provider/ledger matching, balanced liabilities,
+settled backing and fee conservation pass; no new financial action was submitted.
+The original shared Chrome connection and its unlocked owner observation remain
+active. This clears onboarding readiness; it does not prove a scope purchase,
+delivery, refund, maturity or bank payout.
+
+Source `05e5fcd17b05` passed the full canonical local core in 1,088 seconds and
+was pushed to the original infrastructure branch with normal hooks. Its
+[full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38678860603)
+is terminal: protocol, all Vitest shards, web-core, integration, MCP, iOS and
+Android passed; the WebKit History motion sampler alone blocked promotion.
+The corrected sampler checks actual CSS interpolation and natural completion.
+A bounded drawer correction defers eager layout-dependent autofocus while
+preserving early Tab, Shift+Tab and Escape admission and modal ownership.
+The affected motion case passes Chromium and WebKit, and six drawer keyboard/
+layering unit cases pass. All eight controls reject instant motion, a 150 ms CSS
+delay, stepped interpolation and a delayed handler across both engines. Controlled
+interpolation is not presented-frame or FPS proof; physical latency remains
+separate evidence.
+
+Normal integration of main `c8faf48dd668` is being reconciled in the existing
+verification checkout. Fresh main `ef703daa8981` adds the reviewed three-file
+UAT connection-budget update; it is the next normal merge target. The root
+branch and ten independently hash-verified unrelated edits remain preserved.
+Focused integrated checks pass 478 backend/CI cases, 47 corrected frontend
+cases, 34 setup-admission cases, 462 Back cases and 40 UAT deployment contracts.
+The integration archives and relocates only the unapplied private migration
+tail to 349–355, retaining main's owners and exact SQL/rollback bodies.
+Independent review qualifies exact size-only integration debt under unchanged
+500/250/80 architecture budgets; it does not establish deployed correctness.
+No database mutation or Dev promotion follows from this local composition.
+Shared Dev still serves `5c2d1483aa06`; final merged core, hosted CI, deployment
+and reviewer financial acceptance remain open.
+
+A fresh registry read at `2026-10-15T04:24Z` confirms the primary's Azure pod is
+provisioned in its selected subscription and records `byok_per_turn`. It has no
+paired model deployment/environment/role. This is a maintenance gap, not a
+request to reconnect Azure. Read-only quota/model evidence identifies a supported
+GA Azure OpenAI candidate; no billing upgrade or model mutation is claimed.
+
 Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and was
 pushed on the existing branch. Its
 [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38660426398)

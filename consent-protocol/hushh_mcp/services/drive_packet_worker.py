@@ -8,25 +8,34 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
-from hushh_mcp.services.drive_packet_contract import PacketVerification
+from hushh_mcp.services.drive_document_targets import document_targets
+from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
 from hushh_mcp.services.drive_packet_intelligence import (
+    EvidenceValidationError,
     consolidate_facts,
     construct_packet,
     extract_page_facts,
     facts_policy_version,
     verify_packet,
 )
-from hushh_mcp.services.drive_packet_store import DrivePacketStore
+from hushh_mcp.services.drive_packet_store import DrivePacketStore, safe_packet_failure_code
 from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+logger = logging.getLogger(__name__)
 
 CHECKS = (
     "correct_subject_and_account",
     "correct_issuer_and_type",
+    "correct_record_status",
+    "correct_standalone_value",
     "correct_coverage",
     "no_unrelated_inclusions",
     "no_unexplained_omissions",
@@ -35,6 +44,38 @@ CHECKS = (
 
 def _payload(value):
     return value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+
+
+def _log_packet_failure(error, *, stage, attempt, started):
+    if isinstance(error, EvidenceValidationError):
+        code = error.code
+    elif isinstance(error, DriveReadError):
+        code = str(error)
+    elif isinstance(error, ConnectorLifecycleError):
+        code = "connector_storage_unavailable"
+    elif isinstance(error, TimeoutError):
+        code = (
+            "model_timeout"
+            if stage in {"construct_packet", "verify_members", "verify_packet"}
+            else "packet_timeout"
+        )
+    elif isinstance(error, ValueError):
+        code = (
+            "evidence_budget_exceeded"
+            if str(error) == "evidence_batch_budget_exceeded"
+            else "packet_integrity_invalid"
+        )
+    else:
+        code = "packet_unavailable"
+    code = safe_packet_failure_code(code)
+    logger.warning(
+        "drive_packet_failed stage=%s code=%s attempt=%d elapsed_ms=%d",
+        stage,
+        code,
+        attempt,
+        round((time.monotonic() - started) * 1000),
+    )
+    return code
 
 
 def compact_evidence(document):
@@ -48,6 +89,19 @@ def compact_evidence(document):
             for key in ("document_type", "issuer", "subject", "account")
         },
         "periods": [{"start": item["start"], "end": item["end"]} for item in facts["periods"]],
+        # Date role is substantive evidence: losing it can turn an event window
+        # into apparent reporting coverage in the final global checker.
+        "date_evidence": [
+            {key: item[key] for key in ("role", "start", "end", "meaning")}
+            for item in facts.get("date_evidence", [])
+        ],
+        # Keep the qualification and its exact source context in the final
+        # check; a typed signature must not become proof of execution.
+        "record_status": facts.get("record_status"),
+        # Preserve substantive differences for cross-batch duplicate review.
+        # The caller rejects summaries over its budget instead of truncating.
+        "topics": [item["value"] for item in facts["topics"]],
+        "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
     }
@@ -85,13 +139,16 @@ class DrivePacketWorker:
         await self.packet_store.require_packet_current(job)
         await admit_hub_content(job["user_id"], "drive_packet_build")
 
-    async def run_facts_one(self, *, user_id):
+    async def run_facts_one(self, *, user_id, document_ids=None):
         await admit_hub_content(user_id, "drive_packet_facts_claim")
+        targets = document_targets(document_ids)
+        targeted = {"document_ids": targets} if targets is not None else {}
         policy = self.policy()
-        await self.facts_store.enqueue(user_id=user_id, policy_version=policy)
-        job = await self.facts_store.claim(user_id=user_id, policy_version=policy)
+        await self.facts_store.enqueue(user_id=user_id, policy_version=policy, **targeted)
+        job = await self.facts_store.claim(user_id=user_id, policy_version=policy, **targeted)
         if not job:
             return "idle"
+        stage, started = "page_facts", time.monotonic()
         try:
             async with asyncio.timeout(165):
                 pages, size = [], 0
@@ -116,14 +173,24 @@ class DrivePacketWorker:
                 observed = await self.page_assessor(user_id=user_id, pages=pages)
                 await self._facts_current(job)
                 self._policy_current(policy)
+                stage = "document_facts"
+                canonical_context = (
+                    await self.packet_store.canonical_key_context(
+                        user_id=user_id, policy_version=policy
+                    )
+                    if complete
+                    else None
+                )
                 folded = await self.consolidator(
                     user_id=user_id,
                     previous=job["previous"],
                     page_facts=[_payload(observed)],
                     complete=complete,
+                    canonical_context=canonical_context,
                 )
                 await self._facts_current(job)
                 self._policy_current(policy)
+                stage = "persist_facts"
                 result = await self.facts_store.commit_batch(
                     job, page_facts=_payload(observed), document_facts=_payload(folded)
                 )
@@ -133,7 +200,23 @@ class DrivePacketWorker:
             await self.facts_store.release(job)
             raise
         except Exception as error:
-            code = str(error) if isinstance(error, DriveReadError) else "facts_unavailable"
+            if isinstance(error, EvidenceValidationError):
+                code = error.code
+            elif isinstance(error, DriveReadError):
+                code = str(error)
+            elif isinstance(error, TimeoutError):
+                code = "model_timeout"
+            elif isinstance(error, ValueError):
+                code = "facts_integrity_invalid"
+            else:
+                code = "facts_unavailable"
+            logger.warning(
+                "drive_document_facts_failed stage=%s code=%s attempt=%d elapsed_ms=%d",
+                stage,
+                code,
+                job.get("attempts", 0) + 1,
+                round((time.monotonic() - started) * 1000),
+            )
             await self.facts_store.release(
                 job, code=code, retryable=not isinstance(error, ValueError)
             )
@@ -147,7 +230,7 @@ class DrivePacketWorker:
             packet=packet,
             documents=documents,
             complete=complete,
-            batch_scope=scope,
+            batch_scope={**scope, "canonical_key": job["key"]},
         )
         await self._packet_current(job)
         self._policy_current(job["policy_version"])
@@ -155,16 +238,25 @@ class DrivePacketWorker:
 
     async def run_packet_one(self, *, user_id):
         await admit_hub_content(user_id, "drive_packet_build_claim")
-        job = await self.packet_store.claim_packet(user_id=user_id, policy_version=self.policy())
+        stage, started = "claim_packet", time.monotonic()
+        try:
+            job = await self.packet_store.claim_packet(
+                user_id=user_id, policy_version=self.policy()
+            )
+        except Exception as error:
+            _log_packet_failure(error, stage=stage, attempt=0, started=started)
+            raise
         if not job:
             return "idle"
         try:
             async with asyncio.timeout(165):
+                stage = "load_packet_build"
                 build = dict(job["build"])
                 if build and build.get("policy_version") != job["policy_version"]:
                     raise DriveReadError("packet_policy_changed")
                 build["policy_version"] = job["policy_version"]
                 if job["build_phase"] in {"construct", "verify"}:
+                    stage = "load_member_evidence"
                     await self._packet_current(job)
                     page = await self.packet_store.evidence_page(
                         job, after_document_id=job["after_document_id"], limit=4
@@ -172,7 +264,9 @@ class DrivePacketWorker:
                     documents = page["documents"]
                     last = page["next_cursor"] is None
                     if job["build_phase"] == "construct":
+                        stage = "check_packet_current"
                         await self._packet_current(job)
+                        stage = "construct_packet"
                         answer = await self.constructor(
                             user_id=user_id,
                             key=job["key"],
@@ -189,6 +283,7 @@ class DrivePacketWorker:
                         if last:
                             build.update(checked_count=0, batch_checks_passed=True, batch_issues=[])
                     else:
+                        stage = "verify_members"
                         checked = await self._check(
                             job,
                             packet=build["assessment"],
@@ -211,16 +306,19 @@ class DrivePacketWorker:
                             :64
                         ]
                         phase = "finalize" if last else "verify"
+                    stage = "persist_packet_build"
                     await self.packet_store.commit_build(
                         job,
                         build=build,
                         after_document_id=None if last else page["next_cursor"],
                         phase=phase,
                     )
+                    stage = "wake_documents"
                     await self.wake("documents")
                     return "packet_queued"
                 # A final checker sees every member's compact issuer/account/type/
                 # period evidence. Passing narrow batches alone cannot establish readiness.
+                stage = "load_final_evidence"
                 documents, cursor = [], None
                 while True:
                     page = await self.packet_store.evidence_page(
@@ -237,6 +335,7 @@ class DrivePacketWorker:
                     and len(documents) == job["member_count"]
                     and all(item["complete"] for item in documents)
                 )
+                stage = "verify_packet"
                 checked = await self._check(
                     job,
                     packet=build["assessment"],
@@ -256,19 +355,23 @@ class DrivePacketWorker:
                         + build.get("batch_issues", [])
                         + ["Member evidence checks remain unresolved."]
                     )[:64]
+                stage = "persist_packet"
                 result = await self.packet_store.finalize_packet(
                     job,
                     assessment=build["assessment"],
-                    verification=PacketVerification.model_validate(checked).model_dump(),
+                    verification=PacketVerificationProposal.model_validate(checked).model_dump(),
                 )
                 return result["state"]
         except asyncio.CancelledError:
             await self.packet_store.release_packet(job)
             raise
         except Exception as error:
+            code = _log_packet_failure(
+                error, stage=stage, attempt=job.get("attempts", 0) + 1, started=started
+            )
             await self.packet_store.release_packet(
                 job,
-                code=str(error) if isinstance(error, DriveReadError) else "packet_unavailable",
+                code=code,
                 retryable=not isinstance(error, ValueError),
             )
             return "packet_unavailable"

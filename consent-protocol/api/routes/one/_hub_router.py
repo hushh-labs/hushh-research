@@ -13,6 +13,7 @@ from .answer_work_drain import router as answer_work_drain_router
 from .business_suggestions import router as business_suggestions_router
 from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
+from .calendar_workspace import router as calendar_workspace_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -29,6 +30,7 @@ from .first_connect_insights import router as first_connect_insights_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
 from .google import router as google_router
+from .hosted_memory_pilot import router as hosted_memory_pilot_router
 from .information_chat import router as information_chat_router
 from .information_requests import router as information_requests_router
 from .insurance_agents import router as insurance_agents_router
@@ -62,12 +64,14 @@ from .profile_discovery import router as profile_discovery_router
 from .profile_research import router as profile_research_router
 from .puppy_relay import router as puppy_relay_router
 from .referrals import router as referrals_router
+from .requester_document_payment_source import router as requester_document_payment_source_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
 from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .shared_files import router as shared_files_router
+from .source_journal import router as source_journal_router
 from .voice import router as voice_router
 from .wallet_card_access import router as wallet_card_access_router
 from .webauthn import router as webauthn_router
@@ -157,3 +161,7 @@ router.include_router(voice_router)
 
 # Shared ciphertext library; the private pod Files runtime is never mounted here.
 router.include_router(shared_files_router)
+router.include_router(calendar_workspace_router)
+router.include_router(hosted_memory_pilot_router)
+router.include_router(requester_document_payment_source_router)
+router.include_router(source_journal_router)

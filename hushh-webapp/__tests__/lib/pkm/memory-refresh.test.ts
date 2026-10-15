@@ -226,12 +226,13 @@ it("expired session cache is stale", async () => {
 
 describe("persisted source-linked Profile memory.md", () => {
   function sources() {
+    const verifiedAt = new Date().toISOString();
     const identity = { profile: { age: 35, sex: "female", note: "Complete eligible fact" } };
     const soul = { schema_version: "one.memory.md.v1", markdown: "# Facts\n- Owner-authored Soul fact.\n" };
     const inventory = {
-      complete: true, unavailable: [], observedAt: "2026-10-13T00:00:00.000Z",
+      complete: true, unavailable: [], observedAt: verifiedAt,
       records: [{ kind: "profile", id: USER, revision: 2, createdAt: null, updatedAt: null,
-        capturedAt: "2026-10-13T00:00:00.000Z", deletedAt: null,
+        capturedAt: verifiedAt, deletedAt: null,
         value: { name: "Synthetic Ava", photo: "https://example.test/avatar.png", email: "synthetic@example.test" } }],
     };
     return {
@@ -311,6 +312,50 @@ describe("persisted source-linked Profile memory.md", () => {
       userId: USER, ownerIdentity: expect.objectContaining({ displayName: "Synthetic Ava", photoUrl: "https://example.test/avatar.png" }),
       approvedScopes: expect.arrayContaining(["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.declared_age"]),
     }));
+  });
+
+  it("shows corrected facts, conflicts and tombstones in private memory without publishing an unresolved view", async () => {
+    const state = sources();
+    mountSources(state);
+    await refreshSources();
+    let inventory = (state.living._private as Record<string, unknown>).inventory as {
+      observedAt: string;
+      records: { id: string; revision: number; capturedAt: string; deletedAt: string | null; value: Record<string, unknown> }[];
+    };
+    let profile = inventory.records[0]!;
+    profile.revision += 1;
+    profile.value.name = "Ankit";
+    profile.capturedAt = inventory.observedAt = new Date().toISOString();
+    state.livingRevision += 1;
+    const corrected = await refreshSources(true);
+    expect(corrected.status).toBe("current");
+    expect(corrected.document?.markdown).toContain("profile.name · verified");
+    expect(corrected.document?.markdown).toContain("Ankit");
+    expect(corrected.document?.markdown).not.toContain("Synthetic Ava");
+    const lastComplete = structuredClone((state.living._private as Record<string, unknown>).memory_document);
+
+    inventory = (state.living._private as Record<string, unknown>).inventory as typeof inventory;
+    profile = inventory.records[0]!;
+    inventory.records.push({ ...profile, value: { ...profile.value, name: "Contradictory name" } });
+    state.livingRevision += 1;
+    const conflict = await refreshSources(true);
+    expect(conflict.status).toBe("refresh_failed");
+    expect(conflict.document?.markdown).toContain("profile.__record · conflicted");
+    expect(conflict.document?.markdown).toContain("Unresolved source conflict");
+    expect(conflict.document?.markdown).not.toContain("## Account");
+    expect((state.living._private as Record<string, unknown>).memory_document).toEqual(lastComplete);
+
+    inventory = (state.living._private as Record<string, unknown>).inventory as typeof inventory;
+    profile = inventory.records[0]!;
+    inventory.records.pop();
+    profile.revision += 1;
+    profile.deletedAt = profile.capturedAt = inventory.observedAt = new Date().toISOString();
+    profile.value = {};
+    state.livingRevision += 1;
+    const deleted = await refreshSources(true);
+    expect(deleted.status).toBe("current");
+    expect(deleted.document?.markdown).toContain("profile.__record · deleted");
+    expect(deleted.document?.markdown).not.toContain("Ankit");
   });
 
   it("reuses the persisted document after session cache clear and does not loop on its own PKM write revision", async () => {

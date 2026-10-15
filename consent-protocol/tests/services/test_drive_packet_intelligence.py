@@ -1,15 +1,32 @@
 """Evidence integrity cannot be supplied by the model's confidence score."""
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
 
-from hushh_mcp.services.drive_packet_contract import PageCitation, PricingAssessment
+from hushh_mcp.services import drive_packet_intelligence
+from hushh_mcp.services.drive_citation_references import page_references
+from hushh_mcp.services.drive_packet_contract import (
+    DocumentPageFacts,
+    PageCitation,
+    PricingAssessment,
+)
 from hushh_mcp.services.drive_packet_intelligence import (
+    EvidenceValidationError,
     consolidate_facts,
+    construct_packet,
     extract_page_facts,
     verify_packet,
 )
+
+
+def test_facts_policy_changes_with_extraction_profile(monkeypatch):
+    current = drive_packet_intelligence.facts_policy_version()
+    monkeypatch.setattr(
+        drive_packet_intelligence, "EXTRACTION_PROFILE", "future-extraction-profile"
+    )
+    assert drive_packet_intelligence.facts_policy_version() != current
 
 
 def page_facts():
@@ -20,11 +37,59 @@ def page_facts():
         "subject": None,
         "account": None,
         "periods": [],
+        "date_evidence": [],
+        "record_status": {
+            "status": "unknown",
+            "evidence_basis": "unknown",
+            "explanation": "No execution status is established.",
+            "citations": [],
+        },
         "topics": [],
         "facts": [],
         "missing_information": [],
         "ambiguous": False,
     }
+
+
+def wire_page_facts(ref="p2s0"):
+    result = page_facts()
+    result["issuer"] = {"value": "Schwab", "citation_refs": [ref]}
+    result["record_status"].pop("citations")
+    result["record_status"]["citation_refs"] = []
+    return result
+
+
+async def test_span_references_preserve_all_text_exact_bytes_and_model_values():
+    original = "**Table**\r\n₹12,345\tΩ🙂\n" * 600
+    pages = [{"page": 7, "text": original, "unit_kind": "text_segment"}]
+    encoded, references = page_references(pages)
+    assert "text" not in encoded[0]
+    assert "".join(span["text"] for span in encoded[0]["text_spans"]) == original
+    last_ref = encoded[0]["text_spans"][-1]["ref"]
+    answer = wire_page_facts(last_ref)
+    answer["pages"] = [7]
+    answer["issuer"]["value"] = "Model's unchanged assessment"
+    result = await extract_page_facts(
+        user_id="owner", pages=pages, interpret=AsyncMock(return_value=answer)
+    )
+    assert result.issuer.value == answer["issuer"]["value"]
+    assert result.issuer.citations[0].model_dump() == references[last_ref]
+    assert result.issuer.citations[0].unit_kind == "text_segment"
+
+
+async def test_consolidation_resolves_only_observed_ids_without_retyping_source_text():
+    source = page_facts()
+    source["issuer"]["citations"] = [{"page": 2, "quote": "**Schwab**\nAccount\t— 2026"}]
+    output = {key: value for key, value in wire_page_facts("c0").items() if key != "pages"}
+    output["canonical_packets"] = []
+    result = await consolidate_facts(
+        user_id="owner",
+        previous=None,
+        page_facts=[source],
+        complete=True,
+        interpret=AsyncMock(return_value=output),
+    )
+    assert result.issuer.citations[0].quote == source["issuer"]["citations"][0]["quote"]
 
 
 def test_provider_schema_projection_preserves_host_bounds():
@@ -42,15 +107,15 @@ def test_provider_schema_projection_preserves_host_bounds():
         )
 
 
-@pytest.mark.parametrize("failure", ["invented_quote", "missing_page", "wrong_location_kind"])
+@pytest.mark.parametrize("failure", ["invented_reference", "missing_page", "forged_location"])
 async def test_extraction_rejects_missing_or_fabricated_evidence(failure):
-    result = page_facts()
-    if failure == "invented_quote":
-        result["issuer"]["citations"][0]["quote"] = "Charles Schwab"
+    result = wire_page_facts()
+    if failure == "invented_reference":
+        result["issuer"]["citation_refs"] = ["p99s0"]
     elif failure == "missing_page":
         result["pages"] = [2]
     else:
-        result["issuer"]["citations"][0]["unit_kind"] = "text_segment"
+        result["issuer"]["page"] = 99
     with pytest.raises(ValueError):
         await extract_page_facts(
             user_id="owner",
@@ -64,7 +129,7 @@ async def test_extraction_rejects_missing_or_fabricated_evidence(failure):
 
 async def test_consolidation_cannot_create_citations_or_packets_before_all_pages():
     pages = page_facts()
-    folded = {key: value for key, value in pages.items() if key != "pages"}
+    folded = {key: value for key, value in wire_page_facts("c0").items() if key != "pages"}
     folded["canonical_packets"] = []
     assert (
         await consolidate_facts(
@@ -78,7 +143,7 @@ async def test_consolidation_cannot_create_citations_or_packets_before_all_pages
     folded["canonical_packets"] = [
         {"key": "schwab-2026", "title": "Statements", "description": "Statements"}
     ]
-    with pytest.raises(ValueError, match="unprocessed"):
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
         await consolidate_facts(
             user_id="owner",
             previous=None,
@@ -87,8 +152,8 @@ async def test_consolidation_cannot_create_citations_or_packets_before_all_pages
             interpret=AsyncMock(return_value=folded),
         )
     folded["canonical_packets"] = []
-    folded["issuer"] = {"value": "Schwab", "citations": [{"page": 3, "quote": "Schwab"}]}
-    with pytest.raises(ValueError, match="unsupported"):
+    folded["issuer"] = {"value": "Schwab", "citation_refs": ["c999"]}
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
         await consolidate_facts(
             user_id="owner",
             previous=None,
@@ -103,12 +168,14 @@ async def test_checker_cannot_make_incomplete_evidence_ready():
         "state": "ready",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
         "issues": [],
     }
-    with pytest.raises(ValueError, match="incomplete evidence"):
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
         await verify_packet(
             user_id="owner",
             packet={},
@@ -131,12 +198,14 @@ async def test_correct_abstention_is_not_a_deliverable_ready_packet(proposal):
         "state": "ready",
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
+        "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
         "issues": [],
     }
-    with pytest.raises(ValueError, match="nonready proposal"):
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
         await verify_packet(
             user_id="owner",
             packet=proposal,
@@ -144,3 +213,799 @@ async def test_correct_abstention_is_not_a_deliverable_ready_packet(proposal):
             complete=True,
             interpret=AsyncMock(return_value=result),
         )
+
+
+@pytest.mark.parametrize("failure", ["schema", "citation"])
+async def test_model_regenerates_once_from_same_evidence_and_keeps_validation(failure, caplog):
+    bad = wire_page_facts()
+    if failure == "schema":
+        bad["ambiguous"] = "definitely"
+    else:
+        bad["issuer"]["citation_refs"] = ["PRIVATE INVENTED REFERENCE"]
+    interpreter = AsyncMock(side_effect=[bad, wire_page_facts()])
+    pages = [{"page": 1, "text": "Cover"}, {"page": 2, "text": "Schwab statement"}]
+    result = await extract_page_facts(user_id="owner", pages=pages, interpret=interpreter)
+    assert result.issuer.value == "Schwab"
+    prompts = [json.loads(call.kwargs["prompt"]) for call in interpreter.await_args_list]
+    assert len(prompts) == 2
+    assert prompts[0]["untrusted_pages"] == prompts[1]["untrusted_pages"]
+    assert [
+        "".join(span["text"] for span in page["text_spans"])
+        for page in prompts[0]["untrusted_pages"]
+    ] == [page["text"] for page in pages]
+    feedback = prompts[1]["validation_feedback"]
+    assert feedback["code"] == (
+        "model_schema_invalid" if failure == "schema" else "model_citation_invalid"
+    )
+    assert feedback["attempt"] == 2
+    assert prompts[1]["untrusted_rejected_answer"] == bad
+    assert "PRIVATE INVENTED REFERENCE" not in caplog.text
+    assert "Schwab statement" not in caplog.text
+
+
+async def test_packet_key_context_cannot_supply_new_document_citations():
+    folded = {key: value for key, value in wire_page_facts("c0").items() if key != "pages"}
+    folded["canonical_packets"] = []
+    folded["issuer"]["citation_refs"] = ["catalog-only"]
+    context = {
+        "packets": [
+            {
+                "key": "existing",
+                "title": "Prior group",
+                "description": "Prior",
+                "representative_document": {"issuer": "Catalog only"},
+            }
+        ],
+        "truncated": False,
+        "representative_only": True,
+        "collection_complete": False,
+    }
+    interpreter = AsyncMock(return_value=folded)
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
+        await consolidate_facts(
+            user_id="owner",
+            previous=None,
+            page_facts=[page_facts()],
+            complete=True,
+            canonical_context=context,
+            interpret=interpreter,
+        )
+    payload = json.loads(interpreter.await_args_list[0].kwargs["prompt"])
+    assert payload["existing_canonical_packets"] == context
+
+
+async def test_provider_schema_failure_before_return_has_no_rejected_answer():
+    with pytest.raises(ValueError) as failure:
+        DocumentPageFacts.model_validate({"ambiguous": "invalid"})
+    interpreter = AsyncMock(side_effect=[failure.value, wire_page_facts()])
+    result = await extract_page_facts(
+        user_id="owner",
+        pages=[{"page": 1, "text": "Cover"}, {"page": 2, "text": "Schwab"}],
+        interpret=interpreter,
+    )
+    assert result.issuer.value == "Schwab"
+    payload = json.loads(interpreter.await_args_list[1].kwargs["prompt"])
+    assert payload["untrusted_rejected_answer"] is None
+
+
+async def test_repeated_invented_citations_stop_after_two_answers():
+    bad = wire_page_facts()
+    bad["issuer"]["citation_refs"] = ["invented-reference"]
+    interpreter = AsyncMock(return_value=bad)
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
+        await extract_page_facts(
+            user_id="owner",
+            pages=[{"page": 1, "text": "Cover"}, {"page": 2, "text": "Schwab"}],
+            interpret=interpreter,
+        )
+    assert interpreter.await_count == 2
+
+
+async def test_schema_repair_identifies_citation_bound_without_rejected_values(caplog):
+    bad = wire_page_facts()
+    bad["issuer"]["citation_refs"] *= 9
+    bad["PRIVATE UNKNOWN KEY"] = "PRIVATE REJECTED VALUE"
+    interpreter = AsyncMock(side_effect=[bad, wire_page_facts()])
+    await extract_page_facts(
+        user_id="owner",
+        pages=[{"page": 1, "text": "Cover"}, {"page": 2, "text": "Schwab"}],
+        interpret=interpreter,
+    )
+    feedback = json.loads(interpreter.await_args_list[1].kwargs["prompt"])["validation_feedback"]
+    assert feedback["issues"] == [
+        {
+            "path": ["issuer", "citation_refs"],
+            "type": "too_long",
+            "bounds": {"max_length": 8, "actual_length": 9},
+        },
+        {"path": ["unknown_field"], "type": "extra_forbidden"},
+    ]
+    assert "PRIVATE" not in json.dumps(feedback)
+    assert "PRIVATE" not in caplog.text
+
+
+def packet(periods, selected=None):
+    return {
+        "title": "One statement",
+        "description": "Verified statement",
+        "state": "ready",
+        "selected_document_ids": selected or ["selected"],
+        "coverage_summary": "One period",
+        "periods": periods,
+        "temporal_scope": "document_period" if periods else "no_period_claim",
+        "gaps": [],
+        "assessment_score": 90,
+        "importance": 25,
+        "standalone_value": "supported",
+        "utility_rationale": "A verified statement with a clear recipient use",
+        "pricing": {
+            "rubric_version": "drive-packet-price-v1",
+            "useful_scope": "single",
+            "coverage": "complete",
+            "quality": "verified",
+            "rationale": "One supported period",
+            "suggested_price_cents": 50,
+        },
+    }
+
+
+def test_standalone_value_gate_keeps_substantive_records_and_qualified_drafts():
+    from hushh_mcp.services.drive_packet_contract import PacketProposal
+
+    financial = packet([period()])
+    financial["title"] = "Internal financial report · January 2026"
+    assert PacketProposal.model_validate(financial).state == "ready"
+
+    draft = packet([])
+    draft["title"] = "Draft business brief"
+    draft["description"] = "A clearly labeled draft with substantive analysis"
+    assert PacketProposal.model_validate(draft).state == "ready"
+
+    for source_title in ("Diagnostic projection", "Developer test script"):
+        artifact = packet([])
+        artifact.update(
+            title=source_title,
+            standalone_value="unsupported",
+            utility_rationale="Only source-workflow diagnostics, without a standalone record",
+        )
+        with pytest.raises(ValueError, match="ready packet requires supported standalone value"):
+            PacketProposal.model_validate(artifact)
+        artifact["state"] = "incomplete"
+        assert PacketProposal.model_validate(artifact).state == "incomplete"
+
+
+def test_invite_metadata_cannot_verify_as_meeting_notes():
+    from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
+
+    verdict = {
+        "state": "ready",
+        "correct_subject_and_account": True,
+        "correct_issuer_and_type": False,
+        "correct_record_status": True,
+        "correct_standalone_value": False,
+        "correct_coverage": True,
+        "no_unrelated_inclusions": True,
+        "no_unexplained_omissions": True,
+        "issues": [],
+    }
+    with pytest.raises(ValueError, match="checker cannot declare unresolved packet ready"):
+        PacketVerificationProposal.model_validate(verdict)
+    verdict.update(state="unable_to_verify", issues=["Invite contains no meeting notes"])
+    assert PacketVerificationProposal.model_validate(verdict).state == "unable_to_verify"
+
+
+def period(quote="January 2026"):
+    return {"start": "2026-01-01", "end": "2026-01-31", "citations": [{"page": 1, "quote": quote}]}
+
+
+@pytest.mark.parametrize("quote", ["INJECTED invented coverage", "Unselected document period"])
+async def test_packet_rejects_period_citations_outside_selected_source_periods(quote):
+    result = packet([period(quote)])
+    result["excluded_documents"] = [exclusion("unselected")]
+    interpreter = AsyncMock(return_value=result)
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="group",
+            complete=True,
+            documents=[
+                {"document_id": "selected", "facts": {"periods": [period()]}},
+                {
+                    "document_id": "unselected",
+                    "facts": {"periods": [period("Unselected document period")]},
+                },
+            ],
+            interpret=interpreter,
+        )
+    assert interpreter.await_count == 2
+
+
+async def test_packet_carries_prior_verified_provenance_only_with_exact_membership():
+    previous = packet([period()], ["previous"])
+    result = packet([period(), period("Current period")], ["previous", "current"])
+    arguments = {
+        "user_id": "owner",
+        "key": "group",
+        "complete": True,
+        "previous": previous,
+        "documents": [{"document_id": "current", "facts": {"periods": [period("Current period")]}}],
+    }
+    assert (
+        await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+    ).state == "ready"
+    result["selected_document_ids"] = ["current"]
+    result["excluded_documents"] = [exclusion("previous")]
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
+        await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+
+
+async def test_packet_can_replace_prior_copy_with_current_supported_complete_copy():
+    previous = packet([period("Earlier copy period")], ["earlier_copy"])
+    result = packet([period("Complete copy period")], ["complete_copy"])
+    result["excluded_documents"] = [exclusion("earlier_copy", duplicate_of="complete_copy")]
+    interpreter = AsyncMock(return_value=result)
+    answer = await construct_packet(
+        user_id="owner",
+        key="group",
+        complete=True,
+        previous=previous,
+        documents=[
+            {
+                "document_id": "complete_copy",
+                "facts": {"periods": [period("Complete copy period")]},
+            }
+        ],
+        interpret=interpreter,
+    )
+    assert answer.selected_document_ids == ["complete_copy"]
+    assert answer.state == "ready"
+    assert interpreter.await_count == 1
+
+
+async def test_packet_dropping_one_prior_member_cannot_reuse_unscoped_prior_citation():
+    previous = packet([period("Unscoped prior period")], ["prior_kept", "prior_removed"])
+    result = packet([period("Unscoped prior period")], ["prior_kept", "current"])
+    result["excluded_documents"] = [exclusion("prior_removed")]
+    interpreter = AsyncMock(return_value=result)
+    with pytest.raises(EvidenceValidationError, match="model_citation_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="group",
+            complete=True,
+            previous=previous,
+            documents=[
+                {"document_id": "current", "facts": {"periods": [period("Current period")]}}
+            ],
+            interpret=interpreter,
+        )
+    assert interpreter.await_count == 2
+
+
+def exclusion(document_id, *, duplicate_of=None):
+    return {
+        "document_id": document_id,
+        "reason": "duplicate" if duplicate_of else "outside_group",
+        "explanation": "Synthetic exclusion evidence for validation test",
+        "duplicate_of_document_id": duplicate_of,
+    }
+
+
+@pytest.mark.parametrize("omission", ["silent", "invented", "conflicting", "prior_exclusion"])
+async def test_packet_requires_every_candidate_selected_or_explained(omission):
+    previous = None
+    result = packet([], ["june"])
+    documents = [{"document_id": ref, "facts": {"periods": []}} for ref in ["june", "july"]]
+    if omission == "invented":
+        result["excluded_documents"] = [exclusion("july"), exclusion("invented")]
+    elif omission == "conflicting":
+        result["excluded_documents"] = [exclusion("june"), exclusion("july")]
+    elif omission == "prior_exclusion":
+        previous = packet([], ["june"])
+        previous["excluded_documents"] = [exclusion("old_copy", duplicate_of="june")]
+        result["selected_document_ids"] = ["june", "july"]
+    with pytest.raises(EvidenceValidationError):
+        await construct_packet(
+            user_id="owner",
+            key="same-account-2016",
+            documents=documents,
+            complete=True,
+            previous=previous,
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+async def test_checker_cannot_mark_unaccounted_month_ready():
+    result = {
+        "state": "ready",
+        "correct_subject_and_account": True,
+        "correct_issuer_and_type": True,
+        "correct_record_status": True,
+        "correct_standalone_value": True,
+        "correct_coverage": True,
+        "no_unrelated_inclusions": True,
+        "no_unexplained_omissions": True,
+        "issues": [],
+    }
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=packet([], ["june"]),
+            documents=[{"document_id": "june"}, {"document_id": "july"}],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+def test_ready_packet_cannot_hide_unverifiable_member():
+    from hushh_mcp.services.drive_packet_contract import PacketAssessment
+
+    result = packet([], ["june"])
+    result["excluded_documents"] = [{**exclusion("july"), "reason": "unverifiable"}]
+    with pytest.raises(ValueError, match="ready packet requires complete evidence"):
+        PacketAssessment.model_validate(result)
+
+
+def dated_evidence(role="event"):
+    return {
+        "role": role,
+        "start": "2027-06-03",
+        "end": "2027-06-05" if role != "as_of" else "2027-06-03",
+        "meaning": "Conference dates; draft posting days have no absolute calendar anchors",
+        "citations": [{"page": 1, "quote": "Conference June 3–5, 2027. Drafts: Day 1, Day 2."}],
+    }
+
+
+async def test_date_roles_resolve_exact_source_without_turning_event_into_coverage():
+    source = dated_evidence()
+    answer = wire_page_facts()
+    answer.update(pages=[1], issuer=None)
+    answer["date_evidence"] = [
+        {
+            **{key: value for key, value in source.items() if key != "citations"},
+            "citation_refs": ["p1s0"],
+        }
+    ]
+    result = await extract_page_facts(
+        user_id="owner",
+        pages=[{"page": 1, "text": source["citations"][0]["quote"]}],
+        interpret=AsyncMock(return_value=answer),
+    )
+    assert result.periods == []
+    assert result.date_evidence[0].model_dump(exclude_defaults=True) == source
+
+
+async def test_consolidation_cannot_promote_exact_event_quote_to_coverage():
+    observed = page_facts()
+    observed["date_evidence"] = [dated_evidence()]
+    answer = {key: value for key, value in wire_page_facts("c0").items() if key != "pages"}
+    answer["canonical_packets"] = []
+    answer["periods"] = [{"start": "2027-06-03", "end": "2027-06-05", "citation_refs": ["c1"]}]
+    # c0 is the issuer, c1 is the exact event quote: citation validity alone
+    # previously allowed this semantic promotion.
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await consolidate_facts(
+            user_id="owner",
+            previous=None,
+            page_facts=[observed],
+            complete=True,
+            interpret=AsyncMock(return_value=answer),
+        )
+
+
+async def test_packet_cannot_change_coverage_endpoints_using_a_valid_quote():
+    result = packet([{**period(), "end": "2026-12-31"}])
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="statements",
+            complete=True,
+            documents=[{"document_id": "selected", "facts": {"periods": [period()]}}],
+            interpret=AsyncMock(return_value=result),
+        )
+
+
+async def test_undated_drafts_remain_useful_ready_packet_without_period_pricing():
+    result = packet([])
+    result.update(title="Conference post drafts", coverage_summary="Two draft posts")
+    result["pricing"]["rationale"] = "Two reusable drafts, with no publication schedule claimed"
+    arguments = dict(
+        user_id="owner",
+        key="conference-drafts",
+        complete=True,
+        documents=[
+            {
+                "document_id": "selected",
+                "facts": {"periods": [], "date_evidence": [dated_evidence()]},
+            }
+        ],
+    )
+    ready = await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+    assert ready.state == "ready" and ready.periods == []
+    result["pricing"]["useful_scope"] = "period"
+    with pytest.raises(EvidenceValidationError, match="model_schema_invalid"):
+        await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+
+
+@pytest.mark.parametrize("role,accepted", [("as_of", True), ("event", False)])
+async def test_snapshot_requires_evidenced_snapshot_date(role, accepted):
+    result = packet([])
+    result["temporal_scope"] = "as_of_snapshot"
+    arguments = dict(
+        user_id="owner",
+        key="snapshot",
+        complete=True,
+        documents=[
+            {
+                "document_id": "selected",
+                "facts": {"periods": [], "date_evidence": [dated_evidence(role)]},
+            }
+        ],
+        interpret=AsyncMock(return_value=result),
+    )
+    if accepted:
+        assert (await construct_packet(**arguments)).state == "ready"
+    else:
+        with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+            await construct_packet(**arguments)
+
+
+async def test_requested_packet_keeps_typed_scope_and_model_copy_for_independent_review():
+    source = {
+        "document_id": "selected",
+        "facts": {
+            "periods": [],
+            # The earlier model incorrectly called a requested transfer date as_of.
+            # Even that incorrect role cannot establish a packet snapshot.
+            "date_evidence": [dated_evidence("as_of")],
+            "record_status": {
+                "status": "requested",
+                "evidence_basis": "documentary_form",
+                "explanation": "The source is a transfer request, with no completion evidence.",
+                "citations": [{"page": 1, "quote": "Wire request"}],
+            },
+            "facts": [{"value": "A transfer was requested"}],
+        },
+    }
+    proposal = packet([])
+    proposal["excluded_documents"] = []
+    proposal.update(
+        title="Requested wire transfer",
+        description="Requested transfer instruction; completion unverified",
+        coverage_summary="Request date only; completion unverified",
+    )
+    proposal["pricing"]["rationale"] = "Verified request document only"
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    proposal["temporal_scope"] = "as_of_snapshot"
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=True,
+            documents=[source],
+            interpret=AsyncMock(return_value=proposal),
+        )
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            documents=[source],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+    proposal["temporal_scope"] = "no_period_claim"
+    proposal["utility_rationale"] = "Useful request instructions; completion is unverified"
+    assessed = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert assessed.model_dump() == proposal
+    checker = AsyncMock(return_value=verdict)
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=assessed.model_dump(),
+            documents=[source],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=checker,
+        )
+    ).state == "ready"
+    assert json.loads(checker.call_args.kwargs["prompt"])["proposed_packet"] == proposal
+
+    # A false completion claim remains visible to the independent semantic
+    # checker. Host validation never silently replaces a successful model's copy.
+    proposal["title"] = "Executed wire transfer"
+    proposal["description"] = "Requested transfer was executed"
+    proposal["coverage_summary"] = "Bank debited the account"
+    proposal["pricing"]["rationale"] = "Payment went through"
+    proposal["utility_rationale"] = "Settlement confirmed"
+    assessed = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert assessed.model_dump() == proposal
+    rejected = {
+        **verdict,
+        "state": "unable_to_verify",
+        "correct_record_status": False,
+        "issues": ["Completion is not supported by the requested record."],
+    }
+    checker = AsyncMock(return_value=rejected)
+    checked = await verify_packet(
+        user_id="owner",
+        packet=assessed.model_dump(),
+        documents=[source],
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=checker,
+    )
+    assert checked.state == "unable_to_verify" and not checked.correct_record_status
+    assert json.loads(checker.call_args.kwargs["prompt"])["proposed_packet"] == proposal
+    with pytest.raises(EvidenceValidationError, match="model_schema_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=assessed.model_dump(),
+            documents=[source],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value={**rejected, "state": "ready"}),
+        )
+
+
+async def test_final_checker_cannot_certify_event_as_document_period():
+    event = dated_evidence()
+    proposal = packet(
+        [{key: value for key, value in event.items() if key in {"start", "end", "citations"}}]
+    )
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=[{"document_id": "selected", "periods": [], "date_evidence": [event]}],
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+
+async def test_auto_packet_requires_substantive_source_evidence_not_invite_metadata():
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    invitation = packet([])
+    invitation["title"] = "Meeting notes"
+    documents = [
+        {
+            "document_id": "selected",
+            "document_type": "event invitation",
+            "periods": [],
+            "date_evidence": [dated_evidence("event")],
+            "facts": [],
+        }
+    ]
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=invitation,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+    draft = packet([])
+    draft.update(title="Draft business brief", description="Substantive draft analysis")
+    documents[0].update(document_type="business brief", facts=["Cited draft analysis"])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=draft,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+    financial = packet([period()])
+    documents[0].update(document_type="financial report", facts=[], periods=[period()])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=financial,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+    # An explicit buyer request is judged against that request, not against
+    # the automatic catalog's standalone-value requirement.
+    requested_script = {
+        "decision": "ready",
+        "selected_document_refs": ["selected"],
+        "request": {"purpose": "the source script"},
+    }
+    documents[0].update(document_type="source script", facts=[], periods=[])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=requested_script,
+            complete=True,
+            documents=documents,
+            batch_scope={"kind": "final_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+
+async def test_global_checker_preserves_snapshot_role_and_event_qualification():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    evidence = page_facts()
+    evidence.pop("pages")
+    evidence["date_evidence"] = [dated_evidence("as_of"), dated_evidence("event")]
+    evidence["facts"] = [
+        {"value": "A substantive draft position", "citations": [{"page": 1, "quote": "Cover"}]}
+    ]
+    evidence["record_status"] = {
+        "status": "draft",
+        "evidence_basis": "documentary_form",
+        "explanation": "A draft with typed signature placeholders; execution is not established.",
+        "citations": [{"page": 1, "quote": "Draft — Witness: [name]"}],
+    }
+    summary = compact_evidence(
+        {
+            "document_id": "selected",
+            "source_version": "v1",
+            "complete": True,
+            "facts": evidence,
+        }
+    )
+    assert summary["periods"] == []
+    assert summary["record_status"] == evidence["record_status"]
+    assert summary["date_evidence"] == [
+        {key: item[key] for key in ("role", "start", "end", "meaning")}
+        for item in evidence["date_evidence"]
+    ]
+    proposal = packet([])
+    proposal["temporal_scope"] = "as_of_snapshot"
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    checker = AsyncMock(return_value=verdict)
+    result = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        complete=True,
+        documents=[summary],
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=checker,
+    )
+    assert result.state == "ready"
+    payload = json.loads(checker.await_args.kwargs["prompt"])
+    assert payload["document_facts"][0]["date_evidence"] == summary["date_evidence"]
+    assert payload["document_facts"][0]["record_status"] == evidence["record_status"]
+
+    # A positive score on every other axis cannot override the current
+    # checker's explicit rejection of the packet's execution/status claim.
+    verdict["correct_record_status"] = False
+    with pytest.raises(EvidenceValidationError):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=[summary],
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+
+async def test_request_checker_accepts_bounded_financial_coverage_with_request_context():
+    proposal = packet([period()])
+    request = {
+        "purpose": "January statements",
+        "periodStart": "2026-01-05",
+        "periodEnd": "2026-01-20",
+    }
+    proposal["document_request"] = request
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    checker = AsyncMock(return_value=verdict)
+    documents = [
+        {
+            "document_id": "selected",
+            "content_periods": [{"start": "2026-01-01", "end": "2026-01-31"}],
+        }
+    ]
+    result = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        complete=True,
+        documents=documents,
+        batch_scope="complete_current_request_packet",
+        interpret=checker,
+    )
+    assert result.state == "ready"
+    assert (
+        json.loads(checker.await_args.kwargs["prompt"])["proposed_packet"]["document_request"]
+        == request
+    )
+    documents[0]["content_periods"] = []
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            complete=True,
+            documents=documents,
+            batch_scope="complete_current_request_packet",
+            interpret=checker,
+        )
+
+
+def test_legacy_manifest_remains_readable_but_new_ready_proposal_requires_typed_scope():
+    from hushh_mcp.services.drive_packet_contract import PacketAssessment, PacketProposal
+
+    legacy = packet([])
+    legacy.pop("temporal_scope")
+    assert PacketAssessment.model_validate(legacy).temporal_scope == "unknown"
+    with pytest.raises(ValueError):
+        PacketProposal.model_validate(legacy)
+    with pytest.raises(ValueError):
+        PacketProposal.model_validate({**legacy, "temporal_scope": "unknown"})

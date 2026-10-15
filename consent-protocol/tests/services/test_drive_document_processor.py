@@ -33,7 +33,7 @@ from hushh_mcp.services.drive_document_processor import (
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
-def scanned_pdf() -> bytes:
+def scanned_pdf(*, resolution=200) -> bytes:
     """Original raster PDF fixture: no pre-extracted text or embedded text layer."""
     from PIL import Image, ImageDraw, ImageFont
 
@@ -45,7 +45,7 @@ def scanned_pdf() -> bytes:
     ):
         draw.text((40, 50 + number * 100), line, fill="black", font=font)
     output = io.BytesIO()
-    image.save(output, format="PDF", resolution=200)
+    image.save(output, format="PDF", resolution=resolution)
     return output.getvalue()
 
 
@@ -101,6 +101,14 @@ def test_real_original_scanned_pdf_ocr_and_engine_provenance(monkeypatch, record
     assert "September 30, 2026" in result.pages[0].text
     assert result.engine_versions["tesseract"].startswith("tesseract 5.")
     assert len(result.engine_versions["tesseract_eng_sha256"]) == 64
+    # Oversized page geometry previously failed before OCR even though a
+    # modest DPI reduction retains the original image's account and period.
+    oversized = pages.extract_pages(scanned_pdf(resolution=45), "application/pdf")
+    assert oversized.complete and not oversized.has_gaps
+    assert "12345678" in oversized.pages[0].text
+    assert "September 30, 2026" in oversized.pages[0].text
+    assert pages.MIN_RENDER_DPI <= oversized.pages[0].quality["render_dpi"] < 200
+    assert oversized.pages[0].quality["render_pixels"] <= pages.MAX_RENDER_PIXELS
     # Original image-only PDFs beyond both former limits retain a resumable
     # cursor and actual page positions; never materialize every rendered page.
     long_original = joined_pdf(*(original for _ in range(110)))
@@ -109,6 +117,15 @@ def test_real_original_scanned_pdf_ocr_and_engine_provenance(monkeypatch, record
     assert tail.total_pages == 110 and tail.complete and not tail.has_gaps
     assert [page.page_number for page in tail.pages] == [109, 110]
     assert all("12345678" in page.text for page in tail.pages)
+
+
+def test_oversized_pdf_keeps_gap_when_readable_render_cannot_fit():
+    from hushh_mcp.services import drive_document_pages as pages
+
+    result = pages.extract_pages(scanned_pdf(resolution=5), "application/pdf")
+    assert result.complete and result.has_gaps
+    assert result.pages[0].status == "unreadable"
+    assert result.pages[0].error_code == "page_render_budget_exceeded"
 
 
 def test_original_long_pdf_has_explicit_cursor_and_reaches_page_101():

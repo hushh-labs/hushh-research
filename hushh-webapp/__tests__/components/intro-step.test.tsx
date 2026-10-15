@@ -1,102 +1,112 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-
-vi.mock("@/lib/morphy-ux/gsap", () => ({ getGsap: vi.fn(async () => null) }));
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
 });
-
-function advanceStory(index: number) {
-  const story = screen.getByRole("region", { name: new RegExp(`^${index} of 4:`) });
-  fireEvent.click(within(story).getByRole("button", { name: "Next screen", exact: true }));
-}
 
 function enterStories() {
   fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
   expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
 }
 
-function skipToFinalStory() {
-  enterStories();
-  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "5");
-}
-
 describe("IntroStep", () => {
-  it("shows the welcome, then one of four everyday-life stories at a time", () => {
+  it("preserves the welcome and hands the four mentor stories to sign-in", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
-
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     expect(screen.getByRole("heading", { name: "Your private AI agent for everyday life." })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Start with One" })).not.toBeInTheDocument();
-
+    const artwork = document.querySelector("[data-motion]");
+    expect(artwork).toHaveAttribute("aria-hidden", "true");
+    expect(artwork?.querySelectorAll("img").length).toBeGreaterThan(0);
     enterStories();
-    const storyTitles = [
-      "Start with a clearer day.",
-      "Find what you already have.",
-      "Make the next move easier.",
-      "Share only what you choose.",
+    const titles = [
+      /Big plans\.\s*Less busywork\./,
+      /Find answers\.\s*Not more tabs\./,
+      /Your people\.\s*Right here\./,
+      /Your information\.\s*Your call\./,
     ];
-    for (const [index, title] of storyTitles.entries()) {
+    for (const [index, title] of titles.entries()) {
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
-      expect(document.querySelectorAll('[data-intro-v2-card="true"]:not([hidden])')).toHaveLength(1);
+      expect(document.querySelectorAll(".ao-slide")).toHaveLength(1);
       expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", String(index + 2));
-      if (index < storyTitles.length - 1) {
-        expect(screen.queryByRole("button", { name: "Start with One" })).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Next screen" }));
-      }
+      expect(onLogin).not.toHaveBeenCalled();
+      if (index < titles.length - 1) fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
     }
-    fireEvent.click(screen.getByRole("button", { name: "Start with One" }));
-    expect(onLogin).toHaveBeenCalledOnce();
+    const carousel = screen.getByRole("region", { name: "Meet Agent One" });
+    fireEvent.keyDown(carousel, { key: "ArrowLeft" });
+    expect(screen.getByRole("heading", { name: titles[2] })).toBeInTheDocument();
+    fireEvent.keyDown(carousel, { key: "ArrowRight" });
+    expect(screen.getByRole("heading", { name: titles[3] })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Screen 1 of 4: Less busywork" }));
+    expect(screen.getByRole("heading", { name: titles[0] })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Screen 1 of 4: Less busywork" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
+    expect(onLogin).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Get started", exact: true }));
+    await waitFor(() => expect(onLogin).toHaveBeenCalledOnce());
   });
 
-  it("supports Skip, Back, and direct story selection without starting sign-in", () => {
-    const onLogin = vi.fn();
-    render(<IntroStep onLogin={onLogin} />);
-
-    skipToFinalStory();
-    expect(screen.getByRole("heading", { name: "Share only what you choose." })).toBeInTheDocument();
-    expect(onLogin).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
-    expect(screen.getByRole("heading", { name: "Make the next move easier." })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Screen 2: Find what you already have." }));
-    expect(screen.getByRole("heading", { name: "Find what you already have." })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
-    expect(screen.getByRole("heading", { name: "Your private AI agent for everyday life." })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
-    expect(onLogin).not.toHaveBeenCalled();
-  });
-
-  it("keeps reduced-motion welcome artwork static while allowing navigation", () => {
+  it("keeps reduced-motion stories static while allowing navigation and releases timers", () => {
+    vi.useFakeTimers();
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        ...media,
-        media: query,
-        matches: query === "(prefers-reduced-motion: reduce)",
-      })),
-    );
-    render(<IntroStep onLogin={vi.fn()} />);
-    expect(document.querySelector('[data-motion="static"]')).not.toBeNull();
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      ...media,
+      media: query,
+      matches: query === "(prefers-reduced-motion: reduce)",
+    })));
+    const onLogin = vi.fn();
+    const view = render(<IntroStep onLogin={onLogin} />);
+    expect(document.querySelector('[data-motion="off"]')).not.toBeNull();
     enterStories();
-    fireEvent.click(screen.getByRole("button", { name: "Next screen" }));
-    expect(screen.getByRole("heading", { name: "Find what you already have." })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(screen.getByRole("heading", { name: /Big plans\.\s*Less busywork\./ })).toBeInTheDocument();
+    expect(document.querySelector(".ao-mascot__loop")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Screen 3 of 4: Stay close" }));
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(screen.getByRole("heading", { name: /Your people\.\s*Right here\./ })).toBeInTheDocument();
+    expect(document.querySelector(".ao-mascot__loop")).toBeNull();
+    expect(onLogin).not.toHaveBeenCalled();
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps early voice admission blocked and shares final sign-in authority with tapping", async () => {
+  it("honors the explicit Skip action from the first story", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
+    enterStories();
+    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+    await waitFor(() => expect(onLogin).toHaveBeenCalledOnce());
+  });
+
+  it("unwinds native Back through the stories and welcome, then releases its layer", () => {
+    const onLogin = vi.fn();
+    const view = render(<IntroStep onLogin={onLogin} />);
+    expect(unwindBackLayer("/")).toBe(false);
+    enterStories();
+    fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+    act(() => expect(unwindBackLayer("/")).toBe(true));
+    expect(screen.getByRole("heading", { name: /Big plans\.\s*Less busywork\./ })).toBeInTheDocument();
+    act(() => expect(unwindBackLayer("/")).toBe(true));
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    expect(unwindBackLayer("/")).toBe(false);
+    expect(onLogin).not.toHaveBeenCalled();
+    enterStories();
+    view.unmount();
+    expect(unwindBackLayer("/")).toBe(false);
+  });
+
+  it("keeps voice sign-in guarded until the final story and releases its handler on leave", async () => {
+    const onLogin = vi.fn();
+    const view = render(<IntroStep onLogin={onLogin} />);
     await waitFor(() => {
       expect(getVoiceSurfaceMetadata()).toMatchObject({
         screenId: "one_intro",
@@ -105,44 +115,29 @@ describe("IntroStep", () => {
       });
       expect(resolveLocalOnboardingHandler("onboarding.claim_one")).not.toBeNull();
     });
-    let result;
-    await act(async () => { result = await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}); });
-    expect(result).toMatchObject({ status: "blocked" });
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
+    enterStories();
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
     expect(onLogin).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    await act(async () => { result = await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}); });
-    expect(result).toMatchObject({ status: "blocked" });
-    expect(onLogin).not.toHaveBeenCalled();
-    for (const step of [1, 2, 3]) advanceStory(step);
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "5");
-    const button = screen.getByRole("button", { name: "Start with One", exact: true });
-    expect(button).toHaveAttribute("data-voice-control-id", "onboarding_claim_one");
-    expect(button.querySelector(":scope > .morphy-ripple-host")).not.toBeNull();
-    fireEvent.click(button);
-    expect(onLogin).toHaveBeenCalledTimes(1);
-    await act(async () => { result = await resolveLocalOnboardingHandler("onboarding.claim_one")?.({}); });
-    expect(onLogin).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ status: "started", summary: "Opening sign-in.", routeAfter: "/login", screenAfter: "login" });
+    fireEvent.click(screen.getByRole("button", { name: "Screen 4 of 4: Stay in control" }));
+    expect(screen.getByRole("button", { name: "Get started", exact: true })).toHaveAttribute("data-voice-control-id", "onboarding_claim_one");
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toEqual({
+      status: "started",
+      summary: "Opening sign-in.",
+      routeAfter: "/login",
+      screenAfter: "login",
+    });
+    expect(onLogin).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
+    expect(await resolveLocalOnboardingHandler("onboarding.claim_one")?.({})).toMatchObject({ status: "blocked" });
+    expect(onLogin).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(resolveLocalOnboardingHandler("onboarding.claim_one")).toBeNull();
   });
 
-  it("returns from the first story to welcome without starting authentication", () => {
-    const onLogin = vi.fn();
-    render(<IntroStep onLogin={onLogin} />);
-    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    const first = screen.getByRole("region", { name: /^1 of 4:/ });
-    fireEvent.click(within(first).getByRole("button", { name: "Previous screen", exact: true }));
-    expect(screen.getByRole("button", { name: "Create your One", exact: true })).toBeVisible();
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
-    expect(onLogin).not.toHaveBeenCalled();
-  });
-
-  it("keeps the root public navigation to Research, Blog, and Developers", () => {
+  it("keeps the public Research, Blog, and Developers destinations", () => {
     render(<IntroStep onLogin={vi.fn()} />);
-
-    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
-    expect(publicNav.querySelectorAll("a")).toHaveLength(3);
+    expect(screen.getByRole("navigation", { name: "Explore One" }).querySelectorAll("a")).toHaveLength(3);
     expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute("href", "/research");
     expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blog");
     expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute("href", "/developers");

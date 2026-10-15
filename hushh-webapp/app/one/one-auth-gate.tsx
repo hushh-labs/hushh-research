@@ -55,10 +55,9 @@ import { ScopeCommerceHostedReturn } from "@/components/consent/scope-commerce-h
 const AUTH_ONLY_ROUTE_PREFIXES = [
   ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
   ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
-  // The Calendar workspace only reads Firebase-bound connection metadata and
-  // lets the owner start/revoke OAuth. It must be reachable immediately after
-  // Google's callback; calendar information and mutations still require a
-  // vault-owner token in the specialist/chat path.
+  // Calendar connection lifecycle must remain reachable after Google OAuth,
+  // including disconnected onboarding. Schedule reads verify Firebase plus the
+  // active Calendar OAuth grant; attendance mutations still require owner HCT.
   ROUTES.CALENDAR,
 ] as const;
 

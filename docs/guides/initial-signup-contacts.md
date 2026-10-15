@@ -19,14 +19,25 @@ initials fallback as Connect. No invented people or inferred trust appears.
 
 | Signup | Initial source | Consent/recovery |
 | --- | --- | --- |
-| Google, web | Saved Google Contacts | Signup-specific Firebase provider requests `contacts.readonly`; explicit retry uses existing browser GIS |
-| Google, iOS | Saved Google Contacts | Capawesome Google sign-in requests the scope; the native bridge captures a fresh, owner-bound SDK grant |
-| Google, Android | Saved Google Contacts | Same selected signup account authorizes Contacts through `AuthorizationClient`; no account reconnection |
+| Google, web | Saved Google Contacts | Development/UAT signup uses one GIS consent for identity and optional `contacts.readonly`, then directly exchanges that token for a Firebase credential |
+| Google, iOS | Saved Google Contacts | Development/UAT sign-in requests the scope; the native bridge captures a fresh, owner-bound SDK grant |
+| Google, Android | Saved Google Contacts | Development/UAT uses the same selected signup account through `AuthorizationClient`; no account reconnection |
 | Apple, iOS/Android | Device address book | Optional permission/read action after phone verification; limited iOS access works |
 | Apple, web | Saved Google Contacts | Optional explicit Google Contacts action after phone verification |
 | Established returning account | Existing behavior | No new enrollment or automatic Circle fill |
 
-First enrollment requires positive Firebase new-user metadata and explicitly incomplete One setup. Unknown metadata and nullable legacy setup remain on the existing flow. Only an already enrolled, unfinished signup may resume. The explicit returning Sign in action requests authentication scopes only; signup consent is requested before Google returns the selected account's new-user status, and established accounts never start a contact read, Circle fill or welcome enrollment from that result.
+New-account welcome enrollment is always active and has no rollout input. While
+Contacts awaits public OAuth verification, the canonical production environment
+uses authentication-only Google sign-in on all platforms and hides the inline
+Contacts checkbox. The new account still enrolls with Google as its deferred
+source and can choose the optional existing Contacts authorization after phone
+verification. Apple routing is unchanged. The central AuthService readiness
+boundary must be updated only after Google approves public use and the live
+production client is verified; this is not a per-deployment onboarding toggle.
+The live production project (`hushh-pda`) was checked on 2026-10-14: Contacts
+is listed as not yet verified, and branding/data access review is in progress.
+
+First enrollment requires positive Firebase new-user metadata and explicitly incomplete One setup. Unknown metadata and nullable legacy setup remain on the existing flow. Only an already enrolled, unfinished signup may resume. The explicit returning Sign in action requests authentication scopes only; if it creates a genuinely new account, that account still enrolls and can optionally find contacts after verification. Signup consent is requested before Google returns the selected account's new-user status, and established accounts never start a contact read, Circle fill or welcome enrollment from that result.
 
 On Android, Google identity authentication and the platform's resource
 authorization are separate SDK operations in the same signup journey. First-time
@@ -37,6 +48,29 @@ The signup screen offers “Find people I know” and explains the shared roster
 Turning it off omits the signup Contacts scope. Contact denial, cancellation,
 an older bridge, unavailable service, or no matches never prevents signup,
 phone verification, setup completion or Continue.
+
+The login screen's web Google sign-in preloads the existing GIS script before the tap, so the
+consent popup opens within the browser gesture. Firebase authenticates the
+returned Google credential and determines account newness; only a confirmed
+Contacts grant reaches the memory-only reader. Declining Contacts while granting
+identity completes authentication. Replacing an attempt aborts its pending grant
+before credential exchange, and the provider controls stay busy during exchange.
+Once Firebase exchange begins, cancellation cannot undo its committed session.
+Legal recording and initial Contacts enrollment finish for that current Firebase
+owner even after the login screen closes, without redirecting the departed screen.
+Returning web sign-in uses the same Firebase credential handoff with identity
+scopes only; native providers and callers without an explicit sign-in purpose
+retain their existing SDK flows.
+An unfinished popup now leaves an explicit retry message on the login screen.
+
+`NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID` identifies the Firebase-trusted Google
+identity client. It is separate from the Contacts-only
+`NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`; one must never substitute for the other.
+Builds resolve the optional identity client through an ephemeral artifact. Only
+a missing value retains the existing Firebase SDK path; invalid values or access
+failures stop the build. Verify the client's authorized JavaScript origins and
+Firebase credential compatibility before configuring it. This is public OAuth
+client configuration, not a welcome-enrollment flag.
 
 ## Processing and authority
 
@@ -112,30 +146,25 @@ generation changes suppress late reads, matches, mutations and UI callbacks.
   continue; a later session can retry the welcome without restoring removed
   members. Deleted Circles stay deleted.
 
-## Activation and rollback
+## Deployment and rollback
 
-`NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED` defaults to false. It is a
-build-time option in Docker, both frontend Cloud Build lanes and native profile
-generation. `_INITIAL_CONTACTS_ONBOARDING_ENABLED=true` opts a reviewed Cloud
-Build image in. Runtime-only Cloud Run changes cannot enable compiled UI.
-Native assets and binaries must be rebuilt and synced for their new method.
+Initial Contacts is ordinary new-user onboarding on web, iOS and Android.
+There is no environment flag or workflow opt-in. Eligibility remains owned by
+positive new-account evidence and server setup/welcome state; existing accounts
+are not enrolled. Successfully deleted accounts can enter again through fresh
+signup after deletion has finished. Contact permission and Trusted membership
+remain optional user choices.
 
-After the reviewed SHA has landed and its required gates pass, the governed
-`Deploy to UAT` and `Ship iOS to TestFlight` workflows accept the optional
-`initial_contacts_onboarding=true` input. Both default to false. Deploy the exact
-landed SHA with `scope=auto`, which includes each service's complete outstanding
-changes, and enable the input for the separately authorized TestFlight release.
-This passes the flag to the web image and
-bundled native assets; existing actor, main-SHA, provenance and release gates
-still apply. No workflow is dispatched by creating this PR.
+Deploy the reviewed landed SHA through the governed workflow with `scope=auto`.
+The scope resolver pairs changes to the initial signup source/enrollment contract
+and migration 337 with both runtimes, including when a narrow scope is requested.
+Unrelated frontend changes can retain the already compatible backend. Native
+assets and binaries must be rebuilt and synced; older installed binaries retain
+their compiled behavior. Actor, main-SHA, schema and provenance gates still apply.
+Production and TestFlight publishing remain separate authorized releases.
 
-For a local UAT native build, set
-`NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED=true` in the process or UAT
-profile before `npm run ios:prepare:uat`; the generated native environment
-preserves the selected value. Production release defaults stay off.
-
-Migration **337 must precede any deployment of this backend**, even with the
-UI flag off: bootstrap selects the new columns. All three release schema
+Migration **337 must precede any deployment of this backend**: bootstrap selects
+the new columns. All three release schema
 contracts and the release/rollback manifest include it. The generated offline
 SQLite snapshot must be regenerated from migrated UAT using its canonical
 generator; it is not hand edited against unmigrated live state. The SQLite-only
@@ -164,8 +193,8 @@ validation, UAT migration application and authenticated route verification.
 Native iOS compilation is covered by the exact-head Xcode CI lane. Local browser fixtures
 prove presentation/interaction, not live OAuth or a real address book.
 
-Rollback first rebuilds with the flag off and restores the compatible backend,
-then optionally applies `337_initial_contacts_onboarding.rollback.sql`. The SQL
+Rollback restores a reviewed compatible frontend/backend release through the
+governed workflow, then optionally applies `337_initial_contacts_onboarding.rollback.sql`. The SQL
 rollback removes metadata only. Existing Circles, connections and memberships
 are preserved. Do not drop columns while this backend still selects them.
 
@@ -192,5 +221,3 @@ compilation passed. A production web build with the feature enabled compiled
 and generated all 173 pages, including `/one/welcome`. Browser screenshots use synthetic names, profiles and
 counts; the production component uses confirmed server profile information.
 These results do not substitute for the release proof listed above.
-
-An enabled hosted UAT build requires a paired backend deployment. The workflow rejects initial_contacts_onboarding=true when scope resolves without backend deployment; use scope=all, or auto when it selects the backend. This prevents new signup Circle semantics from reaching an older backend.

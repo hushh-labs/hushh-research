@@ -1,3 +1,4 @@
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -352,13 +353,13 @@ it("holds the open location while the pane closes, so the exit is one motion", (
   const onOpenChange = vi.fn();
   const view = render(<ProfilePane open onOpenChange={onOpenChange} />);
   paintFirstFrames();
-  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
+  expect(screen.getByText("Appearance & preferences", { exact: true })).toBeTruthy();
 
   url.query = "";
   view.rerender(
     <ProfilePane open onOpenChange={(nextOpen) => onOpenChange(nextOpen)} />,
   );
-  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
+  expect(screen.getByText("Appearance & preferences", { exact: true })).toBeTruthy();
   expect(screen.queryByText("Profile", { selector: "h2" })).toBeNull();
   expect(screen.getByTestId("pane-body").dataset.panel).toBe("preferences");
 
@@ -433,4 +434,41 @@ it.each(["connectors", "preferences", "account"])("shows the main Profile page w
   paintFirstFrames();
   expect(screen.getByTestId("pane-body")).toHaveAttribute("data-panel", "root");
   expect(screen.getByRole("heading", { name: "Profile", exact: true })).toBeInTheDocument();
+});
+
+it("uses the model review Back layer before leaving its Profile panel", () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1&profile_panel=world-model";
+  window.history.replaceState(null, "", `/?${url.query}`);
+  const reviewBack = vi.fn().mockReturnValue(true);
+  const unregister = registerBackLayer({ pathname: "/", depth: 3, query: { profile_pane: "1", profile_panel: "world-model" }, back: reviewBack });
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(reviewBack).toHaveBeenCalledOnce();
+    expect(window.location.search).toContain("profile_panel=world-model");
+    reviewBack.mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(window.location.search).not.toContain("profile_panel=world-model");
+  } finally {
+    unregister();
+    view.unmount();
+  }
+});
+
+it("leaves the screen behind Profile unchanged when its panel goes Back", () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1&profile_panel=world-model";
+  window.history.replaceState(null, "", `/?${url.query}`);
+  const hostBack = vi.fn().mockReturnValue(true);
+  const unregister = registerBackLayer({ pathname: "/", depth: 3, back: hostBack });
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Back in Profile" }));
+    expect(hostBack).not.toHaveBeenCalled();
+    expect(window.location.search).not.toContain("profile_panel=world-model");
+  } finally {
+    unregister();
+    view.unmount();
+  }
 });

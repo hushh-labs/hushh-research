@@ -254,6 +254,8 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-older-drain"),
         ]
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        # Multiple older generations may still hold admitted requests. Neither
+        # a zero minimum instance count nor aggregate SQL peaks prove drainage.
         for environment in ("uat", "production"):
             for configured in profile["environments"][environment]["services"].values():
                 with self.subTest(environment=environment, container=configured["container"]):

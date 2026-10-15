@@ -2,10 +2,11 @@
 
 import os
 import sys
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -13,6 +14,44 @@ from hushh_mcp.services import world_model_invitations as invites
 from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.asyncio
+async def test_public_preview_accepts_previewless_link_without_private_metadata(monkeypatch):
+    previewless_token, previewed_token = "a" * 43, "b" * 43
+    previewed_id = uuid4()
+    selected_preview = {
+        "report": {"sections": [{"kind": "profile", "facts": []}]},
+        "introduction": "Synthetic introduction",
+        "prepared_by": "inviter",
+    }
+    rows = {
+        sha256(previewless_token.encode()).hexdigest(): {
+            "id": uuid4(),
+            "preview_envelope": None,
+            "inviter_user_id": "private-inviter",
+            "contact_commitment": "private-contact-commitment",
+        },
+        sha256(previewed_token.encode()).hexdigest(): {
+            "id": previewed_id,
+            "preview_envelope": invites.seal_preview(
+                previewed_token, previewed_id, selected_preview
+            ),
+        },
+    }
+
+    async def fetchrow(query, token_hash, *, timeout):
+        assert "state='pending'" in query and "expires_at>NOW()" in query
+        assert timeout == 5
+        return rows.get(token_hash)
+
+    monkeypatch.setattr(
+        invites, "get_pool", AsyncMock(return_value=SimpleNamespace(fetchrow=fetchrow))
+    )
+    assert await invites.preview(previewless_token) == {"has_preview": False}
+    assert await invites.preview(previewed_token) == selected_preview
+    with pytest.raises(ValueError, match="Preview unavailable"):
+        await invites.preview("c" * 43)
 
 
 @pytest.mark.asyncio
@@ -214,11 +253,19 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         migration = (ROOT / "db/migrations/336_pwm_claim_invitations.sql").read_text()
         await pool.execute(migration)
         await pool.execute(migration)
+        await pool.execute("""CREATE TABLE feed_events(id bigserial PRIMARY KEY,user_id text,source_domain text,event_type text,source_row_id text,metadata jsonb,read_at timestamptz,dismissed_at timestamptz,dismissal_token text);
+            CREATE UNIQUE INDEX uq_feed_events_source_projection ON feed_events(user_id,source_domain,event_type,source_row_id) WHERE source_row_id IS NOT NULL;""")
+        lifecycle = (ROOT / "db/migrations/341_pwm_research_lifecycle.sql").read_text()
+        await pool.execute(lifecycle)
+        await pool.execute(lifecycle)
         import asyncio
 
         invitation = await asyncio.wait_for(
             invites.create("inviter", "fixture", "recipient@example.test"), 2
         )
+        assert await invites.preview(invitation["token"]) == {"has_preview": False}
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview("x" * 43)
         invites.owner_identity.return_value = {"email": "wrong@example.test"}
         with pytest.raises(ValueError):
             await invites.claim("wrong", "fixture", invitation["token"])
@@ -226,35 +273,113 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         result = await asyncio.wait_for(
             invites.claim("recipient", "fixture", invitation["token"]), 2
         )
-        assert result == {"claimed": True, "sharing_granted": False, "research_started": False}
-        with pytest.raises(ValueError):
-            await invites.claim("recipient", "fixture", invitation["token"])
+        assert result == {
+            "claimed": True,
+            "sharing_granted": False,
+            "research_started": False,
+            "draft_id": None,
+        }
+        assert await invites.claim("recipient", "fixture", invitation["token"]) == result
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(invitation["token"])
         second = await invites.create("inviter", "fixture", "recipient@example.test")
+        selected_preview = {
+            "report": {"sections": [{"kind": "profile", "facts": []}]},
+            "introduction": "Synthetic introduction",
+            "prepared_by": "inviter",
+        }
+        await pool.execute(
+            "UPDATE pwm_claim_invitations SET preview_envelope=$1,preview_version=1 WHERE id=$2",
+            invites.seal_preview(second["token"], UUID(second["id"]), selected_preview),
+            UUID(second["id"]),
+        )
+        assert await invites.preview(second["token"]) == selected_preview
         await invites.revoke("inviter", "fixture", UUID(second["id"]))
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(second["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", second["token"])
         third = await invites.create("inviter", "fixture", "recipient@example.test")
         await pool.execute(
             "UPDATE pwm_claim_invitations SET expires_at=NOW()-INTERVAL '1 day' WHERE state='pending'"
         )
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(third["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", third["token"])
         await _assert_claim_expiry_after_lock_wait(pool, settings)
         await pool.execute("UPDATE vault_keys SET setup_completed=false WHERE user_id='inviter'")
         with pytest.raises(PermissionError):
             await invites.create("inviter", "fixture", "recipient@example.test")
+        from uuid import uuid4
+
+        from hushh_mcp.services.world_model_preferences import checkpoint_committed
+
+        generation, draft_id = uuid4(), uuid4()
+        await pool.execute(
+            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation) VALUES ('recipient',true,true,$1)",
+            generation,
+        )
+        state = {
+            "job_id": str(draft_id),
+            "consent_generation": str(generation),
+            "status": "unavailable",
+            "result": {},
+        }
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        await pool.execute(
+            "UPDATE feed_events SET read_at=NOW(),dismissed_at=NOW(),dismissal_token='synthetic-dismissal' WHERE source_domain='pwm'"
+        )
+        state.update(
+            status="offered",
+            result={
+                "report": {
+                    "match_status": "matched",
+                    "sections": [{"facts": [{"statement": "Synthetic reviewed finding"}]}],
+                }
+            },
+        )
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+            await checkpoint_committed(conn, "recipient", state)
+        assert (
+            await pool.fetchval("SELECT count(*) FROM feed_events WHERE source_domain='pwm'") == 1
+        )
+        row = await pool.fetchrow(
+            "SELECT read_at,dismissed_at,dismissal_token,metadata->>'pwm_outcome' AS outcome FROM feed_events WHERE source_domain='pwm'"
+        )
+        assert (
+            row["read_at"]
+            and row["dismissed_at"]
+            and row["dismissal_token"] == "synthetic-dismissal"
+            and row["outcome"] == "ready"
+        )
+        assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "pending"
+        await pool.execute("UPDATE pwm_completion_events SET email_state='accepted'")
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "accepted"
+        await pool.execute("DELETE FROM pwm_research_preferences WHERE user_id='recipient'")
+        async with pool.acquire() as conn, conn.transaction():
+            with pytest.raises(PermissionError):
+                await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval("SELECT count(*) FROM pwm_completion_events") == 0
+        await pool.execute(
+            (ROOT / "db/migrations/rollback/341_pwm_research_lifecycle.rollback.sql").read_text()
+        )
         await pool.execute(
             (ROOT / "db/migrations/rollback/336_pwm_claim_invitations.rollback.sql").read_text()
         )
-        await pool.execute((ROOT / "db/migrations/335_pwm_provider_budget.sql").read_text())
-        from hushh_mcp.one_adk import world_model
-
-        monkeypatch.setattr("db.connection.get_pool", AsyncMock(return_value=pool))
-        assert await world_model.charge_search_credit() is True
-        await pool.execute("UPDATE pwm_provider_budget SET credits=900")
-        assert await world_model.charge_search_credit() is False
+        legacy_budget = (ROOT / "db/migrations/340_pwm_provider_budget.sql").read_text()
+        await pool.execute(legacy_budget)
+        await pool.execute(legacy_budget)
+        assert (
+            await pool.fetchval("SELECT to_regclass('pwm_provider_budget')::text")
+            == "pwm_provider_budget"
+        )
         await pool.execute(
-            (ROOT / "db/migrations/rollback/335_pwm_provider_budget.rollback.sql").read_text()
+            (ROOT / "db/migrations/rollback/340_pwm_provider_budget.rollback.sql").read_text()
         )
     finally:
         await pool.close()

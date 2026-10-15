@@ -29,7 +29,11 @@ from typing import Any
 
 from fastapi import Depends, HTTPException
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_firebase_auth_read_only,
+    require_vault_owner_token,
+)
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
@@ -122,6 +126,14 @@ async def hub_content_firebase(user_id: str = Depends(require_firebase_auth)) ->
     return user_id
 
 
+async def hub_content_firebase_read_only(
+    user_id: str = Depends(require_firebase_auth_read_only),
+) -> str:
+    """Read-only Firebase identity admitted to the existing Shared content plane."""
+    await admit_hub_content(user_id, "firebase_read_only")
+    return user_id
+
+
 # Route-level form for a chat-key route that keeps ``require_vault_owner_chat_key`` as its
 # own parameter: FastAPI resolves the shared dependency once per request, and the guard runs
 # before the handler.
@@ -131,6 +143,7 @@ HUB_CONTENT_DEPENDENCIES: tuple[Callable[..., Any], ...] = (
     hub_content_owner,
     hub_content_chat_owner,
     hub_content_firebase,
+    hub_content_firebase_read_only,
 )
 
 
@@ -164,6 +177,7 @@ __all__ = [
     "admit_hub_content",
     "hub_content_chat_owner",
     "hub_content_firebase",
+    "hub_content_firebase_read_only",
     "hub_content_inline",
     "hub_content_owner",
     "mark_inline_routes",

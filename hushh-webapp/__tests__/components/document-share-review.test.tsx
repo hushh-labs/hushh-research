@@ -336,6 +336,8 @@ describe("exact-file document review", () => {
     await waitFor(() => expect(editPrice).toBeEnabled());
     await act(async () => fireEvent.click(editPrice));
     expect(await screen.findByRole("dialog", { name: "Set a price" })).toBeVisible();
+    await act(async () => {});
+    expect(screen.getByRole("dialog", { name: "Set a price" })).toBeVisible();
     state.review.mockResolvedValue(partial({ revision: 4, paymentRequired: true,
       agentPackage: agentPackage({ revision: 3, digest: "c".repeat(64), summary: "A different package." }) }));
     await poll();
@@ -1427,8 +1429,7 @@ describe("exact-file document review", () => {
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       const enable = await screen.findByRole("button", { name: "Enable background Drive access" });
       expect(screen.getByRole("status")).toHaveTextContent("Background Drive access needed");
-      expect(screen.getByText("Background Drive access is off. This request is paused and will resume automatically when you turn it on.")).toBeVisible();
-      expect(screen.getByText(/read relevant files and send excerpts to Gemini while you're away/)).toBeVisible();
+      expect(screen.getByText("Turn on background access so Agent One can resume this request.")).toBeVisible();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: /Review \d+ files/ })).toBeNull();
       expect(screen.queryByRole("button", { name: /Share \d+ files/ })).toBeNull();

@@ -311,7 +311,7 @@ export function EmailDraftCard({
     if (activeDropdownField !== field || matchingConnections.length === 0) return null;
     return (
       <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
-        <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="app-metadata-label px-2.5 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">
           Connections
         </div>
         {matchingConnections.map((conn) => {

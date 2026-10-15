@@ -68,6 +68,7 @@ from hushh_mcp.one_adk.action_tools import (
     add_to_pkm,
     continue_app_goal,
     discover_person_information,
+    document_period_before_model,
     get_current_time,
     get_location_circle_members,
     journey_for_specialist_request,
@@ -2769,6 +2770,7 @@ def build_one_text_agent(
         before_model_callback=[
             _one_consent_before_model,
             receipt_before_model,
+            document_period_before_model,
             timed_one_before_model,
             club_queued_input,
         ],

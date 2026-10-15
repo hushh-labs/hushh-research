@@ -40,6 +40,27 @@ describe("chat drawer dialog layering", () => {
     view.rerender(<Harness renderer="web" />);
     expect(screen.getByRole("button", { name: "View Drive update" })).toBeVisible();
   });
+  it.each([false, true])("admits early keyboard navigation before entry autofocus (reverse=%s)", async (shiftKey) => {
+    const close = vi.fn();
+    const trigger = { current: null };
+    render(<AgentConnectionsDrawer open onOpenChange={close} mode="chats"
+      triggerRef={trigger} externalModalOpen={false}
+      chats={<><button>First history action</button><button>Last history action</button></>} connections={null} />);
+    const first = screen.getByRole("button", { name: "First history action" });
+    const last = screen.getByRole("button", { name: "Last history action" });
+    // JSDOM has no layout; admit just these real DOM controls as rendered.
+    for (const button of [first, last]) Object.defineProperty(button, "offsetParent", { configurable: true, value: document.body });
+    expect(document.activeElement).toBe(document.body);
+    expect(fireEvent.keyDown(document.body, { key: "Tab", shiftKey })).toBe(false);
+    expect(shiftKey ? last : first).toHaveFocus();
+    const intercepted = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    intercepted.preventDefault();
+    document.body.dispatchEvent(intercepted);
+    expect(shiftKey ? last : first).toHaveFocus();
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(close).toHaveBeenCalledExactlyOnceWith(false);
+  });
   it("keeps the mobile chat drawer open when Escape closes a Drive detail", async () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole("button", { name: "View Drive update" }));

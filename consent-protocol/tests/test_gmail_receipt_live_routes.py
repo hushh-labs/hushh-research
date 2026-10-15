@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -22,6 +25,20 @@ def shared_owner_placement(monkeypatch):
     monkeypatch.setattr(
         owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
     )
+
+
+def test_captured_live_uat_scan_passes_actual_response_model():
+    # Live UAT 200 supplied for this incident. Only its signed cursor is
+    # replaced in the committed fixture; the raw capture stays in ignored tmp/.
+    capture = os.getenv("GMAIL_RECEIPT_LIVE_CAPTURE")
+    path = (
+        Path(capture)
+        if capture
+        else Path(__file__).parent / "fixtures/gmail_live_receipt_uat_scan.json"
+    )
+    payload = json.loads(path.read_text())
+    response = gmail.GmailLiveReceiptScanResponse.model_validate(payload).model_dump()
+    assert response == payload
 
 
 def _item(source_id: str = "gmail_live_source.sig") -> dict:
@@ -155,9 +172,9 @@ def test_scan_is_sealed_bounded_and_no_store(monkeypatch):
     assert kwargs["per_page"] == 6
     assert callable(kwargs["require_access"])
     asyncio.run(kwargs["require_access"]())
-    revalidate.assert_not_awaited()
-    asyncio.run(kwargs["require_access"]())
     revalidate.assert_awaited_once()
+    asyncio.run(kwargs["require_access"]())
+    assert revalidate.await_count == 2
 
 
 async def test_disconnected_receipt_request_cancels_only_its_scan():
@@ -302,10 +319,11 @@ def test_scan_classifies_a_response_shape_mismatch_instead_of_crashing(monkeypat
         "/gmail/receipts/scan", json={"user_id": "owner"}
     )
 
-    assert response.status_code == 502
+    assert response.status_code == 500
     assert response.json()["detail"] == {
-        "code": "GMAIL_RECEIPT_INVALID_RESPONSE",
-        "message": "Gmail returned an invalid receipt response.",
+        "code": "GMAIL_RECEIPT_CONTRACT_MISMATCH",
+        "message": "Receipt sync could not validate its response. Please try again later.",
+        "retryable": False,
     }
     assert "private-merchant-name" not in response.text + caplog.text
 
@@ -331,6 +349,7 @@ def test_live_receipt_errors_do_not_echo_provider_or_mailbox_values(monkeypatch,
     assert response.json()["detail"] == {
         "code": "GMAIL_RECEIPT_UNAVAILABLE",
         "message": "Receipts are temporarily unavailable. Please try again.",
+        "retryable": False,
     }
     for private_value in (
         "private-owner",

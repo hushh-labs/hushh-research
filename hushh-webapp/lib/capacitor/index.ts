@@ -131,6 +131,7 @@ export interface HushhAuthPlugin {
   connectCalendar(options: {
     serverClientId: string;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;

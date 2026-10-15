@@ -1573,7 +1573,7 @@ describe("supported connector catalog", () => {
       return view;
     };
 
-    it("explains default-on automatic Trusted Circle sharing before starting full Drive access", async () => {
+    it("explains automatic preparation before starting full Drive access", async () => {
       state.overview.mockResolvedValue({
         ...liveDrive(),
         connectors: [{ ...liveDrive().connectors[0], status: "not_connected" }],
@@ -1582,11 +1582,8 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Review Google Drive access" }));
       expect(state.startOAuthConnect).not.toHaveBeenCalled();
       const drive = screen.getByRole("region", { name: "Google Drive" });
-      const disclosure = within(drive).getByText(/Full Drive access turns on background reads by default unless you turned them off/);
+      const disclosure = within(drive).getByText("Agent One prepares packets from your Drive automatically.");
       expect(disclosure).toBeVisible();
-      expect(within(drive).getByText(/send excerpts to Gemini, and share matching originals for document requests from accepted Trusted Circle members without asking again/)).toBeVisible();
-      expect(within(drive).getByText(/requester can open a file only after Google confirms access/)).toBeVisible();
-      expect(within(drive).getByText(/Turn background access off anytime; your choice is saved/)).toBeVisible();
       const connect = within(drive).getByRole("button", { name: "Connect Drive" });
       expect(connect).toBeEnabled();
       expect(disclosure.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1597,8 +1594,7 @@ describe("supported connector catalog", () => {
       await openDrive();
       const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
       expect(toggle).toHaveAttribute("aria-checked", "true");
-      expect(screen.getByText(/On by default. One may read Drive files, send excerpts to Gemini/)).toBeInTheDocument();
-      expect(screen.getByText("On. Relevant work can continue while you’re away.")).toBeInTheDocument();
+      expect(screen.getByText("Agent One works while you’re away.")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Retry Drive" })).not.toBeInTheDocument();
       expect(screen.getByText("Sharing and approval")).toBeInTheDocument();
       expect(screen.getByText(/Sharing a file needs your approval, document trust, or an accepted connection in your Trusted Circle/)).toBeInTheDocument();
@@ -1606,8 +1602,8 @@ describe("supported connector catalog", () => {
       fireEvent.click(toggle);
       await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
       expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", false);
-      expect(screen.getByText("Off. New automatic document requests wait until you turn this on.")).toBeInTheDocument();
-      expect(await screen.findByText("Background Drive access is off. New automatic document requests will wait.")).toBeInTheDocument();
+      expect(screen.getByText("Paused while you’re away.")).toBeInTheDocument();
+      expect(await screen.findByText("Background Drive access is off.")).toBeInTheDocument();
       fireEvent.click(toggle);
       await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
       expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", true);

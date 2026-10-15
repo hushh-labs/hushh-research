@@ -567,7 +567,7 @@ describe("Connectors owner and mutation fences", () => {
 
       fireEvent.click(
         screen.getByRole("checkbox", {
-          name: /prepare these files while the app is closed/i,
+          name: "Agent One prepares these files while you’re away.",
         }),
       );
       const pendingCalls = state.nativePickerPending.mock.calls.length;
@@ -588,7 +588,7 @@ describe("Connectors owner and mutation fences", () => {
       );
       expect(
         screen.getByRole("checkbox", {
-          name: /prepare these files while the app is closed/i,
+          name: "Agent One prepares these files while you’re away.",
         }),
       ).toBeChecked();
       await waitFor(() =>

@@ -45,12 +45,12 @@ const LIMITED_USE_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
-const LAST_UPDATED = "2026-10-12";
-const LAST_UPDATED_LABEL = "October 12, 2026";
-const VERSION = "2.2";
-const PRIVACY_LAST_UPDATED = "2026-10-12";
-const PRIVACY_LAST_UPDATED_LABEL = "October 12, 2026";
-const PRIVACY_VERSION = "2.3";
+const LAST_UPDATED = "2026-10-14";
+const LAST_UPDATED_LABEL = "October 14, 2026";
+const VERSION = "2.3";
+const PRIVACY_LAST_UPDATED = "2026-10-14";
+const PRIVACY_LAST_UPDATED_LABEL = "October 14, 2026";
+const PRIVACY_VERSION = "2.4";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -95,7 +95,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Your vault and the memories you save are encrypted on your device with a key only you hold before they are stored. We never receive that key.",
         "To answer you, One sends the information a request needs, which can include your memories, to our servers and to the AI model for that request. It is readable there while the request runs.",
         "Your chat history is stored encrypted with a key derived from your vault key, which your device sends only while One is working on your request.",
-        "Services you connect, such as Gmail, Google Calendar, Google Drive, and your bank through Plaid, are used only to do what you ask. Google information is handled under Google’s Limited Use requirements.",
+        "Services you connect support your requests and their background features. With full Google Drive access, Agent One prepares private document packets by default; you can pause preparation in Connectors. Google information is handled under Google’s Limited Use requirements.",
         "You decide what to share with other people and businesses, for how long, and you can revoke access at any time.",
         "We do not sell your information, and we do not show you ads.",
         "You can delete your account in the app at any time.",
@@ -116,7 +116,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("Information from services you connect"),
       p(
-        "If you connect Gmail, Google Calendar, Google Drive, Google Contacts, a bank or brokerage through Plaid, or tools you add yourself, or import a brokerage statement, One receives the information those services or files contain for your requests. Each is described below.",
+        "If you connect Gmail, Google Calendar, Google Drive, Google Contacts, a bank or brokerage through Plaid, or tools you add yourself, or import a brokerage statement, One receives information from them for your requests and the background features described below.",
       ),
       h("Location"),
       p(
@@ -159,7 +159,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("Information protected with keys we hold"),
       p(
-        "Some information has to be usable by our servers when you are not in the app, so it is encrypted with keys Hussh manages rather than your vault key. This includes sign-in tokens for Google services, credentials for connectors we offer in the app, files you add from Google Drive, and nearby check-ins and place visits.",
+        "Some information has to be usable by our servers when you are not in the app, so it is encrypted with keys Hussh manages rather than your vault key. This includes sign-in tokens for Google services, credentials for connectors we offer in the app, Drive file text, extracted facts and private document packets, and nearby check-ins and place visits.",
       ),
     ],
   },
@@ -168,7 +168,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "How One uses AI models",
     blocks: [
       p(
-        "Shared uses Google Gemini. A private agent uses the AI connection you select, including the supported Google or Microsoft Azure connection. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use.",
+        "Shared uses Google Gemini. A private agent uses the AI connection you select, including the supported Google or Microsoft Azure connection. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use. During background Drive preparation, the model also receives document text or page images to extract facts, check coverage and prepare private packets.",
       ),
       list(
         "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
@@ -240,7 +240,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("How One uses it"),
       list(
-        "One reads Gmail, Calendar, and Drive to do what you ask, such as find a message, summarize your day, or answer a question from a file.",
+        "One reads Gmail, Calendar, and Drive to do what you ask, such as find a message, summarize your day, or answer a question from a file. With full Drive access, background packet preparation is on by default. Agent One discovers and reads supported files, uses OCR when needed, extracts facts, updates the index when files change, and prepares private packets with coverage assessments and suggested prices. You can pause preparation or background Drive access in Connectors; a saved pause remains in effect after reconnecting.",
         "If you turn on request detection for Gmail, One checks new mail in the background with the AI model to find requests for your information, and keeps details of the requests it finds for 30 days.",
         "Sending an email, creating a draft, changing your mailbox, changing your calendar, and sharing or trashing a Drive file always wait for you to review and approve the exact action. One never permanently deletes email.",
         "Creating, copying, moving, renaming, and commenting on Drive files can happen when One does them for you as part of a request.",
@@ -249,8 +249,10 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       list(
         "Your Google sign-in tokens, encrypted at rest with keys Hussh holds.",
         "For purchase receipts found in Gmail: the subject, a short preview, the sender, and the merchant, amount, and order number. A receipt’s subject and preview may be given to the AI model to recognize it.",
-        "For Drive files you add to One: the file text, split into passages and indexed so One can search it, encrypted at rest with a key Hussh holds. Drive search indexing uses a self-hosted text-embedding model on our servers. This indexing step loads its model files locally and does not send your file contents to the model publisher. When One answers from a file, relevant passages may still be sent to your selected AI service as described in “How One uses AI models”.",
-        "Other mail, calendar events, Drive files, and contacts are read when needed and are not stored, except as described above.",
+        "For Drive files you add and files processed during background preparation: file text, search passages, extracted facts, evidence locations, source versions and private packet versions, encrypted at rest with keys Hussh holds. We also keep processing status and timing to resume work and show freshness. Pausing preparation stops background processing and retains existing packets; it does not make old evidence newly verified.",
+        "Drive search indexing uses a self-hosted text-embedding model on our servers. This indexing step loads its model files locally and does not send your file contents to the model publisher. When One answers from a file, relevant passages may still be sent to your selected AI service as described in “How One uses AI models”.",
+        "Preparing a packet does not publish it or grant another person access. You choose whether to list a packet for your connections, and Allow or Deny each buyer’s access request; editing its suggested price is optional.",
+        "Other mail, calendar events, and contacts are read when needed and are not stored, except as described above.",
       ),
       h("Disconnecting"),
       p(
@@ -523,7 +525,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     title: "What your private agent does",
     blocks: [
       p(
-        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself, and shares information with people only when you approve.",
+        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself. With full Drive access, Agent One prepares private document packets in the background by default; you can pause this in Connectors. Preparation does not publish a packet or approve a buyer’s access. One shares information with people only when you approve.",
       ),
       list(
         "AI can be wrong. One can misunderstand you, miss information, or produce answers that are inaccurate or out of date. Check anything important before you rely on it.",

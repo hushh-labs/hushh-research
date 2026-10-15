@@ -43,7 +43,7 @@ export type AgentIconProps = IconProps & {
  */
 export function FinanceAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#10B981",
   className,
   ...props
@@ -65,7 +65,7 @@ export function FinanceAgentIcon({
  */
 export function WalletAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#F59E0B",
   className,
   ...props
@@ -87,7 +87,7 @@ export function WalletAgentIcon({
  */
 export function LocationAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "var(--app-accent)",
   className,
   ...props
@@ -109,7 +109,7 @@ export function LocationAgentIcon({
  */
 export function RiaAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.invite,
   className,
   ...props
@@ -140,7 +140,7 @@ export function InviteFriendsProfileIcon(props: AgentIconProps) {
  */
 export function GmailAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#E11D48",
   className,
   ...props
@@ -162,7 +162,7 @@ export function GmailAgentIcon({
  */
 export function CalendarAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#0284C7",
   className,
   ...props
@@ -184,7 +184,7 @@ export function CalendarAgentIcon({
  */
 export function KycAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#2563EB",
   className,
   ...props
@@ -207,7 +207,7 @@ export { KycAgentIcon as EmailAgentIcon };
  */
 export function MemoryAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#6366F1",
   className,
   ...props
@@ -230,7 +230,7 @@ export { MemoryAgentIcon as PkmAgentIcon };
  */
 export function ConsentAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#F97316",
   className,
   ...props
@@ -252,7 +252,7 @@ export function ConsentAgentIcon({
  */
 export function MarketplaceAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#059669",
   className,
   ...props
@@ -274,7 +274,7 @@ export function MarketplaceAgentIcon({
  */
 export function ConnectedSystemsAgentIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.connectors,
   className,
   ...props
@@ -313,7 +313,7 @@ export type AgentIconKey = keyof typeof AGENT_ICON_MAP;
  */
 export function AccountProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.account,
   className,
   ...props
@@ -335,7 +335,7 @@ export function AccountProfileIcon({
  */
 export function PreferencesProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.preferences,
   className,
   ...props
@@ -357,7 +357,7 @@ export function PreferencesProfileIcon({
  */
 export function SecurityProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.security,
   className,
   ...props
@@ -379,7 +379,7 @@ export function SecurityProfileIcon({
  */
 export function DevicesProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.devices,
   className,
   ...props
@@ -401,7 +401,7 @@ export function DevicesProfileIcon({
  */
 export function SupportProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.support,
   className,
   ...props
@@ -423,7 +423,7 @@ export function SupportProfileIcon({
  */
 export function DeveloperToolsProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.developerTools,
   className,
   ...props
@@ -445,7 +445,7 @@ export function DeveloperToolsProfileIcon({
  */
 export function SignOutProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = PROFILE_ICON_COLORS.signOut,
   className,
   ...props
@@ -467,7 +467,7 @@ export function SignOutProfileIcon({
  */
 export function FingerprintProfileIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   color = "#10B981",
   className,
   ...props

@@ -1,3 +1,4 @@
+import { profileReportSchema } from "@/lib/services/profile-research-service";
 import { z } from "zod";
 import { apiJson } from "@/lib/services/api-client";
 import type { ApiFetchOptions } from "@/lib/services/api-service";
@@ -51,7 +52,15 @@ async function request(
   return result;
 }
 export const WorldModelInvitationsService = {
-  async create(session: Session, contact: string) {
+  async create(
+    session: Session,
+    contact: string,
+    preview?: {
+      preview_draft_id: string;
+      selected_fact_ids: string[];
+      introduction: string;
+    },
+  ) {
     const origin = resolveShareableAppOrigin();
     if (!origin) throw new Error("A shareable app address is unavailable.");
     const row = z
@@ -61,11 +70,40 @@ export const WorldModelInvitationsService = {
         expires_at: z.string(),
       })
       .strict()
-      .parse(await request(session, "invitations", "POST", { contact }));
+      .parse(
+        await request(session, "invitations", "POST", { contact, ...preview }),
+      );
     return {
       ...row,
-      url: `${origin}${ROUTES.PROFILE_WORLD_MODEL}?claim=${encodeURIComponent(row.token)}`,
+      url: `${origin}${ROUTES.WORLD_MODEL_INVITE}#claim=${encodeURIComponent(row.token)}`,
     };
+  },
+  async preview(token: string) {
+    return z
+      .union([
+        z
+          .object({
+            report: profileReportSchema,
+            introduction: z.string().max(500),
+            prepared_by: z.literal("inviter"),
+          })
+          .strict(),
+        z.object({ has_preview: z.literal(false) }).strict(),
+      ])
+      .parse(
+        await apiJson("/api/one/world-model/invitation-preview", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        }),
+      );
+  },
+  async reject(session: Session, token: string) {
+    return z
+      .object({ rejected: z.literal(true) })
+      .strict()
+      .parse(await request(session, "invitations/reject", "POST", { token }));
   },
   async list(session: Session) {
     return z
@@ -84,16 +122,21 @@ export const WorldModelInvitationsService = {
         ),
       );
   },
-  async claim(session: Session, token: string) {
+  async claim(session: Session, token: string, researchConsent = false) {
     return z
       .object({
         claimed: z.literal(true),
         sharing_granted: z.literal(false),
-        research_started: z.literal(false),
+        research_started: z.boolean(),
+        draft_id: z.string().uuid().nullable().optional(),
       })
       .strict()
       .parse(
-        await request(session, "claims", "POST", { token, consent: true }),
+        await request(session, "claims", "POST", {
+          token,
+          consent: true,
+          research_consent: researchConsent,
+        }),
       );
   },
 };

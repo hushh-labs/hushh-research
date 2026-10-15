@@ -7,6 +7,8 @@ import {
   type MemoryDocument,
 } from "@/lib/pkm/memory-document";
 import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
+import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
+import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -181,20 +183,30 @@ export async function refreshMemoryDocument(
   let builtAt = new Date().toISOString();
   const checkedDate = builtAt.slice(0, 10);
   const livingPrivate = (fullBlob.one_living_sources as { _private?: Record<string, unknown> } | undefined)?._private;
-  const records = (livingPrivate?.inventory as { records?: { kind: string; deletedAt: string | null; value: Record<string, unknown> }[] } | undefined)?.records;
-  const profile = records?.find(record => record.kind === "profile" && !record.deletedAt)?.value;
+  const inventory = livingPrivate?.inventory as LivingSourceInventory | undefined;
+  const factIndex = inventory && Array.isArray(inventory.records) && Array.isArray(inventory.unavailable)
+    ? buildOwnerLivingFactIndex({ expectedOwnerId: params.userId, inventory, now: builtAt })
+    : null;
+  const profileValue = (predicate: string): string | null => {
+    const nodes = factIndex?.byPredicate.get(predicate);
+    return nodes?.length === 1 && nodes[0]?.status === "verified" &&
+      typeof nodes[0].value === "string" ? nodes[0].value : null;
+  };
+  const profile = factIndex?.byPredicate.get("profile.__record")?.some(node => node.status === "verified");
   const account = params.account ?? (profile ? {
-    displayName: typeof profile.name === "string" ? profile.name : null,
-    email: typeof profile.email === "string" ? profile.email : null,
-    photoUrl: typeof profile.photo === "string" ? profile.photo : null,
+    displayName: profileValue("profile.name"),
+    email: profileValue("profile.email"),
+    photoUrl: profileValue("profile.photo"),
   } : null);
   let document = buildMemoryDocument({
     snapshot: buildPkmMemorySnapshot({ metadata: null, fullBlob }),
+    ownerUserId: params.userId,
     domainData: fullBlob,
     sources,
     audience: "self",
     builtAt,
     account,
+    verifiedProfileName: profileValue("profile.name"),
   });
   if (document.complete && networkVerified && livingPrivate && !shouldSkipReviewerBackgroundWritesForAutomation()) {
     const stable = JSON.stringify([document.markdown.replace(builtAt, ""), document.sourceLinks]);

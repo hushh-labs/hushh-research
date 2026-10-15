@@ -71,9 +71,11 @@
       ".github/workflows/",
       ".github/actions/",
       "scripts/ci/",
+      "scripts/git/check-main-sync.sh",
       "deploy/",
       "config/ci-governance.json",
-      "config/protected-behaviors.json"
+      "config/protected-behaviors.json",
+      "config/runtime-capacity.json"
     ]
   },
   "pr_train": {

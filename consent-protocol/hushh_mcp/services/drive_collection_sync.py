@@ -15,6 +15,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveMetadata,
     DriveReadError,
     GoogleDriveAdapter,
+    valid_metadata_name,
 )
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
@@ -41,8 +42,7 @@ def _metadata(value):
     if (
         not isinstance(identity, str)
         or not FILE_ID.fullmatch(identity)
-        or not isinstance(name, str)
-        or not 1 <= len(name) <= 1024
+        or not valid_metadata_name(name)
         or not isinstance(mime, str)
         or not 1 <= len(mime) <= 255
         or not isinstance(version, str)
@@ -75,6 +75,47 @@ class DriveCollectionSync:
     async def _require_current(self, job):
         await self.store.require_current(job)
         await admit_hub_content(job["user_id"], "drive_collection_sync")
+
+    async def enqueue_candidates(self, *, user_id, file_ids):
+        """Resolve a bounded search result through normal collection authority.
+
+        Request retrieval and operator evaluation may accelerate specific sources;
+        the scheduled FIFO and the background discovery cursor remain unchanged.
+        Source bytes still pass through the ordinary version-fenced ingestion.
+        """
+        if (
+            not isinstance(file_ids, (list, tuple))
+            or not 1 <= len(file_ids) <= 50
+            or any(
+                not isinstance(identity, str) or not FILE_ID.fullmatch(identity)
+                for identity in file_ids
+            )
+            or len(set(file_ids)) != len(file_ids)
+        ):
+            raise DriveReadError("invalid_argument")
+        await admit_hub_content(user_id, "drive_collection_candidates")
+        authority = await self.store.candidate_authority(user_id=user_id)
+        async with asyncio.timeout(100):
+            row, credential = await self.oauth.current_credential(
+                user_id=user_id, required_profile="live"
+            )
+            if row["connection_generation"] != authority["connection_generation"]:
+                raise DriveReadError("connection_changed")
+            files = []
+            for identity in file_ids:
+                await self.store.require_candidates_current(authority)
+                await admit_hub_content(user_id, "drive_collection_candidates")
+                files.append(
+                    await self.adapter.get_metadata(
+                        file_id=identity,
+                        access_token=credential["accessToken"],
+                        require_app_authorized=False,
+                    )
+                )
+                await self.store.require_candidates_current(authority)
+                await admit_hub_content(user_id, "drive_collection_candidates")
+            await admit_hub_content(user_id, "drive_collection_candidates")
+            return await self.store.enqueue_candidates(authority, files=files)
 
     async def run_one(self, *, user_id):
         await admit_hub_content(user_id, "drive_collection_claim")

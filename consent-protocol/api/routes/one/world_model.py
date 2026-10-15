@@ -1,4 +1,4 @@
-"""Explicit, owner-scoped PWM research. Viewing the route never starts a job."""
+"""Owner-scoped PWM preparation with explicit, persistent research consent."""
 
 from typing import Literal
 from uuid import UUID
@@ -15,6 +15,8 @@ from api.routes.one.profile_research import (
     PrivateProfileRoute,
 )
 from hushh_mcp.services import world_model_invitations as invitations
+from hushh_mcp.services import world_model_preferences as preferences
+from hushh_mcp.services import world_model_source_review as source_reviews
 from hushh_mcp.services.magic_intelligence_completion import (
     MagicReviewNotCommitted,
     complete_magic_intelligence,
@@ -55,8 +57,59 @@ async def start(request: Request, token: dict = Depends(hub_content_chat_owner))
 
 @router.get("/jobs")
 @limiter.limit("30/minute")
-async def status(request: Request, token: dict = Depends(hub_content_chat_owner)):
-    return await operation(token, False)
+async def status(
+    request: Request,
+    draft_id: UUID | None = None,
+    token: dict = Depends(hub_content_chat_owner),
+):
+    response = await operation(token, False)
+    if draft_id:
+        import json
+
+        value = json.loads(response.body)
+        if value.get("draft_id") != str(draft_id):
+            raise HTTPException(404, "This research draft is no longer available.")
+    return response
+
+
+class ResearchPreferencesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    email_enabled: bool
+    consent_version: Literal["pwm-native-v1"]
+
+
+@router.get("/preferences")
+async def get_preferences(request: Request, token: dict = Depends(require_vault_owner_chat_key)):
+    user_id, _ = owner(token)
+    return preferences.public_preferences(await preferences.preferences(user_id))
+
+
+@router.put("/preferences")
+@limiter.limit("30/hour")
+async def set_preferences(
+    request: Request,
+    body: ResearchPreferencesInput,
+    token: dict = Depends(require_vault_owner_chat_key),
+):
+    try:
+        return await preferences.update_preferences(
+            *owner(token), enabled=body.enabled, email_enabled=body.email_enabled
+        )
+    except PermissionError:
+        raise HTTPException(403, "Unlock your vault to continue.") from None
+
+
+@router.post("/ensure")
+@limiter.limit("30/hour")
+async def ensure(request: Request, token: dict = Depends(hub_content_chat_owner)):
+    try:
+        result = await world_model_jobs.ensure(*owner(token))
+        return JSONResponse(
+            result, status_code=202 if result["status"] in {"pending", "paused"} else 200
+        )
+    except PermissionError:
+        raise HTTPException(403, "Unlock your vault to continue.") from None
 
 
 @router.delete("/jobs")
@@ -91,6 +144,12 @@ async def complete(
 ):
     user_id, consent_token = owner(token)
     try:
+        draft = await world_model_jobs.status(user_id, consent_token)
+        if draft.get("research", {}).get("source_use") == "google_grounded_display_only":
+            raise HTTPException(
+                409,
+                "This search response is for viewing. Add your own details or a permitted source to save knowledge.",
+            )
         await complete_magic_intelligence(
             user_id,
             [(row.domain, row.plan_id) for row in body.commits],
@@ -110,12 +169,16 @@ async def complete(
 class InvitationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     contact: str = Field(min_length=3, max_length=320)
+    preview_draft_id: UUID | None = None
+    selected_fact_ids: list[str] = Field(default_factory=list, max_length=8)
+    introduction: str = Field(default="", max_length=500)
 
 
 class ClaimInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
     consent: Literal[True]
+    research_consent: bool = False
 
 
 @router.post("/invitations")
@@ -124,7 +187,13 @@ async def create_invitation(
     request: Request, body: InvitationInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
     try:
-        return await invitations.create(*owner(token), body.contact)
+        return await invitations.create(
+            *owner(token),
+            body.contact,
+            preview_draft_id=body.preview_draft_id,
+            selected_fact_ids=body.selected_fact_ids,
+            introduction=body.introduction,
+        )
     except PermissionError:
         raise HTTPException(403, "Verify your contact and unlock your vault.") from None
     except ValueError:
@@ -160,7 +229,13 @@ async def claim_invitation(
     request: Request, body: ClaimInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
     try:
-        return await invitations.claim(*owner(token), body.token)
+        result = await invitations.claim(*owner(token), body.token)
+        if body.research_consent:
+            # Claim and consent are explicit; retries reuse the claimed draft/job.
+            await preferences.update_preferences(*owner(token), enabled=True, email_enabled=False)
+            prepared = await world_model_jobs.ensure(*owner(token))
+            result["research_started"] = prepared["status"] in {"pending", "paused", "offered"}
+        return result
     except (ValueError, PermissionError):
         raise HTTPException(
             403,
@@ -199,3 +274,111 @@ async def research(
     ):
         raise HTTPException(403, "Use your account name and a verified contact.")
     return await operation(token, True)
+
+
+# Independent source reviews have their own encrypted draft and completion fence.
+
+
+@router.post("/source-reviews")
+@limiter.limit("3/hour")
+async def prepare_sources(
+    request: Request,
+    body: source_reviews.SourceReviewInput,
+    token: dict = Depends(hub_content_chat_owner),
+):
+    try:
+        return await source_reviews.prepare(*owner(token), body)
+    except PermissionError:
+        raise HTTPException(403, "Verify your contact and unlock your vault.") from None
+    except ValueError:
+        raise HTTPException(
+            422, "Use permitted public source pages. No supported result could be prepared."
+        ) from None
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Source review is temporarily unavailable.") from None
+
+
+@router.get("/source-reviews")
+async def read_sources(
+    request: Request,
+    purpose: Literal["owner", "invitation"] = "owner",
+    token: dict = Depends(hub_content_chat_owner),
+):
+    try:
+        state = await source_reviews.read(*owner(token))
+        return (
+            state["result"]
+            if state["purpose"] == purpose
+            else {"status": "saved", "pkm_written": False}
+        )
+    except PermissionError:
+        raise HTTPException(403, "Unlock your vault to continue.") from None
+    except ValueError:
+        return {"status": "saved", "pkm_written": False}
+
+
+@router.delete("/source-reviews")
+async def discard_sources(
+    request: Request, draft_id: UUID, token: dict = Depends(hub_content_chat_owner)
+):
+    try:
+        await source_reviews.discard(*owner(token), str(draft_id))
+    except PermissionError:
+        raise HTTPException(403, "Unlock your vault to continue.") from None
+    except (ValueError, RuntimeError):
+        raise HTTPException(409, "Source draft changed.") from None
+    return {"discarded": True}
+
+
+@router.post("/source-reviews/complete")
+async def complete_sources(
+    request: Request,
+    body: WorldModelCompletion,
+    token: dict = Depends(hub_content_chat_owner),
+):
+    user_id, consent_token = owner(token)
+    try:
+        state = await source_reviews.read(user_id, consent_token, body.draft_id)
+        if state["purpose"] != "owner":
+            raise ValueError("Review belongs to an invitation")
+        await complete_magic_intelligence(
+            user_id,
+            [(row.domain, row.plan_id) for row in body.commits],
+            verify_only=True,
+            max_commits=160,
+        )
+        await source_reviews.discard(user_id, consent_token, str(body.draft_id))
+    except PermissionError:
+        raise HTTPException(403, "Unlock your vault to continue.") from None
+    except (ValueError, RuntimeError, MagicReviewNotCommitted):
+        raise HTTPException(
+            409, "Source draft changed or reviewed details have not been saved."
+        ) from None
+    return {"saved": True}
+
+
+class PreviewToken(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+
+
+@router.post("/invitation-preview")
+@limiter.limit("20/minute")
+async def invitation_preview(request: Request, body: PreviewToken):
+    try:
+        return await invitations.preview(body.token)
+    except (ValueError, PermissionError):
+        raise HTTPException(404, "This preview is unavailable.") from None
+
+
+@router.post("/invitations/reject")
+@limiter.limit("10/hour")
+async def reject_invitation(
+    request: Request, body: PreviewToken, token: dict = Depends(require_vault_owner_chat_key)
+):
+    try:
+        return await invitations.reject(*owner(token), body.token)
+    except PermissionError:
+        raise HTTPException(403, "Verify the invited contact before rejecting.") from None

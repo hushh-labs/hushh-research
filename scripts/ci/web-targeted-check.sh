@@ -195,6 +195,13 @@ if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|com
   ran=1
 fi
 
+# Calendar owns a transport-backed fixture for connected Schedule. Keep this
+# explicitly registered; the general layout script enumerates its own specs.
+if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+  run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
+  ran=1
+fi
+
 # Agent Chat is a two-agent window: One in the cloud and Puppy One on the
 # owner's own Mac. The invariants that matter are COMPOSITION properties (which
 # of One's controls survive the switch, whether a command capture or an

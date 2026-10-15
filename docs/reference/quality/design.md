@@ -18,7 +18,7 @@ flowchart TB
 ```
 
 This is the concise design authority for One. It is informed by the checked
-Apple interaction reference: quiet system typography, a restrained single
+Apple interaction reference: quiet Plus Jakarta Sans typography, a restrained single
 accent, legible hierarchy, and chrome that recedes behind the work. It does
 not copy Apple branding or substitute a separate palette for Hussh.
 

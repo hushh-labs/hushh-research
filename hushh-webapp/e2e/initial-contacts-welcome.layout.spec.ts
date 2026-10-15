@@ -38,7 +38,6 @@ test.beforeAll(async () => {
     ] },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
-      "process.env.NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED": JSON.stringify("true"),
       "process.env": "{}",
     },
     build: {

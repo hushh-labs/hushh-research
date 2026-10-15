@@ -115,3 +115,12 @@ it.each(["/one/profile/world-model", "/one/profile/world-model/"])(
     expect(response.headers.get("location")).toBeNull();
   },
 );
+
+it.each(["/one/profile/world-model", "/one/profile/world-model/"])("opens an ordinary model link inside Profile: %s", (path) => {
+  const response = proxy(request(`${path}?from=%2Fone%2Ffeed`));
+  const location = new URL(response.headers.get("location")!);
+  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
+  expect(location.searchParams.get("profile_pane")).toBe("1");
+  expect(location.searchParams.get("profile_panel")).toBe("world-model");
+  expect(location.searchParams.get("from")).toBe("/one/feed");
+});

@@ -2380,7 +2380,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2914
+      "value": 2940
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2596,7 +2596,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "DriveIngestionStore",
-      "value": 389
+      "value": 546
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2650,7 +2650,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "DriveOwnerSearchService",
-      "value": 1260
+      "value": 1266
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2866,7 +2866,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "GmailLiveReceiptsService",
-      "value": 1020
+      "value": 1107
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2911,7 +2911,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "GoogleCalendarService",
-      "value": 1070
+      "value": 1257
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2920,7 +2920,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "GoogleConnectionService",
-      "value": 1074
+      "value": 1091
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3793,7 +3793,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 2202
+      "value": 3070
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3802,7 +3802,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "RetentionSafetyTest",
-      "value": 301
+      "value": 420
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6394,7 +6394,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "__init__",
-      "value": 737
+      "value": 748
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6412,7 +6412,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 274
+      "value": 277
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6421,7 +6421,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 538
+      "value": 541
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6457,7 +6457,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "reset_account",
-      "value": 101
+      "value": 102
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8644,7 +8644,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "_request_with_authority",
-      "value": 169
+      "value": 178
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8653,7 +8653,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "execute",
-      "value": 107
+      "value": 129
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12685,7 +12685,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": "test_full_account_deletion_covers_account_owned_tables",
-      "value": 281
+      "value": 283
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13063,7 +13063,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py",
       "symbol": "connector_postgres_url",
-      "value": 88
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13954,7 +13954,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": "test_native_public_clients_resolve_only_in_dev_and_fail_closed",
-      "value": 84
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14764,7 +14764,7 @@
       "limit": 80,
       "path": "scripts/ci/cloudrun-retention.py",
       "symbol": "main",
-      "value": 149
+      "value": 169
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14827,7 +14827,7 @@
       "limit": 80,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "test_source_is_authorized_before_any_cloud_access",
-      "value": 132
+      "value": 137
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15772,7 +15772,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/kai/gmail.py",
       "symbol": null,
-      "value": 938
+      "value": 955
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16159,7 +16159,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": null,
-      "value": 5583
+      "value": 5825
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16213,7 +16213,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py",
       "symbol": null,
-      "value": 744
+      "value": 790
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16420,7 +16420,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 2997
+      "value": 3024
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16735,7 +16735,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": null,
-      "value": 1890
+      "value": 1896
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16870,7 +16870,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1369
+      "value": 1391
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16915,7 +16915,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": null,
-      "value": 1933
+      "value": 2020
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16969,7 +16969,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": null,
-      "value": 1158
+      "value": 1436
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16978,7 +16978,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": null,
-      "value": 1189
+      "value": 1206
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16987,7 +16987,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 972
+      "value": 1005
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17896,7 +17896,7 @@
       "limit": 500,
       "path": "consent-protocol/server.py",
       "symbol": null,
-      "value": 1563
+      "value": 1571
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18220,7 +18220,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1764
+      "value": 1776
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18310,7 +18310,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_ingestion.py",
       "symbol": null,
-      "value": 819
+      "value": 1580
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18472,7 +18472,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py",
       "symbol": null,
-      "value": 1036
+      "value": 1041
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18535,7 +18535,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipt_live_service.py",
       "symbol": null,
-      "value": 1574
+      "value": 1775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18562,7 +18562,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
-      "value": 1445
+      "value": 1570
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18985,7 +18985,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
       "symbol": null,
-      "value": 2114
+      "value": 2773
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19183,7 +19183,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 905
+      "value": 1001
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20020,7 +20020,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1066
+      "value": 1241
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20110,7 +20110,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2597
+      "value": 2620
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20173,7 +20173,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 674
+      "value": 719
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20263,7 +20263,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 2134
+      "value": 2135
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20281,7 +20281,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/feed-page-clear.test.tsx",
       "symbol": null,
-      "value": 678
+      "value": 695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20308,7 +20308,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gmail-recent-receipts.test.tsx",
       "symbol": null,
-      "value": 767
+      "value": 771
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20344,7 +20344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
       "symbol": null,
-      "value": 731
+      "value": 749
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20560,7 +20560,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx",
       "symbol": null,
-      "value": 1666
+      "value": 1673
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20722,7 +20722,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/one-voice/session-integration.test.tsx",
       "symbol": null,
-      "value": 1335
+      "value": 1343
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20776,7 +20776,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
       "symbol": null,
-      "value": 1512
+      "value": 1639
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20911,7 +20911,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/post-auth-route-service.test.ts",
       "symbol": null,
-      "value": 916
+      "value": 918
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20974,7 +20974,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/api/kai/[...path]/route.ts",
       "symbol": null,
-      "value": 550
+      "value": 567
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21118,7 +21118,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11057
+      "value": 11081
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21226,7 +21226,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/profile-research-card.tsx",
       "symbol": null,
-      "value": 641
+      "value": 654
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21307,7 +21307,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 787
+      "value": 833
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21424,7 +21424,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 2267
+      "value": 2274
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21478,7 +21478,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/feed/feed-page.tsx",
       "symbol": null,
-      "value": 1240
+      "value": 1247
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21514,7 +21514,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/icons/ui/ui-icons.tsx",
       "symbol": null,
-      "value": 590
+      "value": 591
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21838,7 +21838,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
       "symbol": null,
-      "value": 1138
+      "value": 1185
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21856,7 +21856,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx",
       "symbol": null,
-      "value": 1067
+      "value": 1115
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22252,7 +22252,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/todos/todo-list-page.tsx",
       "symbol": null,
-      "value": 996
+      "value": 1048
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22450,7 +22450,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1157
+      "value": 1291
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22531,7 +22531,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/index.ts",
       "symbol": null,
-      "value": 1100
+      "value": 1101
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22621,7 +22621,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
-      "value": 1828
+      "value": 1862
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22747,7 +22747,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/legal/legal-documents.ts",
       "symbol": null,
-      "value": 735
+      "value": 737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22819,7 +22819,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/profile-routes.ts",
       "symbol": null,
-      "value": 606
+      "value": 616
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22828,7 +22828,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/routes.ts",
       "symbol": null,
-      "value": 988
+      "value": 993
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22873,7 +22873,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/observability/route-map.ts",
       "symbol": null,
-      "value": 865
+      "value": 869
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23080,7 +23080,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/portfolio-share/client.ts",
       "symbol": null,
-      "value": 660
+      "value": 669
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23170,7 +23170,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6021
+      "value": 6029
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23188,7 +23188,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/auth-service.ts",
       "symbol": null,
-      "value": 2193
+      "value": 2244
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23719,7 +23719,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 2552
+      "value": 3539
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23846,7 +23846,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 553
+      "value": 555
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -23882,7 +23882,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "find_release",
-      "value": 115
+      "value": 117
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23891,7 +23891,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 1581
+      "value": 1941
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24026,7 +24026,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/payout_activity_service.py",
       "symbol": "PayoutActivityService",
-      "value": 663
+      "value": 666
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24143,7 +24143,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/payout_activity_service.py",
       "symbol": "activity",
-      "value": 87
+      "value": 90
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24224,7 +24224,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/payout_activity_service.py",
       "symbol": null,
-      "value": 1255
+      "value": 1258
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24242,7 +24242,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_payout_activity_postgres.py",
       "symbol": null,
-      "value": 1122
+      "value": 1141
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24350,7 +24350,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "ProfileResearchJobs",
-      "value": 321
+      "value": 377
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24386,7 +24386,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "_run",
-      "value": 119
+      "value": 151
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24422,7 +24422,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": "start",
-      "value": 95
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24494,7 +24494,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_profile_research_jobs.py",
       "symbol": null,
-      "value": 704
+      "value": 765
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24575,7 +24575,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/memory-document.ts",
       "symbol": null,
-      "value": 516
+      "value": 545
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24800,7 +24800,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
       "symbol": "_read_batch",
-      "value": 145
+      "value": 147
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24881,7 +24881,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "DrivePacketStore",
-      "value": 771
+      "value": 937
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24890,7 +24890,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
       "symbol": "DriveCollectionStore",
-      "value": 614
+      "value": 854
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24899,7 +24899,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": "DriveDocumentFactsStore",
-      "value": 514
+      "value": 626
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24908,7 +24908,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
       "symbol": "DriveRequestPackageService",
-      "value": 329
+      "value": 331
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -24953,7 +24953,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_packet_payment_postgres.py",
       "symbol": "test_undated_catalog_allow_freeze_and_checkout_is_idempotent",
-      "value": 171
+      "value": 230
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25016,7 +25016,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_match_canonical_packet",
-      "value": 125
+      "value": 131
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25034,7 +25034,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_packet_one",
-      "value": 119
+      "value": 139
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25043,7 +25043,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
       "symbol": "run",
-      "value": 107
+      "value": 143
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25052,7 +25052,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "finalize_packet",
-      "value": 106
+      "value": 113
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25061,7 +25061,16 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
       "symbol": "status",
-      "value": 104
+      "value": 105
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "operation",
+      "value": 107
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25074,21 +25083,12 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
-      "symbol": "operation",
-      "value": 90
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|list_packets|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "list_packets",
-      "value": 99
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25106,7 +25106,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_package_service.py",
       "symbol": "read",
-      "value": 98
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25115,7 +25115,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_service.py",
       "symbol": "run_one",
-      "value": 93
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25151,7 +25151,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_request_index_reuse_postgres.py",
       "symbol": "test_equivalent_request_reuses_unlisted_packet_with_owner_approval_still_required",
-      "value": 86
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25223,7 +25223,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": null,
-      "value": 802
+      "value": 999
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25232,7 +25232,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
       "symbol": null,
-      "value": 640
+      "value": 891
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25241,7 +25241,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": null,
-      "value": 577
+      "value": 691
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25250,7 +25250,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 597
+      "value": 1407
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25259,7 +25259,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_document_processor.py",
       "symbol": null,
-      "value": 566
+      "value": 583
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25268,7 +25268,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_adapter.py",
       "symbol": null,
-      "value": 545
+      "value": 575
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25286,7 +25286,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
       "symbol": "run_world_model",
-      "value": 148
+      "value": 346
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25304,7 +25304,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_world_model_invitations.py",
       "symbol": "test_claim_contract_on_single_connection_postgres",
-      "value": 85
+      "value": 171
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25412,7 +25412,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "maintenance_pass",
-      "value": 184
+      "value": 214
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25430,7 +25430,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 618
+      "value": 620
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25579,7 +25579,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
       "symbol": null,
-      "value": 688
+      "value": 906
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25588,7 +25588,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
       "symbol": null,
-      "value": 625
+      "value": 858
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25597,7 +25597,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
       "symbol": null,
-      "value": 583
+      "value": 890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25615,7 +25615,7 @@
       "limit": 250,
       "path": "scripts/ci/test_pending_uat_retention_state.py",
       "symbol": "PendingUatStateTests",
-      "value": 271
+      "value": 280
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25624,7 +25624,529 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "restore_state",
-      "value": 104
+      "value": 123
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+      "symbol": "CalendarScheduleService",
+      "value": 709
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+      "symbol": "DrivePacketWorker",
+      "value": 297
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/action_tools.py|propose_document_request|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
+      "symbol": "propose_document_request",
+      "value": 164
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/document_period_assessment.py|assess_document_period|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/document_period_assessment.py",
+      "symbol": "assess_document_period",
+      "value": 107
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|search_public_web|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
+      "symbol": "search_public_web",
+      "value": 125
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|confirm|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+      "symbol": "confirm",
+      "value": 100
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|review|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+      "symbol": "review",
+      "value": 108
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|_recheck_unsupported_locked|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "_recheck_unsupported_locked",
+      "value": 87
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|_upsert_files_locked|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_collection_store.py",
+      "symbol": "_upsert_files_locked",
+      "value": 109
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|claim|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+      "symbol": "claim",
+      "value": 121
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+      "symbol": "operation",
+      "value": 110
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py|construct_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
+      "symbol": "construct_packet",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|canonical_key_context|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
+      "symbol": "canonical_key_context",
+      "value": 81
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+      "symbol": "run_facts_one",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_get_once|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
+      "symbol": "_get_once",
+      "value": 93
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_scan_page|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
+      "symbol": "_scan_page",
+      "value": 224
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_create_oauth_attempt|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
+      "symbol": "_create_oauth_attempt",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py|stage_owner_envelope|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py",
+      "symbol": "stage_owner_envelope",
+      "value": 133
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py|write|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py",
+      "symbol": "write",
+      "value": 94
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py|request_pending|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py",
+      "symbol": "request_pending",
+      "value": 98
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py|write|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py",
+      "symbol": "write",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/source_journal_service.py|_replay|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/source_journal_service.py",
+      "symbol": "_replay",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|claim|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/world_model_invitations.py",
+      "symbol": "claim",
+      "value": 95
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/world_model_notifications.py|_deliver|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/world_model_notifications.py",
+      "symbol": "_deliver",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/world_model_source_review.py|prepare|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/world_model_source_review.py",
+      "symbol": "prepare",
+      "value": 120
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_calendar_schedule_service.py|test_selected_day_loads_all_inventory_and_event_pages_without_merging_shared_ids|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_calendar_schedule_service.py",
+      "symbol": "test_selected_day_loads_all_inventory_and_event_pages_without_merging_shared_ids",
+      "value": 108
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_packet_intelligence.py|test_requested_packet_keeps_typed_scope_and_model_copy_for_independent_review|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
+      "symbol": "test_requested_packet_keeps_typed_scope_and_model_copy_for_independent_review",
+      "value": 119
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_canonical_key_context_is_current_bounded_and_owner_private|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "symbol": "test_canonical_key_context_is_current_bounded_and_owner_private",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_late_old_policy_membership_is_reconciled_from_current_facts|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "symbol": "test_late_old_policy_membership_is_reconciled_from_current_facts",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_reference_fk_does_not_block_connector_deletion_or_mutate_request_terms|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "symbol": "test_reference_fk_does_not_block_connector_deletion_or_mutate_request_terms",
+      "value": 81
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_consent_lifecycle_chat.py|test_document_period_question_ends_real_runner_without_model_retry|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
+      "symbol": "test_document_period_question_ends_real_runner_without_model_retry",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_hosted_memory_envelope_postgres.py|test_scoped_envelope_cas_and_revocation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_hosted_memory_envelope_postgres.py",
+      "symbol": "test_scoped_envelope_cas_and_revocation",
+      "value": 323
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_hosted_memory_pilot_postgres.py|test_pending_review_cannot_capture_and_revocation_fences_reenrollment|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_hosted_memory_pilot_postgres.py",
+      "symbol": "test_pending_review_cannot_capture_and_revocation_fences_reenrollment",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_hosted_memory_pilot_routes.py|test_owner_envelope_route_is_private_exact_and_never_accepts_key_material|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_hosted_memory_pilot_routes.py",
+      "symbol": "test_owner_envelope_route_is_private_exact_and_never_accepts_key_material",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_live_memory_connector_journal_postgres.py|test_connector_journal_atomic_owner_only_replay_and_erasure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_live_memory_connector_journal_postgres.py",
+      "symbol": "test_connector_journal_atomic_owner_only_replay_and_erasure",
+      "value": 371
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_live_memory_source_journal_postgres.py|test_source_journal_committed_owner_hints_gap_and_erasure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_live_memory_source_journal_postgres.py",
+      "symbol": "test_source_journal_committed_owner_hints_gap_and_erasure",
+      "value": 136
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "symbol": "test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "symbol": "test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe",
+      "value": 95
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "symbol": "test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict",
+      "value": 98
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/live-memory-source-gate.py|self_test|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/live-memory-source-gate.py",
+      "symbol": "self_test",
+      "value": 98
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_finished_environment_checkpoint_fences_while_other_environment_runs|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_finished_environment_checkpoint_fences_while_other_environment_runs",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_frontend_only_release_keeps_verified_backend_rollback_anchor|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_frontend_only_release_keeps_verified_backend_rollback_anchor",
+      "value": 90
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_partial_pass_keeps_progress_and_never_claims_settled|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_partial_pass_keeps_progress_and_never_claims_settled",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_trusted_inherited_future_receipt_stays_quiet_and_preserves_clock|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_trusted_inherited_future_receipt_stays_quiet_and_preserves_clock",
+      "value": 103
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_web_ci_lane_partition.py|collect_browser_shards|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_web_ci_lane_partition.py",
+      "symbol": "collect_browser_shards",
+      "value": 110
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
+      "symbol": null,
+      "value": 832
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+      "symbol": null,
+      "value": 608
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
+      "symbol": null,
+      "value": 547
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_calendar_attendance_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_calendar_attendance_service.py",
+      "symbol": null,
+      "value": 545
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_calendar_schedule_service.py",
+      "symbol": null,
+      "value": 871
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
+      "symbol": null,
+      "value": 1011
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_cloudbuild_step_arg_limit.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+      "symbol": null,
+      "value": 537
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_document_period_assessment.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_document_period_assessment.py",
+      "symbol": null,
+      "value": 560
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
+      "symbol": null,
+      "value": 617
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
+      "symbol": null,
+      "value": 805
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
+      "symbol": null,
+      "value": 510
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/cloudrun-retention.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/cloudrun-retention.py",
+      "symbol": null,
+      "value": 617
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/test_web_ci_lane_partition.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/test_web_ci_lane_partition.py",
+      "symbol": null,
+      "value": 513
     }
   ],
   "inspected_files": 6625,
@@ -35004,6 +35526,2904 @@
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
     "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+  },
+  "main_scope_commerce_integration_review_20261015": {
+    "entries": [
+      {
+        "after": 2940,
+        "before": 2914,
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2888
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2740
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 709,
+        "before": null,
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            709
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020"
+      },
+      {
+        "after": 854,
+        "before": 614,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|DriveCollectionStore|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            614
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            854
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0097b3225f23bd5b3c33e144df36e4b1cc39085266ae00cd725a8ef11e6ac17a"
+      },
+      {
+        "after": 626,
+        "before": 514,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|DriveDocumentFactsStore|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            514
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            626
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "c78b48c9143d5c7ec9c8aa179b45514d163b67b970a1922eb8fb678ab3a26884"
+      },
+      {
+        "after": 546,
+        "before": 389,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|DriveIngestionStore|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            389
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            546
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5"
+      },
+      {
+        "after": 1266,
+        "before": 1260,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1260
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1266
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cd77d58d1c2d7dfb64806c121667174870a941a2bd44a052061f0e8838811932"
+      },
+      {
+        "after": 937,
+        "before": 771,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            771
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            937
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 297,
+        "before": null,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            248
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            286
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "122b8311c16758d1f7d80533be42e527143e8feac6ad4c04e3af689e93e1edaf"
+      },
+      {
+        "after": 331,
+        "before": 329,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|DriveRequestPackageService|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            329
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            331
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cda4ea0497f36d4a4d86c720a61d8b6e589e375e940b1c5450aa8e5b618db6a4"
+      },
+      {
+        "after": 1107,
+        "before": 1020,
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|GmailLiveReceiptsService|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1020
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1107
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "02ef8f586a8dcba28153038dcfd7717e4fd20e4cf5c5844f22a4e24fac040f9e"
+      },
+      {
+        "after": 1257,
+        "before": 1070,
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|GoogleCalendarService|class exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1070
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1296
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c"
+      },
+      {
+        "after": 1091,
+        "before": 1074,
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_connection_service.py|GoogleConnectionService|class exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1074
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1068
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "b9f282f7404b44c51f402001460089d3674413a65ef95350e24dd40490e34a0b"
+      },
+      {
+        "after": 666,
+        "before": 663,
+        "key": "class_size|consent-protocol/hushh_mcp/services/payout_activity_service.py|PayoutActivityService|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            663
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            666
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "1fbccf345c31875f3fc3491c817ac4a8942676d2f263a9aa4ba7b98d9673d821"
+      },
+      {
+        "after": 377,
+        "before": 321,
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            321
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            377
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "51cffdd47343bc5a1aa0013a36d5f792146b18614c3285c04037d41d56229450"
+      },
+      {
+        "after": 3070,
+        "before": 2202,
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2202
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            3070
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 420,
+        "before": 301,
+        "key": "class_size|scripts/ci/test_cloudrun_retention.py|RetentionSafetyTest|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            301
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            420
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 280,
+        "before": 271,
+        "key": "class_size|scripts/ci/test_pending_uat_retention_state.py|PendingUatStateTests|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            271
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            280
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "713505938348b992ef67d57a93d84c06fdc5e8ac73544e00a4b8e81affce7940"
+      },
+      {
+        "after": 555,
+        "before": 553,
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            553
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            555
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "7cec70062ec1685e9de9be821f6afa20231173278ee0e7364f8d402cdde8da08"
+      },
+      {
+        "after": 164,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/action_tools.py|propose_document_request|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            80
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            164
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "4a05e7ca27307ade5dbd66a2571d0e57f19b4af08c58ea87031f5e4b77a82736"
+      },
+      {
+        "after": 107,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/document_period_assessment.py|assess_document_period|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            107
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "ce8c76e32498af9d9fa44d336c718c39caa8aea95c2dcbc55959c70b7b1010b0"
+      },
+      {
+        "after": 346,
+        "before": 148,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|run_world_model|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            148
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            346
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "3e01e4f291cbbd558841bcec3536614055e649af2dabe4a1d8a5d6b232bc7ff8"
+      },
+      {
+        "after": 125,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|search_public_web|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            60
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            125
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "3e01e4f291cbbd558841bcec3536614055e649af2dabe4a1d8a5d6b232bc7ff8"
+      },
+      {
+        "after": 748,
+        "before": 737,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|__init__|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            737
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            692
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 277,
+        "before": 274,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            274
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            244
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 541,
+        "before": 538,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            538
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": []
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 102,
+        "before": 101,
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|reset_account|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            101
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            99
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 100,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|confirm|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            100
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020"
+      },
+      {
+        "after": 108,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|review|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            108
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020"
+      },
+      {
+        "after": 87,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|_recheck_unsupported_locked|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            87
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0097b3225f23bd5b3c33e144df36e4b1cc39085266ae00cd725a8ef11e6ac17a"
+      },
+      {
+        "after": 109,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|_upsert_files_locked|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            109
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0097b3225f23bd5b3c33e144df36e4b1cc39085266ae00cd725a8ef11e6ac17a"
+      },
+      {
+        "after": 105,
+        "before": 104,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_collection_store.py|status|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            104
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            105
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0097b3225f23bd5b3c33e144df36e4b1cc39085266ae00cd725a8ef11e6ac17a"
+      },
+      {
+        "after": 143,
+        "before": 107,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            107
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            142
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "5938f5f4a1d8fcf4cc9efd41bfb8436b417b5c35db9a4852267d65664a9ab737"
+      },
+      {
+        "after": 105,
+        "before": 93,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|run_one|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            93
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            102
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "c8f07ffe85b116b5b9b6f5bef524d2d1523d687b57ad90d684e07f90d5c78ab4"
+      },
+      {
+        "after": 121,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|claim|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            74
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            121
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5"
+      },
+      {
+        "after": 110,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|operation|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            68,
+            63,
+            42,
+            41,
+            35,
+            13,
+            8,
+            5
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            110,
+            63,
+            61,
+            42,
+            41,
+            37,
+            13,
+            8
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5"
+      },
+      {
+        "after": 131,
+        "before": 125,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_match_canonical_packet|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            125
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            131
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cd77d58d1c2d7dfb64806c121667174870a941a2bd44a052061f0e8838811932"
+      },
+      {
+        "after": 91,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py|construct_packet|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            31
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            92
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "00be549e4b90a9f3dc94e1c6e8079f4f473746b4ad216c193b1229b8c8950549"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|canonical_key_context|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            81
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 113,
+        "before": 106,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|finalize_packet|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            106
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            113
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 109,
+        "before": 99,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|list_packets|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            99
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            109
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 107,
+        "before": 100,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            100,
+            90,
+            51,
+            50,
+            16,
+            15,
+            13,
+            10
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            107,
+            100,
+            75,
+            72,
+            50,
+            16,
+            15,
+            14,
+            10
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 100,
+        "before": 90,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            100,
+            90,
+            51,
+            50,
+            16,
+            15,
+            13,
+            10
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            107,
+            100,
+            75,
+            72,
+            50,
+            16,
+            15,
+            14,
+            10
+          ]
+        },
+        "rank": 1,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 82,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            53
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            81
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "122b8311c16758d1f7d80533be42e527143e8feac6ad4c04e3af689e93e1edaf"
+      },
+      {
+        "after": 139,
+        "before": 119,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            119
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            137
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "122b8311c16758d1f7d80533be42e527143e8feac6ad4c04e3af689e93e1edaf"
+      },
+      {
+        "after": 147,
+        "before": 145,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|_read_batch|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            145
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            147
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cda4ea0497f36d4a4d86c720a61d8b6e589e375e940b1c5450aa8e5b618db6a4"
+      },
+      {
+        "after": 100,
+        "before": 98,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_package_service.py|read|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            98
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            100
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cda4ea0497f36d4a4d86c720a61d8b6e589e375e940b1c5450aa8e5b618db6a4"
+      },
+      {
+        "after": 93,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_get_once|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            74
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            93
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "02ef8f586a8dcba28153038dcfd7717e4fd20e4cf5c5844f22a4e24fac040f9e"
+      },
+      {
+        "after": 224,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_scan_page|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            224
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "02ef8f586a8dcba28153038dcfd7717e4fd20e4cf5c5844f22a4e24fac040f9e"
+      },
+      {
+        "after": 178,
+        "before": 169,
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_request_with_authority|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            169
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            178
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c"
+      },
+      {
+        "after": 129,
+        "before": 107,
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|execute|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            107
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            153
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c"
+      },
+      {
+        "after": 84,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_create_oauth_attempt|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            80
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            79
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "b9f282f7404b44c51f402001460089d3674413a65ef95350e24dd40490e34a0b"
+      },
+      {
+        "after": 133,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py|stage_owner_envelope|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            133
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "caf7c614114f36f9e028d6b203596fa0e589cfda005c4438a8d6c55367a5d787"
+      },
+      {
+        "after": 94,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_envelope_service.py|write|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            94
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "caf7c614114f36f9e028d6b203596fa0e589cfda005c4438a8d6c55367a5d787"
+      },
+      {
+        "after": 98,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py|request_pending|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            98
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0b5bd27df780306851cc56131c2f1faf63eb84e11c4ae8cdf966ba8a2f696607"
+      },
+      {
+        "after": 85,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/hosted_memory_pilot_service.py|write|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            85,
+            38
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0b5bd27df780306851cc56131c2f1faf63eb84e11c4ae8cdf966ba8a2f696607"
+      },
+      {
+        "after": 90,
+        "before": 87,
+        "key": "function_size|consent-protocol/hushh_mcp/services/payout_activity_service.py|activity|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            87
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            90
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "1fbccf345c31875f3fc3491c817ac4a8942676d2f263a9aa4ba7b98d9673d821"
+      },
+      {
+        "after": 151,
+        "before": 119,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            119
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            151
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "51cffdd47343bc5a1aa0013a36d5f792146b18614c3285c04037d41d56229450"
+      },
+      {
+        "after": 109,
+        "before": 95,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|start|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            95
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            109
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "51cffdd47343bc5a1aa0013a36d5f792146b18614c3285c04037d41d56229450"
+      },
+      {
+        "after": 86,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/source_journal_service.py|_replay|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            86
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e4c7a0d8ecad1c081ed6befba3cfa45296c9548f7b2648db0393bf39e935e8d7"
+      },
+      {
+        "after": 95,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_invitations.py|claim|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            30
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            95
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "63e6409177071a709994e73cdf5fa9f38a37c12a4a660bc4f54fdee47b57d5a9"
+      },
+      {
+        "after": 91,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_notifications.py|_deliver|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            91
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "51172abf4700fc44cae7399859103ccc191547e067b5aee3214a94de0059d7bd"
+      },
+      {
+        "after": 120,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/world_model_source_review.py|prepare|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            117
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "86213802069aa001d2b28a78499a7ad924a221eee7ba2825e5cdeb8b6273e5f6"
+      },
+      {
+        "after": 283,
+        "before": 281,
+        "key": "function_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py|test_full_account_deletion_covers_account_owned_tables|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            281
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            283
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "42454f22238552be2f354a3da7f5d1900f84d201f8a0cd53c2f28dbfaf64ec37"
+      },
+      {
+        "after": 108,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_calendar_schedule_service.py|test_selected_day_loads_all_inventory_and_event_pages_without_merging_shared_ids|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            108
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "2a239df74d4de27391ae4d8acf817f360cb92ad397d94accfbe9f14f016abd21"
+      },
+      {
+        "after": 119,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_packet_intelligence.py|test_requested_packet_keeps_typed_scope_and_model_copy_for_independent_review|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": []
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "bf96e70ffaad9e0436b5adf7e18ec6cf50a7bdababb7b955b2e8327716af2915"
+      },
+      {
+        "after": 230,
+        "before": 171,
+        "key": "function_size|consent-protocol/tests/services/test_drive_packet_payment_postgres.py|test_undated_catalog_allow_freeze_and_checkout_is_idempotent|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            171
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            230
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "8f9f75b747eeb378b600c2e38a4cba2fad87cf048f0565d3ad7a4af12870bd22"
+      },
+      {
+        "after": 87,
+        "before": 86,
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_index_reuse_postgres.py|test_equivalent_request_reuses_unlisted_packet_with_owner_approval_still_required|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            86
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            87
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "573bd03df134dca3af5fd5e6bfc297b66f460878927e208cd4a808d344d68962"
+      },
+      {
+        "after": 84,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_canonical_key_context_is_current_bounded_and_owner_private|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            84
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "f0cd91a94401c8e01d1a6957bc4d3317cc9a2e06beb8326023ac8377fd296451"
+      },
+      {
+        "after": 83,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_late_old_policy_membership_is_reconciled_from_current_facts|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            83
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "f0cd91a94401c8e01d1a6957bc4d3317cc9a2e06beb8326023ac8377fd296451"
+      },
+      {
+        "after": 81,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_reference_fk_does_not_block_connector_deletion_or_mutate_request_terms|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            77
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            32
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "f0cd91a94401c8e01d1a6957bc4d3317cc9a2e06beb8326023ac8377fd296451"
+      },
+      {
+        "after": 92,
+        "before": 88,
+        "key": "function_size|consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py|connector_postgres_url|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            88
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            92
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "ef67a0948bed9f5097e464aa58c12cf7c363e0bddc0e4d36de55621efeddf473"
+      },
+      {
+        "after": 91,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_consent_lifecycle_chat.py|test_document_period_question_ends_real_runner_without_model_retry|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            91
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "9a0acafdc5f9040e6ee33ecb9173461f01630b66086a60ff6610eb6ec80e4a1d"
+      },
+      {
+        "after": 87,
+        "before": 84,
+        "key": "function_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py|test_native_public_clients_resolve_only_in_dev_and_fail_closed|function exceeds the advisory gene budget",
+        "lineage": "reviewed_composed_over_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            84
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": []
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "302cbff3e4a6facd84236c05ac075156c28409af9f53240f5e6fba845f4d6af9"
+      },
+      {
+        "after": 323,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_hosted_memory_envelope_postgres.py|test_scoped_envelope_cas_and_revocation|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            323
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "046c73b7c127bbc2d24a118017f23f59c9cc870d85bd213e4492f600839ac7f7"
+      },
+      {
+        "after": 82,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_hosted_memory_pilot_postgres.py|test_pending_review_cannot_capture_and_revocation_fences_reenrollment|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            82
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "31d5f91ca7f6916b852357c7185d195dbc4fe3a5bec842b2ae5431331e3dea07"
+      },
+      {
+        "after": 96,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_hosted_memory_pilot_routes.py|test_owner_envelope_route_is_private_exact_and_never_accepts_key_material|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            96
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "279431f13fbb790a9a1a6d2e9d18a58498b7435618a93a31a1bb0f33eb346787"
+      },
+      {
+        "after": 371,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_live_memory_connector_journal_postgres.py|test_connector_journal_atomic_owner_only_replay_and_erasure|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            371
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "f82dbfae191f336815aaea7cb3e8fd778661b000088d9b1f4bbe022f69a55fd8"
+      },
+      {
+        "after": 136,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_live_memory_source_journal_postgres.py|test_source_journal_committed_owner_hints_gap_and_erasure|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            136
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "736bfc478bba8bb19673ef937dff425e687c63c529cca5ad47350635066db614"
+      },
+      {
+        "after": 83,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            50
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            83
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "16e5c53190acbb59f9aa897b9992c8142c07a22a37f203c20231878306bde250"
+      },
+      {
+        "after": 95,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            69
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            126
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "16e5c53190acbb59f9aa897b9992c8142c07a22a37f203c20231878306bde250"
+      },
+      {
+        "after": 98,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict|function exceeds the advisory gene budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            98
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "16e5c53190acbb59f9aa897b9992c8142c07a22a37f203c20231878306bde250"
+      },
+      {
+        "after": 171,
+        "before": 85,
+        "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            85
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            169
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "148eb8f810f148cde1c002a82d7fed2f339d05cff4d3c662b09427ba77dee38d"
+      },
+      {
+        "after": 169,
+        "before": 149,
+        "key": "function_size|scripts/ci/cloudrun-retention.py|main|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            149
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            169
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "91bc95cb0c4f98e0f4f273c63571f42d476f8a0d4c935df43a9047cfdde63a5f"
+      },
+      {
+        "after": 98,
+        "before": null,
+        "key": "function_size|scripts/ci/live-memory-source-gate.py|self_test|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            78
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            98
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "00ce3bae910a3f2df820216c249c59d6e28555f82e65cdea43ae5386d9cf37d4"
+      },
+      {
+        "after": 106,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_finished_environment_checkpoint_fences_while_other_environment_runs|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            106
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 90,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_frontend_only_release_keeps_verified_backend_rollback_anchor|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            90
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 88,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_partial_pass_keeps_progress_and_never_claims_settled|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            88
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 137,
+        "before": 132,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_source_is_authorized_before_any_cloud_access|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            132
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            137
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 103,
+        "before": null,
+        "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_trusted_inherited_future_receipt_stays_quiet_and_preserves_clock|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            103
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 110,
+        "before": null,
+        "key": "function_size|scripts/ci/test_web_ci_lane_partition.py|collect_browser_shards|function exceeds the advisory gene budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            107
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "d64a22c3cf07f9907cdac5f0fda5efb11640a796cea6ecede31890754064d3e6"
+      },
+      {
+        "after": 117,
+        "before": 115,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|find_release|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            115
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            117
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "6af5d34be77ac86c16010c97d018a5c922b1ad8a431ec7bbb104eb37f326aa02"
+      },
+      {
+        "after": 214,
+        "before": 184,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|maintenance_pass|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            184
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            214
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "6af5d34be77ac86c16010c97d018a5c922b1ad8a431ec7bbb104eb37f326aa02"
+      },
+      {
+        "after": 123,
+        "before": 104,
+        "key": "function_size|scripts/ci/uat-retention-maintenance.py|restore_state|function exceeds the advisory gene budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            104
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            123
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "6af5d34be77ac86c16010c97d018a5c922b1ad8a431ec7bbb104eb37f326aa02"
+      },
+      {
+        "after": 955,
+        "before": 938,
+        "key": "module_size|consent-protocol/api/routes/kai/gmail.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            938
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            953
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "57a5ce60fa0f37f502220a3bbf9965efabbf21dbe00a5c71d55c179bf2eb07ba"
+      },
+      {
+        "after": 5825,
+        "before": 5583,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/action_tools.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            5583
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            5821
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "4a05e7ca27307ade5dbd66a2571d0e57f19b4af08c58ea87031f5e4b77a82736"
+      },
+      {
+        "after": 790,
+        "before": 744,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            744
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            798
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "f5034686d9195324d60a2ecb993866cf49cd6f22486c886be159bbcd877aa653"
+      },
+      {
+        "after": 3024,
+        "before": 2997,
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2971
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2813
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "3c9d646fa37b93d7f90de71ebfb12c4fb70069d209a48dcc9c032e2284c7b086"
+      },
+      {
+        "after": 832,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            832
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cea83de0434277529c971084aca8972085a498dbf6a3132ebe9c2123ab1ea020"
+      },
+      {
+        "after": 891,
+        "before": 640,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_collection_store.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            640
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            891
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0097b3225f23bd5b3c33e144df36e4b1cc39085266ae00cd725a8ef11e6ac17a"
+      },
+      {
+        "after": 691,
+        "before": 577,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            577
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            691
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "c78b48c9143d5c7ec9c8aa179b45514d163b67b970a1922eb8fb678ab3a26884"
+      },
+      {
+        "after": 608,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            444
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            608
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5"
+      },
+      {
+        "after": 1896,
+        "before": 1890,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1890
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1896
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "cd77d58d1c2d7dfb64806c121667174870a941a2bd44a052061f0e8838811932"
+      },
+      {
+        "after": 547,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            179
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            599
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "00be549e4b90a9f3dc94e1c6e8079f4f473746b4ad216c193b1229b8c8950549"
+      },
+      {
+        "after": 999,
+        "before": 802,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            802
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            999
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "e326a175f1507d6b73842ca448389cc234df1013646b5b76733a4167c9716323"
+      },
+      {
+        "after": 1391,
+        "before": 1369,
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1369
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1388
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "9af6456c362edd1859f5a3ea995adb75d58351deb5cdddbe0860ba5b30113100"
+      },
+      {
+        "after": 2020,
+        "before": 1933,
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1933
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2020
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "02ef8f586a8dcba28153038dcfd7717e4fd20e4cf5c5844f22a4e24fac040f9e"
+      },
+      {
+        "after": 1436,
+        "before": 1158,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_calendar_service.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1158
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1457
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "f057b0e65f5532b8e9abbe2dda0401b89e22e646626cef141e1ec15dab3cf32c"
+      },
+      {
+        "after": 1206,
+        "before": 1189,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_connection_service.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1189
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1183
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "b9f282f7404b44c51f402001460089d3674413a65ef95350e24dd40490e34a0b"
+      },
+      {
+        "after": 1005,
+        "before": 972,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            972
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1005
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "2864a827b883c456dc117d9a1005f61d2de8ddfab974728e9d3f3f7198fa47cc"
+      },
+      {
+        "after": 1258,
+        "before": 1255,
+        "key": "module_size|consent-protocol/hushh_mcp/services/payout_activity_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1255
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1258
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "1fbccf345c31875f3fc3491c817ac4a8942676d2f263a9aa4ba7b98d9673d821"
+      },
+      {
+        "after": 1571,
+        "before": 1563,
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1563
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1115
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed runtime composition retains placement admission, source isolation, financial erasure order, incoming lifecycle/connector cleanup and independently checked semantic output. No parallel authority/store.",
+        "source_sha256": "8efc6f75350f81fc45cfcde3aa247f2b459b14cab7f74adae422427673265a82"
+      },
+      {
+        "after": 1776,
+        "before": 1764,
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1764
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1620
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "42454f22238552be2f354a3da7f5d1900f84d201f8a0cd53c2f28dbfaf64ec37"
+      },
+      {
+        "after": 545,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/services/test_calendar_attendance_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            545
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "3836687967b0b2ed0dc2d0dff4c0616aee7bccad7fc2133a529a08019d9428f8"
+      },
+      {
+        "after": 871,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            871
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "2a239df74d4de27391ae4d8acf817f360cb92ad397d94accfbe9f14f016abd21"
+      },
+      {
+        "after": 583,
+        "before": 566,
+        "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            566
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            583
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "92cfc403c7dc887f995aa8a4e1094bea16132beaebb29be171d889a763f96096"
+      },
+      {
+        "after": 1580,
+        "before": 819,
+        "key": "module_size|consent-protocol/tests/services/test_drive_ingestion.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            819
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1580
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "539c68d216017f1d61c7d5d18f16de860a9cb901e11142583e489500e3a02966"
+      },
+      {
+        "after": 1011,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            146
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1055
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "bf96e70ffaad9e0436b5adf7e18ec6cf50a7bdababb7b955b2e8327716af2915"
+      },
+      {
+        "after": 1407,
+        "before": 597,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            498
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1477
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "f0cd91a94401c8e01d1a6957bc4d3317cc9a2e06beb8326023ac8377fd296451"
+      },
+      {
+        "after": 1041,
+        "before": 1036,
+        "key": "module_size|consent-protocol/tests/services/test_external_connector_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1036
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1041
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "ef67a0948bed9f5097e464aa58c12cf7c363e0bddc0e4d36de55621efeddf473"
+      },
+      {
+        "after": 1775,
+        "before": 1574,
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipt_live_service.py||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1574
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1776
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "54223a03a6da6b0e2724ea28160e064050e8f5080f491d88330b7078361f9402"
+      },
+      {
+        "after": 1570,
+        "before": 1445,
+        "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1445
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1547
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "43ac54a0bdaf417511dd2d2e05f5cfb8d3b795fd0bee5241694ae911fb8951b6"
+      },
+      {
+        "after": 575,
+        "before": 545,
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            545
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            575
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "6411031e2f57347f5701d47e3482db176fee7fee1ddea03c74268dcc6dbfd102"
+      },
+      {
+        "after": 537,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/test_cloudbuild_step_arg_limit.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            490
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            237
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "265ba910e7235d57d60238bb93dea94e9f35dec247818d0f3bb89fd06d57eb59"
+      },
+      {
+        "after": 2773,
+        "before": 2114,
+        "key": "module_size|consent-protocol/tests/test_consent_lifecycle_chat.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2114
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2773
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "9a0acafdc5f9040e6ee33ecb9173461f01630b66086a60ff6610eb6ec80e4a1d"
+      },
+      {
+        "after": 560,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/test_document_period_assessment.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            560
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "ec6a84fb7334b76fc43808693874c3ef2416436440b45ceaf0b5517efcf0214d"
+      },
+      {
+        "after": 1001,
+        "before": 905,
+        "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            905
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            715
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "302cbff3e4a6facd84236c05ac075156c28409af9f53240f5e6fba845f4d6af9"
+      },
+      {
+        "after": 617,
+        "before": null,
+        "key": "module_size|consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            422
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            510
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "0b78f4bf457e56ba8a0996e930fb96936ed621cb34b38f6b2e2015be0a6c21fb"
+      },
+      {
+        "after": 1141,
+        "before": 1122,
+        "key": "module_size|consent-protocol/tests/test_payout_activity_postgres.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1122
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1141
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "297aac7e2d88c108a94b17cc05d5a70e518f2f970093fdc5fc4d2617dadb377d"
+      },
+      {
+        "after": 765,
+        "before": 704,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            704
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            752
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "70f81d88c5d17eaeaaa10f7e2eda2cd46363870e86a2dc01bad0bd0c46ee0d45"
+      },
+      {
+        "after": 1241,
+        "before": 1066,
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1066
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1190
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "16e5c53190acbb59f9aa897b9992c8142c07a22a37f203c20231878306bde250"
+      },
+      {
+        "after": 906,
+        "before": 688,
+        "key": "module_size|consent-protocol/tests/test_workos_enterprise_sso_flow.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            688
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            904
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "824fde29ab167ccf9a2053a2539b86edfe0e1054a804e332f6ba87eb8f828e88"
+      },
+      {
+        "after": 2620,
+        "before": 2597,
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2597
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2579
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "952c411d58e6683d9b9f8920ab8c0994124da3ebf1b2614c449ba375d10ecfe8"
+      },
+      {
+        "after": 719,
+        "before": 674,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            674
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            704
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "cce91c2bfcbf3024bbd950bd4153f70bac9182d85bb4b8032adc5e880c3c7819"
+      },
+      {
+        "after": 805,
+        "before": null,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            805
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "9b20595b49bd2ba4c198c10e1695f7b2603677c4f07904aba5a718d654495dbf"
+      },
+      {
+        "after": 2135,
+        "before": 2134,
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2134
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2135
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "1ff7dcb913a15bc02bdba3d4c44fb9a0c7c6cc80291978b8e8edb7d5dd3b8902"
+      },
+      {
+        "after": 695,
+        "before": 678,
+        "key": "module_size|hushh-webapp/__tests__/components/feed-page-clear.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            678
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            695
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "017788620fdc1e5a6005a17ed492ace4f7b842ebf288f694a6b7dbcf9ec90218"
+      },
+      {
+        "after": 771,
+        "before": 767,
+        "key": "module_size|hushh-webapp/__tests__/components/gmail-recent-receipts.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            767
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            768
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "6d224d8daf2183354b11d349f5d2ee78e23c1f9c779cc4d543b33333a94a2374"
+      },
+      {
+        "after": 749,
+        "before": 731,
+        "key": "module_size|hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            731
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            654
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "0a0e2effb4253b87873933debee549cf8dd9fb45a734df83fea3805aa2d7f8ad"
+      },
+      {
+        "after": 1673,
+        "before": 1666,
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1666
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1658
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "261ad01761375536daffe7faea40698b56ef843e5ccbfc9c782469506f300e83"
+      },
+      {
+        "after": 858,
+        "before": 625,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            625
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            858
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "c315b1f2e4f518ac27a00831687807afd84767a7c6d3bda318bea7bdec4c5453"
+      },
+      {
+        "after": 510,
+        "before": null,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            465
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            483
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "7df414d66b5f5887a0b0f32a9c64344c6fa715d0c5dcc5fbdc3665f51f530635"
+      },
+      {
+        "after": 1343,
+        "before": 1335,
+        "key": "module_size|hushh-webapp/__tests__/one-voice/session-integration.test.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1335
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1343
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "abbbdd28bee3b02be9a167215026cbb37582b1a3ed237bf6153a97f4fcd442de"
+      },
+      {
+        "after": 1639,
+        "before": 1512,
+        "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1512
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1661
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "d564044610a75111312ffc85eb687e98667dfbb34caad81df1e12c663b844421"
+      },
+      {
+        "after": 918,
+        "before": 916,
+        "key": "module_size|hushh-webapp/__tests__/services/post-auth-route-service.test.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            916
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            896
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "39c70bcd818c362e4841e287536cd4813ff3bc2f4f37761194cd7bf20425d148"
+      },
+      {
+        "after": 567,
+        "before": 550,
+        "key": "module_size|hushh-webapp/app/api/kai/[...path]/route.ts||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            550
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            567
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "0e77226073d4238ca382ad3d7de843f3bdba36030e2b8b7e65b8b7aa2d1a460d"
+      },
+      {
+        "after": 11081,
+        "before": 11057,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            11057
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            10394
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "61942a6c515422f782186350b4db9f80d3c75b0110b2e20db32b76a382e144e9"
+      },
+      {
+        "after": 654,
+        "before": 641,
+        "key": "module_size|hushh-webapp/components/agent/profile-research-card.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            641
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            651
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "ee8f0e8a828b02914a12a8bdc531dde790457fd3593c75e90620bd045c9a8eaa"
+      },
+      {
+        "after": 833,
+        "before": 787,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            787
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            803
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "094762133282e82635a6e986d125768c5d7228009ce66ed21a32eba63aeac390"
+      },
+      {
+        "after": 2274,
+        "before": 2267,
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2267
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2274
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "eb774336b48482b2d2ebbe028146290fc0710dbad3336346032713a9d19a6d4a"
+      },
+      {
+        "after": 1247,
+        "before": 1240,
+        "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1240
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1247
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "242bf5ecab15b3b6aca9cd8d9a856e1677ce21d97c4a0f19937b6aaee1e80354"
+      },
+      {
+        "after": 591,
+        "before": 590,
+        "key": "module_size|hushh-webapp/components/icons/ui/ui-icons.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            590
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            591
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "067606083730c21f4ab79d69dafabdfa5e219149246baab41f6df43691958770"
+      },
+      {
+        "after": 1185,
+        "before": 1138,
+        "key": "module_size|hushh-webapp/components/onboarding/AuthStep.tsx||module exceeds the advisory operon budget",
+        "lineage": "within_parent_composition",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1138
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1189
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "2cd5bfe799c1349c991f6e75a61d2ada9c110dfc922ecd786b4d8dc96a37144c"
+      },
+      {
+        "after": 1115,
+        "before": 1067,
+        "key": "module_size|hushh-webapp/components/onboarding/setup/one-setup-hub.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1055
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            564
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "dfbbdaf5ce9bc35ae1c1a513e5e0ec78663ad7ea49345802d9708f36e7ed5c03"
+      },
+      {
+        "after": 1048,
+        "before": 996,
+        "key": "module_size|hushh-webapp/components/todos/todo-list-page.tsx||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            996
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1048
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "b78a027291c6e2ec5cce54f3006d3c2775b89aabb3afbf40dd09fead4c75c6a7"
+      },
+      {
+        "after": 1291,
+        "before": 1157,
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1157
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1264
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "d34523e04590a561f75dd0b7fe340a82af8d344f8ec13e702e63a29cd50b82f6"
+      },
+      {
+        "after": 1101,
+        "before": 1100,
+        "key": "module_size|hushh-webapp/lib/capacitor/index.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1100
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1093
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "47302ca1d6cbcffa328c47ab953c050ae7a7c537d1a6df3825477d3bfcda2641"
+      },
+      {
+        "after": 1862,
+        "before": 1828,
+        "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1828
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1721
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "72788f6fdca13e9751025ecd34ba16ac1d80e880afaa3092d908f06925e62414"
+      },
+      {
+        "after": 737,
+        "before": 735,
+        "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            735
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            729
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "72384cfd73ee067b5020acef324d7c3ab561d2d9f8d14cb23dec16c76dca11e0"
+      },
+      {
+        "after": 616,
+        "before": 606,
+        "key": "module_size|hushh-webapp/lib/navigation/profile-routes.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            606
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            607
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "a503e4c70e26299a60770749f7dde269e4197fee7722cdf05c015ab34a7dbcd9"
+      },
+      {
+        "after": 993,
+        "before": 988,
+        "key": "module_size|hushh-webapp/lib/navigation/routes.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            988
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            970
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "243a33c142465a1d2145c088d6e06169fc9b03b2a5bc7ee952adadb50ca0918a"
+      },
+      {
+        "after": 869,
+        "before": 865,
+        "key": "module_size|hushh-webapp/lib/observability/route-map.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            865
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            861
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "27ae1b0e4b86ccee1171f2862aefb563c4544c3e87e541be5f66fdba272e0e87"
+      },
+      {
+        "after": 890,
+        "before": 583,
+        "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            583
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            890
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "eb481994b49cc9d4979869a136580652c8a4087f911d5f8ec9692914327d5e34"
+      },
+      {
+        "after": 545,
+        "before": 516,
+        "key": "module_size|hushh-webapp/lib/pkm/memory-document.ts||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            516
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            545
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "4d4b5c84ec4a4809c6fabd9bbd119d587ef7450b00b9b55df718ea157f48c950"
+      },
+      {
+        "after": 669,
+        "before": 660,
+        "key": "module_size|hushh-webapp/lib/portfolio-share/client.ts||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            660
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            669
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "ccd55e51c07dc5b258db406e74eabca4df80c7e838e138412f6370d91d51c879"
+      },
+      {
+        "after": 6029,
+        "before": 6021,
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            6021
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            4993
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "c40cfd4e2d7f99a91b888f6f19f810030e6b66733d7546e1fd3b9b8dc41660f4"
+      },
+      {
+        "after": 2244,
+        "before": 2193,
+        "key": "module_size|hushh-webapp/lib/services/auth-service.ts||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2193
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            2230
+          ]
+        },
+        "rank": 0,
+        "review": "Reviewed frontend composition retains existing authority: private-cloud routing, fenced OAuth, vault/session continuity, Back hierarchy and incoming authored UI. No second routing or financial authority.",
+        "source_sha256": "7a471f426bc2aa6d4a8a3cc477e63946872bb3f856e4bb90a2644c891cc793da"
+      },
+      {
+        "after": 617,
+        "before": null,
+        "key": "module_size|scripts/ci/cloudrun-retention.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            414
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            617
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "91bc95cb0c4f98e0f4f273c63571f42d476f8a0d4c935df43a9047cfdde63a5f"
+      },
+      {
+        "after": 3539,
+        "before": 2552,
+        "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            2552
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            3539
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "835d0250bd13dda96c8cb0ebcef75da71d259faf9c60df1e10ee47305ac96a92"
+      },
+      {
+        "after": 620,
+        "before": 618,
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            618
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            620
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "7cec70062ec1685e9de9be821f6afa20231173278ee0e7364f8d402cdde8da08"
+      },
+      {
+        "after": 513,
+        "before": null,
+        "key": "module_size|scripts/ci/test_web_ci_lane_partition.py||module exceeds the advisory operon budget",
+        "lineage": "beyond_parent",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            390
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            409
+          ]
+        },
+        "rank": 0,
+        "review": "Nearest existing regression/contract fixture union; preserves negative controls and source ownership. Exact bounded size debt; no gate or architecture budget changed.",
+        "source_sha256": "d64a22c3cf07f9907cdac5f0fda5efb11640a796cea6ecede31890754064d3e6"
+      },
+      {
+        "after": 1941,
+        "before": 1581,
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "lineage": "exact_parent_file",
+        "parent_measurements": {
+          "05e5fcd17b05d8c81e5e30948547135217724d05": [
+            1581
+          ],
+          "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": [
+            1941
+          ]
+        },
+        "rank": 0,
+        "review": "Byte-exact incoming main source; explicit retained size debt. Main used advisory scanning and had no accepted baseline. No claim of prior ratchet approval.",
+        "source_sha256": "6af5d34be77ac86c16010c97d018a5c922b1ad8a431ec7bbb104eb37f326aa02"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "parents": {
+      "05e5fcd17b05d8c81e5e30948547135217724d05": {
+        "baseline_exists": true,
+        "baseline_sha256": "0b1703e3df24a51e26ed06b32ea9e835be4a88db743be0c55212cad4cc2d8fc1",
+        "baseline_slots": 2602
+      },
+      "c8faf48dd668b7d51b587ac07a1a7e5328a3742c": {
+        "baseline_exists": false,
+        "baseline_sha256": null,
+        "baseline_slots": null
+      }
+    },
+    "reviewers": [
+      "ci_registry_review",
+      "main_backend_reconciliation",
+      "main_frontend_reconciliation",
+      "ci_voice_contract_review"
+    ],
+    "scope": "Exact size-only qualification after normal main composition. Preserve all prior slots and500/250/80budgets; runtime/deployment and financial acceptance remain separate."
   },
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",

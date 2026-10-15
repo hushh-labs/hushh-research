@@ -342,6 +342,7 @@ interface ErrorEnvelope {
     | {
         message?: string;
         code?: string;
+        retryable?: boolean;
       };
   message?: string;
   error?: string;
@@ -350,12 +351,15 @@ interface ErrorEnvelope {
 export class GmailReceiptRequestError extends Error {
   readonly status: number;
   readonly code: string | null;
+  readonly retryable: boolean;
 
-  constructor(message: string, status: number, code: string | null) {
+  constructor(message: string, status: number, code: string | null, retryable?: boolean) {
     super(message);
     this.name = "GmailReceiptRequestError";
     this.status = status;
     this.code = code;
+    this.retryable = retryable ?? (code === "GMAIL_RECEIPT_SCAN_IN_PROGRESS" ||
+      RETRYABLE_RECEIPT_SCAN_CODES.has(String(code)));
   }
 }
 
@@ -364,9 +368,14 @@ export function isReceiptScanInProgressError(
 ): error is GmailReceiptRequestError {
   return (
     error instanceof GmailReceiptRequestError &&
+    error.retryable &&
     error.status === 409 &&
     error.code === "GMAIL_RECEIPT_SCAN_IN_PROGRESS"
   );
+}
+
+export function isReceiptScanContinuationExpiredError(error: unknown): error is GmailReceiptRequestError {
+  return error instanceof GmailReceiptRequestError && error.code === "GMAIL_RECEIPT_CURSOR_EXPIRED";
 }
 
 // A page that failed for one of these reasons can be read again with the same
@@ -378,8 +387,6 @@ const RETRYABLE_RECEIPT_SCAN_CODES = new Set([
   "GMAIL_RECEIPT_SCAN_TIMEOUT",
   "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
   "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
-  "GMAIL_RECEIPT_EXTRACTION_INVALID",
-  "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
 ]);
 
 export function isRetryableReceiptScanPageError(
@@ -387,6 +394,7 @@ export function isRetryableReceiptScanPageError(
 ): error is GmailReceiptRequestError {
   return (
     error instanceof GmailReceiptRequestError &&
+    error.retryable &&
     RETRYABLE_RECEIPT_SCAN_CODES.has(String(error.code))
   );
 }
@@ -430,8 +438,13 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
-function invalidLiveReceiptResponse(): Error {
-  return new Error("Mail receipt scan returned an invalid response.");
+function invalidLiveReceiptResponse(): GmailReceiptRequestError {
+  return new GmailReceiptRequestError(
+    "Mail receipt scan returned an invalid response.",
+    500,
+    "GMAIL_RECEIPT_INVALID_RESPONSE",
+    false,
+  );
 }
 
 function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEvidence[] {
@@ -629,6 +642,7 @@ async function extractLiveReceiptError(
   const raw = await response.text().catch(() => "");
   let message = fallback;
   let code: string | null = null;
+  let retryable: boolean | undefined;
   try {
     const payload = (raw ? JSON.parse(raw) : null) as ErrorEnvelope | null;
     const detail =
@@ -648,10 +662,11 @@ async function extractLiveReceiptError(
       typeof detail?.code === "string" && detail.code.length <= 100
         ? detail.code
         : null;
+    retryable = typeof detail?.retryable === "boolean" ? detail.retryable : undefined;
   } catch {
     message = raw.trim() || fallback;
   }
-  return new GmailReceiptRequestError(message, response.status, code);
+  return new GmailReceiptRequestError(message, response.status, code, retryable);
 }
 
 function parseLiveReceiptDetailResponse(
@@ -1198,7 +1213,9 @@ export class GmailReceiptsService {
           "Failed to scan Mail for receipts.",
         );
       }
-      const payload: unknown = await response.json();
+      const payload: unknown = await response.json().catch(() => {
+        throw invalidLiveReceiptResponse();
+      });
       const parsed = parseLiveReceiptScanResponse(payload, { page, perPage });
       trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
         result: "success",

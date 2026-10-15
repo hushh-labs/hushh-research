@@ -61,7 +61,7 @@ def referral_replay_postgres():
             admin.close()
         return
 
-    if os.geteuid() == 0:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("Disposable PostgreSQL requires a non-root test user")
     configured = os.getenv("HUSSH_POSTGRES_TEST_BINDIR", "")
     pg_config = shutil.which("pg_config")
@@ -170,19 +170,12 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute(adapted_sql)
             cursor.execute(adapted_sql)
             cursor.execute("INSERT INTO synthetic_reward_reference VALUES (2)")
-            cursor.execute("""
-                BEGIN;
-                UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 2;
-                INSERT INTO one_referral_program_settings (
-                  version, qualification_policy_version, points, milestones,
-                  streak_rules, flash_windows, weekly_schedule, prize_catalogue,
-                  tie_break_rules, fulfillment_config, feature_active, activated_at
-                ) SELECT 3, qualification_policy_version, points, '[]'::jsonb,
-                         streak_rules, flash_windows, weekly_schedule, prize_catalogue,
-                         tie_break_rules, fulfillment_config, feature_active, NOW()
-                    FROM one_referral_program_settings WHERE version = 2;
-                COMMIT;
-            """)
+            catalogue_sql = (
+                Path(__file__).resolve().parents[1]
+                / "db/migrations/338_one_referral_usd_catalogue.sql"
+            ).read_text(encoding="utf-8")
+            cursor.execute(catalogue_sql)
+            cursor.execute(catalogue_sql)
             cursor.execute("""
                 SELECT encode(sha256(convert_to(jsonb_build_object(
                   'qualification_policy_version', qualification_policy_version,
@@ -195,9 +188,9 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             """)
             fixture_policy_hash = cursor.fetchone()[0]
             assert adapted_sql.count(_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256) == 1
-            adapted_sql = adapted_sql.replace(
-                _REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256, fixture_policy_hash, 1
-            )
+            # Exercise the published catalogue against the production fingerprint;
+            # a synthetic successor/hash substitution would hide rollout drift.
+            assert fixture_policy_hash == _REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256
             cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
             before = cursor.fetchall()
             with pytest.raises(psycopg2.Error, match="version 2 exists but is not the active"):
@@ -545,6 +538,11 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "288_drive_request_feed_stream.sql",
             "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6",
         ),
+        (
+            289,
+            "289_one_referral_program_settings_v2.sql",
+            "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65",
+        ),
     ],
 )
 async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
@@ -589,6 +587,7 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
     [
         "295_direct_message_attachments.sql",
         "288_drive_request_feed_stream.sql",
+        "289_one_referral_program_settings_v2.sql",
         "298_stripe_mode_isolation.sql",
         "304_connect_bank_payout_reconciliation.sql",
     ],

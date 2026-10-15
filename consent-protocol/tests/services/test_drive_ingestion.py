@@ -603,9 +603,215 @@ async def seed_collection(collection, *, files=None):
     )
 
 
-async def test_live_collection_requires_new_disclosure_and_resume_fences_old_work(
+async def test_live_discovery_retires_unsupported_mime_and_source_change_requeues(
     collection, ingestion
 ):
+    unsupported = replace(source(), mime_type="application/zip")
+    await seed_collection(collection, files=[unsupported])
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(text("SELECT status,last_error_code FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        assert (row["status"], row["last_error_code"]) == ("unsupported", "unsupported_format")
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+    with collection.db.engine.begin() as conn:
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    current = await collection.claim(user_id="owner")
+    await collection.commit_page(
+        current,
+        checkpoint={"changes_token": "supported-version"},
+        files=[replace(source(), version="2")],
+    )
+    claimed = await ingestion.claim(user_id="owner", generation=1)
+    assert claimed and claimed["source_version"] == "2"
+    assert claimed["status"] == "fetching" and claimed["last_error_code"] is None
+
+
+async def test_live_unsupported_survives_pause_resume_without_recreating_queue(
+    collection, ingestion
+):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    await seed_collection(collection, files=[replace(source(), mime_type="application/zip")])
+    await collection.set_processing(user_id="owner", enabled=False)
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(
+                text("SELECT status,last_error_code,processing_enabled FROM connected_documents")
+            )
+            .mappings()
+            .one()
+        )
+    assert (row["status"], row["last_error_code"], row["processing_enabled"]) == (
+        "unsupported",
+        "unsupported_format",
+        True,
+    )
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+
+async def test_live_discovery_requeues_newly_supported_parser_type_without_source_change(
+    collection, ingestion
+):
+    await seed_collection(collection)
+    with ingestion.db.engine.begin() as conn:
+        original = (
+            conn.execute(text("SELECT document_id,source_version FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        conn.execute(
+            text("""
+            UPDATE connected_documents SET status='unsupported',
+              last_error_code='unsupported_format'
+            WHERE document_id=:id
+        """),
+            {"id": original["document_id"]},
+        )
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    current = await collection.claim(user_id="owner")
+    await collection.commit_page(
+        current,
+        checkpoint={"changes_token": "same-source-new-parser"},
+        files=[source()],
+    )
+    with ingestion.db.engine.connect() as conn:
+        updated = (
+            conn.execute(
+                text("""
+            SELECT document_id,source_version,status,last_error_code
+            FROM connected_documents
+        """)
+            )
+            .mappings()
+            .one()
+        )
+        assert updated["document_id"] == original["document_id"]
+        assert updated["source_version"] == original["source_version"]
+        assert (updated["status"], updated["last_error_code"]) == ("queued", None)
+
+
+async def test_incremental_sync_rechecks_parser_upgrade_without_drive_change(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services import drive_collection_store
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    current_types = drive_collection_store.LIVE_EXTRACTABLE_ORIGINAL_TYPES
+    monkeypatch.setattr(
+        drive_collection_store, "LIVE_EXTRACTABLE_ORIGINAL_TYPES", current_types - {"text/csv"}
+    )
+    await seed_collection(collection, files=[replace(source(), mime_type="text/csv")])
+    with ingestion.db.engine.connect() as conn:
+        before = (
+            conn.execute(text("SELECT document_id,source_version,status FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+    assert before["status"] == "unsupported"
+
+    monkeypatch.setattr(drive_collection_store, "LIVE_EXTRACTABLE_ORIGINAL_TYPES", current_types)
+    with collection.db.engine.begin() as conn:
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    adapter = SimpleNamespace(
+        collection_changes=AsyncMock(
+            return_value={"changes": [], "newStartPageToken": "after-parser-upgrade"}
+        )
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    assert await sync.run_one(user_id="owner") == {"status": "synced"}
+    adapter.collection_changes.assert_awaited_once_with(
+        access_token="synthetic", page_token="synthetic-start"
+    )
+    with ingestion.db.engine.connect() as conn:
+        after = (
+            conn.execute(
+                text(
+                    "SELECT document_id,source_version,status,last_error_code FROM connected_documents"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert (after["document_id"], after["source_version"]) == (
+        before["document_id"],
+        before["source_version"],
+    )
+    assert (after["status"], after["last_error_code"]) == ("queued", None)
+
+
+async def test_live_claim_skips_bounded_old_unsupported_queue_under_consent(collection, ingestion):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    await seed_collection(
+        collection,
+        files=[
+            source("old"),
+            replace(source("supported"), mime_type="application/vnd.google-apps.document"),
+        ],
+    )
+    with ingestion.db.engine.begin() as conn:
+        rows = conn.execute(text("SELECT * FROM connected_documents")).mappings().all()
+        old = next(row for row in rows if ingestion.cipher.open(dict(row))["file_id"] == "old")
+        metadata = replace(source("old"), mime_type="application/zip")
+        envelope = ingestion.cipher.seal(
+            metadata,
+            user_id="owner",
+            document_id=str(old["document_id"]),
+            generation=1,
+        )
+        conn.execute(
+            text("""
+            UPDATE connected_documents SET metadata_envelope=CAST(:metadata AS jsonb),
+              next_attempt_at=clock_timestamp()-interval '1 minute'
+            WHERE document_id=:id
+        """),
+            {"metadata": json.dumps(envelope), "id": old["document_id"]},
+        )
+    await collection.set_processing(user_id="owner", enabled=False)
+    with pytest.raises(DriveReadError, match="collection_processing_required"):
+        await ingestion.claim(user_id="owner", generation=1)
+    with ingestion.db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("""
+            SELECT status FROM connected_documents WHERE document_id=:id
+        """),
+                {"id": old["document_id"]},
+            ).scalar_one()
+            == "queued"
+        )
+
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    claimed = await ingestion.claim(user_id="owner", generation=1)
+    assert claimed and ingestion.cipher.open(claimed)["file_id"] == "supported"
+    with ingestion.db.engine.connect() as conn:
+        retired = (
+            conn.execute(
+                text("""
+            SELECT status,last_error_code FROM connected_documents WHERE document_id=:id
+        """),
+                {"id": old["document_id"]},
+            )
+            .mappings()
+            .one()
+        )
+        assert (retired["status"], retired["last_error_code"]) == (
+            "unsupported",
+            "unsupported_format",
+        )
+
+
+async def test_live_collection_resume_fences_old_work(collection, ingestion):
     from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
 
     with pytest.raises(DriveReadError, match="collection_processing_required"):
@@ -756,14 +962,149 @@ async def test_collection_bootstrap_captures_token_and_replays_new_files(collect
         assert collection.checkpoint(dict(stored))["changes_token"] == "end"
 
 
+async def test_collection_long_provider_name_keeps_every_row_and_advances_page(collection):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    values = [
+        {
+            "id": f"synthetic-file-{number}",
+            "name": "अ" * 9500 if number == 66 else f"Synthetic file {number}",
+            "mimeType": "application/vnd.google-apps.document",
+            "version": "1",
+            "modifiedTime": "2026-10-14T00:00:00Z",
+        }
+        for number in range(100)
+    ]
+    adapter = SimpleNamespace(
+        collection_start_token=AsyncMock(return_value="before-bootstrap"),
+        collection_files=AsyncMock(
+            return_value={
+                "files": values,
+                "nextPageToken": "following-page",
+                "incompleteSearch": False,
+            }
+        ),
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    assert await sync.run_one(user_id="owner") == {"status": "queued"}
+    assert await sync.run_one(user_id="owner") == {"status": "queued"}
+    with collection.db.engine.connect() as conn:
+        rows = conn.execute(text("SELECT * FROM connected_documents")).mappings().all()
+        saved = [collection.cipher.open(dict(row)) for row in rows]
+        checkpoint = dict(
+            conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        )
+    assert len(saved) == len(values) == 100
+    assert {(row["file_id"], row["name"]) for row in saved} == {
+        (row["id"], row["name"]) for row in values
+    }
+    assert collection.checkpoint(checkpoint)["page_token"] == "following-page"
+    assert checkpoint["phase"] == "bootstrap"
+    assert checkpoint["last_error_code"] is None
+    assert checkpoint["attempt_count"] == 0
+    assert checkpoint["last_synced_at"] is None
+
+
 async def test_collection_disconnect_purges_checkpoint_and_extraction(collection, ingestion, drive):
     await seed_collection(collection)
     current = await ingestion.claim(user_id="owner", generation=1)
     await ingestion.publish_pages(current, metadata=source(), batch=collection_pages())
     await drive.lifecycle.disconnect(user_id="owner", connector_id="google_drive")
     with collection.db.engine.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+        row = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        assert row["checkpoint_envelope"] is None and row["phase"] == "start"
+        assert row["lease_id"] is None and row["initial_completed_at"] is None
         assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 0
+    assert await collection.due_owners() == []
+
+
+async def test_verified_live_default_is_idempotent_and_saved_pause_survives_reconnect(collection):
+    from pathlib import Path
+
+    await asyncio.gather(*(collection.ensure_default(user_id="owner") for _ in range(3)))
+    assert await collection.due_owners() == ["owner"]
+    initial = await collection.status(user_id="owner")
+    assert initial["enabled"] is True and initial["revision"] == 1
+    old = await collection.claim(user_id="owner")
+    await collection.set_processing(user_id="owner", enabled=False)
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""UPDATE user_external_connector_connections
+          SET connection_generation=connection_generation+1
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    await collection.ensure_default(user_id="owner")
+    assert await collection.due_owners() == []
+    paused = await collection.status(user_id="owner")
+    assert paused["enabled"] is False and paused["state"] == "paused"
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await collection.require_current(old)
+    with collection.db.engine.connect() as conn:
+        row = conn.execute(text("SELECT * FROM drive_collection_sync")).mappings().one()
+        assert row["connection_generation"] == 2 and row["checkpoint_envelope"] is None
+        assert row["lease_id"] is None and row["revision"] > initial["revision"]
+        # The down path restores the old invalidation function without dropping
+        # existing preference/evidence rows; its next invalidation deletes them.
+        migration = Path(__file__).resolve().parents[2] / "db/migrations"
+        conn.exec_driver_sql((migration / "335_drive_collection_defaults.sql").read_text())
+        conn.exec_driver_sql(
+            (migration / "rollback/335_drive_collection_defaults.rollback.sql").read_text()
+        )
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 1
+        conn.execute(
+            text("""UPDATE user_external_connector_connections
+          SET connection_generation=connection_generation+1
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+
+
+async def test_default_adoption_preserves_background_off_and_rejects_unverified_scope(collection):
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO drive_live_preferences
+          (user_id,connection_generation,background_enabled) VALUES ('owner',1,FALSE)""")
+        )
+    await collection.ensure_default(user_id="owner")
+    assert await collection.due_owners() == []
+    with collection.db.engine.begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+        conn.execute(text("UPDATE drive_live_preferences SET background_enabled=TRUE"))
+        conn.execute(
+            text("""UPDATE user_external_connector_connections SET verified_policy_hash='selected-only'
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    assert await collection.due_owners() == []
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await collection.ensure_default(user_id="owner")
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 0
+
+
+async def test_default_worker_adoption_is_bounded_and_does_not_need_a_settings_visit(collection):
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO user_external_connector_connections
+          (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+          SELECT 'connected-' || n,'google_drive',1,'connected','verified',verified_policy_hash
+          FROM user_external_connector_connections CROSS JOIN generate_series(1,25) n
+          WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    # Other verified accounts can have the normal preference while staged
+    # admission still excludes them; they must not occupy the due-owner limit.
+    assert await collection.due_owners(limit=4) == []
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 20
+    assert await collection.due_owners(limit=1) == ["owner"]
+    with collection.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 26
 
 
 async def test_live_ingestion_resumes_pages_and_reuses_finalized_evidence(collection, ingestion):
@@ -817,3 +1158,423 @@ async def test_live_ingestion_pause_during_metadata_prevents_download(collection
     )
     assert await service.run_one(user_id="owner") == {"status": "superseded"}
     adapter.read_live_bytes.assert_not_awaited()
+
+
+async def test_live_provider_unsupported_race_is_terminal_progress(collection, ingestion):
+    await seed_collection(collection)
+    oauth = SimpleNamespace(
+        lifecycle=ingestion,
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        ),
+    )
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(side_effect=DriveReadError("unsupported_format")),
+        read_live_bytes=AsyncMock(),
+    )
+    service = DriveIngestionService(
+        processor=SimpleNamespace(), oauth=oauth, store=ingestion, adapter=adapter
+    )
+    assert await service.run_one(user_id="owner") == {"status": "unsupported"}
+    adapter.read_live_bytes.assert_not_awaited()
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(text("SELECT status,last_error_code FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        assert (row["status"], row["last_error_code"]) == ("unsupported", "unsupported_format")
+
+
+async def test_live_render_policy_upgrade_retries_only_legacy_render_gap(collection, ingestion):
+    from pathlib import Path
+
+    from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+    # This ingestion fixture predates semantic facts. Apply their authoritative
+    # table DDL so the recovery invalidation is exercised against real storage.
+    migration = (
+        Path(__file__).resolve().parents[2] / "db/migrations/334_drive_reusable_packets.sql"
+    ).read_text()
+    with ingestion.db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            migration[
+                migration.index(
+                    "CREATE TABLE IF NOT EXISTS drive_document_facts"
+                ) : migration.index("CREATE TABLE IF NOT EXISTS drive_document_fact_pages")
+            ]
+        )
+    await seed_collection(collection, files=[source("render-gap"), source("good")])
+    old = await ingestion.claim(user_id="owner", generation=1)
+    original = source(ingestion.cipher.open(old)["file_id"])
+    gap = replace(
+        collection_pages(),
+        has_gaps=True,
+        pages=(
+            replace(
+                collection_pages().pages[0],
+                status="partial",
+                error_code="page_render_budget_exceeded",
+            ),
+        ),
+    )
+    await ingestion.publish_pages(old, metadata=original, batch=gap)
+    good = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(
+        good, metadata=source(ingestion.cipher.open(good)["file_id"]), batch=collection_pages()
+    )
+    await ingestion.resync(user_id="owner", generation=1, document_id=str(old["document_id"]))
+    upgrade = await ingestion.claim(user_id="owner", generation=1)
+    restarted = await ingestion.page_progress(upgrade, source_version="1")
+    assert restarted["next_page"] == 1 and not restarted["complete"]
+    with ingestion.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 1
+        assert (
+            conn.execute(
+                text("SELECT active_version FROM connected_documents WHERE document_id=:id"),
+                {"id": good["document_id"]},
+            ).scalar_one()
+            is not None
+        )
+    # A failure under the new policy stays a gap and cannot trigger the same
+    # expensive upgrade again on unchanged bytes.
+    upgraded_gap = replace(
+        gap, engine_versions={"test": "1", "render_policy": RENDER_POLICY_VERSION}
+    )
+    await ingestion.publish_pages(upgrade, metadata=original, batch=upgraded_gap)
+    await ingestion.resync(user_id="owner", generation=1, document_id=str(old["document_id"]))
+    same_policy = await ingestion.claim(user_id="owner", generation=1)
+    retained = await ingestion.page_progress(same_policy, source_version="1")
+    assert retained["complete"] and retained["has_gaps"]
+    assert retained["engine_versions"]["render_policy"] == RENDER_POLICY_VERSION
+
+
+async def test_live_partial_evidence_resumes_across_render_policy_upgrade(collection, ingestion):
+    from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages(complete=False))
+    current = await ingestion.claim(user_id="owner", generation=1)
+    assert (await ingestion.page_progress(current, source_version="1"))["next_page"] == 2
+    assert await ingestion.publish_pages(
+        current,
+        metadata=source(),
+        batch=replace(
+            collection_pages(start=2),
+            engine_versions={"test": "1", "render_policy": RENDER_POLICY_VERSION},
+        ),
+    )
+    with ingestion.db.engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM drive_document_pages")).scalar_one() == 2
+
+
+async def test_request_candidates_preserve_discovery_lease_cursor_and_existing_extraction(
+    collection, ingestion, drive
+):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    discovery = await collection.claim(user_id="owner")
+    checkpoint = {
+        "changes_token": "real-start-receipt",
+        "page_token": "next-page",
+        "bootstrap_epoch": str(uuid.uuid4()),
+    }
+    await collection.commit_page(
+        discovery, checkpoint=checkpoint, files=[source()], phase="bootstrap"
+    )
+    extracted = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(extracted, metadata=source(), batch=collection_pages())
+    discovery = await collection.claim(user_id="owner")
+    assert discovery is not None
+    with collection.db.engine.connect() as conn:
+        before = dict(
+            conn.execute(text("SELECT * FROM drive_collection_sync WHERE user_id='owner'"))
+            .mappings()
+            .one()
+        )
+        original = dict(conn.execute(text("SELECT * FROM connected_documents")).mappings().one())
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(side_effect=lambda **kw: source(kw["file_id"]))
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic-live-token"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    ids = await sync.enqueue_candidates(
+        user_id="owner", file_ids=[source().file_id, "finance-priority"]
+    )
+    assert ids[0] == str(extracted["document_id"])
+    with collection.db.engine.connect() as conn:
+        after = dict(
+            conn.execute(text("SELECT * FROM drive_collection_sync WHERE user_id='owner'"))
+            .mappings()
+            .one()
+        )
+        unchanged = dict(
+            conn.execute(
+                text("SELECT * FROM connected_documents WHERE document_id=:id"), {"id": ids[0]}
+            )
+            .mappings()
+            .one()
+        )
+        added = dict(
+            conn.execute(
+                text("SELECT * FROM connected_documents WHERE document_id=:id"), {"id": ids[1]}
+            )
+            .mappings()
+            .one()
+        )
+    assert after == before
+    assert unchanged == original
+    assert str(added["collection_seen_epoch"]) == checkpoint["bootstrap_epoch"]
+    assert collection.checkpoint(after) == checkpoint
+    await collection.require_current(discovery)
+    current = await ingestion.claim(user_id="owner", generation=1, document_ids=[ids[1]])
+    assert str(current["document_id"]) == ids[1]
+    await ingestion.publish_pages(
+        current, metadata=source("finance-priority"), batch=collection_pages()
+    )
+    assert await ingestion.claim(user_id="owner", generation=1, document_ids=[ids[1]]) is None
+
+
+async def test_targeted_ingestion_keeps_owner_lease_and_default_fifo(collection, ingestion):
+    await seed_collection(collection, files=[source("older-background"), source("priority-source")])
+    with collection.db.engine.connect() as conn:
+        records = list(
+            conn.execute(
+                text("SELECT * FROM connected_documents ORDER BY created_at,document_id")
+            ).mappings()
+        )
+    ids = [str(row["document_id"]) for row in records]
+    chosen = await ingestion.claim(user_id="owner", generation=1, document_ids=[ids[-1]])
+    assert str(chosen["document_id"]) == ids[-1]
+    assert await ingestion.claim(user_id="owner", generation=1, document_ids=[ids[0]]) is None
+    metadata = next(
+        source(name)
+        for name in ("older-background", "priority-source")
+        if ingestion.cipher.fingerprint("owner", name) == chosen["source_fingerprint"]
+    )
+    await ingestion.publish_pages(chosen, metadata=metadata, batch=collection_pages())
+    foreign = str(uuid.uuid4())
+    with collection.db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO user_external_connector_connections
+            (user_id,connector_id,status,connection_generation)
+            VALUES ('other-owner','google_drive','connected',1)""")
+        )
+        conn.execute(
+            text("""INSERT INTO connected_documents
+            (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+             source_version,source_profile,processing_enabled,processing_disclosure_version,collection_revision)
+            VALUES (:id,'other-owner',1,:fingerprint,'{}'::jsonb,'1','live',TRUE,'live-drive-collection-v1',1)"""),
+            {"id": foreign, "fingerprint": "f" * 64},
+        )
+    assert await ingestion.claim(user_id="owner", generation=1, document_ids=[foreign]) is None
+    assert (
+        await ingestion.claim(user_id="owner", generation=1, document_ids=[str(uuid.uuid4())])
+        is None
+    )
+    fifo = await ingestion.claim(user_id="owner", generation=1)
+    assert str(fifo["document_id"]) == ids[0]
+
+
+def retire_active_extraction(ingestion, document_id):
+    """Model a prior profile with a distinct version, never a relabeled current cache."""
+    retired_version = "0" * 64
+    with ingestion.db.engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM drive_document_extractions WHERE document_id=:id"),
+            {"id": document_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_document_extractions
+              (document_id,user_id,connection_generation,source_version,extraction_version,
+               extraction_profile,next_page,total_pages,complete,has_gaps,unit_kind,engine_versions,
+               updated_at)
+              SELECT document_id,user_id,connection_generation,source_version,:version,
+                'retired-ocr-profile',NULL,1,TRUE,FALSE,'page','{}'::jsonb,
+                clock_timestamp()-interval '7 days'
+              FROM connected_documents WHERE document_id=:id"""),
+            {"id": document_id, "version": retired_version},
+        )
+        connection.execute(
+            text("UPDATE connected_documents SET active_version=:version WHERE document_id=:id"),
+            {"id": document_id, "version": retired_version},
+        )
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+async def test_live_extraction_profile_upgrade_is_due_before_seven_day_refresh(
+    collection, ingestion, targeted
+):
+    await seed_collection(collection)
+    first = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(first, metadata=source(), batch=collection_pages())
+    document_id = str(first["document_id"])
+    assert await ingestion.claim(user_id="owner", generation=1, document_ids=[document_id]) is None
+    retire_active_extraction(ingestion, document_id)
+    with ingestion.db.engine.begin() as connection:
+        assert connection.execute(
+            text(
+                "SELECT next_attempt_at > clock_timestamp() FROM connected_documents WHERE document_id=:id"
+            ),
+            {"id": document_id},
+        ).scalar_one()
+
+    upgrade = await ingestion.claim(
+        user_id="owner",
+        generation=1,
+        **({"document_ids": [document_id]} if targeted else {}),
+    )
+    assert upgrade is not None and str(upgrade["document_id"]) == document_id
+    progress = await ingestion.page_progress(upgrade, source_version="1")
+    assert not progress["complete"] and progress["next_page"] == 1
+
+
+async def test_profile_upgrade_reserves_capacity_without_displacing_due_document(
+    collection, ingestion
+):
+    await seed_collection(collection, files=[source("retired"), source("new")])
+    old = await ingestion.claim(user_id="owner", generation=1)
+    old_metadata = source(ingestion.cipher.open(old)["file_id"])
+    await ingestion.publish_pages(old, metadata=old_metadata, batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+
+    due = await ingestion.claim(user_id="owner", generation=1)
+    assert due is not None and due["document_id"] != old["document_id"]
+    due_metadata = source(ingestion.cipher.open(due)["file_id"])
+    await ingestion.publish_pages(due, metadata=due_metadata, batch=collection_pages())
+    upgrade = await ingestion.claim(user_id="owner", generation=1, prefer_profile_upgrade=True)
+    assert upgrade is not None and upgrade["document_id"] == old["document_id"]
+
+
+async def test_due_owner_precedes_older_upgrade_only_owner(collection, ingestion, monkeypatch):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,other-owner")
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+    with ingestion.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO user_external_connector_connections
+              (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+              SELECT 'other-owner','google_drive',1,'connected','verified',verified_policy_hash
+              FROM user_external_connector_connections
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+        connection.execute(
+            text("""INSERT INTO connected_documents
+              (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+               source_version,source_profile,processing_enabled,processing_disclosure_version,
+               collection_revision,next_attempt_at)
+              VALUES (:id,'other-owner',1,:fingerprint,'{}'::jsonb,'1','live',TRUE,
+                'live-drive-collection-v1',1,clock_timestamp()-interval '1 minute')"""),
+            {"id": str(uuid.uuid4()), "fingerprint": "f" * 64},
+        )
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion))
+    assert await worker.due_owners(limit=1) == ["other-owner"]
+
+
+async def test_reserved_upgrade_owner_cannot_be_crowded_out_by_due_owners(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,due-a,due-b,due-c")
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+    with ingestion.db.engine.begin() as connection:
+        for number, user_id in enumerate(("due-a", "due-b", "due-c"), 1):
+            connection.execute(
+                text("""INSERT INTO user_external_connector_connections
+                  (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+                  SELECT :user,'google_drive',1,'connected','verified',verified_policy_hash
+                  FROM user_external_connector_connections
+                  WHERE user_id='owner' AND connector_id='google_drive'"""),
+                {"user": user_id},
+            )
+            connection.execute(
+                text("""INSERT INTO connected_documents
+                  (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+                   source_version,source_profile,processing_enabled,processing_disclosure_version,
+                   collection_revision,next_attempt_at)
+                  VALUES (:id,:user,1,:fingerprint,'{}'::jsonb,'1','live',TRUE,
+                    'live-drive-collection-v1',1,clock_timestamp()-interval '1 minute')"""),
+                {"id": str(uuid.uuid4()), "user": user_id, "fingerprint": f"{number:064x}"},
+            )
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion))
+    assert await worker.due_owners(limit=2) == ["due-a", "due-b"]
+    assert await worker.due_owners(limit=2, reserve_profile_upgrade=True) == [
+        "owner",
+        "due-a",
+    ]
+
+
+@pytest.mark.parametrize("change", ["paused", "background_off", "generation", "revoked"])
+async def test_candidate_observation_cannot_commit_after_authority_changes(
+    collection, drive, change
+):
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    await seed_collection(collection)
+
+    async def changed(**kwargs):
+        if change == "paused":
+            await collection.set_processing(user_id="owner", enabled=False)
+        elif change == "background_off":
+            await collection.set_background(user_id="owner", enabled=False, confirmed=True)
+        else:
+            with collection.db.engine.begin() as conn:
+                if change == "generation":
+                    conn.execute(
+                        text(
+                            "UPDATE user_external_connector_connections SET connection_generation=2 WHERE user_id='owner' AND connector_id='google_drive'"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "UPDATE user_external_connector_connections SET status='revoked' WHERE user_id='owner' AND connector_id='google_drive'"
+                        )
+                    )
+        return source("candidate")
+
+    adapter = SimpleNamespace(get_metadata=AsyncMock(side_effect=changed))
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic-live-token"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    with pytest.raises(DriveReadError):
+        await sync.enqueue_candidates(user_id="owner", file_ids=["candidate"])
+    with collection.db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM connected_documents WHERE source_fingerprint=:fingerprint"
+                ),
+                {"fingerprint": collection.cipher.fingerprint("owner", "candidate")},
+            ).scalar_one()
+            == 0
+        )
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [[], ["invalid"], [None], [str(uuid.uuid4())] * 2, [str(uuid.uuid4()) for _ in range(51)]],
+)
+async def test_priority_document_target_bounds_fail_before_processing(ingestion, targets):
+    with pytest.raises(DriveReadError, match="invalid_argument"):
+        await ingestion.claim(user_id="owner", generation=1, document_ids=targets)

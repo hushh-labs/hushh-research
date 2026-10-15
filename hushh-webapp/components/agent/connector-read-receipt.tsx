@@ -240,7 +240,7 @@ function GoogleConnectorSetupCard({
     : reconnect
       ? `Reconnect ${label} to continue`
       : `Connect ${label} to continue`;
-  const actionLabel = connected ? `Manage ${label}` : reconnect ? `Reconnect ${label}` : `Connect ${label}`;
+  const actionLabel = connected ? experience.provider === "calendar" ? "Continue in chat" : `Manage ${label}` : reconnect ? `Reconnect ${label}` : `Connect ${label}`;
   return (
     <ConnectorCardShell
       ariaLabel={`${label} connection`}

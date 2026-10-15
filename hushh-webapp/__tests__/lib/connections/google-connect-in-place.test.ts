@@ -319,6 +319,26 @@ describe("connectCalendarInPlace", () => {
     await expect(start.result).resolves.toBe("not_connected");
   });
 
+  it.each([
+    [{ connected: true, status: "connected", access_level: "manage" }, "connected"],
+    [{ connected: false, status: "needs_reauth", access_level: "manage" }, "not_connected"],
+  ] as const)("uses the server-verified Calendar grant after consent (%s)", async (status, expected) => {
+    mocks.calendarStatus.mockResolvedValue(status);
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe(expected);
+  });
+
+  it("does not report connected after denied Calendar consent", async () => {
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId, "cancelled"), popup);
+    await expect(start.result).resolves.not.toBe("connected");
+  });
+
   it("connects natively through the platform sheet", async () => {
     mocks.native = true;
     mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", state: "signed-state" });

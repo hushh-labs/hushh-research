@@ -102,7 +102,9 @@ function routeRequest(request: NextRequest) {
       pathname.startsWith("/profile/")) &&
     !DIRECT_PROFILE_ROUTES.has(legacyRedirectPath) &&
     !commerceReturnAttempt(pathname + request.nextUrl.search) &&
-    !pathname.includes("oauth/return")
+    !pathname.includes("oauth/return") &&
+    !(pathname.replace(/\/$/, "") === ROUTES.PROFILE_WORLD_MODEL &&
+      request.nextUrl.searchParams.has("claim"))
   ) {
     const rawSubpath = pathname
       .replace(/^\/one\/profile\/?/, "")

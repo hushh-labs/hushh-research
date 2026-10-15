@@ -67,7 +67,8 @@ Verification:
 5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
 7. Before a push, run the local core mirror `scripts/ci/orchestrate.sh core` (secret, governance, protocol and web-core in parallel, then mcp-package and integration). GitHub Actions is the authority for the browser layout packs and the full web suite; do not rerun every CI stage locally before each push.
-8. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
+8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI; re-run a failed job from its run page instead.
+9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
 Communication:
 

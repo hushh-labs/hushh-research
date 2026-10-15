@@ -111,7 +111,7 @@ describe("Workspace connector setup card", () => {
     render(<WorkspaceConnectorSetupCard experience={{ type: "one.workspace_connector_setup.v1", provider: "calendar", status: "connect_required" }} onOpenConnections={onOpenConnections} />);
     expect(screen.getByRole("status")).toHaveTextContent("Calendar · Connected");
     expect(screen.queryByText("Connect Calendar to continue")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Manage Calendar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue in chat" }));
     expect(onOpenConnections).toHaveBeenCalledWith("calendar", expect.any(HTMLButtonElement));
     calendarState.connected = false;
   });

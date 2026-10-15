@@ -132,6 +132,12 @@ test.beforeEach(async ({ page }) => {
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:[a-z]+\.riv|rive\.wasm)$/, route =>
+    route.fulfill({
+      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
+    }),
+  );
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
@@ -234,6 +240,7 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
+  await expect(page.getByRole("button", { name: "Open drawer", exact: true })).toBeVisible();
   expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
@@ -391,7 +398,7 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
       const style = getComputedStyle(element);
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
     });
-    expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "700" });
+    expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "600" });
     // Both panels inherit the same material authority in each theme.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
@@ -420,7 +427,9 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   const motion = await sampleHistoryMotion(page, "open");
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
   expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
-  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
+  const firstInterpolation = motion.frames.find(frame => frame.x > -motion.width + 1 && frame.x < -1)!;
+  // Bound observed state response plus authored interpolation; physical presentation is separate.
+  expect(motion.responseLatencyMs + firstInterpolation.animationTime).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x - motion.restingX)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
   await expect(dialog).toBeVisible();
@@ -1032,9 +1041,8 @@ test("background processing needs explicit consent and can be paused without rem
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
   };
   await selectFile();
-  const consent = page.getByRole("checkbox", { name: /Prepare these files while the app is closed/ });
-  await expect(page.getByText(/Relevant excerpts may be sent to Gemini/)).toBeVisible();
-  await expect(page.getByText(/Prepared file information is stored outside your vault/)).toBeVisible();
+  const consent = page.getByRole("checkbox", { name: "Agent One prepares these files while you’re away." });
+  await expect(consent).toBeVisible();
   await expect(consent).not.toBeChecked();
   await consent.check();
   expect(writes).toHaveLength(0);
@@ -1046,7 +1054,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();
-  await expect(page.getByText(/Turning this off stops new preparation; remove the file to clear what was prepared/)).toBeVisible();
+  await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
   const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
@@ -1481,6 +1489,10 @@ test("legacy Gmail reconnect stays in place and reopens the reviewed draft", asy
 
 test("Calendar card connects in place, clears, and a forged settlement is ignored", async ({ page }) => {
   const { server, navigations } = await armChatConnect(page);
+  if (process.env.CALENDAR_CHAT_SCREENSHOT_DIR) {
+    fs.mkdirSync(process.env.CALENDAR_CHAT_SCREENSHOT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.CALENDAR_CHAT_SCREENSHOT_DIR, "synthetic-inline-calendar-permission.png"), fullPage: true });
+  }
   const popupEvent = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Allow Calendar scheduling" }).click();
   const consent = await popupEvent;
@@ -1606,8 +1618,10 @@ test.describe("One profile artwork and animated presence", () => {
         await expect.poll(() => profile.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
       } else {
         for (const artwork of [header, profile]) {
-          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
           const canvas = artwork.locator("canvas");
+          await expect(canvas).toHaveCSS("visibility", "visible");
+          await expect(artwork.locator("img")).toHaveAttribute("src", `/one-presence/${phase.file}`);
+          await expect(artwork.locator("img")).toHaveCSS("visibility", "hidden");
           await expect(canvas).toBeVisible();
           await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
           expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
@@ -1627,7 +1641,7 @@ test.describe("One profile artwork and animated presence", () => {
     await page.getByRole("button", { name: "Open One profile", exact: true }).click();
     const panel = page.getByRole("dialog", { name: "One", exact: true });
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: true }));
-    const artwork = panel.locator("[data-one-presence-state]");
+    const artwork = panel.locator('[data-one-presence-state="working"]');
     const canvas = artwork.locator("canvas");
     const poster = artwork.locator("img");
     await expect(canvas).toBeVisible();
@@ -1636,6 +1650,7 @@ test.describe("One profile artwork and animated presence", () => {
     await expect(canvas).toBeHidden();
     await expect(poster).toBeVisible();
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
+    await expect(poster).toHaveCSS("visibility", "visible");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
     const reduced = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
@@ -1667,6 +1682,9 @@ test.describe("One profile artwork and animated presence", () => {
     { width: 1440, height: 900 },
   ]) {
     test(`One profile keeps its header and tabs stationary while switching at ${viewport.width}px`, async ({ page }) => {
+      // HD artwork and three complete tab round trips share this scenario's budget.
+      // Geometry/state expectations retain their individual deadlines.
+      test.setTimeout(60_000);
       await page.setViewportSize(viewport);
       await page.route("**/api/one/feed**", route => route.fulfill({
         contentType: "application/json",

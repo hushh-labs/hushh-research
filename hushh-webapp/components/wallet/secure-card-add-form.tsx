@@ -174,7 +174,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!result.valid) {
-      if (result.errors.some(code => ["pin_invalid", "brand_invalid", "brand_region_mismatch", "issuing_region_invalid", "pan_length_invalid_for_brand"].includes(code))) setAdditionalOpen(true);
+      if (result.errors.some(code => ["pin_invalid", "brand_region_mismatch", "issuing_region_invalid"].includes(code))) setAdditionalOpen(true);
       setErrors(result.errors);
       return;
     }
@@ -301,9 +301,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
             />
           </div>
         </div>
-        <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
-          <summary>Additional details</summary>
-          <div className={styles.fields}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
             <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
@@ -320,6 +317,9 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
             </div> : null}
           </div>
+        <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
+          <summary>Additional details</summary>
+          <div className={styles.fields}>
         <div className={styles.row}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-pin`}><ProfilePaneKeyIcon className={styles.fieldIcon} />PIN (optional)</Label>
@@ -357,9 +357,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         </ul>
       ) : null}
       <FlowActionGroup
+        className="mx-auto max-w-[244px]"
         stacked
         primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
-        secondary={onCancel ? <Button type="button" variant="secondary" size="prominent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
+        secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
     </>

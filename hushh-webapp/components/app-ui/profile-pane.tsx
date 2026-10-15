@@ -30,6 +30,7 @@ import {
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
 import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   Sheet,
   SheetClose,
@@ -296,6 +297,8 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   const panelTitle = location.panel
     ? location.panel === "my-data"
       ? "Memory"
+      : location.panel === "world-model"
+        ? "Personal World Model"
       : location.panel === "payouts"
         ? "Payouts"
         : location.panel === "request-pricing"
@@ -313,7 +316,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
               : location.panel === "software-updates"
                 ? "Software updates"
                 : location.panel === "preferences"
-                  ? "Preferences"
+                  ? "Appearance & preferences"
                   : location.panel === "security"
                     ? "Security & privacy"
                     : location.panel === "referrals"
@@ -386,14 +389,20 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                 focusRef={backRef}
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
                 eligible={false}
-                onActivate={() => popProfilePaneLocation(pathname, searchParams)}
+                onActivate={() => {
+                  if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
+                    popProfilePaneLocation(pathname, searchParams);
+                  }
+                }}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
                 <ShellActionSurface
                   ref={backRef}
                   type="button"
                   aria-label="Back in Profile"
-                  onClick={() => { appHaptic("light"); popProfilePaneLocation(pathname, searchParams); }}
+                  onClick={() => { appHaptic("light"); if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
+                      popProfilePaneLocation(pathname, searchParams);
+                    } }}
                   className="size-11"
                 >
                   <ArrowLeft className="h-5 w-5" />

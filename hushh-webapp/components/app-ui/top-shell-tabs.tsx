@@ -98,6 +98,7 @@ export function TopShellTabs({
   const usesModuleSegmentedTabs =
     tabSet.id === "public" ||
     tabSet.id === "wallet" ||
+    tabSet.id === "calendar" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
     tabSet.id === "consent" ||
@@ -279,6 +280,7 @@ export function TopShellTabs({
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
                 usesCompactLabels && "min-w-0 px-0.5 sm:px-3",
+                tabSet.id === "calendar" && "min-w-0 px-1 sm:px-3",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {

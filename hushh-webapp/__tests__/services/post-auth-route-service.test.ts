@@ -79,6 +79,7 @@ describe("PostAuthRouteService", () => {
     "/circle/join?code=23456789ABCD",
     "/circle/join?invite=real_token",
     "/one/location/invite/real_token",
+    "/world-model/invite#claim=pwm_token",
   ])(
     "retains the invitation when reauthenticating during phone verification: %s",
     async (destination) => {
@@ -194,6 +195,7 @@ describe("PostAuthRouteService", () => {
     "/circle/join?code=23456789ABCD",
     "/circle/join/?invite=real_token",
     "/one/location/invite/real_token",
+    "/world-model/invite#claim=pwm_token",
     "/one/connect?tab=circles&action=join-circle&code=23456789ABCD",
     "/one/connect/?tab=circles&action=join-circle&code=23456789ABCD",
   ])(

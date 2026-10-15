@@ -513,8 +513,21 @@ class ExternalConnectorGoogleOAuth:
             policy_hash=LIVE_POLICY_HASH,
         )
         if verified:
+            await self._prepare_drive_collection(user_id)
             await self._resume_drive_requests(user_id)
         return verified
+
+    async def _prepare_drive_collection(self, user_id: str) -> None:
+        """Start private preparation after verified OAuth; scheduled work recovers."""
+        try:
+            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
+                from hushh_mcp.services.drive_collection_store import DriveCollectionStore
+                from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+                await DriveCollectionStore(db=self.lifecycle.db).ensure_default(user_id=user_id)
+                await wake_drive_work("documents")
+        except Exception as error:
+            logger.warning("drive_oauth.collection_default_deferred type=%s", type(error).__name__)
 
     async def _resume_drive_requests(self, user_id: str) -> None:
         """Requests waiting on this Drive continue now; scheduled drains also retry.

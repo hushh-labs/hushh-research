@@ -1,6 +1,7 @@
 # hushh_mcp/services/account_service.py
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
+import hashlib
 import json
 import logging
 import os
@@ -136,6 +137,9 @@ class AccountService:
             "google_service_grants": text(
                 "DELETE FROM google_service_grants WHERE user_id = :user_id"
             ),
+            "pwm_research_preferences": text(
+                "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
+            ),
             "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
             "one_agent_message_feedback": text(
                 "DELETE FROM one_agent_message_feedback WHERE user_id = :user_id"
@@ -189,6 +193,14 @@ class AccountService:
             # actor_profiles row, so the FK cascade alone would leave them behind.
             "one_mcp_pending_calls": text(
                 "DELETE FROM one_mcp_pending_calls WHERE user_id = :user_id"
+            ),
+            # Reset preserves vault_keys, so its FK cascade cannot clear this
+            # pending hosted-memory review. No reviewed intent survives reset.
+            "live_memory_hosted_source_envelopes": text(
+                "DELETE FROM live_memory_hosted_source_envelopes WHERE user_id = :user_id"
+            ),
+            "live_memory_hosted_pilot_grants": text(
+                "DELETE FROM live_memory_hosted_pilot_grants WHERE user_id = :user_id"
             ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
@@ -1549,6 +1561,40 @@ class AccountService:
             lock_graph_users=lock_connection_graph_users,
         )
 
+    @staticmethod
+    def _clear_live_memory_source_journal(conn, user_id, results, *, permanent):
+        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_events') IS NOT NULL")
+        ).scalar():
+            conn.execute(
+                text("DELETE FROM public.live_memory_source_events WHERE owner_hash=:owner_hash"),
+                {"owner_hash": owner_hash},
+            )
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_streams') IS NOT NULL")
+        ).scalar():
+            if permanent:
+                conn.execute(
+                    text(
+                        "DELETE FROM public.live_memory_source_streams WHERE owner_hash=:owner_hash"
+                    ),
+                    {"owner_hash": owner_hash},
+                )
+            else:
+                # Keep a monotonic watermark so a pre-reset cursor must rebuild.
+                conn.execute(
+                    text("""INSERT INTO public.live_memory_source_streams
+                            (owner_hash,last_sequence,first_retained_sequence)
+                            VALUES (:owner_hash,1,2)
+                            ON CONFLICT (owner_hash) DO UPDATE SET
+                              last_sequence=live_memory_source_streams.last_sequence+1,
+                              first_retained_sequence=live_memory_source_streams.last_sequence+2,
+                              updated_at=clock_timestamp()"""),
+                    {"owner_hash": owner_hash},
+                )
+        results["live_memory_source_journal"] = True
+
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.
 
@@ -1599,10 +1645,13 @@ class AccountService:
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "pwm_research_preferences",
                 "one_adk_sessions",
                 "one_action_directive_ledger",
                 "pod_lifecycle_events",
                 "one_mcp_pending_calls",
+                "live_memory_hosted_source_envelopes",
+                "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
                 "wallet_card_access_audit",
@@ -1949,6 +1998,7 @@ class AccountService:
                     },
                 )
                 results["onboarding_reset"] = True
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 
             logger.info("✅ ACCOUNT RESET completed for %s", user_id)
             return {
@@ -2199,6 +2249,7 @@ class AccountService:
                         table_exists=lambda table_name: self._table_exists(conn, table_name),
                     )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
@@ -2230,6 +2281,8 @@ class AccountService:
                         "ria_claim_dossiers",
                         "ria_license_verifications",
                         "one_mcp_pending_calls",
+                        "live_memory_hosted_source_envelopes",
+                        "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",
                         "wallet_card_access_audit",

@@ -192,20 +192,54 @@ textarea {
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* The three shipped weights mirror the careers typography contract. Requests
+   such as 550 (navigation) and 650 (primary CTA) resolve to 600 and 700. */
 @font-face {
-  font-family: "InterVariable";
-  src: url("/fonts/Inter/InterVariable.woff2") format("woff2");
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-400-normal.woff2") format("woff2");
   font-display: swap;
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 400;
 }
 
 @font-face {
-  font-family: "InterVariable";
-  src: url("/fonts/Inter/InterVariable-Italic.woff2") format("woff2");
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-600-normal.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-700-normal.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-400-italic.woff2") format("woff2");
   font-display: swap;
   font-style: italic;
-  font-weight: 100 900;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-600-italic.woff2") format("woff2");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-700-italic.woff2") format("woff2");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 700;
 }
 
 :root {
@@ -241,33 +275,23 @@ textarea {
   --z-system: 9999;
   --z-transient-scrim: 10099;
   --z-transient: 10100;
-  /* Centralized app typography variables. Product UI uses Inter only. */
-  --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
-  /* Emoji tier, appended to the text stack rather than folded into
-     --font-family-product: verify-apple-hierarchy pins that token's exact
-     literal to keep Inter the product typeface, and this must not weaken it.
-     Inter, its fallbacks and system-ui carry no emoji glyphs, so without an
-     emoji tier every emoji codepoint fell through to the browser's last-resort
-     matching, which has no defined priority — on a Mac with Noto Color Emoji
-     installed (Google Fonts, Docker and design tooling all ship it) Chrome
-     could pick the Android artwork, and the winner could change between paints
-     as InterVariable swapped in. Naming the platform emoji fonts in order pins
-     it: Apple on macOS/iOS, Segoe on Windows, Noto elsewhere. Emoji fonts
-     carry only emoji, so Latin text still resolves to Inter exactly as before. */
+  /* Centralized app typography. Non-Latin glyphs fall back to the platform. */
+  --font-family-product: "Plus Jakarta Sans", system-ui, sans-serif;
+  /* Keep emoji artwork platform-specific while product text uses Jakarta. */
   --font-app-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
   --font-app-display: var(--font-family-product), var(--font-app-emoji);
   --font-app-body: var(--font-family-product), var(--font-app-emoji);
   --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
-  --font-app-mono: var(--font-app-body);
+  --font-app-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --foundation-display-size: clamp(2.125rem, 1.55rem + 2.3vw, 3.5rem);
   --foundation-display-line: 1.06;
-  --foundation-display-weight: 700;
+  --foundation-display-weight: 600;
   --foundation-display-tracking: -0.022em;
   --foundation-title1-size: clamp(1.75rem, 1.46rem + 1.2vw, 2.5rem);
   --foundation-title1-line: 1.107;
-  --foundation-title1-weight: 700;
+  --foundation-title1-weight: 600;
   --foundation-title1-tracking: -0.02em;
   --foundation-title2-size: clamp(1.375rem, 1.25rem + 0.5vw, 1.75rem);
   --foundation-title2-line: 1.182;
@@ -281,18 +305,18 @@ textarea {
   --foundation-headline-line: 1.294;
   --foundation-headline-weight: 600;
   --foundation-headline-tracking: -0.01em;
-  /* Editorial rungs (Apple grammar): lead = product-tile subcopy;
-     lead-airy = weight-300 "light atmosphere" reads (rare, deliberate);
+  /* Editorial rungs: lead = product-tile subcopy;
+     lead-airy keeps a lighter visual rhythm with regular weight;
      tagline = sub-tile / sub-nav category assertion;
      dense-link = footer / utility link stacks (relaxed 2.41 leading).
-     Weight ladder is 300 / 400 / 600 / 700; 500 is deliberately absent. */
+     The shipped weight ladder is 400 / 600 / 700. */
   --foundation-lead-size: 1.75rem;
   --foundation-lead-line: 1.14;
   --foundation-lead-weight: 400;
   --foundation-lead-tracking: 0.007em;
   --foundation-lead-airy-size: 1.5rem;
   --foundation-lead-airy-line: 1.5;
-  --foundation-lead-airy-weight: 300;
+  --foundation-lead-airy-weight: 400;
   --foundation-lead-airy-tracking: 0;
   --foundation-tagline-size: 1.3125rem;
   --foundation-tagline-line: 1.19;
@@ -320,38 +344,39 @@ textarea {
   --foundation-footnote-tracking: 0;
   --foundation-caption-size: 0.75rem;
   --foundation-caption-line: 1.333;
-  --foundation-caption-weight: 600;
+  --foundation-caption-weight: 400;
 
   /* Apple iOS-first semantic type roles. These are the shared source of truth
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
   --type-large-page-title-size: 28px;
   --type-large-page-title-line: 34px;
-  --type-large-page-title-weight: 700;
+  --type-large-page-title-weight: 600;
   --type-large-page-title-tracking: normal;
   --type-page-title-size: 28px;
   --type-page-title-line: 34px;
-  --type-page-title-weight: 700;
+  --type-page-title-weight: 600;
   --type-page-title-tracking: normal;
   --type-agent-title-size: 28px;
   --type-agent-title-line: 34px;
-  --type-agent-title-weight: 700;
+  --type-agent-title-weight: 600;
   --type-agent-title-tracking: normal;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
-  --type-navigation-title-weight: 600;
+  --type-navigation-title-weight: 550;
   --type-navigation-title-tracking: normal;
   --type-major-section-title-size: 20px;
   --type-major-section-title-line: 25px;
   --type-major-section-title-weight: 600;
   --type-major-section-title-tracking: normal;
+  --type-section-title-weight: 600;
   --type-card-title-size: 20px;
   --type-card-title-line: 25px;
-  --type-card-title-weight: 600;
+  --type-card-title-weight: 400;
   --type-card-title-tracking: normal;
   --type-section-label-size: 15px;
   --type-section-label-line: 20px;
-  --type-section-label-weight: 500;
+  --type-section-label-weight: 600;
   --type-section-label-tracking: normal;
   /* Grouped-list labels are a quieter rung than page/section titles.  The
      compact variant is shared by Feed, Connect, Consent and embedded settings
@@ -366,7 +391,7 @@ textarea {
   --type-row-label-tracking: normal;
   --type-row-label-compact-size: 16px;
   --type-row-label-compact-line: 21px;
-  --type-row-label-compact-weight: 500;
+  --type-row-label-compact-weight: 400;
   --type-page-subtitle-size: 15px;
   --type-page-subtitle-line: 20px;
   --type-row-description-size: 13px;
@@ -377,7 +402,7 @@ textarea {
   --type-row-description-compact-line: 18px;
   --type-form-label-size: 15px;
   --type-form-label-line: 20px;
-  --type-form-label-weight: 500;
+  --type-form-label-weight: 600;
   --type-form-label-tracking: normal;
   --type-input-value-size: 17px;
   --type-input-value-line: 22px;
@@ -388,26 +413,26 @@ textarea {
   --type-legal-text-line: 15px;
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
-  --type-button-label-weight: 600;
+  --type-button-label-weight: 650;
   --type-compact-button-label-size: 15px;
   --type-compact-button-label-line: 20px;
-  --type-compact-button-label-weight: 600;
+  --type-compact-button-label-weight: 650;
   --type-eyebrow-size: 12px;
   --type-eyebrow-line: 16px;
-  --type-eyebrow-weight: 600;
+  --type-eyebrow-weight: 400;
   --type-eyebrow-tracking: 0.04em;
   --type-tab-label-size: 11px;
   --type-tab-label-line: 13px;
-  --type-tab-label-weight: 500;
+  --type-tab-label-weight: 550;
   --type-tab-label-tracking: 0;
   --type-agent-tab-label-size: 15px;
   --type-agent-tab-label-line: 20px;
-  --type-agent-tab-label-weight: 500;
+  --type-agent-tab-label-weight: 550;
   --type-agent-tab-label-tracking: normal;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
-  --foundation-micro-weight: 600;
+  --foundation-micro-weight: 400;
   --foundation-micro-tracking: 0.2em;
   --foundation-gold: var(--app-accent-deep);
 
@@ -437,6 +462,8 @@ textarea {
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   /* Location keeps its Apple blue identity alongside the multicolor roster. */
   --agent-location-blue: #007aff;
+  /* Keys retain their blue identity under the optional gold accent. */
+  --app-key-accent: var(--accent-preview-blue);
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
   /* Soft accent well behind an accent glyph. Eight call sites across Location
@@ -917,14 +944,14 @@ textarea {
   --ios-account-on-accent: #ffffff;
   --ios-account-title-size: var(--type-page-title-size);
   --ios-account-title-line: var(--type-page-title-line);
-  --ios-account-title-weight: 700;
+  --ios-account-title-weight: 600;
   --ios-account-title-tracking: normal;
   --ios-account-description-size: var(--type-row-description-size);
   --ios-account-description-line: var(--type-row-description-line);
   --ios-account-section-header-size: 14px;
   --ios-account-section-header-line: 18px;
   --ios-account-regular-weight: var(--foundation-body-weight);
-  --ios-account-medium-weight: 500;
+  --ios-account-medium-weight: 550;
   --ios-account-row-title-size: 16px;
   --ios-account-row-title-line: 21px;
   --ios-account-row-title-tracking: -0.01em;
@@ -1942,7 +1969,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-display);
   font-size: 22px !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   letter-spacing: 0 !important;
   line-height: 27px !important;
 }
@@ -2180,7 +2207,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-row-gap: 5px;
   --app-side-pane-row-title-size: 13px;
   --app-side-pane-row-title-line: 1.2;
-  --app-side-pane-row-title-weight: 500;
+  --app-side-pane-row-title-weight: 550;
   --app-side-pane-row-description-size: 9px;
   --app-side-pane-row-description-line: 1.2;
   --app-side-pane-section-size: 10px;
@@ -2581,7 +2608,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 .profile-pane-scroll-root .profile-home-name {
   font-size: clamp(19px, 4vw, 24px) !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   letter-spacing: -0.045em !important;
   line-height: 1.1 !important;
 }
@@ -5448,13 +5475,13 @@ body:has([data-testid="one-location-onboarding"])
 
   .agent-markdown h5 {
     font-size: 15px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
   }
 
   .agent-markdown h2[data-agent-sources-label] {
     font-size: 12px !important;
     line-height: 16px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     letter-spacing: normal;
   }
 
@@ -5476,6 +5503,12 @@ body:has([data-testid="one-location-onboarding"])
     font-weight: var(--type-row-label-weight) !important;
     letter-spacing: var(--type-row-label-tracking) !important;
     color: var(--app-label) !important;
+  }
+
+  /* Unread Feed history needs its own emphasis while ordinary row labels
+     remain regular. This shares the base layer with the generic slot rule. */
+  [data-slot="settings-row-title"][data-feed-unread="true"] {
+    font-weight: 600 !important;
   }
 
   [data-slot="settings-row-description"] {
@@ -5651,7 +5684,7 @@ body:has([data-testid="one-location-onboarding"])
     overflow-wrap: anywhere;
   }
 
-  .soul-memory-document { max-width: 68ch; }
+  .soul-memory-document { max-width: 64ch; }
   .soul-memory-editor { font-size: var(--foundation-body-size) !important; }
   .soul-memory-document :is(p, ul, ol) { margin-block: 1rem; }
   .soul-memory-document :is(ul, ol) { padding-left: 1.5rem; }
@@ -5663,7 +5696,7 @@ body:has([data-testid="one-location-onboarding"])
   .soul-memory-document :is(h1, h2, h3, h4, h5, h6),
   .app-page-shell .soul-memory-document :is(h1, h2, h3, h4, h5, h6) {
     font-family: var(--font-app-display);
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     line-height: 1.3 !important;
     letter-spacing: var(--foundation-title1-tracking) !important;
     color: var(--foreground);
@@ -6883,7 +6916,7 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
   font-size: var(--ios-account-tab-label-size, var(--type-tab-label-size));
-  font-weight: 500;
+  font-weight: 550;
   line-height: var(--ios-account-tab-label-line, var(--type-tab-label-line));
   letter-spacing: var(--type-tab-label-tracking);
   text-wrap: nowrap;
@@ -6891,7 +6924,7 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
-  font-weight: 500;
+  font-weight: 550;
   opacity: 1;
 }
 
@@ -7781,6 +7814,7 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
   }
 
   .type-micro {
+    font-family: var(--font-app-mono);
     font-size: var(--foundation-micro-size);
     font-weight: var(--foundation-micro-weight);
     line-height: var(--foundation-micro-line);
@@ -8445,7 +8479,7 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-page-title-size) !important;
-  font-weight: 700 !important;
+  font-weight: var(--type-page-title-weight) !important;
   letter-spacing: var(--type-page-title-tracking) !important;
   line-height: var(--type-page-title-line) !important;
   opacity: 1 !important;
@@ -8478,11 +8512,18 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-card-title-size) !important;
-  font-weight: var(--type-card-title-weight) !important;
   letter-spacing: var(--type-card-title-tracking) !important;
   line-height: var(--type-card-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
+}
+
+.ui-text-section-title {
+  font-weight: var(--type-section-title-weight) !important;
+}
+
+.ui-text-card-title {
+  font-weight: var(--type-card-title-weight) !important;
 }
 
 :is(.ui-text-headline) {
@@ -8509,6 +8550,23 @@ body[data-persona-surface="ria"] {
     line-height: var(--type-page-title-line) !important;
     font-weight: var(--type-page-title-weight) !important;
     letter-spacing: var(--type-page-title-tracking) !important;
+  }
+
+  /* Circle details place a wrapping H1 beside Edit. Keep the semantic title
+     line box above the foundation h1 lock so Jakarta glyphs never clip. */
+  .circle-detail-header h1.ui-text-page-title {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    letter-spacing: var(--type-page-title-tracking) !important;
+  }
+
+  .app-page-shell h3.receipt-month-heading {
+    font-family: var(--font-app-mono) !important;
+    font-size: var(--type-eyebrow-size) !important;
+    line-height: var(--type-eyebrow-line) !important;
+    font-weight: var(--type-eyebrow-weight) !important;
+    letter-spacing: 0.12em !important;
   }
 
   [data-one-feature-card] [data-one-use-case-tag] {
@@ -8640,7 +8698,7 @@ body[data-persona-surface="ria"] {
   color: var(--app-accent) !important;
   font-family: var(--font-app-body) !important;
   font-size: 15px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
   letter-spacing: normal !important;
   line-height: 20px !important;
   opacity: 1 !important;
@@ -8682,7 +8740,7 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-status) {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
   letter-spacing: var(--type-helper-text-tracking) !important;
   line-height: var(--type-helper-text-line) !important;
   opacity: 1 !important;
@@ -8719,13 +8777,30 @@ body[data-persona-surface="ria"] {
 
 :is(.ui-text-eyebrow) {
   color: var(--app-section-label) !important;
-  font-family: var(--font-app-body) !important;
+  font-family: var(--font-app-mono) !important;
   font-size: var(--type-eyebrow-size) !important;
   font-weight: var(--type-eyebrow-weight) !important;
   letter-spacing: var(--type-eyebrow-tracking) !important;
   line-height: var(--type-eyebrow-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
+}
+
+/* Use the mono/regular voice for metadata, not every uppercase element:
+   avatars, buttons, and status chips may also use uppercase text. */
+:where(p.uppercase, dt.uppercase, th.uppercase, .app-metadata-label) {
+  font-family: var(--font-app-mono);
+  font-weight: 400;
+}
+
+.app-metadata-label {
+  font-family: var(--font-app-mono) !important;
+  font-weight: 400 !important;
+}
+
+:is(.ui-text-section-label.uppercase, .ui-text-group-label.uppercase) {
+  font-family: var(--font-app-mono) !important;
+  font-weight: 400 !important;
 }
 
 :is(.ui-text-tab-label) {
@@ -9357,14 +9432,14 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   [data-app-side-pane] [data-slot="sheet-title"] {
     font-size: 20px !important;
     line-height: 1.15 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: -0.025em !important;
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-name {
     font-size: clamp(19px, 4vw, 24px) !important;
     line-height: 1.1 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: -0.045em !important;
   }
 
@@ -9428,7 +9503,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     color: var(--ios-account-label) !important;
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
-    font-weight: 500 !important;
+    font-weight: 400 !important;
     letter-spacing: 0 !important;
     line-height: 1.22 !important;
   }

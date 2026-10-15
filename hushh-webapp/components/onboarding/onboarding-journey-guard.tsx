@@ -18,6 +18,7 @@ import {
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
+  normalizeInvitationReturnTo,
   resolveOneSetupCompletionTarget,
   ROUTES,
   buildInitialContactsWelcomeRoute,
@@ -29,8 +30,8 @@ import {
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
-import { initialContactOnboardingEnabled } from "@/lib/contacts/initial-contact-onboarding-config";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
+import { safeWorldModelInvitationReturnPath } from "@/lib/world-model/invitation-handoff";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -164,7 +165,7 @@ export function OnboardingJourneyGuard({
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
-    (!initialContactOnboardingEnabled() || normalizedGuardPathname === ROUTES.ONE_WELCOME ||
+    (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
       Boolean(userId && InitialContacts.wasDismissed(userId)) ||
       cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
     (persistentSetupResolved ||
@@ -175,10 +176,9 @@ export function OnboardingJourneyGuard({
         setupSurface,
       }))),
   );
-  // "Dismissed" = the user finished/skipped onboarding at least once. The root
-  // setup funnel is one-time, so every post-completion setup arrival is ejected
-  // to home. Account reset/delete clears this durable state and re-enables the
-  // canonical setup route through the existing recovery flow.
+  // Completion is a durable admission fact. Completed owners can revisit cloud
+  // configuration; an explicit invitation continuation resumes its destination.
+  // Account reset/delete clears this state through the existing recovery flow.
   const setupDismissed = Boolean(
     persistentSetupResolved ||
     (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
@@ -201,11 +201,20 @@ export function OnboardingJourneyGuard({
   // stays a valid bounded entry after root completion. Without this a root-resolved
   // owner is ejected to ONE_HOME and can never provision — the 0-to-1 blocker.
   const isPodProvisioningSurface = isOneSetupNavigationRoute(pathname);
+  // Resume only at completed journey terminals. Cloud setup and its OAuth
+  // callback retain their own continuation authority, even with return_to set.
+  const resumesInvitation = Boolean(
+    (normalizedGuardPathname === ROUTES.ONE_SETUP ||
+      normalizedGuardPathname === ROUTES.ONE_SETUP_CONNECTIONS) &&
+      normalizeInvitationReturnTo(
+        new URL(currentHref, "https://one.local").searchParams.get("return_to"),
+      ),
+  );
   const shouldEjectSetupSurface = Boolean(
     setupSurface &&
       setupDismissed &&
       !isPostRootFinanceSetup &&
-      !isPodProvisioningSurface &&
+      (!isPodProvisioningSurface || resumesInvitation) &&
       !isOneSetupCapabilityRoute(pathname),
   );
 
@@ -253,11 +262,11 @@ export function OnboardingJourneyGuard({
         return;
       }
 
-      const verifyWelcome = initialContactOnboardingEnabled() && !InitialContacts.wasDismissed(userId);
+      const verifyWelcome = !InitialContacts.wasDismissed(userId);
       const needsWelcomeBootstrap = verifyWelcome && !cachedState;
       function redirectPendingWelcome(state: PreVaultUserState): boolean {
         if (verifyWelcome && state.setupCompleted === true && state.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
-          const target = buildInitialContactsWelcomeRoute(currentHref);
+          const target = buildInitialContactsWelcomeRoute(safeWorldModelInvitationReturnPath(currentHref, userId));
           if (redirectTargetRef.current !== target) {
             redirectTargetRef.current = target;
             setRedirecting(true);
@@ -356,7 +365,9 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        const redirectTarget = buildOneSetupRoute({ returnTo: currentHref });
+        const redirectTarget = buildOneSetupRoute({
+          returnTo: safeWorldModelInvitationReturnPath(currentHref, userId),
+        });
         if (redirectTargetRef.current === redirectTarget) {
           return;
         }
@@ -393,7 +404,7 @@ export function OnboardingJourneyGuard({
           cause,
         );
         if (!cancelled) {
-          setError(true);
+          setError(!persistentSetupResolved);
           setChecking(false);
         }
       }

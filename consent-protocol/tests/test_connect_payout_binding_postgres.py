@@ -153,7 +153,7 @@ async def test_cross_source_binding_race_is_serialized(
     _store, pool = provider_postgres
     async with pool.acquire() as first, pool.acquire() as second:
         await _document_table(first)
-        await first.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
+        await first.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
         transaction = first.transaction()
         await transaction.start()
         second_source = "document" if first_source == "scope" else "scope"
@@ -201,7 +201,7 @@ async def test_binding_admission_refuses_stale_snapshot_isolation(provider_postg
     _store, pool = provider_postgres
     async with pool.acquire() as connection:
         await _document_table(connection)
-        await connection.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
+        await connection.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
         with pytest.raises(
             asyncpg.InvalidTransactionStateError, match="payout_binding_isolation_unsupported"
         ):
@@ -218,8 +218,8 @@ async def test_binding_guard_install_and_rollback_preserve_historical_accounts(p
         await connection.execute(_binding_insert("document"), "owner", "acct_historical", "test")
         tables = ("scope_commerce_seller_accounts", "stripe_owner_payout_accounts")
         before = [await connection.fetch(f"SELECT * FROM {table}") for table in tables]  # noqa: S608 -- Authored table constants only.
-        await connection.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
-        await connection.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
+        await connection.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
+        await connection.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
         # Erasure archives existing routing before detaching its owner binding.
         await connection.execute(
             "INSERT INTO scope_commerce_sellers(seller_id,owner_user_id) VALUES(gen_random_uuid(),'owner')"
@@ -234,7 +234,7 @@ async def test_binding_guard_install_and_rollback_preserve_historical_accounts(p
         await connection.execute(_binding_insert("scope"), "other", "acct_rollback", "test")
         before = [await connection.fetch(f"SELECT * FROM {table}") for table in tables]  # noqa: S608 -- Authored table constants only.
         await connection.execute(
-            (MIGRATIONS / "rollback/348_stripe_payout_source_binding.rollback.sql").read_text()
+            (MIGRATIONS / "rollback/355_stripe_payout_source_binding.rollback.sql").read_text()
         )
         after = [await connection.fetch(f"SELECT * FROM {table}") for table in tables]  # noqa: S608 -- Authored table constants only.
         assert after == before
@@ -249,7 +249,7 @@ async def test_erased_scope_attribution_cannot_be_adopted_by_document_payouts(
     _store, pool = provider_postgres
     async with pool.acquire() as connection:
         await _document_table(connection)
-        await connection.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
+        await connection.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
         await connection.execute(
             "INSERT INTO scope_commerce_sellers(seller_id,owner_user_id,erased_at,account_id,livemode) VALUES(gen_random_uuid(),NULL,clock_timestamp(),'acct_erased',$1)",
             mode,
@@ -275,7 +275,7 @@ async def test_policy_filtered_binding_reads_and_writes_fail_closed(provider_pos
         schema = await connection.fetchval("SELECT current_schema()")
         await _document_table(connection)
         await connection.execute(_binding_insert("document"), "other", "acct_hidden", "test")
-        await connection.execute((MIGRATIONS / "348_stripe_payout_source_binding.sql").read_text())
+        await connection.execute((MIGRATIONS / "355_stripe_payout_source_binding.sql").read_text())
         await connection.execute(
             "ALTER TABLE stripe_owner_payout_accounts ENABLE ROW LEVEL SECURITY"
         )

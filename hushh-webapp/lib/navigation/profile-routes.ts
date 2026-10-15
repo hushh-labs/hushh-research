@@ -8,6 +8,7 @@ export type ProfilePanel =
   | "software-updates"
   | "my-data"
   | "payouts"
+  | "world-model"
   | "request-pricing"
   | "connected-systems"
   | "connectors"
@@ -71,6 +72,7 @@ export function normalizeProfilePanel(
     value === "account" ||
     value === "my-data" ||
     value === "payouts" ||
+    value === "world-model" ||
     value === "request-pricing" ||
     value === "connected-systems" ||
     value === "connectors" ||
@@ -279,6 +281,10 @@ export function buildProfileRoute(params?: {
       {},
       params?.searchParams,
     );
+  }
+
+  if (panel === "world-model") {
+    return appendQuery(ROUTES.PROFILE_WORLD_MODEL, {}, params?.searchParams);
   }
 
   if (panel === "account") {
@@ -503,6 +509,10 @@ export function resolveProfileRouteState(
 
   if (normalizedPath === ROUTES.PROFILE_MY_DATA) {
     return { panel: "my-data", detail: null };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_WORLD_MODEL) {
+    return { panel: "world-model", detail: null };
   }
   if (normalizedPath === ROUTES.PROFILE_MY_DATA_DOMAIN) {
     const domainKey = query.get("key");

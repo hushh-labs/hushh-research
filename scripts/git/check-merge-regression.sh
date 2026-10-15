@@ -4,8 +4,9 @@
 # Detects the specific failure that motivated this script (2026-08-19):
 # a branch syncs `origin/main` in, a conflict gets resolved by hand, and the
 # resolution silently keeps the STALE side of a hunk instead of folding in
-# the fix that had already landed on main. `check-main-sync.sh` proves a
-# branch CONTAINS main's commits; it says nothing about whether resolving
+# the fix that had already landed on main. `check-main-sync.sh` in block
+# mode proves a branch CONTAINS main's commits (bounded mode, used on PRs
+# into main, proves less); it says nothing about whether resolving
 # those commits' conflicts actually preserved their content. This script
 # checks the content.
 #
