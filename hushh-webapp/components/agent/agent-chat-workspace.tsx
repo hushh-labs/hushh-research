@@ -2665,13 +2665,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // Connectors is a Profile section. Every chat entry (the sidebar's
   // Connectors, a card's "Open connectors") opens it in the Profile pane over
   // this chat, and Back from there returns here with the draft untouched.
+  const calendarChatRecoveryRef = useRef<() => void>(() => undefined);
+  const calendarChatRecoveryBusy = useRef(false);
   const openConnectorSurface = useCallback((
     provider?: WorkspaceConnectorProvider,
     trigger?: HTMLButtonElement,
   ) => {
     if (trigger) historyDrawerTriggerRef.current = trigger;
     if (provider === "calendar") {
-      router.push(ROUTES.CALENDAR);
+      calendarChatRecoveryRef.current();
       return;
     }
     // The pane is the one modal surface: leave the history drawer first.
@@ -2685,7 +2687,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ),
       { returnsToOrigin: true },
     );
-  }, [router]);
+  }, []);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
     ownerUid: string;
@@ -3942,11 +3944,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const owner = user;
     if (!owner?.uid) return;
     const ownerId = owner.uid;
+    const originConversation = conversationIdRef.current;
     const payload = (pendingSpecialistDirective?.directive.payload ?? {}) as Record<
       string,
       unknown
     >;
-    const isCurrent = () => workspaceOwnerIdRef.current === ownerId;
+    const isCurrent = () => workspaceOwnerIdRef.current === ownerId &&
+      (kind !== "calendar" || conversationIdRef.current === originConversation);
     const started = directiveConnect.start(
       kind,
       (controls) =>
@@ -3977,10 +3981,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
         }
         // Cancel already dismissed the card and said so.
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         if (outcome === "connected") {
           setPendingSpecialistDirective(null);
-          toast.success(inPlaceConnectCopy(kind, outcome));
+          toast.success(kind === "calendar" ? "Calendar access updated." : inPlaceConnectCopy(kind, outcome));
+          if (kind === "calendar") calendarChatRecoveryRef.current();
         } else if (outcome === "failed") {
           toast.error(inPlaceConnectCopy(kind, outcome));
         } else {
@@ -7545,6 +7550,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         await sendDelegateResult(result);
       },
     });
+  };
+
+  calendarChatRecoveryRef.current = () => {
+    if (pendingSpecialistDirective?.delegateAgentId === "agent_calendar" &&
+        pendingSpecialistDirective.directive.payload.type === "calendar.execute_proposal") {
+      toast.info("Review the Calendar proposal in this conversation before continuing.");
+      return;
+    }
+    if (!conversationIdRef.current) {
+      toast.info("Open the conversation containing your Calendar request to continue.");
+      return;
+    }
+    if (calendarChatRecoveryBusy.current || isChatLoading || isStreaming || isToolWorking) return;
+    calendarChatRecoveryBusy.current = true;
+    // Re-enter the existing typed tools with this conversation's context.
+    // Authorization is not confirmation: the backend proposal executor still
+    // requires a new, explicit review confirmation before any write.
+    void runAgentTurn("Continue my pending Calendar request in this conversation. Check the connected account and the permissions required for that request. If access is missing, show the inline authorization action. If the request changes Calendar, show its proposal for my review; do not execute it yet.")
+      .finally(() => { calendarChatRecoveryBusy.current = false; });
   };
 
   const submitComposerText = async () => {
