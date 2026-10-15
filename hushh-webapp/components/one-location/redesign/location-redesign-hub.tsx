@@ -37,6 +37,7 @@ import {
   Link2,
   Pencil,
   Plus,
+  RefreshCw,
   Send,
   Share2,
   Check,
@@ -143,6 +144,7 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
+import { LOCATION_COMPACT_ACTION_SHAPE } from "./location-action-styles";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -2983,17 +2985,13 @@ function LocationDetailFlow({
                             disabled={vm.busy === "request"}
                             className="h-8 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
                           >
-                            {vm.busy === "request" ? (
-                              <span
-                                className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <Send
-                                className="mr-1.5 h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                            )}
+                            <RefreshCw
+                              className={cn(
+                                "mr-1.5 h-3.5 w-3.5",
+                                vm.busy === "request" && "animate-spin",
+                              )}
+                              aria-hidden="true"
+                            />
                             Ask to refresh
                           </Button>,
                           // SharedWithMeCard already draws and clips the card
@@ -3681,25 +3679,10 @@ export function PersonRow({
       </button>
       {hasQuickActions ? (
         <div
-          className="flex w-auto items-center justify-end gap-1 [--type-compact-button-label-size:13px] [--type-compact-button-label-weight:500] sm:[--type-compact-button-label-size:15px]"
+          className="flex w-auto items-center justify-end gap-2 [--type-compact-button-label-size:13px] [--type-compact-button-label-weight:500] sm:[--type-compact-button-label-size:15px]"
           role="group"
           aria-label={`Actions for ${name}`}
         >
-          {onAsk ? (
-            <Button
-              type="button"
-              variant="link"
-              size="compact"
-              onClick={onAsk}
-              className="min-h-11 min-w-11 gap-1 bg-transparent px-1 text-[color:var(--app-accent)] sm:gap-1.5 sm:px-2"
-              aria-label={`Ask ${name} for their location`}
-            >
-              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
-                <LocationMenuGlyph name="ask" size={17} />
-              </span>
-              Ask
-            </Button>
-          ) : null}
           {onShare ? (
             <Button
               type="button"
@@ -3707,13 +3690,28 @@ export function PersonRow({
               size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className="min-h-11 min-w-11 gap-1 bg-transparent px-1 text-[color:var(--app-accent)] sm:gap-1.5 sm:px-2"
+              className={cn("h-11 min-h-11 min-w-0 gap-1 bg-[#0071E3] px-2 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-[#0071E3] sm:min-w-[104px] sm:gap-1.5 sm:px-3", LOCATION_COMPACT_ACTION_SHAPE)}
               aria-label={`Share your location with ${name}`}
             >
               <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
                 <LocationMenuGlyph name="share" size={17} />
               </span>
               Share
+            </Button>
+          ) : null}
+          {onAsk ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="compact"
+              onClick={onAsk}
+              className={cn("h-11 min-h-11 min-w-0 gap-1 bg-[#F2F2F7] px-2 font-medium text-[#1C1C1E] shadow-none [--type-compact-button-label-weight:500] hover:bg-[#F2F2F7] sm:min-w-[104px] sm:gap-1.5 sm:px-3", LOCATION_COMPACT_ACTION_SHAPE)}
+              aria-label={`Ask ${name} for their location`}
+            >
+              <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-[17px] sm:w-[17px] sm:[&_svg]:h-[17px] sm:[&_svg]:w-[17px]">
+                <LocationMenuGlyph name="ask" size={17} />
+              </span>
+              Ask
             </Button>
           ) : null}
         </div>

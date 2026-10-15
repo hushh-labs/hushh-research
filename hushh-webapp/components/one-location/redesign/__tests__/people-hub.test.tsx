@@ -230,6 +230,8 @@ describe("PeopleHub requests sent manage surface", () => {
     const group = within(peopleList).getByRole("group", {
       name: "Actions for Roopmann V",
     });
+    expect(within(group).getAllByRole("button").map((button) => button.textContent?.trim()))
+      .toEqual(["Share", "Ask"]);
     fireEvent.click(within(group).getByRole("button", {
       name: "Ask Roopmann V for their location",
     }));

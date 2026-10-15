@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/observability/client";
@@ -109,6 +109,7 @@ import {
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
 import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
+import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
@@ -591,24 +592,6 @@ export function CirclesSection({
   );
 }
 
-const CIRCLE_KIND_OPTIONS: {
-  value: OneLocationCircleKind;
-  label: string;
-}[] = [
-  {
-    value: "family",
-    label: "Family",
-  },
-  {
-    value: "friends",
-    label: "Friends",
-  },
-  {
-    value: "other",
-    label: "Other",
-  },
-];
-
 export function CreateCircleFlow({
   busy,
   onSubmit,
@@ -619,7 +602,9 @@ export function CreateCircleFlow({
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
-  const [kind, setKind] = useState<OneLocationCircleKind>("family");
+  // Keep the existing creation default for the API; Circle type is no longer
+  // a choice in this form.
+  const kind: OneLocationCircleKind = "family";
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
@@ -687,6 +672,7 @@ export function CreateCircleFlow({
           onFocus={() => setNameFocused(true)}
           onBlur={() => {
             setNameFocused(false);
+            if (nameMissing) setNameRequirementActive(true);
           }}
           onChange={(event) => {
             const next = event.target.value;
@@ -717,75 +703,6 @@ export function CreateCircleFlow({
           </span>
         ) : null}
       </label>
-
-      <div className="space-y-2">
-        <p
-          id="one-location-create-circle-kind-label"
-          className="text-[15px] font-semibold leading-5 text-foreground"
-        >
-          Circle type
-        </p>
-        <div
-          role="radiogroup"
-          aria-labelledby="one-location-create-circle-kind-label"
-          className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"
-          onKeyDown={(event) => {
-            const currentIndex = CIRCLE_KIND_OPTIONS.findIndex(
-              (option) => option.value === kind,
-            );
-            const move = (nextIndex: number) => {
-              event.preventDefault();
-              const next = CIRCLE_KIND_OPTIONS[nextIndex];
-              if (next) {
-                setKind(next.value);
-                event.currentTarget.querySelector<HTMLButtonElement>(
-                  `[data-testid="one-location-circle-kind-${next.value}"]`,
-                )?.focus();
-                if (nameMissing) setNameRequirementActive(true);
-              }
-            };
-            if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-              move((currentIndex + 1) % CIRCLE_KIND_OPTIONS.length);
-            } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-              move(
-                (currentIndex - 1 + CIRCLE_KIND_OPTIONS.length) %
-                  CIRCLE_KIND_OPTIONS.length,
-              );
-            } else if (event.key === "Home") {
-              move(0);
-            } else if (event.key === "End") {
-              move(CIRCLE_KIND_OPTIONS.length - 1);
-            }
-          }}
-        >
-          {CIRCLE_KIND_OPTIONS.map((option) => {
-            const selected = kind === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                tabIndex={selected ? 0 : -1}
-                data-testid={`one-location-circle-kind-${option.value}`}
-                onClick={() => {
-                  setKind(option.value);
-                  if (nameMissing) setNameRequirementActive(true);
-                }}
-                className={cn(
-                  "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
-                  selected
-                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-primary-label)]"
-                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
-                )}
-              >
-                {selected ? <Check className="size-4 shrink-0" aria-hidden="true" /> : null}
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
         <Button
@@ -846,11 +763,50 @@ export function JoinCircleFlow({
   const [discardPreviewConfirmOpen, setDiscardPreviewConfirmOpen] =
     useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [pasting, setPasting] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const initialAutoResolvedCodeRef = useRef<string | null>(null);
   const resolveRequestRef = useRef(0);
   const preview = resolved?.preview ?? null;
   const normalizedLength = code.replace(/-/g, "").length;
+  const codeGroups = [0, 1, 2].map((index) => code.split("-")[index] ?? "");
+
+  const updateCode = (next: string) => {
+    resolveRequestRef.current += 1;
+    setCode(next);
+    setResolved(null);
+    setError(null);
+  };
+
+  const pasteCode = (text: string) => {
+    const next = normalizeCodeInput(text);
+    if (next.replace(/-/g, "").length !== 12) {
+      resolveRequestRef.current += 1;
+      setResolved(null);
+      setError("Enter a valid 12-character Circle invite code.");
+      return;
+    }
+    updateCode(next);
+    window.requestAnimationFrame(() => codeInputRefs.current[2]?.focus());
+  };
+
+  const pasteFromClipboard = async () => {
+    const version = resolveRequestRef.current;
+    setPasting(true);
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("Clipboard unavailable");
+      const text = await navigator.clipboard.readText();
+      if (version !== resolveRequestRef.current) return;
+      pasteCode(text);
+    } catch {
+      if (version !== resolveRequestRef.current) return;
+      setError("Clipboard access is unavailable. Touch and hold a code field to paste, or type the code.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setPasting(false);
+    }
+  };
 
   const resolve = useCallback(
     async (candidateCode = code) => {
@@ -919,54 +875,86 @@ export function JoinCircleFlow({
     <div className="space-y-5" data-testid="one-location-join-circle-flow">
       <h1 className="sr-only">Join a Circle</h1>
 
-      <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
-        Enter or paste the 12-character invite code.
-      </p>
-
-      <label className="block space-y-2">
-        <span className="text-[15px] font-semibold leading-5 text-foreground">
-          Invite code
-        </span>
-        <input
-          ref={inputRef}
-          value={code}
-          onChange={(event) => {
-            resolveRequestRef.current += 1;
-            setCode(normalizeCodeInput(event.target.value));
-            setResolved(null);
-            setError(null);
-          }}
-          inputMode="text"
-          autoCapitalize="characters"
-          autoCorrect="off"
-          spellCheck={false}
-          autoComplete="off"
-          aria-label="Circle invite code"
-          aria-describedby={
-            error ? "one-location-join-circle-error" : undefined
-          }
-          aria-invalid={error ? true : undefined}
-          placeholder="ABCD-EFGH-JKLM"
-          className={cn(
-            "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-center font-mono text-[18px] font-semibold uppercase tracking-[0.12em] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
-            error && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
-          )}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && normalizedLength === 12 && !busy) {
-              event.preventDefault();
-              void resolve();
-            }
-          }}
-        />
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <p id="one-location-join-code-label" className="text-[17px] font-semibold leading-[22px] text-foreground">
+            Enter invite code
+          </p>
+        </div>
+        <fieldset
+          aria-labelledby="one-location-join-code-label"
+          disabled={busy || pasting}
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3"
+        >
+          {codeGroups.map((group, index) => (
+            <Fragment key={index}>
+              {index > 0 ? <span aria-hidden="true" className="text-[18px] text-[color:var(--app-secondary-label)]">-</span> : null}
+              <input
+                ref={(node) => {
+                  codeInputRefs.current[index] = node;
+                  if (index === 0) inputRef.current = node;
+                }}
+                value={group}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value.length > 4) {
+                    pasteCode(value);
+                    return;
+                  }
+                  const next = value.toUpperCase().replace(/[^2-9A-HJ-KM-NP-Z]/g, "");
+                  const groups = [...codeGroups];
+                  groups[index] = next;
+                  updateCode(groups.join("-"));
+                  if (next.length === 4 && index < 2) {
+                    codeInputRefs.current[index + 1]?.focus();
+                    codeInputRefs.current[index + 1]?.select();
+                  }
+                }}
+                onPaste={(event) => {
+                  const text = event.clipboardData.getData("text");
+                  if (text.length > 4) {
+                    event.preventDefault();
+                    pasteCode(text);
+                  }
+                }}
+                maxLength={4}
+                inputMode="text"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                aria-label={index === 0 ? "Circle invite code" : `Circle invite code, characters ${index * 4 + 1} to ${index * 4 + 4}`}
+                aria-describedby={error ? "one-location-join-circle-error" : undefined}
+                aria-invalid={error ? true : undefined}
+                placeholder={["ABCD", "EFGH", "KMNP"][index]}
+                className={cn(
+                  "h-14 w-full min-w-0 rounded-[12px] border border-[#D1D1D6] bg-white px-1.5 text-center font-mono text-[18px] font-semibold uppercase tracking-[0.1em] text-[#1C1C1E] outline-none transition focus:border-[#0071E3] focus:ring-2 focus:ring-[#0071E3]/20",
+                  error && "border-[#FF3B30] focus:border-[#FF3B30] focus:ring-[#FF3B30]/20",
+                )}
+                onKeyDown={(event) => {
+                  if (event.key === "Backspace" && !group && index > 0) {
+                    event.preventDefault();
+                    codeInputRefs.current[index - 1]?.focus();
+                  }
+                  if (event.key === "Enter" && normalizedLength === 12 && !busy && !pasting) {
+                    event.preventDefault();
+                    void resolve();
+                  }
+                }}
+              />
+            </Fragment>
+          ))}
+        </fieldset>
         {error ? (
           <span
             id="one-location-join-circle-error"
+            role="alert"
             className="block text-[13px] font-medium leading-[18px] text-[color:var(--app-destructive)]"
           >
             {error}
           </span>
         ) : null}
-      </label>
+      </div>
 
       {preview ? (
         <div
@@ -1013,7 +1001,7 @@ export function JoinCircleFlow({
               size="standard"
               disabled={busy}
               onClick={() => setDiscardPreviewConfirmOpen(true)}
-              className="text-[color:var(--app-accent)]"
+              className={cn("h-[52px] min-h-[52px] bg-[#F0F0F0] text-[#0088FF] hover:bg-[#E5E5EA]", LOCATION_ACTION_SHAPE)}
             >
               Use Another Code
             </Button>
@@ -1025,6 +1013,7 @@ export function JoinCircleFlow({
               onClick={() => void join()}
               isLoading={busy}
               disabled={busy}
+              className={cn("h-[52px] min-h-[52px] bg-[#0088FF] text-white hover:bg-[#0088FF]", LOCATION_ACTION_SHAPE)}
             >
               {busy
                 ? preview.alreadyMember
@@ -1037,16 +1026,29 @@ export function JoinCircleFlow({
           }
         />
       ) : (
+        <div className="space-y-3">
         <Button
           type="button"
           size="prominent"
-          disabled={normalizedLength !== 12 || busy}
+          disabled={normalizedLength !== 12 || busy || pasting}
           isLoading={busy}
           onClick={() => void resolve()}
-          className={cn("w-full", BLOCKED_CTA)}
+          className={cn("h-[52px] min-h-[52px] w-full bg-[#0088FF] text-white shadow-none hover:bg-[#0088FF]", LOCATION_ACTION_SHAPE, BLOCKED_CTA)}
         >
           {busy ? "Reviewing…" : "Review Circle"}
         </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="prominent"
+          disabled={busy || pasting}
+          isLoading={pasting}
+          onClick={() => void pasteFromClipboard()}
+          className={cn("h-[52px] min-h-[52px] w-full bg-[#F0F0F0] text-[#0088FF] shadow-none hover:bg-[#E5E5EA]", LOCATION_ACTION_SHAPE)}
+        >
+          Paste from clipboard
+        </Button>
+        </div>
       )}
 
       {/* Confirm before discarding a reviewed preview: one accidental tap on
@@ -3113,7 +3115,7 @@ export function CircleDetailFlow({
             </AlertDialog>
           ) : canLeaveCircle ? (
             <div
-              className="flex justify-end"
+              className="flex justify-center"
               data-testid="one-location-leave-circle-row"
             >
               <AlertDialog>

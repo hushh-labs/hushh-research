@@ -36,6 +36,7 @@ describe("SharedWithMeCard", () => {
       }),
     ).toHaveLength(1);
     expect(viewButton.getAttribute("aria-expanded")).toBe("false");
+    expect(viewButton.querySelectorAll("svg")).toHaveLength(2);
     const previewRegion = document.getElementById(
       viewButton.getAttribute("aria-controls") ?? "",
     );
@@ -65,6 +66,7 @@ describe("SharedWithMeCard", () => {
     const mapFrame = screen.getByTestId("shared-location-map-frame");
     const actions = screen.getByTestId("shared-location-card-actions");
     expect(hideButton.getAttribute("aria-expanded")).toBe("true");
+    expect(hideButton.querySelectorAll("svg")).toHaveLength(1);
     expect(hideButton).not.toBeDisabled();
     expect(previewRegion?.hidden).toBe(false);
     expect(

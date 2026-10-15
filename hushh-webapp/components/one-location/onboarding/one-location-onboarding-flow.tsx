@@ -481,7 +481,7 @@ function ShareLocationFeatureCard() {
     >
       <MapBackdrop tone="share" />
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)]/95 from-[25%] via-[color:var(--app-primary-surface)]/80 via-[51%] to-transparent" />
-      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
+      <div className="relative z-20 w-[56%] px-5 pt-5 md:bg-[color:var(--app-primary-surface)]" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 ui-text-eyebrow text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
           data-one-use-case-tag
@@ -739,9 +739,6 @@ function FeaturesScreen({
             <SaveMySoulFeatureCard />
           </div>
         </div>
-        <p className="ui-text-helper-text shrink-0 pt-4 text-center text-[color:var(--app-secondary-label)]">
-          Your location stays private until you share.
-        </p>
       </div>
       <div
         className="mx-auto w-full max-w-[244px] shrink-0 pt-5"
