@@ -20,6 +20,12 @@ jobs:
     if: github.repository == 'hushh-labs/hushh-research'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The production WIF provider only accepts OIDC subjects from the
+    # production environment on main. deployment: false keeps this daily
+    # read-only check out of the production deployment history.
+    environment:
+      name: production
+      deployment: false
 
     steps:
       - name: Checkout code
@@ -29,17 +35,21 @@ jobs:
         shell: bash
         env:
           WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          test -n "$WIF_PROVIDER" || { echo "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
-          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing repository variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
+          test -n "$WIF_PROVIDER" || { echo "Missing production environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing production environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Set up Python
         uses: actions/setup-python@v6

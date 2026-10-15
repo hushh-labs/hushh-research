@@ -314,9 +314,9 @@ These are not Cloud Run runtime secrets.
   missing environment configuration before dispatch. The workflow reads
   `vars.*`, so setting same-named GitHub environment secrets does not satisfy
   the contract.
-- Required as repository variables for the scheduled production backup posture
-  workflow: `GCP_WORKLOAD_IDENTITY_PROVIDER` and
-  `GCP_BACKUP_SERVICE_ACCOUNT`.
+- The scheduled production backup posture workflow runs in the `production`
+  environment with `deployment: false` and reads the same two `production`
+  environment variables; it uses no repository variables.
 - These identities use GitHub OIDC Workload Identity Federation. Do not create,
   upload, or restore a service-account JSON key for deployment or backup jobs.
 
@@ -851,8 +851,12 @@ Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the che
 
 | Variable | Scope | Used by | Notes |
 |----------|-------|---------|-------|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
-| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub `production` environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. The provider accepts only the `production` environment on `main`. |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | GitHub `production` environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Production deploy identity, reused for the read-only posture check; never the Cloud Run LLM runtime identity. |
+
+The deploy identity holds more access than this check needs, so the next
+hardening step is a dedicated read-only service account (`roles/cloudsql.viewer`
+on `hushh-pda`, bound to the production WIF pool).
 
 ### Backup posture config (Cloud SQL)
 
