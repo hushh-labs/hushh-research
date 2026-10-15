@@ -630,6 +630,47 @@ async def test_live_discovery_retires_unsupported_mime_and_source_change_requeue
     assert claimed["status"] == "fetching" and claimed["last_error_code"] is None
 
 
+async def test_live_discovery_requeues_newly_supported_parser_type_without_source_change(
+    collection, ingestion
+):
+    await seed_collection(collection)
+    with ingestion.db.engine.begin() as conn:
+        original = (
+            conn.execute(text("SELECT document_id,source_version FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        conn.execute(
+            text("""
+            UPDATE connected_documents SET status='unsupported',
+              last_error_code='unsupported_format'
+            WHERE document_id=:id
+        """),
+            {"id": original["document_id"]},
+        )
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    current = await collection.claim(user_id="owner")
+    await collection.commit_page(
+        current,
+        checkpoint={"changes_token": "same-source-new-parser"},
+        files=[source()],
+    )
+    with ingestion.db.engine.connect() as conn:
+        updated = (
+            conn.execute(
+                text("""
+            SELECT document_id,source_version,status,last_error_code
+            FROM connected_documents
+        """)
+            )
+            .mappings()
+            .one()
+        )
+        assert updated["document_id"] == original["document_id"]
+        assert updated["source_version"] == original["source_version"]
+        assert (updated["status"], updated["last_error_code"]) == ("queued", None)
+
+
 async def test_live_claim_skips_bounded_old_unsupported_queue_under_consent(collection, ingestion):
     from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
 

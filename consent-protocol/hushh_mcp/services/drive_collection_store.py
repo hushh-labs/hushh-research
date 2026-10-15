@@ -554,6 +554,7 @@ class DriveCollectionStore(DriveLivePreferences):
                 and old["source_version"] == metadata.version
                 and self.cipher.open(dict(old)) == asdict(metadata)
                 and old["last_error_code"] != "source_unavailable"
+                and not (supported and old["last_error_code"] == "unsupported_format")
             ):
                 continue
             envelope = self.cipher.seal(
