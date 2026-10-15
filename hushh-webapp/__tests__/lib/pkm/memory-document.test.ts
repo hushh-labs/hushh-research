@@ -205,6 +205,37 @@ it("shares revision-linked stated identity facts and derived age without copying
   expect(result.sourceLinks).toContainEqual(expect.objectContaining({ domain: "one_memory", path: "markdown.legal name", contentRevision: 9 }));
 });
 
+it("keeps a distinct legal name while flagging only a conflicting Soul display name", () => {
+  const soul = { markdown: "- Legal name: Ankit Kumar Singh\n- Display name: Ankit Kumar Singh\n" };
+  const params = { snapshot: snapshotOf([]),
+    domainData: { one_memory: soul },
+    sources: [{ domain: "one_memory", contentRevision: 9 }],
+    builtAt: "2026-10-15T00:00:00Z", account: { displayName: "Ankit" },
+    verifiedProfileName: "Ankit" };
+  const owner = buildMemoryDocument({ ...params, audience: "self" });
+  expect(owner.complete).toBe(false);
+  expect(owner.freshness.find(row => row.domain === "one_memory")?.status).toBe("conflicted");
+  expect(owner.markdown).toContain("Legal name (owner-authored Soul)");
+  expect(owner.markdown).toContain("Display name (owner-authored Soul; conflicted)");
+  expect(owner.markdown).toContain("Name conflict.");
+  expect(soul.markdown).toContain("Display name: Ankit Kumar Singh");
+  const agent = buildMemoryDocument({ ...params, audience: "agent" });
+  expect(agent.markdown).not.toContain("Ankit Kumar Singh");
+  expect(agent.markdown).not.toContain("Name conflict.");
+
+  const onlyLegal = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { markdown: "- Legal name: Ankit Kumar Singh\n" } } });
+  expect(onlyLegal.complete).toBe(true);
+  expect(onlyLegal.markdown).not.toContain("Name conflict.");
+  const corrected = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { markdown: "- Legal name: Ankit Kumar Singh\n- Display name: Ankit\n" } } });
+  expect(corrected.complete).toBe(true);
+  const deleted = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { ...soul, _deleted_fact_labels: ["display name"] } } });
+  expect(deleted.complete).toBe(true);
+  expect(deleted.markdown).not.toContain("Display name (owner-authored Soul; conflicted)");
+});
+
 it("shows corrections once and removes deleted identity rows without changing the source", () => {
   const identity = { identity_profile: { full_name: "Old name", sex: "old sex", date_of_birth: "1980-01-01", declared_age: 46, citizenship: "retained" } };
   const document = buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt: "2026-10-13T00:00:00Z", sources: [{ domain: "identity", contentRevision: 3 }, { domain: "one_memory", contentRevision: 9 }], domainData: { identity, one_memory: { markdown: "- Legal name: Current name\n", _deleted_fact_labels: ["sex", "date of birth"] } } });

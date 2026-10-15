@@ -20,6 +20,68 @@ export interface LivingSourceInventory {
   /** Last complete read per bounded source. A skipped scan retains its prior time. */
   verifiedAt?: Record<string, string>;
 }
+
+/** An owner-only history of source revisions actually verified by this vault.
+ * It cannot reconstruct an intermediate value while no unlocked consumer ran.
+ * Keep the retention boundary explicit instead of silently claiming a full log. */
+export interface LivingSourceChange {
+  sequence: number;
+  kind: LivingSourceInput["kind"];
+  id: string;
+  revision: number;
+  operation: "upsert" | "delete";
+  capturedAt: string;
+  sourceUpdatedAt: string | null;
+  value: Record<string, unknown>;
+}
+
+export interface LivingSourceHistory {
+  changes: LivingSourceChange[];
+  nextSequence: number;
+  firstRetainedSequence: number;
+  truncatedAt: string | null;
+}
+
+export const MAX_RETAINED_LIVING_SOURCE_CHANGES = 2_048;
+
+/** Append only changed, verified revisions. Incomplete source scans retain
+ * their old records and therefore cannot manufacture a deletion here. */
+export function appendVerifiedLivingSourceChanges(
+  previousHistory: LivingSourceHistory | null,
+  previousInventory: LivingSourceInventory | null,
+  inventory: LivingSourceInventory,
+): LivingSourceHistory {
+  const previousRecords = new Map(
+    (previousInventory?.records ?? []).map((record) =>
+      [`${record.kind}:${record.id}`, record] as const),
+  );
+  const changes = [...(previousHistory?.changes ?? [])];
+  let nextSequence = previousHistory?.nextSequence ?? 1;
+  for (const record of inventory.records) {
+    const old = previousRecords.get(`${record.kind}:${record.id}`);
+    if (old && old.revision === record.revision) continue;
+    if (old && record.revision <= old.revision)
+      throw new Error("Living source revision went backwards");
+    changes.push({
+      sequence: nextSequence++,
+      kind: record.kind,
+      id: record.id,
+      revision: record.revision,
+      operation: record.deletedAt ? "delete" : "upsert",
+      capturedAt: record.capturedAt,
+      sourceUpdatedAt: record.updatedAt,
+      value: record.deletedAt ? {} : record.value,
+    });
+  }
+  const overflow = Math.max(0, changes.length - MAX_RETAINED_LIVING_SOURCE_CHANGES);
+  if (overflow) changes.splice(0, overflow);
+  return {
+    changes,
+    nextSequence,
+    firstRetainedSequence: changes[0]?.sequence ?? nextSequence,
+    truncatedAt: overflow ? inventory.observedAt : previousHistory?.truncatedAt ?? null,
+  };
+}
 export const DOCUMENT_EARNINGS_FRESHNESS_MS = 5 * 60_000;
 export const PAYOUT_ACTIVITY_FRESHNESS_MS = 5 * 60_000;
 export const DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS = 5 * 60_000;

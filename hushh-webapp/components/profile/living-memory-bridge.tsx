@@ -7,7 +7,6 @@ import {
   isVaultSessionEpochCurrent,
 } from "@/lib/vault/session-epoch";
 import { AuthService } from "@/lib/services/auth-service";
-import { SourceJournalService } from "@/lib/services/source-journal-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -53,7 +52,6 @@ export function LivingMemoryBridge() {
     let scannedRequestPaymentVersion = 0;
     let connectorHintVersion = 0;
     let scannedConnectorVersion = 0;
-    let connectorJournalCursor = "0";
     const stopWatch = watchMemoryFreshness(userId);
     const build = async () => {
       if (stopped || !isVaultSessionEpochCurrent(epoch)) return;
@@ -72,22 +70,6 @@ export function LivingMemoryBridge() {
             sourceDirty = false;
             const idToken = await AuthService.getIdToken();
             if (!idToken) throw new Error("Source authorization unavailable");
-            // Journal hints are committed in source order. Capture the head
-            // before the authoritative overview scan, then checkpoint it only
-            // after the encrypted source projection was stored successfully.
-            // A missed/expired hint forces a full overview instead of guessing
-            // at facts from journal metadata.
-            let journalHead: string | null = null;
-            try {
-              const journal = await SourceJournalService.connectorHead(
-                vaultOwnerToken, connectorJournalCursor,
-              );
-              journalHead = journal.headCursor;
-              if (journal.changed) connectorHintVersion++;
-            } catch {
-              // Verification scans remain available when journal replay is
-              // temporarily unavailable; the next wake retries this cursor.
-            }
             const connectionVersion = connectionHintVersion;
             const payoutVersion = payoutHintVersion;
             const activityVersion = activityHintVersion;
@@ -113,7 +95,6 @@ export function LivingMemoryBridge() {
               scannedConsentVersion = consentVersion;
               scannedRequestPaymentVersion = requestPaymentVersion;
               scannedConnectorVersion = connectorVersion;
-              if (journalHead !== null) connectorJournalCursor = journalHead;
             }
           }
           if (stopped || !isVaultSessionEpochCurrent(epoch)) break;

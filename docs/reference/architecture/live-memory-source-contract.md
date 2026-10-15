@@ -22,11 +22,21 @@ The signal wakes a read; only the verified source snapshot can change the
 encrypted inventory. The gate checks registered kinds and writer sites before
 the change can enter the release pipeline.
 
+Each verified change to an admitted inventory record also enters
+`one_living_sources._private.observed_history` in the same encrypted write.
+This owner-only history retains at most 2,048 observed revisions and records
+`firstRetainedSequence` and `truncatedAt` when it rolls over. The server
+journals contain kind-only hints, never source values. The observed history
+cannot reconstruct intermediate values that changed while every owner client
+was closed; it must not be sold as a complete account activity export.
+
 ## Adding a durable source
 
 Every feature PR records its Live Memory impact and a concrete evidence line in
 the PR template. The governance job rejects a PR body without exactly one
-checked impact choice and nonblank evidence. If the
+checked impact choice. For covered sources it requires an admitted `kind`, a
+post-commit `signal`, and an existing focused `test` path; exclusions require a
+concrete reason. If the
 feature changes durable owner data, the author identifies an existing admitted
 source or adds a declaration here. The CI gate below rejects undeclared source
 kinds and new owner projection writer paths. Reviewers check the declared

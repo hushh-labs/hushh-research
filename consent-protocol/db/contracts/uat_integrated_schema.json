@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 344,
+  "expected_migration_version": 345,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -84,7 +84,10 @@
     "pwm_completion_feed_projection",
     "append_live_memory_connector_event",
     "erase_live_memory_connector_journal_on_root_delete",
-    "erase_hosted_source_envelope_on_grant_change"
+    "erase_hosted_source_envelope_on_grant_change",
+    "append_live_memory_source_hint",
+    "capture_live_memory_source_hint",
+    "erase_live_memory_source_journal_on_root_delete"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1781,6 +1784,21 @@
       "owner_ciphertext_sha256",
       "owner_aad_sha256",
       "created_at",
+      "updated_at"
+    ],
+    "live_memory_source_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_kind",
+      "operation",
+      "schema_version",
+      "occurred_at"
+    ],
+    "live_memory_source_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
       "updated_at"
     ],
     "marketplace_investor_actions": [

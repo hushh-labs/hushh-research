@@ -90,7 +90,7 @@ def parse_contract(markdown: str) -> list[dict]:
     return sources
 
 
-def validate_pr_impact(body: str) -> None:
+def validate_pr_impact(body: str, admitted_kinds: set[str] | None = None) -> None:
     if PR_IMPACT_START not in body or PR_IMPACT_END not in body:
         raise ValueError("PR body needs the Live Memory source impact section")
     section = body.split(PR_IMPACT_START, 1)[1].split(PR_IMPACT_END, 1)[0]
@@ -105,9 +105,30 @@ def validate_pr_impact(body: str) -> None:
     )
     if not evidence:
         raise ValueError("PR body needs concrete Live Memory impact evidence")
+    detail = evidence.group(1).strip()
+    choice = choices[0]
+    if choice.startswith(("Existing admitted source", "New source")):
+        # A checked box and "N/A" used to pass. Require an actual source,
+        # commit signal and focused test so CI can reject an empty feature
+        # handoff before a reviewer has to infer coverage from prose.
+        kind = re.search(r"(?:^|;)\s*kind:\s*([a-z][a-z0-9_]*)\s*(?:;|$)", detail)
+        signal = re.search(r"(?:^|;)\s*signal:\s*([^;]+)", detail)
+        test = re.search(
+            r"(?:^|;)\s*test:\s*([^;\s]+(?:\.test\.(?:ts|tsx)|/test_[^/;\s]+\.py))\s*(?:;|$)",
+            detail,
+        )
+        if not kind or not signal or not signal.group(1).strip() or not test:
+            raise ValueError("Live Memory coverage needs kind, post-commit signal, and focused test")
+        if admitted_kinds is not None and kind.group(1) not in admitted_kinds:
+            raise ValueError(f"Live Memory source kind is not admitted: {kind.group(1)}")
+        test_path = Path(test.group(1))
+        if test_path.is_absolute() or ".." in test_path.parts or not (ROOT / test_path).is_file():
+            raise ValueError("Live Memory focused test path is unavailable")
+    elif len(detail) < 30 or detail.lower() in {"n/a", "none", "not applicable"}:
+        raise ValueError("Live Memory exclusion or no-impact reason must be concrete")
 
 
-def validate_pr_event() -> None:
+def validate_pr_event(admitted_kinds: set[str]) -> None:
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
         return
     event_path = os.environ.get("GITHUB_EVENT_PATH")
@@ -117,7 +138,7 @@ def validate_pr_event() -> None:
     body = event.get("pull_request", {}).get("body")
     if not isinstance(body, str):
         raise ValueError("pull_request body is unavailable")
-    validate_pr_impact(body)
+    validate_pr_impact(body, admitted_kinds)
 
 
 def registered_kinds(records_code: str, sync_code: str) -> tuple[set[str], set[str]]:
@@ -270,18 +291,31 @@ def self_test(root: Path, sources: list[dict], records_code: str, sync_code: str
     validate_writer_call_sites(code)
     valid_pr = "\n".join((PR_IMPACT_START,
         "  - [x] Existing admitted source covers the data; kind, change signal, and focused test listed below",
-        "  - Live Memory evidence (source kind and test, or no-impact reason): profile; identity change; profile sync test",
+        "  - Live Memory evidence (source kind and test, or no-impact reason): kind: profile; signal: committed identity change; test: hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
         PR_IMPACT_END))
-    validate_pr_impact(valid_pr)
+    validate_pr_impact(valid_pr, {source["kind"] for source in sources})
     for invalid in (valid_pr.replace("[x]", "[ ]"),
-                    valid_pr.replace("profile; identity change; profile sync test", ""),
+                    valid_pr.replace("kind: profile; signal: committed identity change; test: hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts", "N/A"),
+                    valid_pr.replace("kind: profile", "kind: undeclared"),
+                    valid_pr.replace("living-source-sync.test.ts", "missing-source.test.ts"),
                     valid_pr.replace(PR_IMPACT_START, "")):
         try:
-            validate_pr_impact(invalid)
+            validate_pr_impact(invalid, {source["kind"] for source in sources})
         except ValueError:
             pass
         else:
             raise AssertionError("incomplete PR Live Memory impact passed")
+    no_impact = "\n".join((PR_IMPACT_START,
+        "  - [x] No durable owner data is created, changed, or deleted; reason listed below",
+        "  - Live Memory evidence (source kind and test, or no-impact reason): This PR only changes static copy and has no owner data writes.",
+        PR_IMPACT_END))
+    validate_pr_impact(no_impact, {source["kind"] for source in sources})
+    try:
+        validate_pr_impact(no_impact.replace("This PR only changes static copy and has no owner data writes.", "N/A"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("empty no-impact reason passed")
     absent = [dict(source) for source in sources[:-1]]
     try:
         validate(root, absent, records_code, sync_code)
@@ -366,7 +400,7 @@ def main() -> None:
     else:
         validate(ROOT, sources, records_code, sync_code)
         validate_writer_call_sites(code)
-        validate_pr_event()
+        validate_pr_event({source["kind"] for source in sources})
         print(f"Live Memory source gate passed ({len(sources)} registered source kinds)")
 
 

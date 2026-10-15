@@ -309,7 +309,8 @@
     "341_pwm_research_lifecycle.sql",
     "342_live_memory_connector_journal.sql",
     "343_hosted_memory_pilot_review.sql",
-    "344_hosted_memory_scoped_source_envelope.sql"
+    "344_hosted_memory_scoped_source_envelope.sql",
+    "345_live_memory_source_journal.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -656,6 +657,7 @@
     "341_pwm_research_lifecycle.sql": "rollback/341_pwm_research_lifecycle.rollback.sql",
     "342_live_memory_connector_journal.sql": "rollback/342_live_memory_connector_journal.rollback.sql",
     "343_hosted_memory_pilot_review.sql": "rollback/343_hosted_memory_pilot_review.rollback.sql",
-    "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql"
+    "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql",
+    "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql"
   }
 }

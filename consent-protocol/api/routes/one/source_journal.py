@@ -1,4 +1,4 @@
-"""Private committed connector change hints for unlocked owner clients."""
+"""Private committed source change hints for unlocked owner clients."""
 
 from __future__ import annotations
 
@@ -78,6 +78,31 @@ async def get_connector_events(
     except Exception as exc:
         logger.error("source_journal.unexpected type=%s", type(exc).__name__)
         raise _error(503, "JOURNAL_UNAVAILABLE", "Connector changes are unavailable.") from None
+
+
+@router.get("/events")
+async def get_source_events(
+    after: str = "0",
+    limit: str = "100",
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    if not _CURSOR.fullmatch(after) or int(after) > 2**63 - 1:
+        raise _error(422, "INVALID_JOURNAL_CURSOR", "Reload source information.")
+    if not _LIMIT.fullmatch(limit) or int(limit) > MAX_PAGE_SIZE:
+        raise _error(422, "INVALID_JOURNAL_QUERY", "Check the replay page size.")
+    try:
+        return cast(
+            dict[str, Any],
+            await SourceJournalService().events(
+                user_id=token_data["user_id"], after=int(after), limit=int(limit)
+            ),
+        )
+    except (SourceJournalUnavailable, ValueError) as exc:
+        logger.warning("source_journal.unavailable type=%s", type(exc).__name__)
+        raise _error(503, "JOURNAL_UNAVAILABLE", "Source changes are unavailable.") from None
+    except Exception as exc:
+        logger.error("source_journal.unexpected type=%s", type(exc).__name__)
+        raise _error(503, "JOURNAL_UNAVAILABLE", "Source changes are unavailable.") from None
 
 
 __all__ = ["router"]

@@ -42,7 +42,8 @@
     "drive_packet_versions",
     "drive_packet_version_sources",
     "drive_packet_listings",
-    "calendar_attendance_reviews"
+    "calendar_attendance_reviews",
+    "live_memory_source_events"
   ],
   "retention_registry": [
     {
@@ -1823,6 +1824,22 @@
       "retention_policy": "At most 2048 committed events per owner, pruned in the append transaction. The retained floor and head survive pruning so older cursors receive resetRequired and require an authoritative snapshot. There is no time-based purge while the owner remains active.",
       "deletion_behavior": "Account reset erases owner event rows and upserts the retained hash/sequence watermark, even without prior journal state, so every older cursor requires a new authoritative snapshot without sequence reuse. Full erasure deletes both journal tables for the owner after connector cleanup in the same transaction. Root-delete triggers cover rolling older runtimes, and full-erasure tombstones suppress later source append. Ordinary connector-row deletion appends a deleted hint.",
       "trust_boundary": "Only one-way SHA-256 owner commitment, operator connector ID, event UUID, commit-ordered sequence, changed/deleted operation, schema version, and time. No raw UID, credentials, OAuth tokens, scopes, account labels, provider payloads, PKM values or vault key. Owner token authorizes replay; hints do not grant sharing or establish source values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_2048_events_plus_one_stream_row_per_owner"
+    },
+    {
+      "id": "live_memory_source_journal",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_source_streams",
+        "live_memory_source_events"
+      ],
+      "primary_access_path": "Transactional triggers on selected profile, consent, connection, document-payment and owner-earning source tables; owner-token GET /api/one/source-journal/events returns metadata hints and requires verified authoritative snapshots.",
+      "retention_policy": "At most 2048 committed events per owner. The retained floor and head remain after pruning to signal resetRequired. No time-based purge while the owner remains active.",
+      "deletion_behavior": "Account reset deletes events and advances the surviving cursor watermark; full account erasure deletes the stream. Root-delete triggers and deletion tombstones prevent resurrection.",
+      "trust_boundary": "Only a one-way owner commitment, source kind, operation, event UUID, sequence, version and time are stored. No source values, row IDs, counterpart identity, payment IDs, documents, location, credentials or vault keys. Hints grant no access.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "bounded_2048_events_plus_one_stream_row_per_owner"
     },

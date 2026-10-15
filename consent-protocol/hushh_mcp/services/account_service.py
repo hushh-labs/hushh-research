@@ -1478,6 +1478,40 @@ class AccountService:
         results["external_connectors"] = True
         results["drive_private_data"] = True
 
+    @staticmethod
+    def _clear_live_memory_source_journal(conn, user_id, results, *, permanent):
+        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_events') IS NOT NULL")
+        ).scalar():
+            conn.execute(
+                text("DELETE FROM public.live_memory_source_events WHERE owner_hash=:owner_hash"),
+                {"owner_hash": owner_hash},
+            )
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_streams') IS NOT NULL")
+        ).scalar():
+            if permanent:
+                conn.execute(
+                    text(
+                        "DELETE FROM public.live_memory_source_streams WHERE owner_hash=:owner_hash"
+                    ),
+                    {"owner_hash": owner_hash},
+                )
+            else:
+                # Keep a monotonic watermark so a pre-reset cursor must rebuild.
+                conn.execute(
+                    text("""INSERT INTO public.live_memory_source_streams
+                            (owner_hash,last_sequence,first_retained_sequence)
+                            VALUES (:owner_hash,1,2)
+                            ON CONFLICT (owner_hash) DO UPDATE SET
+                              last_sequence=live_memory_source_streams.last_sequence+1,
+                              first_retained_sequence=live_memory_source_streams.last_sequence+2,
+                              updated_at=clock_timestamp()"""),
+                    {"owner_hash": owner_hash},
+                )
+        results["live_memory_source_journal"] = True
+
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.
 
@@ -1833,6 +1867,7 @@ class AccountService:
                     },
                 )
                 results["onboarding_reset"] = True
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 
             logger.info("✅ ACCOUNT RESET completed for %s", user_id)
             return {
@@ -2040,6 +2075,7 @@ class AccountService:
                         table_exists=lambda table_name: self._table_exists(conn, table_name),
                     )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[

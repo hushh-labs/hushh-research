@@ -72,3 +72,44 @@ def test_connector_journal_route_uses_authenticated_owner_and_private_errors(mon
     assert response.status_code == 401
     assert response.headers["cache-control"] == "private, no-store"
     assert captured == [("owner-1", 12, 7)]
+
+
+def test_source_journal_route_uses_owner_and_never_leaks_errors(monkeypatch):
+    captured: list[tuple[str, int, int]] = []
+
+    class FakeJournal:
+        async def events(self, *, user_id: str, after: int, limit: int):
+            captured.append((user_id, after, limit))
+            return {
+                "events": [{"sequence": "8", "sourceKind": "profile", "operation": "changed"}],
+                "nextCursor": "8",
+                "headCursor": "8",
+                "earliestCursor": "0",
+                "resetRequired": False,
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr(source_journal, "SourceJournalService", FakeJournal)
+    app = FastAPI()
+    app.include_router(source_journal.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner-1"}
+    client = TestClient(app)
+    response = client.get("/api/one/source-journal/events?after=7&limit=5")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["events"][0]["sourceKind"] == "profile"
+    assert captured == [("owner-1", 7, 5)]
+    for query in ("after=-1", "after=9223372036854775808", "limit=101"):
+        response = client.get(f"/api/one/source-journal/events?{query}")
+        assert response.status_code == 422
+        assert response.headers["cache-control"] == "private, no-store"
+    assert captured == [("owner-1", 7, 5)]
+
+    class UnavailableJournal:
+        async def events(self, *, user_id: str, after: int, limit: int):
+            raise SourceJournalUnavailable("private diagnostics")
+
+    monkeypatch.setattr(source_journal, "SourceJournalService", UnavailableJournal)
+    response = client.get("/api/one/source-journal/events")
+    assert response.status_code == 503
+    assert "private diagnostics" not in response.text

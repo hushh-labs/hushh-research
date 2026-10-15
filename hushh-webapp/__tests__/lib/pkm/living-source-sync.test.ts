@@ -8,6 +8,8 @@ const m = vi.hoisted(() => ({
   earnings: vi.fn(),
   activity: vi.fn(),
   paymentSnapshot: vi.fn(),
+  connectorHead: vi.fn(),
+  sourceChanges: vi.fn(),
   save: vi.fn(),
   epoch: 0,
 }));
@@ -35,6 +37,14 @@ vi.mock("@/lib/services/document-request-payment-source-service", () => ({
 }));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain: m.save },
+}));
+vi.mock("@/lib/services/source-journal-service", () => ({
+  SOURCE_JOURNAL_KINDS: ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"],
+  isSourceJournalCursor: (value: unknown) => typeof value === "string" && /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n,
+  SourceJournalService: {
+    connectorHead: m.connectorHead,
+    sourceChanges: m.sourceChanges,
+  },
 }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
@@ -157,6 +167,8 @@ beforeEach(() => {
     earningsPage(mode));
   m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
   m.paymentSnapshot.mockResolvedValue([]);
+  m.connectorHead.mockResolvedValue({ headCursor: "0", changed: false, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({ headCursor: "0", changedKinds: [], resetRequired: false });
   m.save.mockImplementation(async (p) => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
@@ -164,6 +176,82 @@ beforeEach(() => {
     stored = plan.domainData;
     return { success: true };
   });
+});
+
+it("commits source and connector cursors with a verified encrypted inventory", async () => {
+  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: true, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "7", changedKinds: ["consent", "document_request_payment"],
+    resetRequired: false,
+  });
+  await syncLivingSources(params);
+  expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
+    connectors: "4", events: "7",
+  });
+  expect(m.connectors).toHaveBeenCalledTimes(2);
+  expect(m.list).toHaveBeenCalled();
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+  expect(m.sourceChanges).toHaveBeenCalledWith(params.vaultOwnerToken, "0");
+
+  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: false, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({ headCursor: "7", changedKinds: [], resetRequired: false });
+  await syncLivingSources(params);
+  expect(m.connectorHead).toHaveBeenLastCalledWith(params.vaultOwnerToken, "4");
+  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "7");
+});
+
+it("replays an uncommitted hint after incomplete source verification", async () => {
+  await syncLivingSources(params);
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "8", changedKinds: ["consent"], resetRequired: false,
+  });
+  m.list.mockRejectedValueOnce(new Error("source unavailable"));
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
+    .toBe("0");
+  m.list.mockResolvedValue({ source_read_verified: true, user_id: OWNER, items: [], has_more: false });
+  await syncLivingSources(params);
+  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "0");
+  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
+    .toBe("8");
+});
+
+it("rebuilds sources on reset and can checkpoint a reset stream below its old cursor", async () => {
+  await syncLivingSources(params);
+  (stored._private as Record<string, unknown>).journal_cursors = {
+    connectors: "12", events: "12",
+  };
+  m.connectorHead.mockResolvedValue({ headCursor: "3", changed: true, resetRequired: true });
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "3",
+    changedKinds: ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"],
+    resetRequired: true,
+  });
+  m.list.mockClear();
+  m.paymentSnapshot.mockClear();
+  await syncLivingSources(params);
+  expect(m.list).toHaveBeenCalled();
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+  expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
+    connectors: "3", events: "3",
+  });
+});
+it("stores each verified profile correction in the encrypted owner history", async () => {
+  m.identity.mockResolvedValue(profile("Ankit Kumar Singh"));
+  await syncLivingSources(params);
+  m.identity.mockResolvedValue(profile("Ankit"));
+  await syncLivingSources(params);
+  await syncLivingSources(params);
+  const privateData = stored._private as {
+    observed_history: { changes: Array<{ kind: string; operation: string; value: Record<string, unknown> }> };
+  };
+  expect(privateData.observed_history.changes
+    .filter(change => change.kind === "profile")
+    .map(change => ({ operation: change.operation, name: change.value.name })))
+    .toEqual([
+      { operation: "upsert", name: "Ankit Kumar Singh" },
+      { operation: "upsert", name: "Ankit" },
+    ]);
 });
 it("projects requester document payment status and refund without provider or document details", async () => {
   m.paymentSnapshot.mockResolvedValue([{ ...requesterPayment(),
