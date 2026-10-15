@@ -9331,6 +9331,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </div>
                 ) : widget.kind === "add" ? (
                   <SecureCardAddForm
+                    artworkEnabled={false}
                     getNetworkContext={() => {
                       const token = getVaultOwnerToken();
                       return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;

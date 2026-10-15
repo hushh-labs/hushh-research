@@ -59,7 +59,7 @@ export type SecretItemSummary = {
 
 export type SaveSecretCapturesResult =
   | { ok: true; resolved: ReadonlyMap<string, ResolvedSecret> }
-  | { ok: false; reason: "locked" | "failed"; message: string };
+  | { ok: false; reason: "locked" | "failed" | "not_persistable"; message: string };
 
 /** A reveal or change was asked for without an unlocked vault. Nothing was read. */
 export class SecretsLockedError extends Error {
@@ -77,7 +77,7 @@ function itemsOf(domainData: unknown): Record<string, Record<string, unknown>> {
   const items = isRecord(domainData) && isRecord(domainData.items) ? domainData.items : {};
   return Object.fromEntries(
     Object.entries(items).filter((entry): entry is [string, Record<string, unknown>] =>
-      SECRET_ID.test(entry[0]) && isRecord(entry[1])),
+      SECRET_ID.test(entry[0]) && isRecord(entry[1]) && entry[1].kind !== "card_security_code"),
   );
 }
 
@@ -240,6 +240,7 @@ export class SecretsVaultService {
     captures: readonly SecretCapture[];
     surface: PkmUserConfirmation["surface"];
   }): Promise<SaveSecretCapturesResult> {
+    if (params.captures.some(capture => capture.kind === "card_security_code")) return { ok: false, reason: "not_persistable", message: "Card security codes cannot be saved." };
     if (params.captures.length === 0) return { ok: true, resolved: new Map() };
     let context: ReturnType<typeof requireUnlocked>;
     try {

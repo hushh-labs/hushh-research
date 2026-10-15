@@ -1,4 +1,5 @@
 "use client";
+import { isPrivateWalletArtworkBranch } from "@/lib/pkm/reserved-branches";
 
 import { SUPERSEDED_KEY } from "@/lib/pkm/pkm-supersede-merge";
 import {
@@ -343,6 +344,7 @@ function flattenCards(params: {
   visits?: { count: number };
 }): PkmMemoryCard[] {
   const pathSegments = params.pathSegments || [];
+  if (isPrivateWalletArtworkBranch(params.domain, pathSegments.map(String).join("."))) return params.cards || [];
   const cards = params.cards || [];
   const visits = params.visits || { count: 0 };
   visits.count += 1;

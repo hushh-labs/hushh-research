@@ -154,6 +154,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // for the same reason. Gated on the upstream content type, so every JSON
     // route on this proxy keeps the exact behaviour it had.
     const responseContentType = response.headers.get("content-type");
+    if (request.method === "GET" && /^wallet\/card-access\/artwork\/assets\/[a-f0-9]{64}$/.test(path) && response.ok) {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(responseContentType || "")) return new Response(null, { status: 502, headers: privateResponseHeaders(response) });
+      const artworkHeaders = privateResponseHeaders(response);
+      artworkHeaders.set("Content-Type", responseContentType!);
+      artworkHeaders.set("X-Content-Type-Options", "nosniff");
+      artworkHeaders.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, headers: artworkHeaders });
+    }
     if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
       const headers = privateResponseHeaders(response);
       headers.set("Content-Type", responseContentType || "application/octet-stream");
