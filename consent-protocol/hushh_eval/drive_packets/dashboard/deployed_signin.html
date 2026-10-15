@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<title>Sign in to UAT</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/deployed.css">
+<script type="module" src="/static/deployed-signin.js"></script>
+</head>
+<body class="dpl-signin">
+<main class="dpl-signin-wrap">
+  <h1 class="dpl-signin-title">Sign in to UAT</h1>
+  <p class="dpl-hint">Use your test buyer account. This window keeps your sign-in fresh for the dashboard. Keep it open while you test; you can minimize it.</p>
+  <p class="dpl-flag dpl-flag-warn" id="signin-host" hidden></p>
+  <p class="dpl-signin-status" id="signin-status" role="status" aria-live="polite">Loading…</p>
+  <div class="dpl-actions">
+    <button type="button" class="dpl-btn dpl-btn-primary" id="signin-google" disabled>Continue with Google</button>
+    <button type="button" class="dpl-btn" id="signin-out" hidden>Sign out</button>
+  </div>
+  <p class="dpl-error" id="signin-error" role="alert" hidden></p>
+  <p class="dpl-fine">Your sign-in stays in this window's memory only. Closing the window signs the dashboard out.</p>
+</main>
+</body>
+</html>
