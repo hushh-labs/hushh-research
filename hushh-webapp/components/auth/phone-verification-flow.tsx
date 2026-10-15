@@ -58,7 +58,7 @@ import {
   kaiAppHelperClassName,
 } from "@/components/kai/shared/kai-typography";
 import { FigmaCountryFlag } from "@/components/onboarding/FigmaOnboardingPrimitives";
-import { CountryPicker } from "@/components/auth/country-picker";
+import { CountryPicker, InlineCountryPickerPanel } from "@/components/auth/country-picker";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -102,6 +102,7 @@ type PhoneVerificationFlowProps = {
   phonePresentation?: "default" | "compact";
   style?: CSSProperties;
   onStepChange?: (step: VerificationStep) => void;
+  onBackStepChange?: (handler: (() => boolean) | null) => void;
 };
 
 type VerificationStep = "phone" | "code" | "linked";
@@ -362,6 +363,7 @@ export function PhoneVerificationFlow({
   phonePresentation = "default",
   style,
   onStepChange,
+  onBackStepChange,
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_VALUE);
@@ -446,6 +448,19 @@ export function PhoneVerificationFlow({
   useEffect(() => {
     onStepChange?.(step);
   }, [onStepChange, step]);
+
+  const returnToPhoneNumber = useCallback(() => {
+    if (phoneFlowInFlightRef.current) return true;
+    setVerificationCode("");
+    setCodeError(null);
+    setStep("phone");
+    return true;
+  }, []);
+
+  useEffect(() => {
+    onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
+    return () => onBackStepChange?.(null);
+  }, [onBackStepChange, returnToPhoneNumber, step]);
 
   const maskedPhone = useMemo(
     // Same read-back as the Account row that opens this flow, so the number
@@ -1080,6 +1095,7 @@ export function PhoneVerificationFlow({
               </FieldLabel>
               {phonePresentation === "compact" ? (
                 <CountryPicker
+                  inline
                   open={countryComboboxOpen}
                   onOpenChange={(open) => {
                     setCountryComboboxOpen(open);
@@ -1237,6 +1253,17 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
+          {phonePresentation === "compact" && countryComboboxOpen ? (
+            <InlineCountryPickerPanel
+              query={countryQuery}
+              onQueryChange={setCountryQuery}
+              options={filteredCountryOptions}
+              selected={selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION}
+              onSelect={handleCountrySelection}
+              onClose={() => setCountryComboboxOpen(false)}
+            />
+          ) : null}
+
           <FieldDescription
             className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]"
             data-figma-phone-helper="true"
@@ -1253,7 +1280,7 @@ export function PhoneVerificationFlow({
               effect="fill"
               size={phonePresentation === "compact" ? "prominent" : "default"}
               fullWidth
-              className={phonePresentation === "compact" ? undefined : cn(
+              className={phonePresentation === "compact" ? primaryActionClassName : cn(
                 "type-headline",
                 FLOW_CTA_CLASS_NAME,
                 primaryActionClassName,
@@ -1286,7 +1313,7 @@ export function PhoneVerificationFlow({
             className="text-center text-sm leading-6 text-muted-foreground"
             data-figma-otp-intro="true"
           >
-            {codePresentation === "onboarding" ? "To confirm your account, enter the 6-digit code we sent to " : "Enter the code sent to "}
+            Enter the code sent to{" "}
             <span className="whitespace-nowrap font-semibold text-foreground">
               {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
@@ -1301,13 +1328,14 @@ export function PhoneVerificationFlow({
           <Field className="gap-2" data-figma-otp-field="true" data-invalid={Boolean(codeError)}>
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
             <div className="relative">
-              <div className="flex gap-2">
+              <div className="flex gap-2" data-otp-cells="true">
                 {Array.from({ length: 6 }).map((_, index) => {
                   const active = index === Math.min(verificationCode.length, 5);
                   const filled = index < verificationCode.length;
                   return (
                     <div
                       key={index}
+                      data-current={active}
                       className={cn(
                         "flex h-[60px] flex-1 items-center justify-center rounded-[var(--app-radius-lg)] border text-[22px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
                         active
@@ -1330,6 +1358,10 @@ export function PhoneVerificationFlow({
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={6}
                 aria-label="One-time code"
                 aria-invalid={Boolean(codeError)}
                 aria-describedby={codeError ? "phone-flow-code-error" : undefined}
@@ -1362,8 +1394,8 @@ export function PhoneVerificationFlow({
             variant={codePresentation === "onboarding" ? "blue" : "none"}
             effect="fill"
             size={codePresentation === "onboarding" ? "prominent" : "default"}
-            fullWidth
-            className={codePresentation === "onboarding" ? undefined : cn(
+              fullWidth
+            className={codePresentation === "onboarding" ? cn(primaryActionClassName, "disabled:!opacity-100") : cn(
               "type-headline",
               FLOW_CTA_CLASS_NAME,
               primaryActionClassName,
@@ -1392,7 +1424,7 @@ export function PhoneVerificationFlow({
             </>}
             <button
               type="button"
-              onClick={() => setStep("phone")}
+              onClick={returnToPhoneNumber}
               disabled={busy}
               className="font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             >
