@@ -279,6 +279,14 @@ inventory overflow remain explicit unconfirmed outcomes. Keep tokens in memory;
 retain only bounded counts and hashed grant receipts. These source checks do not
 establish live provider revocation or complete cloud-resource deletion.
 
+The authenticated full-cleanup route requires confirmed revocation before key
+destruction. An outage leaves encrypted credentials behind the same closed fence
+for retry. Tombstone version 4 identifies historical-credential coverage; older
+tombstones remain readable but report provider coverage as unavailable. Never
+mint a new key or convert a legacy zero counter into a cleanup success. If an old
+operation already destroyed its credential key, external provider recovery needs
+separate evidence. Internal local-only erasure is not full-account completion.
+
 ### Azure Files activation on an existing pod
 
 Use the existing Files setup offer and exact release approval. Azure capability

@@ -270,6 +270,7 @@ async def crypto_erase_pod(
                 os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT
             ).strip(),
             open_fenced_log=lambda: _fenced_log(body),
+            require_provider_revocation=True,
         )
     except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
         logger.warning("pod_migration.crypto_erase_incomplete")
