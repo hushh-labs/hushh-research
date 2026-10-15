@@ -76,7 +76,8 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-scheduled hourly at minute 17 UTC, independently of deployment events. Maintenance
+scheduled hourly at minute 17 UTC. Completed, governed UAT deploys also wake a
+UAT-only inspection; production remains hourly or manually requested. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
@@ -89,9 +90,11 @@ healthy UAT release's frontend after verifying both against live revision
 provenance. A UAT run that passed every release gate and failed solely while
 retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
-Maintenance runs hourly at minute 17 UTC or by explicit governed manual request;
-no deployment event starts it. Scheduled requests coalesce without cancelling active
-work, and manual requests keep independent identities. Each mutation pass verifies
+Maintenance runs hourly at minute 17 UTC, after completed governed UAT deploys,
+or by explicit governed manual request. A failed UAT deploy, including a capacity
+deferral, only wakes inspection; it does not authorize deletion. Scheduled requests
+coalesce without cancelling active work; UAT wakes and manual requests keep
+independent identities. Each mutation pass verifies
 its source against live traffic, removes unused tags, and saves drain evidence in
 `uat-retention-state` or `production-retention-state`. A later hourly pass deletes
 only eligible revisions after the maximum request timeout plus 60 seconds. A backend
@@ -124,8 +127,10 @@ authentication and query errors, and malformed reports fail immediately. Once
 admitted, the deployment rechecks the exact SHA,
 actor, scope, and connection budget under the mutation lock before any writes.
 
-The UAT deploy request promptly wakes a verified Capacity Maintenance first pass;
-later short scheduled passes can free old revisions after drainage. If no eligible source
+After a UAT deploy completes, the event wake can start or finish a verified
+Capacity Maintenance pass; later short scheduled passes can free old revisions
+after drainage. The bounded UAT admission observer does not wait for that event
+or automatically retry a deferred request. If no eligible source
 is found, a governed operator should verify the live healthy release run and dispatch `capacity-maintenance.yml`
 for `environment=uat`, that `healthy_release_run_id`, and `apply=true`. The
 maintenance workflow verifies the source and live traffic before deletion. If

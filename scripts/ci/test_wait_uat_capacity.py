@@ -395,7 +395,7 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_hourly_cleanup_has_no_waiting_followup(self):
         source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
         self.assertIn('cron: "17 * * * *"', source)
-        self.assertNotIn("workflow_run:", source)
+        self.assertIn("types: [completed]", source)
         self.assertNotIn("uat-drain-wait:", source)
         self.assertNotIn("uat-drain-recheck:", source)
         for group in ("deploy-uat", "deploy-production"):

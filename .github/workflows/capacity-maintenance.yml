@@ -1,6 +1,12 @@
 name: Capacity Maintenance
 
 on:
+  # A UAT release completion only wakes inspection. The helper independently
+  # selects a healthy source and rechecks live traffic before any cleanup.
+  workflow_run:
+    workflows: [Deploy to UAT, Deploy UAT One Chat Backend Only]
+    types: [completed]
+    branches: [main]
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -20,7 +26,7 @@ on:
         default: false
         type: boolean
 
-# Coalesce only scheduled work; manual requests have independent identities.
+# Coalesce only scheduled work; UAT wakes and manual requests retain identities.
 # Keep the default one-pending queue here, never cancel an active mutation.
 concurrency:
   group: capacity-maintenance-${{ github.event_name == 'schedule' && 'scheduled' || github.run_id }}
@@ -51,7 +57,7 @@ jobs:
           ref: main
           fetch-depth: 1
           persist-credentials: false
-      - name: Require main and governed manual actor
+      - name: Require main and governed maintenance wake
         shell: bash
         env:
           RELEASE_ENV: ${{ inputs.environment }}
@@ -61,6 +67,42 @@ jobs:
           test "$GITHUB_REF_NAME" = main || exit 1
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
+            workflow_run)
+              actor="$(python3 - <<'PYCODE'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          run = event.get("workflow_run") or {}
+          repository = os.environ["GITHUB_REPOSITORY"]
+          allowed = {
+              "Deploy to UAT": ".github/workflows/deploy-uat.yml",
+              "Deploy UAT One Chat Backend Only": ".github/workflows/deploy-uat-one-chat.yml",
+          }
+          actor = (run.get("actor") or {}).get("login")
+          if not (
+              event.get("action") == "completed"
+              and (event.get("repository") or {}).get("full_name") == repository
+              and run.get("name") in allowed
+              and run.get("path") == allowed.get(run.get("name"))
+              and type(run.get("id")) is int and run["id"] > 0
+              and run.get("event") == "workflow_dispatch"
+              and run.get("status") == "completed"
+              and run.get("conclusion") in {"success", "failure"}
+              and run.get("head_branch") == "main"
+              and (run.get("repository") or {}).get("full_name") == repository
+              and (run.get("head_repository") or {}).get("full_name") == repository
+              and isinstance(actor, str)
+              and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", actor)
+          ):
+              raise SystemExit("Untrusted UAT deployment wake")
+          print(actor)
+          PYCODE
+              )"
+              python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$actor"
+              ;;
             workflow_dispatch)
               [[ "$RELEASE_ENV" = uat || "$RELEASE_ENV" = production ]] || exit 1
               [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
@@ -71,7 +113,7 @@ jobs:
 
       - name: Verify due uat source
         id: uat
-        if: github.event_name == 'schedule' || inputs.environment == 'uat'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || inputs.environment == 'uat'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
         run: |
@@ -144,7 +186,7 @@ jobs:
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
-          APPLY: ${{ github.event_name == 'schedule' || inputs.apply }}
+          APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || inputs.apply }}
         run: |
           set -euo pipefail
           flags=()

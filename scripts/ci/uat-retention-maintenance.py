@@ -1067,10 +1067,12 @@ def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
 
 
 def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifact: dict | None = None) -> bool:
+    event = run.get("event")
     if (
         run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
-        or run.get("event") not in {"schedule", "workflow_dispatch"}
+        or event not in {"schedule", "workflow_dispatch", "workflow_run"}
+        or (event == "workflow_run" and environment != "uat")
         or (run.get("repository") or {}).get("full_name") != repository
         or (run.get("head_repository") or {}).get("full_name") != repository
     ):
@@ -1086,6 +1088,40 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
         jobs = result.get("jobs")
         if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
             raise retention.UnsafeState("maintenance job inventory is incomplete")
+        if event == "workflow_run":
+            # The completed upstream event is only a wake. Its exact UAT
+            # workflow, repository, branch and governed actor were validated
+            # by this main-checked authority job before cloud authentication.
+            authority = [
+                job for job in jobs
+                if job.get("name") == "Verify due cleanup without cloud credentials"
+            ]
+            if len(authority) != 1 or any(
+                authority[0].get(key) != value
+                for key, value in (
+                    ("status", "completed"),
+                    ("conclusion", "success"),
+                    ("run_attempt", number),
+                )
+            ):
+                continue
+            authority_steps = authority[0].get("steps")
+            if (
+                not isinstance(authority_steps, list)
+                or any(not isinstance(step, dict) for step in authority_steps)
+            ):
+                continue
+            by_name = {step.get("name"): step for step in authority_steps}
+            if len(by_name) != len(authority_steps) or not all(
+                by_name.get(name, {}).get("status") == "completed"
+                and by_name[name].get("conclusion") == "success"
+                for name in (
+                    "Checkout authority tooling",
+                    "Require main and governed maintenance wake",
+                    "Verify due uat source",
+                )
+            ):
+                continue
         matched = [job for job in jobs if job.get("name") == name]
         if len(matched) != 1 or matched[0].get("status") != "completed":
             continue
@@ -1133,7 +1169,11 @@ def restore_state(
             raise retention.UnsafeState("state artifact lacks a valid source run")
         run = api(repository, f"runs/{run_id}")
         completed = trusted_run(run, repository, "capacity-maintenance.yml")
-        needs_attempt_proof = not completed or run.get("run_attempt", 1) > 1
+        needs_attempt_proof = (
+            not completed
+            or run.get("run_attempt", 1) > 1
+            or run.get("event") == "workflow_run"
+        )
         checkpoint_source = needs_attempt_proof and trusted_checkpoint_run(
             repository, run, environment, item
         )
