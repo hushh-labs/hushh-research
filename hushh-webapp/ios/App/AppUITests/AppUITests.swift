@@ -2055,10 +2055,16 @@ final class AppUITests: XCTestCase {
         }
         let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
         print("NATIVE_BOTTOM_SCROLL_FRAME stage=baseline navigationY=\(baseline) dockY=\(dockBaseline)")
+        // Anchor touch coordinates to the application, not WebKit's scrolling
+        // accessibility node. A coordinate re-resolved from the latter can
+        // move with the content between the two halves of a reverse gesture.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
+                                               dy: webFrame.minY + webFrame.height * 0.65))
+        let end = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
+                                             dy: webFrame.minY + webFrame.height * 0.25))
         for cycle in 0..<10 {
             // Pan in the shared page gutter, never through an actionable tile.
-            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.65))
-            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: cycle == 0 ? 0.57 : 0.25))
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
             let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
             guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
@@ -2069,12 +2075,8 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(dock.frame.minY - dockBaseline, displacement, accuracy: 1,
                 "NATIVE_BOTTOM_SCROLL_PAIR_DIVERGED")
             XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
-            if cycle == 0 {
-                let sameTab = bar.buttons["Feed"].firstMatch
-                guard sameTab.exists && sameTab.isHittable else { XCTFail("NATIVE_BOTTOM_SCROLL_DISPLACED_PRESS_UNAVAILABLE"); return }
-                sameTab.press(forDuration: 0.3)
-                XCTAssertTrue(sameTab.isSelected, "NATIVE_BOTTOM_SCROLL_PRESS_LOST_TARGET")
-            }
+            // Touch-tracking freeze has native unit coverage. Do not combine
+            // a selection (which deliberately snaps the chrome) with reversal.
             end.press(forDuration: 0.05, thenDragTo: start, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
             let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in abs(bar.frame.minY - baseline) <= 1 }, object: app)
             guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else {
