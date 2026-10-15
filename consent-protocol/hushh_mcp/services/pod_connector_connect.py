@@ -341,6 +341,7 @@ async def disconnect(
 
 REVOKE_UNAVAILABLE = "unavailable"
 _MAX_ERASURE_CONNECTORS = 128
+_MAX_ERASURE_TOKEN_CANDIDATES = 4096
 _REVOCATION_BUDGET_S = 15.0
 
 
@@ -353,10 +354,12 @@ async def revoke_fenced(
     Local erasure and external revocation are independent outcomes. No credential
     or account identifier leaves this function; failures are explicit counts.
     """
-    held: dict[str, store.ConnectorCredential] = {}
+    grants: dict[tuple[str, str, str], dict[str, None]] = {}
     seen: set[str] = set()
+    candidates = 0
 
     def collect(record: dict[str, Any]) -> None:
+        nonlocal candidates
         if record.get("kind") not in {store.RECORD_KIND, store.CLEARED_KIND}:
             return
         payload = record.get("payload")
@@ -365,17 +368,29 @@ async def revoke_fenced(
         name = payload.get("connectorId")
         if not isinstance(name, str) or not name:
             raise ValueError("connector inventory has an invalid id")
-        if name in seen:
-            return  # reverse traversal: the first record is the current state
         seen.add(name)
         if len(seen) > _MAX_ERASURE_CONNECTORS:
             raise ValueError("connector inventory exceeds its bound")
         if record["kind"] == store.CLEARED_KIND:
+            # A failed disconnect clears local use before Google answers. Its
+            # earlier sealed credential must remain in the revocation inventory.
             return
         credential = store._from_payload(payload)
         if credential is None:
             raise ValueError("connector inventory has an invalid record")
-        held[name] = credential
+        google_token_source().forget(credential.connector_id)
+        if not credential.refresh_token:
+            return
+        project = google.oauth_project_id(credential.client_id) or credential.client_id
+        key = (credential.provider, project, credential.account_subject)
+        tokens = grants.setdefault(key, {})
+        if len(grants) > _MAX_ERASURE_CONNECTORS:
+            raise ValueError("grant inventory exceeds its bound")
+        if credential.refresh_token not in tokens:
+            candidates += 1
+            if candidates > _MAX_ERASURE_TOKEN_CANDIDATES:
+                raise ValueError("grant token inventory exceeds its bound")
+            tokens[credential.refresh_token] = None
 
     try:
         if not hushh_id or owner_id != hushh_id:
@@ -386,20 +401,11 @@ async def revoke_fenced(
             "pod_connector_connect.erasure_inventory_unavailable reason=%s", type(exc).__name__
         )
         return {"revoked": 0, "unrevoked": 0, "unavailable": 1, "receipts": []}
-    grants: dict[tuple[str, str, str], list[str]] = {}
-    for credential in held.values():
-        google_token_source().forget(credential.connector_id)
-        if not credential.refresh_token:
-            continue
-        project = google.oauth_project_id(credential.client_id) or credential.client_id
-        grants.setdefault((credential.provider, project, credential.account_subject), []).append(
-            credential.refresh_token
-        )
     semaphore = asyncio.Semaphore(4)
     deadline = time.monotonic() + _REVOCATION_BUDGET_S
     results = await asyncio.gather(
         *(
-            _revoke_bounded(tokens, post, deadline, semaphore)
+            _revoke_bounded(list(tokens), post, deadline, semaphore)
             if key[0] == PROVIDER_GOOGLE
             else _unconfirmed()
             for key, tokens in grants.items()
@@ -473,11 +479,15 @@ async def revoke_all(post: Any = None) -> dict[str, int]:
 
 
 async def _revoke_first(tokens: list[str], post: Any) -> bool:
-    """One grant: any token revokes it, so stop at the first Google confirms."""
+    """A missing stale token cannot confirm revocation of another live token."""
+    all_absent = bool(tokens)
     for token in dict.fromkeys(tokens):
-        if await google.revoke(token, post=post):
+        outcome = await google.revoke_outcome(token, post=post)
+        if outcome == "grant_revoked":
             return True
-    return False
+        if outcome != "token_absent":
+            all_absent = False
+    return all_absent
 
 
 __all__ = [

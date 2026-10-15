@@ -422,6 +422,42 @@ async def test_browser_erasure_inventory_cannot_delete_an_arbitrary_object(store
     assert await store.get(ERASURE_TOMBSTONE_OBJECT) is None
 
 
+@pytest.mark.parametrize(
+    ("newest_status", "older_status", "confirmed"),
+    [(400, 200, True), (400, 503, False), (503, 400, False), (400, 400, True)],
+)
+async def test_erasure_retries_cleared_and_superseded_grants_without_false_confirmation(
+    store, newest_status, older_status, confirmed
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services.pod_connector_connect import revoke_fenced
+    from tests.pod_connector_harness import SCOPES, credential
+
+    log = await _agent(store)
+    older = credential("gmail", SCOPES["gmail_manage"])
+    newest = replace(older, refresh_token="fixture-superseded-refresh")  # noqa: S106 - synthetic
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, older))
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, newest))
+    await log.append(credentials.CLEARED_KIND, {"hushh_id": OWNER, "connectorId": "gmail"})
+    fenced = await _fencer(log)()
+    calls = []
+
+    async def provider(_url, form):
+        calls.append(form["token"])
+        status = newest_status if form["token"] == newest.refresh_token else older_status
+        return status, {"error": "invalid_token"} if status == 400 else {}
+
+    outcome = await revoke_fenced(
+        fenced, owner_id=OWNER, attempt_id=ATTEMPT, hushh_id=OWNER, post=provider
+    )
+    assert calls == [newest.refresh_token, older.refresh_token]
+    assert outcome["revoked"] == int(confirmed)
+    assert outcome["unrevoked"] == int(not confirmed)
+    assert outcome["unavailable"] == 0
+
+
 @pytest.mark.parametrize("provider_status", [200, 503])
 async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_copies(
     store, monkeypatch, provider_status

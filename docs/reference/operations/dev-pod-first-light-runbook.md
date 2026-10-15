@@ -262,6 +262,17 @@ transient failure, but does not establish its cause. Verify serving digest,
 durable key/cursor, private IAM and unchanged service identity before recording
 recovery. Isolated maintenance never substitutes for Settings owner approval.
 
+### Provider revocation during account erasure
+
+Inventory sealed credential history, including cleared and superseded logins:
+a failed disconnect may have stopped local use without revoking Google access.
+Group Google grants by verified OAuth project and account. HTTP 200 confirms
+revocation; `invalid_token` confirms only that candidate is absent. Continue
+other candidates before reporting the grant settled. Provider failures and
+inventory overflow remain explicit unconfirmed outcomes. Keep tokens in memory;
+retain only bounded counts and hashed grant receipts. These source checks do not
+establish live provider revocation or complete cloud-resource deletion.
+
 ### Azure Files activation on an existing pod
 
 Use the existing Files setup offer and exact release approval. Azure capability
