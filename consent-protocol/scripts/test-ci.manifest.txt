@@ -8,6 +8,7 @@ tests/test_native_ship_artifact_workflows.py
 tests/services/test_external_connector_lifecycle_postgres.py
 # Shared ciphertext writes cannot outlive account-erasure fencing.
 tests/services/test_shared_files_lifecycle_postgres.py
+tests/services/test_shared_files_upload_receipts_postgres.py
 tests/services/test_external_connector_credentials_service.py
 tests/services/test_external_connector_google_oauth.py
 # Curated (operator-registered) connector registration + OAuth, e.g. HubSpot.

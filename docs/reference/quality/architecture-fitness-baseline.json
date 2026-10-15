@@ -14953,7 +14953,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "main",
-      "value": 251
+      "value": 262
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16402,7 +16402,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1391
+      "value": 1393
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20947,7 +20947,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts",
       "symbol": null,
-      "value": 1191
+      "value": 1193
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23773,7 +23773,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 722
+      "value": 733
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -46282,6 +46282,44 @@
     "incoming_main": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
     "retained_parent": "a1b0a6ed3b",
     "review": "Independent ci_registry_review qualifies exactly seven incoming/retained composition spans. Signed-settlement AST is unchanged; the restored ADK progress test retains its positive control and uses the canonical timeout category. Wallet backend classification is composed with existing owner, vault and Back checks. Preserve every other entry, multiplicity, budget, scanner and future-growth gate. Stop HTTP coverage was moved to its existing 488-line test owner instead of accepting growth in the generic fetch suite. Source qualification does not establish deployed acceptance."
+  },
+  "shared_files_resumable_composition_review_20261014": {
+    "entries": [
+      {
+        "after": 262,
+        "before": 251,
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|main|function exceeds the advisory gene budget",
+        "review": "Read-only adk_backend_conflicts review: exact two-key canonical environment map, two provider-neutral breadcrumb cases, or cohesive dev retained-config composition behind the existing extracted typed policy. Dev-on/nondev-off and invalid bucket controls retained. No scanner, exclusion, budget or other ceiling change.",
+        "source_sha256": "78ffea520e36d6d1807e014cdb50e087cb0405825939b5001d8cad5d8883c146"
+      },
+      {
+        "after": 1393,
+        "before": 1391,
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "review": "Read-only adk_backend_conflicts review: exact two-key canonical environment map, two provider-neutral breadcrumb cases, or cohesive dev retained-config composition behind the existing extracted typed policy. Dev-on/nondev-off and invalid bucket controls retained. No scanner, exclusion, budget or other ceiling change.",
+        "source_sha256": "cec61aae45ba0fac53a4435dd2a301faf6b627f304ae4c2a1d8d5ec7f4fc02b7"
+      },
+      {
+        "after": 1193,
+        "before": 1191,
+        "key": "module_size|hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts||module exceeds the advisory operon budget",
+        "review": "Read-only adk_backend_conflicts review: exact two-key canonical environment map, two provider-neutral breadcrumb cases, or cohesive dev retained-config composition behind the existing extracted typed policy. Dev-on/nondev-off and invalid bucket controls retained. No scanner, exclusion, budget or other ceiling change.",
+        "source_sha256": "da1d31267140b1eddfdd01de2f3f7f573d7affee00e085ca2ebd9253188c1a0a"
+      },
+      {
+        "after": 733,
+        "before": 722,
+        "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+        "review": "Read-only adk_backend_conflicts review: exact two-key canonical environment map, two provider-neutral breadcrumb cases, or cohesive dev retained-config composition behind the existing extracted typed policy. Dev-on/nondev-off and invalid bucket controls retained. No scanner, exclusion, budget or other ceiling change.",
+        "source_sha256": "78ffea520e36d6d1807e014cdb50e087cb0405825939b5001d8cad5d8883c146"
+      }
+    ],
+    "evidence_revisions": [
+      "70e6605561048250aac84dbda5fb0f9853f866f9",
+      "6047eb06f2"
+    ],
+    "reviewer": "adk_backend_conflicts",
+    "test_extraction": "Upload receipt and custody controls moved from the nearest lifecycle suite to a focused module reusing its real SQL fixture; no cases removed."
   },
   "status": "advisory"
 }
