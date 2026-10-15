@@ -7,7 +7,7 @@ import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 
 export function projectNativeProfileMenu(name: string, email: string | null, ready: boolean,
   groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: () => void) {
@@ -84,7 +84,7 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   // caller already projects Profile root; rendering those new children while
   // native return is pending would visibly replace the outgoing detail.
   // Private bodies remain process-local and cannot cross an owner/vault lease.
-  const displayedDetail = useRef<{
+  const [displayedDetail, setDisplayedDetail] = useState<{
     lifetime: string; children: ReactNode; title: string; context: string; backLabel?: string;
   } | null>(null);
   useLayoutEffect(() => {
@@ -96,13 +96,15 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   }, [menu.surfaceOpen, menu.ready, webDetail, lifetime]);
   const holdingDetail = !webDetail && prepared === lifetime && restored !== lifetime;
   const active = menu.surfaceOpen === true && menu.ready;
-  const retained = active && holdingDetail && displayedDetail.current?.lifetime === lifetime
-    ? displayedDetail.current : null;
+  const retained = active && holdingDetail && displayedDetail?.lifetime === lifetime
+    ? displayedDetail : null;
   useLayoutEffect(() => {
     if (active && webDetail) {
-      displayedDetail.current = { lifetime, children, title: page.title, context: page.context, backLabel: page.backLabel };
-    } else if (!active || !holdingDetail || displayedDetail.current?.lifetime !== lifetime) {
-      displayedDetail.current = null;
+      setDisplayedDetail({ lifetime, children, title: page.title, context: page.context, backLabel: page.backLabel });
+    } else if (!active || !holdingDetail) {
+      setDisplayedDetail(null);
+    } else {
+      setDisplayedDetail(previous => previous?.lifetime === lifetime ? previous : null);
     }
   }, [active, webDetail, holdingDetail, lifetime, children, page.title, page.context, page.backLabel]);
   // Decide the composition before the first visible native menu. Do not first
