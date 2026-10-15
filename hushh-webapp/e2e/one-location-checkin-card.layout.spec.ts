@@ -185,7 +185,7 @@ test("keeps map art themed and feature Back local", async ({ page }) => {
   expect(await page.locator('[data-one-feature-map="share"] rect').first().evaluate(node => getComputedStyle(node).fill)).not.toBe("rgb(237, 241, 246)");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByTestId("one-location-onboarding-ready")).toBeVisible();
-  await expect(page.getByText("2 of 2", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 of 3", { exact: true })).toBeVisible();
   await expect(page.getByText("Private until you share.")).toHaveCount(0);
   await page.getByRole("button", { name: "Go back" }).click();
   await expect(page.getByTestId("one-location-onboarding-features")).toBeVisible();
