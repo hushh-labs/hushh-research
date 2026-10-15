@@ -21,7 +21,15 @@ def client(owner="owner"):
 
 
 @pytest.mark.parametrize(
-    "path", ["/cards/card_one", "/connections", "/profile", "/history", "/history/" + ID]
+    "path",
+    [
+        "/cards/card_one",
+        "/connections",
+        "/profile",
+        "/history",
+        "/history/" + ID,
+        "/requests/" + ID,
+    ],
 )
 def test_card_owner_mismatch_is_private_and_does_not_call_service(path):
     with patch("api.routes.one.wallet_card_access.service") as service:
@@ -56,6 +64,38 @@ def test_share_uses_authenticated_owner_and_explicit_recipients():
         )
         assert response.status_code == 200
         service.create_grants.assert_called_once_with("owner", "card_one", ID, [ID], 10)
+
+
+def test_card_requests_and_responses_keep_owner_auth_and_reject_secret_fields():
+    service = MagicMock()
+    service.create.return_value = {"id": ID}
+    with patch("api.routes.one.wallet_card_access.card_request_service", return_value=service):
+        response = client("other").post(ROOT + "/requests", json={"requestId": ID, "personRef": ID})
+        assert response.status_code == 403
+        service.create.assert_not_called()
+        response = client().post(
+            ROOT + "/requests", json={"requestId": ID, "personRef": ID, "pan": "4242424242424242"}
+        )
+        assert response.status_code == 422 and "4242424242424242" not in response.text
+        response = client().post(ROOT + "/requests", json={"requestId": ID, "personRef": ID})
+        assert response.status_code == 200
+        service.create.assert_called_once_with("owner", ID, ID)
+    service = MagicMock()
+    service.create_grants.return_value = {"grants": []}
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().post(
+            ROOT + "/cards/card_one/grants",
+            json={
+                "requestId": ID,
+                "recipientPersonRefs": [ID],
+                "durationMinutes": 15,
+                "cardRequestId": ID,
+            },
+        )
+        assert response.status_code == 200
+        service.create_grants.assert_called_once_with(
+            "owner", "card_one", ID, [ID], 15, card_request_id=ID
+        )
 
 
 @pytest.mark.parametrize("minutes", [15, 60, 120])

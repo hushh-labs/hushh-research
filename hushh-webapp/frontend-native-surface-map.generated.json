@@ -8819,6 +8819,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_card",
         "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
@@ -10400,5 +10401,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "98dc6f4a670a5e7f95cecec827ec3d5970d5156c5376f0f7a144a9e41c58dd5d"
+  "content_sha256": "fa0f31f3a3cfb19444f873748b7e0f47321086d97c15333d15da24f20c51d9fa"
 }

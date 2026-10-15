@@ -28,12 +28,14 @@ const CSS_PATH = path.join(
 
 // Element order exactly as person-profile-page.tsx renders it.
 const MARKUP = `
-<div class="actions" aria-label="Relationship actions">
+<div class="actions" data-connected="true" aria-label="Relationship actions">
   <button class="request" data-id="request">Request</button>
   <button class="share" data-id="share">Share</button>
   <button data-id="request-files">Request files</button>
   <button data-id="ask-about-files">Ask about files</button>
   <button class="requestScope" data-id="request-scope">Request scope</button>
+  <button class="requestCards" data-id="request-cards">Request cards</button>
+  <button data-id="packets">Available packets</button>
   <button class="manage" data-id="manage">Manage access</button>
   <button class="relationship primary" data-id="connect" data-voice-control-id="person-profile-connect">Connect</button>
 </div>`;
@@ -86,6 +88,9 @@ for (const width of [375, 420, 1280]) {
 
     const rect = await boxes(page);
 
+    expect(Math.abs(rect["request-cards"].top - rect.packets.top)).toBeLessThan(1);
+    expect(rect["request-cards"].top).toBeGreaterThanOrEqual(rect["request-scope"].bottom);
+    expect(rect.manage.top).toBeGreaterThanOrEqual(rect["request-cards"].bottom);
     // The two Drive file actions share a row.
     expect(
       Math.abs(rect["request-files"]!.top - rect["ask-about-files"]!.top),

@@ -26319,6 +26319,161 @@
     },
     {
       "aliases": [
+        "Request cards",
+        "request a card",
+        "ask them to share a card"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.request_card",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens a card request review for this connected person. Sending requires explicit confirmation. The owner chooses a card and duration before sharing; requesting grants no access.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.request_card",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.request_card"
+        }
+      },
+      "goal_id": "goal.people.profile.request_card",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Request cards",
+      "navigation": {
+        "fallback": "people.profile.request_card",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "card",
+        "wallet",
+        "request",
+        "share"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose Country Code",
         "choose country code",
         "select country",
@@ -42110,7 +42265,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c08639ce4c1c63ae567d5e1c33330da5cddde7823e4358ba6fddc4a7de64fffb",
+      "projection_digest": "46779c78ea5f33809653ed3330efbb9a7aeab8a2a84432e05cb061455fac3b7f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42129,7 +42284,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "a7faf3fd04605e90",
+      "source_revision": "f5e5938138c09753",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43647,7 +43802,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "a7faf3fd04605e90",
+    "source_revision": "f5e5938138c09753",
     "web": {
       "actions": [
         {
@@ -43690,7 +43845,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "a5798aa7803df4352e535f7626eff1b96a5eb704aeb24d8282313b5bb2c32865",
+      "projection_digest": "eaa52d19a8a0c75f571635d9dcee01c02ede1feb6f1e507209eddaff1df15c26",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43709,7 +43864,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "a7faf3fd04605e90",
+      "source_revision": "f5e5938138c09753",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45266,7 +45421,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "a7faf3fd04605e90",
+  "revision": "f5e5938138c09753",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46862,6 +47017,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_card",
         "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
@@ -47135,18 +47291,15 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:calendar.invitation.review"
+      "actions:people.profile.request_card"
     ],
     "breaking": [],
     "changed": [
-      "screens:screen:/",
-      "screens:screen:/one",
-      "screens:screen:/one/calendar",
-      "services:service.calendar"
+      "screens:screen:/people/[personRef]"
     ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "00e49f65025341a1",
+    "from_revision": "a7faf3fd04605e90",
     "migrated": [],
     "removed": []
   },
@@ -49381,18 +49534,18 @@
     "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "ffaac2627ca9d2e1984ffec5bd25e87fefddb390d7d9f61c43b46d76c2864f24",
+    "kai_action_gateway": "3ebadf9d425e6d87184f91367be12fa064fb55e861dbf9a4b6de5b0930de5e47",
     "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "1ad6cdf5e07bc7bd9410c288d616ab3a773ab5d627b3e801fc6ee363dbe86b3e",
-    "route_orchestration_index": "09cd47d384d720e3b98fd277a3ae509aaec613f106a74d5bb4ea3bb1f8911897",
+    "route_orchestration_index": "3615ecf85e99eb2ba1a649994a04611623cc4e9167e21aa26ce53876741902ef",
     "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
   },
-  "source_revision": "a7faf3fd04605e90",
+  "source_revision": "f5e5938138c09753",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "a7faf3fd04605e90",
+    "current_graph_revision": "f5e5938138c09753",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49428,6 +49581,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -49523,6 +49677,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",
@@ -49628,6 +49783,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -49723,6 +49879,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",
@@ -49817,6 +49974,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
@@ -49882,6 +50040,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -50029,6 +50188,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50124,6 +50284,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",
@@ -50229,6 +50390,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50324,6 +50486,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",
@@ -50429,6 +50592,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50524,6 +50688,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",
@@ -50629,6 +50794,7 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "306cedaea444603c",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50724,6 +50890,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "af06ae26b8943fb1",
           "af42538767aa6642",

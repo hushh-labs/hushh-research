@@ -315,7 +315,8 @@
     "347_one_referral_dashboard_lifecycle.sql",
     "348_one_referral_confirmed_memory_reward.sql",
     "349_one_referral_dashboard_truth.sql",
-    "350_circle_chat_full_emoji_reactions.sql"
+    "350_circle_chat_full_emoji_reactions.sql",
+    "351_wallet_card_requests.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -668,6 +669,7 @@
     "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql",
     "348_one_referral_confirmed_memory_reward.sql": "rollback/348_one_referral_confirmed_memory_reward.rollback.sql",
     "349_one_referral_dashboard_truth.sql": "rollback/349_one_referral_dashboard_truth.rollback.sql",
-    "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql"
+    "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql",
+    "351_wallet_card_requests.sql": "rollback/351_wallet_card_requests.rollback.sql"
   }
 }
