@@ -1,8 +1,12 @@
 import { consentInformationLabel, parseConsentInstant } from "@/lib/consent/consent-owner-copy";
-import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { buildProfileRoute, connectorDetailTitle } from "@/lib/navigation/profile-routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
+  type LiveMirrorClaim,
+  type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorFactState,
   type LiveMirrorFactValue,
@@ -12,6 +16,7 @@ import {
   type LiveMirrorOverall,
   type LiveMirrorSource,
   type LiveMirrorSourceState,
+  type LiveMirrorSourceRoute,
 } from "@/lib/pkm/live-mirror-contract";
 import { LIVING_SOURCE_FACT_FIELDS } from "@/lib/pkm/living-source-fact-index";
 
@@ -163,6 +168,12 @@ export function formatLiveMirrorDateTime(at: unknown, timeZone?: string): string
   return format.format(new Date(ms));
 }
 
+/** True for a field stored in minor units of money ("document_earning.netCents"). */
+export function liveMirrorIsMoneyPredicate(predicate: string): boolean {
+  const field = predicate.slice(predicate.indexOf(".") + 1);
+  return Object.hasOwn(FIELD_FORMATS, field) && FIELD_FORMATS[field] === "money";
+}
+
 /** Minor units as money in the record's own currency, else US dollars. */
 function formatMoney(minorUnits: number, currency: string | null | undefined): string {
   const code = typeof currency === "string" && /^[A-Za-z]{3}$/.test(currency.trim())
@@ -258,7 +269,7 @@ export function liveMirrorStatus(
     updating: "Checking your latest change",
     stale: ago ? `Last checked ${ago}` : null,
     partial: "Showing what we could check",
-    conflict: "Two sources disagree",
+    conflict: "Some details disagree",
     empty: "New changes will show here",
   };
   return { headline: HEADLINES[overall], sub: sub[overall] };
@@ -398,4 +409,92 @@ export function liveMirrorPreviewRows(facts: readonly LiveMirrorFact[]): LiveMir
     .sort((left, right) => changedAt(right) - changedAt(left))
     .map((row): LiveMirrorPreviewRow => ({ key: row.key, title: row.ref, description: row.summary, state: row.state }));
   return [...named, ...newest].slice(0, PREVIEW_LIMIT);
+}
+
+/**
+ * Where each living source is changed, built only from existing route
+ * helpers. Account edits the name (the photo editor is on the Profile page one
+ * step back), consents and connections have their own workspaces, Connectors
+ * is a Profile section, earnings and wallet activity are managed under
+ * Payouts (/one/wallet holds payment cards, not earnings), and paid document
+ * requests are the consent center's Sent documents. Every kind has a surface.
+ */
+const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
+  profile: { href: buildProfileRoute({ panel: "account" }), label: "Edit profile" },
+  consent: { href: ROUTES.CONSENTS, label: "Open consents" },
+  connection: { href: ROUTES.CONNECT, label: "Open connections" },
+  curated_oauth_connector: { href: buildProfileRoute({ panel: "connectors" }), label: "Open connectors" },
+  document_earning: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
+  payout_activity: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
+  document_request_payment: { href: buildConsentCenterHref("pending", { requestView: "sent" }), label: "Open sent documents" },
+};
+
+/**
+ * Where the owner corrects or removes a source's values, for source rows,
+ * record details and each side's fix link, and the preview's section links;
+ * null for an unknown kind. Never a mirror write path: the source changes
+ * there and both mirrors refresh from it.
+ */
+export function liveMirrorSourceRoute(kind: LiveMirrorKind): LiveMirrorSourceRoute | null {
+  return Object.hasOwn(SOURCE_ROUTES, kind) ? { ...SOURCE_ROUTES[kind] } : null;
+}
+
+/** One side of a disagreement, worded the same way on every surface. */
+export interface LiveMirrorClaimText {
+  /** Who says it: "Your memory", "Profile", "Earning 2". */
+  label: string;
+  value: string;
+  /** "Checked 4 min ago · Version 3"; when it changed for a record's copy, or if never checked. */
+  detail: string | null;
+}
+
+export function liveMirrorClaimText(
+  claim: LiveMirrorClaim,
+  predicate: string,
+  now: string | number,
+  timeZone?: string,
+): LiveMirrorClaimText {
+  const value = claim.value === null
+    ? "Not set"
+    : formatLiveMirrorValue(predicate, claim.value, {
+      currency: claim.currency ?? null,
+      revision: claim.revision ?? undefined,
+      timeZone,
+    });
+  const changed = claim.sourceUpdatedAt ? formatLiveMirrorDateTime(claim.sourceUpdatedAt, timeZone) : null;
+  // A record's copies share one check, so each copy is told apart by when it changed.
+  const when = claim.origin === "record" && changed ? `Changed ${changed}`
+    : claim.verifiedAt ? `Checked ${liveMirrorAgo(claim.verifiedAt, now)}`
+      : changed ? `Changed ${changed}` : null;
+  const detail = [when, claim.revision ? `Version ${claim.revision}` : null].filter(Boolean).join(" · ");
+  return { label: claim.source === "soul" ? "Your memory" : claim.label, value, detail: detail || null };
+}
+
+/** Where to fix one side: memory.md for the owner's own words, else the screen that owns the source. */
+export function liveMirrorClaimRoute(claim: LiveMirrorClaim, predicate: string): LiveMirrorSourceRoute | null {
+  if (claim.source === "soul") return { href: ROUTES.PKM, label: "Edit memory.md" };
+  const dot = predicate.indexOf(".");
+  const kind = dot > 0 ? predicate.slice(0, dot) : "";
+  return (LIVE_MIRROR_KINDS as readonly string[]).includes(kind) ? liveMirrorSourceRoute(kind as LiveMirrorKind) : null;
+}
+
+/**
+ * Each distinct place a side of these disagreements is corrected, in claim
+ * order: memory.md for what the owner wrote, else the screen that owns the
+ * source. `includeMemory: false` leaves memory.md out where Memory is already
+ * open or a tap away.
+ */
+export function liveMirrorFixRoutes(
+  conflicts: readonly LiveMirrorConflict[],
+  { includeMemory = true }: { includeMemory?: boolean } = {},
+): LiveMirrorSourceRoute[] {
+  const routes = new Map<string, LiveMirrorSourceRoute>();
+  for (const conflict of conflicts) {
+    for (const claim of conflict.claims) {
+      if (claim.source === "soul" && !includeMemory) continue;
+      const route = liveMirrorClaimRoute(claim, conflict.predicate);
+      if (route && !routes.has(route.href)) routes.set(route.href, route);
+    }
+  }
+  return [...routes.values()];
 }

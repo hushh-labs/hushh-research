@@ -192,7 +192,7 @@ analytics smoke failed intermittently.
 `hushh-webapp/lib/observability/adapters/gtag-hit-budget.ts` now decides who
 spends the budget. The high-volume operational events (`api_request_completed`,
 `cache_resource_resolved`, `route_readiness_completed`, `route_refresh_completed`,
-`warmup_completed`) only reach gtag while 8 tokens stay free for product events;
+`warmup_completed`, `live_memory_source_verified`) only reach gtag while 8 tokens stay free for product events;
 every other event is always forwarded. Every event still reaches `dataLayer`.
 Consequence for reporting: on the web stream, operational events are a
 budget-shaped sample during load bursts, not a complete count. Read request
@@ -219,6 +219,36 @@ These events contain bounded aggregate buckets only. They must never include dec
 | `agent_pkm_context_resolved` | Proves that an Agent turn received selected local PKM context and reports whether selection clipped or omitted unsafe nodes | `context_mode`, fact-count buckets, `context_clipped`, `inventory_only`, `safety_omitted`, `duration_ms_bucket` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | cold-unlock readiness, retrieval coverage, clipping trend | `npm run verify:analytics` |
 | `agent_pkm_context_unavailable` | Counts turns deliberately stopped before the model receives empty PKM context | `result`, bounded `reason` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | context-free personal-turn prevention | `npm run verify:analytics` |
 | `agent_pkm_save_confirmation_completed` | Measures user-confirmed PKM save completion without identifying what was saved or shared | `result`, saved/failed count buckets, `has_active_recipients` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | save-confirmation completion and sharing-impact reliability | `npm run verify:analytics` |
+
+## Live Memory Source Checks
+
+The Live Memory sync re-reads each living source on a bounded cadence and
+stores what it verified in the owner's encrypted inventory. This event measures
+that pipeline for the fleet: how long a committed change waited for its
+encrypted write, how many changes were still waiting on a source, and how many
+failed reads came before a source recovered.
+
+Buckets only. The payload is the source kind, the outcome and three bands. It
+must never carry an owner id, a record id, a value, a timestamp, an exact count
+or an error message; the owner-only exact lag stays inside the encrypted
+`source_health` bookkeeping. Every param is a closed set: the schema drops the
+whole event if one is missing or holds anything else.
+
+A source reused from its freshness window, or still waiting out its retry
+delay, was not read and emits nothing. The profile is re-read on every wake, so
+it is reported only when the build wrote a change. A quiet wake emits nothing,
+and neither does a build that never stores.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `live_memory_source_verified` | One living source was read by the background sync and the encrypted store succeeded; at most one per kind per build | `kind`, `outcome` (`verified`, `unavailable`, `capped`), `lag_bucket` (`lt_1m`, `1m_5m`, `5m_15m`, `15m_1h`, `gte_1h`, `unknown`), `pending_bucket` and `retry_bucket` (`0`, `1`, `2_5`, `6_20`, `gt_20`, `unknown`) | `hushh-webapp/lib/pkm/live-mirror-telemetry.ts` via `hushh-webapp/lib/pkm/living-source-sync.ts` | fleet commit-to-encrypted-write lag by kind (p50/p95), per-source backlog, bounded retry behaviour | `npm run verify:analytics`, `__tests__/lib/pkm/living-source-sync.test.ts`, `__tests__/lib/pkm/live-mirror-telemetry.test.ts` |
+
+`lag_bucket` is `unknown` when no committed change was waiting on that source
+or the journal could not date it; `pending_bucket` is `unknown` after a journal
+reset; `retry_bucket` counts failed reads in a row before this one and is
+`unknown` for the profile, which keeps no retry state. `capped` means the source
+was refused at one of its declared bounds, not that it could not be reached. On web this is an operational event and spends
+gtag's budget only above the product reserve (see Web GA4 event budget).
 
 ## Declared but Not Currently Emitted
 

@@ -3,8 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
-import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
-import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
+import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorClaim, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import {
+  applyLiveMirrorReadTime,
+  buildLiveMirrorProjection,
+  type BuildLiveMirrorProjectionParams,
+} from "@/lib/pkm/live-mirror-projection";
+import { formatLiveMirrorDateTime, formatLiveMirrorValue, liveMirrorSourceRoute } from "@/lib/pkm/live-mirror-presentation";
 import {
   appendVerifiedLivingSourceChanges,
   reconcileLivingSources,
@@ -67,6 +72,8 @@ const item = (id: string, event_type: string) => ({
 const T0 = "2026-10-15T09:58:00.000Z";
 const T = "2026-10-15T10:00:00.000Z";
 const READ = "2026-10-15T10:00:30.000Z";
+/** Five minutes after the build: a later read of the same view, still inside its freshness window. */
+const READ_LATER = "2026-10-15T10:05:00.000Z";
 type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
 const person = (ownerId: string, name: string, email: string | null = "a@example.test"): LivingSourceInput => ({
   kind: "profile", id: ownerId, createdAt: null, updatedAt: T0, value: { name, email },
@@ -75,12 +82,34 @@ const earning = (id: string, updatedAt: string, grossCents: number): LivingSourc
   kind: "document_earning", id, createdAt: updatedAt, updatedAt,
   value: { stripeMode: "test", status: "succeeded", grossCents, netCents: grossCents - 30, createdAt: updatedAt },
 });
+/** A paid document request in euros, last changed at T0. */
+const payment = (id: string, amountCents: number): LivingSourceInput => ({
+  kind: "document_request_payment", id, createdAt: T0, updatedAt: T0,
+  value: { mode: "live", status: "paid", amountCents, currency: "EUR", paidAt: T0 },
+});
+/** A second copy of each payment at the same revision, changed later, that disagrees on the amount. */
+const disagreeingPaymentCopy = (inventory: LivingSourceInventory): LivingSourceInventory => ({
+  ...inventory,
+  records: inventory.records.flatMap(record => record.kind === "document_request_payment"
+    ? [record, { ...record, updatedAt: T, value: { ...record.value, amountCents: 5_678 } }] : [record]),
+});
+/** memory.md, at revision 9, names the owner "Ankit K" while the verified profile says "Ankit Kumar". */
+const NAME_CONFLICT: Partial<BuildLiveMirrorProjectionParams> = {
+  document: { markdown: "", complete: true, sourceLinks: [], excludedDomains: [], freshness: [
+    { domain: "one_memory", title: "Identity facts", status: "conflicted", contentRevision: 9, updatedAt: T0, cardCount: 1 },
+  ] },
+  nameConflict: true,
+  nameClaims: { soul: ["Ankit K"], profile: "Ankit Kumar" },
+};
+const euros = (cents: number) => formatLiveMirrorValue("document_request_payment.amountCents", cents, { currency: "EUR" });
 /** A view built through the real reconciler, history, projection and read time. */
 function mirrorView(ownerId: string, options: {
   steps?: Step[];
   readAt?: string;
   epoch?: number;
   inventory?: (inventory: LivingSourceInventory) => LivingSourceInventory;
+  /** Further projection inputs, such as the memory document and a name conflict's sides. */
+  extra?: Partial<BuildLiveMirrorProjectionParams>;
 } = {}): LiveMirrorView {
   let inventory: LivingSourceInventory | null = null;
   let history: LivingSourceHistory | null = null;
@@ -92,11 +121,15 @@ function mirrorView(ownerId: string, options: {
   const projection = buildLiveMirrorProjection({
     ownerId, vaultEpoch: options.epoch ?? mocks.epoch, now: T, history, document: null,
     inventory: inventory && options.inventory ? options.inventory(inventory) : inventory,
+    ...options.extra,
   });
   return applyLiveMirrorReadTime(projection, options.readAt ?? READ, "current");
 }
-const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact")
-  .find(row => row.querySelector('[data-slot="settings-row-title"]')?.textContent === title)!;
+const rowTitle = (row: HTMLElement) => row.querySelector('[data-slot="settings-row-title"]')?.textContent;
+const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact").find(row => rowTitle(row) === title)!;
+/** A row's supporting lines, one per claim. */
+const lines = (row: HTMLElement) =>
+  [...row.querySelectorAll('[data-slot="settings-row-description"] > span')].map(line => line.textContent);
 const openProfileTab = () =>
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
 const mirrorStatus = () => within(screen.getByTestId("live-mirror-status"));
@@ -279,7 +312,7 @@ describe("One agent profile feed preview", () => {
     expect(within(factRow("Name")).getByText("May be old")).toBeInTheDocument();
   });
 
-  it("never shows a disputed or removed value", async () => {
+  it("shows a disputed value only as a claim under review and never shows a removed value", async () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, {
       steps: [
         { inputs: [person(uid, "SYNTHETIC_A"), earning("e1", T0, 4_242)], kinds: ["profile", "document_earning"], now: T0 },
@@ -293,9 +326,15 @@ describe("One agent profile feed preview", () => {
     openProfileTab();
     await screen.findByTestId("live-mirror-status");
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
-    expect(within(factRow("Name")).getByText("Needs review")).toBeInTheDocument();
-    expect(factRow("Name").querySelector('[data-slot="settings-row-description"]')).toBeNull();
-    for (const hidden of ["SYNTHETIC_A", "CONFLICT_VALUE_X", "$42.42", "Earning"]) expect(document.body.textContent).not.toContain(hidden);
+    // Both disputed values appear only together, in the review row (A08), each
+    // named by its copy and with no badge: the status line already says it.
+    const conflict = screen.getByTestId("live-mirror-conflict");
+    expect(within(conflict).queryByText("Needs review")).toBeNull();
+    expect(lines(conflict).map(line => line?.split(" · ")[0])).toEqual(["Profile, copy 1: CONFLICT_VALUE_X", "Profile, copy 2: SYNTHETIC_A"]);
+    const outsideReview = document.body.textContent!.replace(conflict.textContent!, "");
+    for (const claim of ["SYNTHETIC_A", "CONFLICT_VALUE_X"]) expect(outsideReview).not.toContain(claim);
+    // A removed record never shows anywhere.
+    for (const removed of ["$42.42", "Earning"]) expect(document.body.textContent).not.toContain(removed);
   });
 
   it("clears owner A's preview on account switch and lock, and ignores a projection filed under another owner", async () => {
@@ -333,5 +372,77 @@ describe("One agent profile feed preview", () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { epoch: mocks.epoch - 1 }));
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(screen.queryByTestId("live-mirror-fact")).toBeNull();
+  });
+
+  it("lists every side of each disagreement a line apiece and links once to each screen that fixes one", async () => {
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, {
+      steps: [{ inputs: [person(uid, "Ankit Kumar"), payment("p1", 1_234)], kinds: ["profile", "document_request_payment"], now: T }],
+      inventory: disagreeingPaymentCopy,
+      extra: NAME_CONFLICT,
+      readAt: READ_LATER,
+    }));
+    const view = render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    openProfileTab();
+    await screen.findByTestId("live-mirror-status");
+    // The headline and its line are Profile's, from the shared presentation module.
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
+    expect(mirrorStatus().getByText("Some details disagree")).toBeInTheDocument();
+    const [name, amount] = screen.getAllByTestId("live-mirror-conflict");
+    expect([rowTitle(name!), rowTitle(amount!)]).toEqual(["Name", "Amount"]);
+    // One claim per line, worded as on Profile, each with when it was checked or changed.
+    // Checked at the build and read five minutes later: the check time follows the read.
+    expect(lines(name!)).toEqual([
+      `Your memory: Ankit K · Changed ${formatLiveMirrorDateTime(T0)} · Version 9`,
+      "Profile: Ankit Kumar · Checked 5 min ago · Version 1",
+    ]);
+    // Money reads in each copy's own currency.
+    expect([euros(1_234), euros(5_678)]).toEqual(["€12.34", "€56.78"]);
+    expect(lines(amount!)).toEqual([
+      `Document payment 1, copy 1: ${euros(1_234)} · Changed ${formatLiveMirrorDateTime(T0)} · Version 1`,
+      `Document payment 1, copy 2: ${euros(5_678)} · Changed ${formatLiveMirrorDateTime(T)} · Version 1`,
+    ]);
+    // The status line says it once; conflict rows carry no badge, as on Profile.
+    for (const conflict of [name!, amount!]) expect(within(conflict).queryByText("Needs review")).toBeNull();
+    // Above the facts, and the disputed name is not repeated as a plain fact row.
+    expect(screen.getAllByTestId(/^live-mirror-(conflict|fact)$/).map(row => row.dataset.testid))
+      .toEqual(["live-mirror-conflict", "live-mirror-conflict", "live-mirror-fact"]);
+    expect(screen.getAllByTestId("live-mirror-fact").map(rowTitle)).toEqual(["Email"]);
+    // One fix row per screen that owns a disputed source, titled by where it goes.
+    // memory.md has none: Open Memory is right below.
+    const payments = liveMirrorSourceRoute("document_request_payment")!;
+    const preview = within(screen.getByRole("region", { name: "Live memory preview" }));
+    expect(preview.getAllByTestId("live-mirror-fix-at-source").map(row => within(row).getByRole("link").getAttribute("href")))
+      .toEqual(["/one/profile/account", payments.href]);
+    expect(preview.getAllByRole("link").map(link => link.textContent)).toEqual(["See all", "Edit profile", payments.label, "Open Memory"]);
+    expect(preview.queryByText("Fix at source")).toBeNull();
+    const fix = preview.getByRole("link", { name: "Edit profile" });
+    fix.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(fix);
+    expect(mocks.close).toHaveBeenCalledWith(false);
+
+    // Negative controls: a healthy mirror has no conflict row and no fix row,
+    // and the name is a plain fact again.
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid));
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(screen.queryByTestId("live-mirror-conflict")).toBeNull();
+    expect(preview.queryByTestId("live-mirror-fix-at-source")).toBeNull();
+    expect(preview.getAllByRole("link").map(link => link.textContent)).toEqual(["See all", "Open Memory"]);
+    expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Ankit K");
+  });
+
+  it("never shows a disagreement about another person's identifier, even in a view that skipped read time", async () => {
+    // Build and read time both drop these; this view stands in for one that did not.
+    const side = (copy: number, value: string): LiveMirrorClaim => ({ source: "document_request_payment", origin: "record",
+      label: `Document payment 1, copy ${copy}`, value, revision: 1, sourceUpdatedAt: T0, verifiedAt: T });
+    mocks.peekLiveMirror.mockImplementation((uid: string) => ({ ...mirrorView(uid), conflicts: [
+      { predicate: "document_request_payment.counterpartRef", label: "Person", claims: [side(1, "PERSON_REF_X"), side(2, "PERSON_REF_Y")] },
+    ] }));
+    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    openProfileTab();
+    await screen.findByTestId("live-mirror-status");
+    expect(screen.queryByTestId("live-mirror-conflict")).toBeNull();
+    expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
 });
