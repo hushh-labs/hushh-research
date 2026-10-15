@@ -166,6 +166,8 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "ask_location_agent": ("agent_location", "Location"),
     "ask_memory_agent": ("agent_personal_information", "Memory"),
     "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),
+    "calendar_invitations": ("agent_calendar", "Calendar"),
+    "open_calendar_invitation": ("agent_calendar", "Calendar"),
     "calendar_summary": ("agent_calendar", "Calendar"),
     "calendar_calendars": ("agent_calendar", "Calendar"),
     "calendar_events": ("agent_calendar", "Calendar"),

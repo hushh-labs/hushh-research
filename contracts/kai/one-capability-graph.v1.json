@@ -1435,6 +1435,186 @@
     },
     {
       "aliases": [
+        "Review Calendar invitations",
+        "show my pending invitations",
+        "accept tomorrow\u2019s client meeting",
+        "decline my 3 PM invitation",
+        "I cannot attend ask the organizer to choose another time"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.invitation.review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Continues the owner\u2019s invitation request inside the existing One Chat conversation. It can show pending invitations or prepare accept, decline, and alternate-time reviews. This handoff changes no RSVP and sends no Mail; the shared Calendar review requires an explicit browser confirmation.",
+      "execution": {
+        "binding_ref": "render:calendar.invitation.review",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "continue_calendar_in_chat"
+        }
+      },
+      "goal_id": "goal.calendar.invitation.review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "description": "What would you like to do with the invitation?",
+            "type": "string",
+            "x-hushh-resolver": "user_utterance"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "description": "What would you like to do with the invitation?",
+            "type": "string",
+            "x-hushh-resolver": "user_utterance"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review Calendar invitations",
+      "navigation": {
+        "fallback": "continue_calendar_in_chat",
+        "routes": [
+          "/",
+          "/one",
+          "/one/calendar"
+        ],
+        "screens": [
+          "chat",
+          "one_agents",
+          "calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.entity_picker",
+      "required_entities": [
+        "entity.request"
+      ],
+      "search_keywords": [
+        "calendar invitations",
+        "RSVP",
+        "accept invitation",
+        "decline invitation",
+        "offer another time"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Connect",
         "open connect",
         "connect",
@@ -41930,7 +42110,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "3678395f54b39c8df03e1f65b87b1220d2517bab701d57b405b048abcbb91b74",
+      "projection_digest": "c08639ce4c1c63ae567d5e1c33330da5cddde7823e4358ba6fddc4a7de64fffb",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41943,13 +42123,13 @@
         "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
         "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
+        "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "cecd7f883b5df838",
+      "source_revision": "a7faf3fd04605e90",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43467,7 +43647,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "cecd7f883b5df838",
+    "source_revision": "a7faf3fd04605e90",
     "web": {
       "actions": [
         {
@@ -43510,7 +43690,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "90715387a617f24ce58f28b574b4b6ae9cb1e7be707087376c102c5103e58d11",
+      "projection_digest": "a5798aa7803df4352e535f7626eff1b96a5eb704aeb24d8282313b5bb2c32865",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43523,13 +43703,13 @@
         "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
         "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
+        "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
       },
-      "source_revision": "cecd7f883b5df838",
+      "source_revision": "a7faf3fd04605e90",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45086,11 +45266,12 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "cecd7f883b5df838",
+  "revision": "a7faf3fd04605e90",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
       "action_ids": [
+        "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",
         "wallet.list",
@@ -45404,6 +45585,7 @@
     },
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
@@ -45426,6 +45608,7 @@
     },
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read"
       ],
       "capability_id": "screen:/one/calendar",
@@ -46951,9 +47134,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:calendar.invitation.review"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/",
+      "screens:screen:/one",
+      "screens:screen:/one/calendar",
+      "services:service.calendar"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "00e49f65025341a1",
@@ -46963,6 +47153,7 @@
   "services": [
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read",
         "setup.finish_calendar",
         "setup.open_calendar",
@@ -49190,18 +49381,18 @@
     "capability_graph_evolution": "03ae4a87bdb5951c2052999db121a2bdac3b78a01a65dde9cdacfbb5ee7b70d4",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "d6d90a0c2cc47f4d27aee2899f227b53d0e5cbb8cdd9c2cb370b37a97920fedf",
-    "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+    "kai_action_gateway": "ffaac2627ca9d2e1984ffec5bd25e87fefddb390d7d9f61c43b46d76c2864f24",
+    "location_agent_manifest": "34700f6e52a91fd139ce6aa5dc2f1a20b95ac61dd446b55a5530e33f4526876e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "620ef8b51a978410270249d9c6d1098ca7fee8439160c520fedc3fa29214e60c",
-    "route_orchestration_index": "d8640dd8845b5baffbeca65649d6b362a1a68a6559004b225aeaeea3b51d0050",
-    "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
+    "product_agent_registry": "1ad6cdf5e07bc7bd9410c288d616ab3a773ab5d627b3e801fc6ee363dbe86b3e",
+    "route_orchestration_index": "09cd47d384d720e3b98fd277a3ae509aaec613f106a74d5bb4ea3bb1f8911897",
+    "service_knowledge_packages": "72a5ef68f4cf5c4041155b9124faf991feafd6338900e36057f84e2d5bf39325"
   },
-  "source_revision": "cecd7f883b5df838",
+  "source_revision": "a7faf3fd04605e90",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "cecd7f883b5df838",
+    "current_graph_revision": "a7faf3fd04605e90",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49300,6 +49491,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -49502,6 +49694,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -49674,6 +49867,7 @@
           "81da1803f271bd92",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -49906,6 +50100,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50108,6 +50303,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50310,6 +50506,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
@@ -50512,6 +50709,7 @@
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "8593556d6d3e23d4",
+          "861314d5e7b95ff6",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",

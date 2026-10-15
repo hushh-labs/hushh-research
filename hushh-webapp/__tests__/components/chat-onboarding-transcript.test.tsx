@@ -8,8 +8,6 @@ import {
   useChatOnboardingSession,
 } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { dispatchLocalPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { clearConnectorStatus, primeConnectorStatus, useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
@@ -29,27 +27,22 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 
-vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: { peek: vi.fn(), getStaleFirst: vi.fn(), invalidateDomain: vi.fn() },
-}));
-const onEndConversation = vi.fn();
 const onConnect = vi.fn();
 /** Every (turn id, status) the transcript hands to the real assistant bubble. */
 const bubbleCalls: { id: string; status: string; role: string }[] = [];
 
-function Harness({ messages = [] as { id: string }[], startSignal = true, userId = "u1", unlocked = true }) {
+function Harness({ messages = [] as { id: string }[], startSignal = true, userId = "u1" }) {
   const gmail = useGmailConnectorStatus({ userId: "u1", enabled: false });
   const controller = useChatOnboarding({
     userId,
     displayName: "Kushal",
     vaultKey: "vault-key",
     vaultOwnerToken: "owner-token",
-    isVaultUnlocked: unlocked,
+    isVaultUnlocked: true,
     startSignal,
     messages,
     conversationId: null,
     onFocusComposer: () => undefined,
-    onEndConversation,
     visiblePrompts: [],
   });
   return (
@@ -71,9 +64,6 @@ function Harness({ messages = [] as { id: string }[], startSignal = true, userId
         onConnect={onConnect}
         gmailConnected={Boolean(gmail.status?.connected && !gmail.status.revoked && !gmail.status.needs_reauth)}
       />
-      <output data-testid="preferred-name">{controller.preferredName || "One"}</output>
-      <button onClick={() => controller.captureComposerText("  Roopmann  ")}>type-name</button>
-      <button onClick={() => controller.captureComposerText(" ")}>type-empty</button>
       <output data-testid="capture">{String(controller.composerPlaceholder)}</output>
       <output data-testid="onboarding-resolved">{String(controller.resolved)}</output>
       <button type="button" onClick={() => controller.captureComposerText("What's on my calendar?")}>
@@ -117,13 +107,6 @@ beforeEach(() => {
     success: true,
     fullBlob: {},
   });
-  vi.mocked(PkmDomainResourceService.peek).mockReturnValue(null);
-  vi.mocked(PkmDomainResourceService.getStaleFirst).mockReset().mockImplementation(async ({ userId }) => ({
-    key: { userId, domain: "identity", segmentIds: [], contentRevision: 1 },
-    data: {}, manifestRevision: 1, updatedAt: null,
-    audit: { cacheTier: "network", source: "network", refreshedAt: "2026-10-15" },
-  }));
-  onEndConversation.mockReset();
   onConnect.mockReset();
   bubbleCalls.length = 0;
 });
@@ -149,7 +132,7 @@ describe("first onboarding message", () => {
     expect(screen.queryByRole("button", { name: "Like response" })).toBeNull();
 
     await waitFor(() =>
-      expect(bubble.textContent).toContain("What would you like me to call you?"),
+      expect(bubble.textContent).toContain("Welcome, Kushal. I'm One, your private agent on Hussh."),
     );
     await waitFor(() => expect(bubble.getAttribute("data-message-status")).toBe("done"));
     // Typed out: the welcome mounted streaming (the bubble's own typing hook
@@ -173,7 +156,7 @@ describe("first onboarding message", () => {
     expect(bubbleCalls.filter((call) => call.id === "onboarding-1").map((c) => c.status)).not.toContain(
       "streaming",
     );
-    expect(bubble.textContent).toContain("What would you like me to call you?");
+    expect(bubble.textContent).toContain("First, what should I call you?");
     expect(screen.getByRole("button", { name: "Call me Kushal" })).toBeTruthy();
   });
 });
@@ -181,10 +164,6 @@ describe("first onboarding message", () => {
 describe("onboarding conversation", () => {
   it("recovers a failed progress read on reconnect without assuming onboarding is complete", async () => {
     vi.mocked(PreVaultUserStateService.bootstrapState).mockRejectedValueOnce(new Error("Temporary bootstrap failure"));
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockResolvedValue({
-      key: { userId: "u1", domain: "identity", segmentIds: [], contentRevision: 1 },
-      data: { communication_preferences: { preferred_name: "Saved" } },
-    } as never);
     render(<Harness startSignal={false} />);
     await waitFor(() => expect(PreVaultUserStateService.bootstrapState).toHaveBeenCalledOnce());
     expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
@@ -195,6 +174,7 @@ describe("onboarding conversation", () => {
   it("holds profile discovery through questions, confirmation, saving and failure, then releases after success", async () => {
     setReducedMotion(true);
     let finishSave!: (value: { saveState: string; success: boolean; fullBlob: object }) => void;
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
     render(<Harness messages={[{ id: "ordinary-question" }]} />);
     const resolved = () => screen.getByTestId("onboarding-resolved").textContent;
     expect(resolved()).toBe("false");
@@ -202,7 +182,6 @@ describe("onboarding conversation", () => {
     expect(resolved()).toBe("false");
     fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
     expect(resolved()).toBe("false");
-    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save to memory" }));
     await waitFor(() => expect(finishSave).toBeTypeOf("function"));
@@ -224,10 +203,6 @@ describe("onboarding conversation", () => {
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
   it("waits for owner progress and does not inherit another owner's completed onboarding", async () => {
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockImplementation(async ({ userId }) => ({
-      key: { userId, domain: "identity", segmentIds: [], contentRevision: 1 },
-      data: { communication_preferences: { preferred_name: userId === "u1" ? "Saved" : "" } },
-    } as never));
     let finishLoad!: (value: Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>>) => void;
     vi.mocked(PreVaultUserStateService.bootstrapState).mockImplementationOnce(() => new Promise(resolve => { finishLoad = resolve; }));
     const root = render(<Harness startSignal={false} />);
@@ -237,7 +212,7 @@ describe("onboarding conversation", () => {
     root.rerender(<Harness userId="new-owner" startSignal />);
     expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
   });
-  it("asks each question in turn, connects read-first, saves the chosen name, and confirms tone separately", async () => {
+  it("asks each question in turn, connects read-first, and saves only on confirmation", async () => {
     setReducedMotion(true);
     render(<Harness />);
 
@@ -260,7 +235,7 @@ describe("onboarding conversation", () => {
     } }));
     expect(await screen.findByText("Gmail connected")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Gmail" })).toBeNull();
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
 
     act(() => primeConnectorStatus({ userId: "u1", source: "status", status: {
       configured: true, connected: false, status: "disconnected", scope_csv: "",
@@ -271,12 +246,12 @@ describe("onboarding conversation", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     await screen.findByRole("button", { name: "Save to memory" });
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save to memory" }));
     });
-    await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
     await screen.findByText(/Saved\. You can change it anytime in Memory\./);
 
     // The durable record never carries an answer value.
@@ -293,14 +268,13 @@ describe("onboarding conversation", () => {
     setReducedMotion(true);
     render(<Harness />);
     await screen.findByRole("button", { name: "Call me Kushal" });
-    expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you");
+    expect(screen.getByTestId("capture").textContent).toBe("null");
 
     fireEvent.click(screen.getByRole("button", { name: "Something else" }));
     await waitFor(() =>
       expect(screen.getByTestId("capture").textContent).toBe("null"),
     );
-    expect(onEndConversation).toHaveBeenCalledTimes(1);
-    // Later input never restarts the ended onboarding.
+    // A question goes to One without repeating name or focus recommendations.
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
     await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));
     expect(screen.queryByRole("button", { name: "Call me Kushal" })).toBeNull();
@@ -316,58 +290,5 @@ describe("onboarding conversation", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Something else" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skip for now" }));
-  });
-});
-
-describe("preferred name from encrypted identity", () => {
-  const identity = (userId: string, name: string) => ({
-    key: { userId, domain: "identity", segmentIds: [], contentRevision: 1 },
-    data: { communication_preferences: { preferred_name: name } },
-  });
-
-  it("asks without a setup signal, saves once, and updates the label on a PKM event", async () => {
-    setReducedMotion(true);
-    render(<Harness startSignal={false} />);
-    await screen.findByText("What would you like me to call you?");
-    fireEvent.click(screen.getByText("type-name"));
-    fireEvent.click(screen.getByText("type-name"));
-    await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
-    const call = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls[0]![0];
-    expect(call).toMatchObject({ userId: "u1", domain: "identity",
-      confirmation: { confirmedByUser: true, source: "one_chat_onboarding" } });
-    expect(call.build({ currentDomainData: { communication_preferences: { tone: "casual" } } } as never).domainData)
-      .toMatchObject({ communication_preferences: { preferred_name: "Roopmann", tone: "casual" } });
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockResolvedValue(identity("u1", "Roopmann") as never);
-    act(() => dispatchLocalPkmDomainChanged({ userId: "u1", domain: "identity", operation: "stored", dataVersion: 2, updatedAt: null }));
-    await waitFor(() => expect(screen.getByTestId("preferred-name")).toHaveTextContent("Roopmann"));
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockResolvedValue(identity("u1", "Roop") as never);
-    act(() => dispatchLocalPkmDomainChanged({ userId: "u1", domain: "identity", operation: "stored", dataVersion: 3, updatedAt: null }));
-    expect(screen.getByTestId("preferred-name")).toHaveTextContent("Roopmann");
-    await waitFor(() => expect(screen.getByTestId("preferred-name").textContent).toBe("Roop"));
-  });
-
-  it("shows a cached returning name immediately, skips the question, and clears it on lock", async () => {
-    vi.mocked(PkmDomainResourceService.peek).mockReturnValue({ data: identity("u1", "Returning") } as never);
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockResolvedValue(identity("u1", "Returning") as never);
-    const view = render(<Harness startSignal={false} />);
-    expect(screen.getByTestId("preferred-name")).toHaveTextContent("Returning");
-    await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
-    expect(screen.queryByText("What would you like me to call you?")).toBeNull();
-    view.rerender(<Harness startSignal={false} unlocked={false} />);
-    expect(screen.getByTestId("preferred-name").textContent).toBe("One");
-    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
-  });
-
-  it("never mistakes a pending or failed read for an absent name, or shows a previous owner's name", async () => {
-    let finish!: (value: never) => void;
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const view = render(<Harness startSignal={false} />);
-    expect(screen.queryByText("What would you like me to call you?")).toBeNull();
-    vi.mocked(PkmDomainResourceService.getStaleFirst).mockRejectedValue(new Error("offline"));
-    view.rerender(<Harness startSignal={false} userId="u2" />);
-    await act(async () => finish(identity("u1", "Old owner") as never));
-    expect(screen.getByTestId("preferred-name").textContent).toBe("One");
-    expect(screen.queryByText("What would you like me to call you?")).toBeNull();
-    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 });

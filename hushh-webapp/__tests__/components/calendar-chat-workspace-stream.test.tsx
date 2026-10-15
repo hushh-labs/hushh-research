@@ -72,6 +72,90 @@ function workspace() {
 }
 
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it.each(["active slot", "expired slot", "proposal"])("replaces %s context with a generic invitation request in the same conversation", async previous => {
+    const start = new Date(Date.now() + 60000).toISOString();
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start) + 1800000).toISOString(), timeZone: "UTC" });
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    const invitations = vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], time_zone: "UTC", start_at: start, end_at: new Date(Date.parse(start) + 86400000).toISOString(), complete: true });
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 1800000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?");
+    if (previous === "proposal") {
+      fireEvent.change(composer, { target: { value: "guest@example.com" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      await screen.findByRole("button", { name: "Schedule meeting" });
+    }
+    if (previous === "expired slot") vi.spyOn(Date, "now").mockReturnValue(Date.parse(start) + 1860000);
+    stream.mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", filter: "pending" } } }));
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: {
+      ownerId: "owner", request: "Show my pending invitations.",
+    } }); });
+    await waitFor(() => expect(invitations).toHaveBeenCalled());
+    const wire = JSON.parse(String(stream.mock.calls.at(-1)?.[1]?.body));
+    expect(wire.messages.at(-1).content).toBe("Show my pending invitations.");
+    if (previous === "proposal") expect(wire.threadId).toBe(JSON.parse(String(stream.mock.calls[0][1]?.body)).threadId);
+    expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+    expect(screen.queryByText("That free window has passed. What time would work for you?")).toBeNull();
+    expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
+  });
+
+  it("retains an invitation through cold history failure and resumes the same chat after retry", async () => {
+    clearAgentChatHistoryCache("owner");
+    vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));
+    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [{
+      id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" },
+      response_status: "needsAction", can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" },
+    }], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true });
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", eventId: "invite", calendarId: "primary", decision: "accepted", filter: "all", startAt: "2030-10-14T00:00:00Z", endAt: "2030-10-15T00:00:00Z" } } }));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarInvitation: {
+      ownerId: "owner", accountEmail: "owner@example.com", eventId: "invite", calendarId: "primary",
+      decision: "accepted", request: "Accept this meeting after checking conflicts", startAt: "2030-10-14T00:00:00Z", endAt: "2030-10-15T00:00:00Z",
+    } });
+    workspace();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry conversation" }));
+    await screen.findByRole("button", { name: "Accept", exact: true });
+    expect(screen.getByText("Accept this meeting after checking conflicts")).toBeInTheDocument();
+    expect(GoogleCalendarService.invitations).toHaveBeenCalledWith(expect.objectContaining({ startAt: "2030-10-14T00:00:00Z", endAt: "2030-10-15T00:00:00Z" }));
+    const wire = JSON.parse(String(fetchStream.mock.calls[0][1]?.body));
+    const selection = Buffer.from(wire.messages.at(-1).content.find((part: { type: string }) => part.type === "document").source.value, "base64").toString();
+    expect(selection).toContain('"eventId":"invite"');
+    expect(wire.messages.at(-1).content).toContainEqual({ type: "text", text: "Accept this meeting after checking conflicts" });
+    expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
+  });
+
+  it.each(["tool", "state"] as const)("shows invitation controls from %s inside the existing conversation", async delivery => {
+    const invitation = { id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" }, response_status: "needsAction" as const, can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" } };
+    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true });
+    const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse(delivery, directive));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    const review = vi.spyOn(GoogleCalendarService, "reviewAttendance").mockResolvedValue({ review_id: "review", review_token: "browser-memory-only", title: "Client Sync", response_status: "accepted", conflicts: [], recipient: null, subject: null, message: null, rescheduling_link: null, sender_label: null, expires_at: "2030-10-14T09:00:00Z" });
+    const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance").mockResolvedValue({ calendar: "accepted", email: "not_sent", calendar_error: null, email_error: null });
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Accept tomorrow's client meeting" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", responseStatus: "accepted" })));
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm accept" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(screen.getByText("Accept tomorrow's client meeting")).toBeInTheDocument();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
+  });
+
   it("retains a cold slot through failed history and resumes after explicit retry", async () => {
     clearAgentChatHistoryCache("owner");
     vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));
@@ -259,6 +343,36 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects an in-flight Calendar confirmation after the owner changes", async () => {
+    const start = new Date(Date.now() + 3600000).toISOString();
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start) + 1800000).toISOString(), timeZone: "UTC" });
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    const view = workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
+    fireEvent.change(composer, { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    let resolveStatus!: (value: Awaited<ReturnType<typeof GoogleCalendarService.status>>) => void;
+    vi.mocked(GoogleCalendarService.status).mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule meeting" }));
+    await waitFor(() => expect(resolveStatus).toBeTypeOf("function"));
+
+    fixture.auth.user.uid = "replacement";
+    publishValidatedAuthSessionOwner("replacement");
+    view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+    await waitFor(() => expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull());
+    await act(async () => { resolveStatus({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never); });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(screen.queryByText("The conversation changed before scheduling.")).toBeNull();
+  });
+
   it("account replacement clears the pending preview before it can execute", async () => {
     vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
@@ -273,4 +387,43 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
   });
 
+});
+
+it("interprets a selected Live request in the same existing chat and preserves proposed terms", async () => {
+  const event = { id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" }, response_status: "needsAction" as const, can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" } };
+  vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [event], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2030-10-15T00:00:00Z", complete: true });
+  const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", calendarId: "primary", eventId: "invite", decision: "offer_times", filter: "all", terms: { date: "2030-10-18", startTime: "15:00", endTime: "18:00", durationMinutes: 45, message: "Could we meet Friday after 3 PM?" } } } };
+  const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", directive));
+  const review = vi.spyOn(GoogleCalendarService, "reviewAttendance");
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: "Earlier conversation" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByRole("textbox", { name: "Message to organiser" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarInvitation: { ownerId: "owner", accountEmail: "owner@example.com", calendarId: "primary", eventId: "invite", decision: "offer_times", request: "Ask for next Friday after 3 PM", startAt: "2030-10-14T00:00:00Z", endAt: "2030-10-15T00:00:00Z" } }); });
+  await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(2));
+  const first = JSON.parse(String(fetchStream.mock.calls[0][1]?.body)), second = JSON.parse(String(fetchStream.mock.calls[1][1]?.body));
+  expect(second.threadId).toBe(first.threadId);
+  expect(second.messages.at(-1).content).toContainEqual({ type: "text", text: "Ask for next Friday after 3 PM" });
+  expect(await screen.findByLabelText("Alternative date")).toHaveValue("2030-10-18");
+  expect(screen.getByLabelText("Alternative start time")).toHaveValue("15:00");
+  expect(screen.getByLabelText("Alternative duration in minutes")).toHaveValue(45);
+  expect(screen.getByRole("textbox", { name: "Message to organiser" })).toHaveValue("Could we meet Friday after 3 PM?");
+  expect(screen.getByText("Earlier conversation")).toBeInTheDocument();
+  expect(review).not.toHaveBeenCalled();
+});
+
+it("rejects a changed Google account even if the model returns the same invitation under that account", async () => {
+  vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, google_email: "changed@example.com", access_level: "manage" } as never);
+  const payload = { type: "calendar.invitations", calendarId: "primary", eventId: "invite", decision: "accepted", filter: "all", accountEmail: "changed@example.com" };
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload } }));
+  vi.spyOn(GoogleCalendarService, "invitations").mockRejectedValue(new Error("No selected-account read allowed"));
+  const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance");
+  useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarInvitation: { ownerId: "owner", accountEmail: "owner@example.com", calendarId: "primary", eventId: "invite", request: "Accept this invitation" } });
+  workspace();
+  await screen.findByText("The connected Calendar account changed. Close this review and ask One to check the invitation again.");
+  expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull();
+  expect(confirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Close invitations" }));
+  expect(screen.queryByText(/The connected Calendar account changed/)).toBeNull();
 });

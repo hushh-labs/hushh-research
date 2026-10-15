@@ -318,3 +318,15 @@ describe("connectCalendarInPlace", () => {
     );
   });
 });
+
+// Invitations enumerate accessible calendars and request that scope only on recovery.
+it("preserves Calendar List permission through native in-chat recovery", async () => {
+  mocks.native = true;
+  mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "read", state: "signed-state", include_calendar_list: true });
+  mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
+  mocks.calendarCompleteNative.mockResolvedValue({ connected: true, status: "connected", access_level: "read", calendar_list_access: false });
+  const start = connectCalendarInPlace({ owner, accessLevel: "read", includeCalendarList: true });
+  await expect(start.result).resolves.toBe("not_connected");
+  expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
+  expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
+});

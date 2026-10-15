@@ -573,8 +573,13 @@ class CalendarScheduleService:
         end_time: str,
         duration_minutes: int,
         future_only: bool = False,
+        invitation_duration: bool = False,
     ):
-        if duration_minutes not in (15, 30, 60):
+        if not (
+            invitation_duration
+            and isinstance(duration_minutes, int)
+            and 1 <= duration_minutes <= 1440
+        ) and duration_minutes not in (15, 30, 60):
             raise _error("Choose 15, 30 or 60 minutes.")
         start, end = day_window(date, time_zone, start_time, end_time)
         binding = await self._read_binding(user_id)
@@ -594,7 +599,7 @@ class CalendarScheduleService:
         # The owning service merges overlapping busy intervals in UTC and fails
         # closed on missing/failed calendars. No client-side slot calculation.
         ids = [item["id"] for item in calendars]
-        if len(ids) <= 20:
+        if len(ids) <= 20 and not invitation_duration:
             result = await self.calendar.find_openings(
                 user_id=user_id,
                 start_at=start.isoformat().replace("+00:00", "Z"),
@@ -626,26 +631,44 @@ class CalendarScheduleService:
         return {**result, "time_zone": time_zone, "calendars": calendars}
 
     @staticmethod
-    def attendance_patch(event: dict[str, Any]):
+    def attendance_patch(event: dict[str, Any], response_status="declined", owner_email=None):
+        from hushh_mcp.services.calendar_invitations import own_attendee
+
+        if response_status not in {"accepted", "declined", "tentative"}:
+            raise _error("Choose a valid invitation response.")
         organizer = event.get("organizer") or {}
         attendees = event.get("attendees") or []
-        own = [item for item in attendees if item.get("self") is True and not item.get("organizer")]
+        matched = own_attendee(event, owner_email, raw=True) if owner_email else None
+        own = (
+            [matched]
+            if matched
+            else (
+                []
+                if owner_email
+                else [
+                    item
+                    for item in attendees
+                    if item.get("self") is True and not item.get("organizer")
+                ]
+            )
+        )
         if (
-            organizer.get("self")
+            (organizer.get("self") and not owner_email)
+            or event.get("recurrence")
             or event.get("status") == "cancelled"
             or event.get("attendeesOmitted")
             or len(own) != 1
             or not own[0].get("email")
         ):
             raise _error(
-                "Only your own attendance on an invitation can be declined.",
+                "Only your own attendance on a single invitation can be changed.",
                 403,
                 "calendar_attendance_forbidden",
             )
         # https://developers.google.com/workspace/calendar/api/v3/reference/events
         return {
             "attendeesOmitted": True,
-            "attendees": [{"email": own[0]["email"], "responseStatus": "declined"}],
+            "attendees": [{"email": own[0]["email"], "responseStatus": response_status}],
         }
 
     @staticmethod
@@ -682,34 +705,80 @@ class CalendarScheduleService:
                 "calendar_review_expired",
             ) from exc
 
-    async def _event(self, user_id: str, event_id: str, calendar_id: str, expected_binding=None):
-        # self on a shared calendar is not proof of the connected person's identity.
-        if calendar_id != "primary" or not event_id or len(event_id) > 2048:
-            raise _error("Decline is available for your primary Calendar invitations.", 403)
+    async def invitations(self, *, user_id, **kwargs):
+        from hushh_mcp.services.calendar_invitations import invitation_snapshot
+
+        return await invitation_snapshot(self, user_id=user_id, **kwargs)
+
+    async def _event(
+        self,
+        user_id: str,
+        event_id: str,
+        calendar_id: str,
+        expected_binding=None,
+        response_status="declined",
+    ):
+        if not calendar_id or len(calendar_id) > 1024 or not event_id or len(event_id) > 2048:
+            raise _error("Choose a valid invitation.")
+        if calendar_id != "primary":
+            calendars = await self._included_calendars(user_id, binding=expected_binding)
+            if calendar_id not in {c["id"] for c in calendars}:
+                raise _error("This calendar is no longer accessible.", 403)
         event = await self.calendar._request(
             user_id=user_id,
             method="GET",
-            path=f"/calendars/primary/events/{quote(event_id, safe='')}",
+            path=f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             access="manage",
             expected_binding=expected_binding,
         )
-        patch = self.attendance_patch(event)
         status = await self.calendar.connections.status(user_id=user_id, service="calendar")
         email = str(status.get("google_email") or "").lower()
-        organizer = event.get("organizer") or {}
-        if (
-            not email
-            or patch["attendees"][0]["email"].lower() != email
-            or str(organizer.get("email") or "").lower() == email
-        ):
+        if not email:
             raise _error(
-                "Your attendance could not be verified for this invitation.",
-                403,
-                "calendar_attendance_forbidden",
+                "Your Calendar account could not be verified.", 403, "calendar_attendance_forbidden"
             )
+        patch = self.attendance_patch(event, response_status, email)
         if not event.get("etag"):
             raise _error("The invitation could not be checked. Try again.", 502)
         return event, patch, email
+
+    async def _invitation_conflicts(self, *, user_id, event, calendar_id, time_zone, binding):
+        from hushh_mcp.services.calendar_invitations import event_bounds, occurrence_key
+
+        calendars = await self._included_calendars(user_id, binding=binding)
+        source = next(
+            (
+                c
+                for c in calendars
+                if c["id"] == calendar_id or (calendar_id == "primary" and c.get("primary"))
+            ),
+            {},
+        )
+        focus = {
+            **self.calendar._event_summary(event),
+            "calendar_id": calendar_id,
+            "source_time_zone": source.get("time_zone") or time_zone,
+        }
+        start, end = event_bounds(focus, time_zone)
+        snapshot = await self.invitations(
+            user_id=user_id,
+            start_at=start.isoformat(),
+            end_at=end.isoformat(),
+            time_zone=time_zone,
+            binding=binding,
+        )
+        selected = next(
+            (
+                e
+                for e in snapshot["events"]
+                if (e["id"] == event["id"] and e["calendar_id"] == calendar_id)
+                or occurrence_key(e) == occurrence_key(focus)
+            ),
+            None,
+        )
+        if selected is None:
+            raise _error("This invitation changed. Load it again before responding.", 409)
+        return selected["conflicts"], [c["id"] for c in snapshot["unreadable_calendars"]]
 
     async def review(
         self,
@@ -724,9 +793,30 @@ class CalendarScheduleService:
         start_time: str = "09:00",
         end_time: str = "17:00",
         duration_minutes: int = 30,
+        response_status: str = "declined",
+        expected_account_email: str | None = None,
     ):
+        if offer_times and response_status != "declined":
+            raise _error("Alternative-time messages require a decline response.")
         binding = await self._read_binding(user_id)
-        event, patch, email = await self._event(user_id, event_id, calendar_id, binding)
+        event, patch, email = await self._event(
+            user_id, event_id, calendar_id, binding, response_status
+        )
+        if expected_account_email and email.casefold() != expected_account_email.casefold():
+            raise _error(
+                "The connected Calendar account changed. Load this invitation again.",
+                409,
+                "calendar_connection_changed",
+            )
+        conflicts, unchecked = [], []
+        if response_status == "accepted":
+            conflicts, unchecked = await self._invitation_conflicts(
+                user_id=user_id,
+                event=event,
+                calendar_id=calendar_id,
+                time_zone=time_zone,
+                binding=binding,
+            )
         review_id = secrets.token_urlsafe(24)
         await self.calendar._check_read_binding(user_id, binding)
         plan = {
@@ -734,11 +824,16 @@ class CalendarScheduleService:
             "review_id": review_id,
             "expires": (datetime.now(UTC) + timedelta(minutes=10)).timestamp(),
             "event_id": event_id,
+            "calendar_id": calendar_id,
+            "response_status": response_status,
+            "conflicts": conflicts,
+            "unchecked_calendars": unchecked,
+            "time_zone": time_zone,
             "etag": event["etag"],
             "patch": patch,
             "binding": list(binding),
         }
-        mail_review, link, draft = None, None, None
+        mail_review, link, draft, alternatives = None, None, None, []
         if offer_times:
             organizer_email = str((event.get("organizer") or {}).get("email") or "")
             if not organizer_email:
@@ -751,6 +846,7 @@ class CalendarScheduleService:
                 end_time=end_time,
                 duration_minutes=duration_minutes,
                 future_only=True,
+                invitation_duration=True,
             )
             openings["openings"] = [
                 slot
@@ -762,6 +858,7 @@ class CalendarScheduleService:
                 raise _error(
                     "No alternative times are available in this window. Choose another date or window."
                 )
+            alternatives = openings["openings"]
             origin = _recipient_origin(get_app_runtime_settings().app_frontend_origin)
             public_plan = {
                 "user_id": user_id,
@@ -810,6 +907,11 @@ class CalendarScheduleService:
         await self.calendar._check_read_binding(user_id, binding)
         return {
             "review_id": review_id,
+            "calendar_id": calendar_id,
+            "response_status": response_status,
+            "conflicts": conflicts,
+            "unchecked_calendars": unchecked,
+            "openings": alternatives,
             "review_token": self._seal(plan, "calendar-review-v1"),
             "title": event.get("summary") or "Untitled event",
             "recipient": draft["to"] if draft else None,
@@ -852,32 +954,64 @@ class CalendarScheduleService:
         try:
             await self.calendar._check_read_binding(user_id, tuple(plan["binding"]))
             current, patch, _ = await self._event(
-                user_id, plan["event_id"], "primary", tuple(plan["binding"])
+                user_id,
+                plan["event_id"],
+                plan.get("calendar_id", "primary"),
+                tuple(plan["binding"]),
+                plan.get("response_status", "declined"),
             )
             if current["etag"] != plan["etag"] or patch != plan["patch"]:
                 raise _error("The invitation changed. Review it again before confirming.", 409)
             await self.calendar._check_read_binding(user_id, tuple(plan["binding"]))
-            attendee = next(item for item in current["attendees"] if item.get("self"))
-            if attendee.get("responseStatus") != "declined":
+            target_status = plan.get("response_status", "declined")
+            if target_status == "accepted":
+                conflicts, unchecked = await self._invitation_conflicts(
+                    user_id=user_id,
+                    event=current,
+                    calendar_id=plan.get("calendar_id", "primary"),
+                    time_zone=plan.get("time_zone", "UTC"),
+                    binding=tuple(plan["binding"]),
+                )
+                self.calendar._reject_new_conflicts(
+                    planned=plan.get("conflicts", []), current=conflicts
+                )
+                if set(unchecked) - set(plan.get("unchecked_calendars", [])):
+                    raise _error(
+                        "Calendar access changed. Review conflicts again before accepting.", 409
+                    )
+            attendee_email = patch["attendees"][0]["email"].casefold()
+            attendee = next(
+                item
+                for item in current["attendees"]
+                if str(item.get("email") or "").casefold() == attendee_email
+            )
+            if attendee.get("responseStatus") != target_status:
                 patch_attempted = True
                 response = await self.calendar._request(
                     user_id=user_id,
                     method="PATCH",
-                    path=f"/calendars/primary/events/{quote(plan['event_id'], safe='')}",
+                    path=f"/calendars/{quote(plan.get('calendar_id', 'primary'), safe='')}/events/{quote(plan['event_id'], safe='')}",
                     access="manage",
                     headers={"If-Match": current["etag"]},
                     params={"sendUpdates": "all"},
                     payload=patch,
                     expected_binding=tuple(plan["binding"]),
                 )
-                own = next((item for item in response.get("attendees", []) if item.get("self")), {})
-                if own.get("responseStatus") != "declined":
+                own = next(
+                    (
+                        item
+                        for item in response.get("attendees", [])
+                        if str(item.get("email") or "").casefold() == attendee_email
+                    ),
+                    {},
+                )
+                if own.get("responseStatus") != target_status:
                     result["calendar"] = "unknown"
                     raise _error(
-                        "Calendar did not confirm your decline. Check the invitation before retrying.",
+                        "Calendar did not confirm your response. Check the invitation before retrying.",
                         502,
                     )
-            result["calendar"] = "declined"
+            result["calendar"] = target_status
         except Exception as exc:
             if (
                 result["calendar"] != "unknown"

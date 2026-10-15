@@ -106,3 +106,29 @@ The original UAT request reached Google FreeBusy HTTP 200 and then backend 502 b
 ## Second read-reliability audit
 
 The [implementation plan and 64-case matrix](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.
+
+
+## Invitations (source implementation, 2026-10-16)
+
+The connected Invitations tab and inline One Chat cards share one received-invitation
+reader and the existing attendance review/confirm service. Upcoming occurrences span
+all subscribed readable calendars; connected-email identity excludes organizer-owned
+meetings and shared-calendar `self` impersonation. Pending is `needsAction`; Responded
+is accepted/declined/tentative. Exact source calendar and occurrence survive selection.
+Accept reviews conflicts and rechecks before changing only the owner's RSVP. Decline
+uses the same narrow patch, never organizer cancellation. Alternate-time requests keep
+the current chat, use real availability, and prepare editable reviewed organizer Mail
+with the existing public capability reader. The organizer must confirm a new time;
+Calendar and Mail outcomes remain separate. Realtime voice only hands the bounded
+request into that chat review. It never mutates Calendar in the operational Live tool.
+
+No migrations or shared deployments are part of this implementation. Synthetic service,
+route, chat and Chromium/WebKit proofs are distinct from authenticated Google/Mail
+acceptance; provider-backed acceptance must be recorded against a deployed revision.
+
+The single non-mutating Live-to-Chat adapter adds one declared tool. Its measured
+worst-case negotiated voice payload is 87 tools, 51,867 instruction characters
+(51,879 UTF-8 bytes), and 71,924 declaration bytes. The owning performance budget
+is bounded at 87 tools, 51,900 characters / 51,912 UTF-8 bytes, and 72,000 schema
+bytes; the description cap is unchanged. These are static payload measurements,
+not a claim about provider latency or live speech interpretation.
