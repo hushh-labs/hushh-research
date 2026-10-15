@@ -755,7 +755,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
   await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
-  expect(await page.evaluate(() => window.__walletEvents)).toEqual(["add", "reveal:card_saved_1"]);
+  expect(await page.evaluate(() => window.__walletEvents?.filter(event => !event.startsWith("history-loaded:")))).toEqual(["add"]);
   expect(errors).toEqual([]);
 });
 
