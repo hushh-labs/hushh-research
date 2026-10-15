@@ -1236,7 +1236,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/350_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/351_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -1581,7 +1581,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/350_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/351_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -3957,8 +3957,8 @@ not infer their presence from the highest applied number.
 
 Shared referral completion uses the existing CAS transaction and content-free
 outbox. Explicit private repositories retain their owner cipher and never receive
-the shared outbox writer. A broken-code negative control confirms that violating
-this boundary fails the existing private-repository test. Secret synchronization
+the shared outbox writer. The focused private-repository test protects this boundary; a separate
+broken-code negative-control execution is not established by the retained evidence. Secret synchronization
 uses one strict runtime snapshot before writes and retains only owned settings.
 
 Focused checks pass 212 backend, 100 frontend, 141 placement/PostgreSQL and 239
