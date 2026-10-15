@@ -44,22 +44,20 @@ predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
 
-**Lifecycle correction — local, not deployed:** 197 focused cases pass, including
-real PostgreSQL refusal on an old erasure schema before key destruction and
-retention of exact provider outcomes. New GCP inventories exclude uncreated
-legacy mail resources while historical receipts keep their obligations. Dev-only
-migration 960 must be admitted before using the new Azure erasure response.
-Dev-only 961 retains setup bindings, a dedicated-session worker witness and
-secret-free ARM request/acknowledgement/terminal receipts in the existing job.
-**265 focused checks pass**, including real PostgreSQL erasure races, retained
-retry history and reserved completion capacity. Broken replay, capacity and
-late-receipt controls fail as required. Redirects and uncertain write replay are
-refused; polling distinguishes provider completion from acceptance. This proves
-fresh setup's receipt boundary, not drain of legacy/rebuild/update workers.
-Full Azure resource deletion, unresolved-operation reconciliation and
-operator-project mail-topic cleanup remain implementation work. Account deletion
-stays refused while obligations are unresolved; provider retention is not
-immediate physical erasure.
+**Lifecycle correction — local, not deployed:** focused groups pass: **98 Azure
+cleanup/transport**, **110 update/handoff**, and **94 connector/erasure** cases.
+Real PostgreSQL proves exact-plan approval, actual worker-session ownership,
+retained uncertainty and refusal of unjournalled later jobs. Cancellation joins
+the real update thread and fences new writes. Full cleanup preserves encrypted
+credentials until provider revocation succeeds; version-4 tombstones cover
+cleared/superseded grants. Legacy repair requires the original key, exact fenced
+inventory and conditional metadata replacement. Broken-code controls fail.
+
+Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
+JIT deletion/finalization, hosted-worker journaling and operator-project mail-topic
+cleanup before release freeze. Account deletion stays refused while obligations
+are unresolved; provider retention is not immediate physical erasure. Existing
+GCP receipts keep historical obligations without inventing uncreated resources.
 
 **Browser correction — local, disabled:** 22 UI cases and headless checks of the
 actual component with optimized CSS at 390/820/1440 px pass, including mouse/touch;

@@ -575,10 +575,13 @@ async def test_legacy_provider_retry_requires_the_original_key_inventory_and_gen
 
     class Replaced(_Recording):
         async def put_if_generation(self, key, value, generation):
+            if key != ERASURE_TOMBSTONE_OBJECT:
+                return await self._inner.put_if_generation(key, value, generation)
             assert key == ERASURE_TOMBSTONE_OBJECT and generation != ABSENT
+            replacement = {**json.loads(value), "records": []}
             assert (
                 await self._inner.put_if_generation(
-                    key, json.dumps({**body, "attemptId": "another-attempt"}).encode(), generation
+                    key, json.dumps(replacement).encode(), generation
                 )
                 is not None
             )

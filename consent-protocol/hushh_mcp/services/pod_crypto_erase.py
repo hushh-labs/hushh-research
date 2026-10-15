@@ -288,6 +288,8 @@ async def _claim_tombstone(
     winner, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
     if not isinstance(winner, bytes):
         raise PodCryptoEraseRefused("the erasure tombstone could not be confirmed")
+    if previous is not None and winner != tombstone:
+        raise PodCryptoEraseRefused("the retained provider receipt changed during recovery")
     return winner
 
 

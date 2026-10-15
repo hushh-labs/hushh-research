@@ -20707,7 +20707,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_crypto_erase.py",
       "symbol": null,
-      "value": 549
+      "value": 691
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27329,6 +27329,60 @@
       "key": "class_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py|ByocSetupJobRepo|class exceeds the advisory operon budget",
       "limit": 250,
       "value": 252
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
+      "symbol": "ArmClient",
+      "value": 260
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py|_replace|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
+      "symbol": "_replace",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/pod_connector_connect.py|revoke_fenced|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/pod_connector_connect.py",
+      "symbol": "revoke_fenced",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
+      "symbol": null,
+      "value": 514
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
+      "symbol": null,
+      "value": 511
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/pod_connector_connect.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/pod_connector_connect.py",
+      "symbol": null,
+      "value": 505
     }
   ],
   "inspected_files": 6625,
@@ -52366,6 +52420,55 @@
         "after": 90,
         "reviewer": "owner_lifecycle_cleanup_review",
         "source_sha256": "8c096f9a2d404855bb64ee6ebeccf01dfff3579b3427bf09f8f2957dc58c4caa"
+      }
+    ]
+  },
+  "provider_cleanup_recovery_review_20261015": {
+    "source_parent": "11b7fd1b8dfba490a01318c84ee4c1c9f2871b99",
+    "reviewer": "owner_lifecycle_cleanup_review, read-only independent security/architecture review",
+    "rationale": "Seven exact measured spans only: operation-bound ARM guard/journal clones, real-worker cancellation and handoff/prune fencing, bounded historical grant inventory, and nearest owner-fence/provider-recovery regressions. Legacy recovery preserves original custody and inventory with exact-candidate CAS-loss acceptance. Extracting unrelated parser or authority code solely for line counts would increase change risk. Global module/class/function budgets remain unchanged. No cloud acceptance claim.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+        "previous": null,
+        "reviewed": 260,
+        "source_sha256": "8daaf28c738de2c8ca22c3cd0eac40ca416ac80d039ab44d16bcb17d96e28194"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py|_replace|function exceeds the advisory gene budget",
+        "previous": null,
+        "reviewed": 84,
+        "source_sha256": "b8d8c361199abd94fd7d026e4099825b0aa552dea78326e80a3090583978d99f"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_connector_connect.py|revoke_fenced|function exceeds the advisory gene budget",
+        "previous": null,
+        "reviewed": 81,
+        "source_sha256": "64eb39d48a5237512a731cffc4595fe89930c72e82b72be046bdc5eee6db193c"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+        "previous": 549,
+        "reviewed": 691,
+        "source_sha256": "7232e25c908c69ec8ebea8c11a87596db1996e84712d7e2b8073779dac8aade0"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+        "previous": null,
+        "reviewed": 514,
+        "source_sha256": "8daaf28c738de2c8ca22c3cd0eac40ca416ac80d039ab44d16bcb17d96e28194"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py||module exceeds the advisory operon budget",
+        "previous": null,
+        "reviewed": 511,
+        "source_sha256": "b8d8c361199abd94fd7d026e4099825b0aa552dea78326e80a3090583978d99f"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/pod_connector_connect.py||module exceeds the advisory operon budget",
+        "previous": null,
+        "reviewed": 505,
+        "source_sha256": "64eb39d48a5237512a731cffc4595fe89930c72e82b72be046bdc5eee6db193c"
       }
     ]
   }
