@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Check, CheckCheck } from "@/components/icons";
+import { Check, CheckCheck, Plus } from "@/components/icons";
+import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { OneChatTimeSeparator } from "@/components/agent/chat-message-styles";
 import { conversationDayLabel, messagesFormGroup } from "@/components/app-ui/conversation-message";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -16,7 +17,6 @@ export type OutgoingChatMessage = Pick<ChatMessage, "id" | "clientMessageId" | "
   receipt?: never; reactions?: never; senderPhotoUrl?: never;
 };
 type Reaction = NonNullable<ChatMessage["reactions"]>[number];
-const REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"] as const;
 
 function senderColor(userId: string): number {
   let hash = 0;
@@ -46,29 +46,17 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   const seen = Boolean(receipt && receipt.recipientCount !== null && receipt.recipientCount > 0 && receipt.readCount === receipt.recipientCount);
   const status = seen ? "Seen by everyone" : receipt?.recipientCount ? `Sent · Read by ${receipt.readCount} of ${receipt.recipientCount}` : "Sent";
   const [reactions, setReactions] = useState<Reaction[]>(message.reactions ?? []);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reactionError, setReactionError] = useState(false);
-  const pickerRoot = useRef<HTMLDivElement>(null);
-  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdOpened = useRef(false);
+  const saving = useRef(false);
   useEffect(() => setReactions(message.reactions ?? []), [message.reactions]);
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!pickerRoot.current?.contains(event.target as Node)) setPickerOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    return () => document.removeEventListener("pointerdown", closeOutside);
-  }, [pickerOpen]);
-  useEffect(() => () => { if (hold.current) clearTimeout(hold.current); }, []);
 
   const react = async (emoji: string) => {
-    if (busy || !confirmed) return;
+    if (saving.current || !confirmed || !visible || layoutBlocked) return;
+    saving.current = true;
     const previousReactions = reactions;
     const active = !reactions.some((item) => item.emoji === emoji && item.reactedByViewer);
     setReactions(toggleReaction(reactions, emoji, active));
-    setPickerOpen(false);
     setReactionError(false);
     setBusy(true);
     try {
@@ -77,7 +65,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
     } catch {
       setReactions(previousReactions);
       setReactionError(true);
-    } finally { setBusy(false); }
+    } finally { saving.current = false; setBusy(false); }
   };
   const attachment = message.content?.attachment;
   const image = message.content?.image ?? (attachment?.kind === "photo" ? attachment : null);
@@ -104,20 +92,14 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 : <span role="status">{message.delivery === "sending" ? "Sending…" : "Delivery unconfirmed"}</span> : null}
             </div>
           </div>
-          {confirmed ? <div ref={pickerRoot} className={styles.reactionControl}>
-            <button type="button" className={styles.addReaction} aria-label="React to message" aria-expanded={pickerOpen} disabled={busy}
-              onClick={() => { if (holdOpened.current) { holdOpened.current = false; return; } setPickerOpen((open) => !open); }}
-              onPointerDown={(event) => { if (event.pointerType === "touch") { holdOpened.current = false; hold.current = setTimeout(() => { holdOpened.current = true; setPickerOpen(true); }, 420); } }}
-              onPointerUp={() => { if (hold.current) clearTimeout(hold.current); }}
-              onPointerCancel={() => { if (hold.current) clearTimeout(hold.current); holdOpened.current = false; }}>☺</button>
-            {pickerOpen ? <div className={styles.picker} role="group" aria-label="Choose a reaction">
-              {REACTIONS.map((emoji) => <button key={emoji} type="button" aria-label={`React with ${emoji}`} onClick={() => void react(emoji)}>{emoji}</button>)}
-            </div> : null}
-          </div> : null}
         </div>
-        {reactions.length ? <div className={styles.pills}>{reactions.map((reaction) => <button key={reaction.emoji} type="button"
+        {confirmed ? <div className={styles.pills}>{reactions.map((reaction) => <button key={reaction.emoji} type="button"
           className={`${styles.pill} ${reaction.reactedByViewer ? styles.mine : ""}`} aria-label={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByViewer ? ", you reacted" : ""}`}
-          disabled={busy} onClick={() => void react(reaction.emoji)}><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></button>)}</div> : null}
+          disabled={busy || !visible || layoutBlocked} onClick={() => void react(reaction.emoji)}><span className={styles.badge}><span aria-hidden="true">{reaction.emoji}</span><span>{reaction.count}</span></span></button>)}
+          <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked}
+            triggerClassName={styles.addReaction} triggerIcon={<Plus className="size-4" />}
+            dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} />
+        </div> : null}
         {reactionError ? <p role="alert" className={styles.reactionError}>Reaction could not be saved. Try again.</p> : null}
       </div>
     </div>
