@@ -166,9 +166,13 @@ class MeteredInterpret:
 class InMemoryPacketStore:
     """The DrivePacketStore methods DrivePacketWorker uses, without persistence."""
 
-    def __init__(self, *, facts_store: InMemoryFactsStore | None = None):
+    def __init__(self, *, facts_store: InMemoryFactsStore | None = None, owner=None):
         self.heads: dict[str, dict] = {}
         self.facts_store = facts_store
+        # The owner's name on file for the runtime's wrong-person fence, as
+        # {"names": [...]}. A replay without one is not checked by that fence;
+        # the other Ready gates still run. Real-Drive batches may supply it.
+        self.owner = owner
         self._clock = 0
 
     def update_membership(self, document_id: str, folded) -> None:
@@ -278,6 +282,9 @@ class InMemoryPacketStore:
 
     async def require_packet_current(self, job):
         return None
+
+    async def owner_identity(self, *, user_id):
+        return self.owner
 
     async def commit_build(self, job, *, build, after_document_id, phase):
         head = self.heads[job["key"]]
