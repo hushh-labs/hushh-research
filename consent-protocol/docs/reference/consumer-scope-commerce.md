@@ -114,6 +114,18 @@ The temporary permission was removed immediately afterward. No subscription
 upgrade or Stripe financial mutation occurred. Encrypted synthetic Memory
 preparation has resumed through the existing unlocked owner session.
 
+The resumed proposal reaches Azure Responses but returns HTTP 400 and the safe
+`PKM_PROPOSAL_UNAVAILABLE` response. Authenticated owner status identifies the
+installed pod as `2026.10-dev.19+e04b76c61433.fa018342`; it predates the existing
+schema-normalization correction in this branch. An offline replay rejects that
+installed serializer's actual Memory schema and validates the candidate's schema
+without changing the authored information contract. All 98 provider/Responses
+cases pass. The installed source defect is established; attributing the provider's
+generic 400 to its exact rejected field remains qualified. Publish a CI-qualified
+immutable pod image through the normal release workflow, use the existing
+owner-approved update, verify recovery, and repeat the same proposal. No encrypted
+fixture save or scope purchase is claimed by this failed attempt.
+
 The composed core's subsequent blockers were a main-imported implicit Mermaid
 node and an outdated platform-skill inventory hash. The diagram now declares its
 node; the independently reviewed skill diff changes one freshness comment only,
@@ -130,6 +142,9 @@ bind incoming main revision `710bd535b7febc69`: the hosting-aware connection cho
 and return-to-hub completion intentionally reject paused Gemini-only semantics.
 The exact-revision gate caught these after the normal merge; no wildcard or
 unrelated action retirement was added.
+The later core run also caught stale ordering in the three database readiness
+projections. Their owning capability, onboarding and scope-commerce generators
+now agree. Table/column/function sets, schema heads and migration SQL are unchanged.
 The final focused packs pass 71 backend, 106 frontend and 461 Back cases;
 TypeScript and generated UI parity pass. Independent source/AST review qualifies
 exactly ten inherited or composed size measurements under unchanged architecture
