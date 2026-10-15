@@ -101,8 +101,23 @@ test("Back cancels the crop/read layer and keeps the Add draft in place", async 
 for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real encrypted write → Cards/reload/lock at ${width}px`, async ({ page }, testInfo) => {
   test.setTimeout(180000); record = null; wire.length = 0; artworkMode = "ambiguous";
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  if (width < 640) await page.addInitScript(() => {
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: () => Promise.reject(new DOMException("Synthetic permission rejection", "NotAllowedError")) } });
+  });
   await page.setViewportSize({ width, height: 900 }); await page.goto(origin); await awaitProductFont(page);
-  await page.getByLabel("Choose a card photo", { exact: true }).setInputFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
+  if (width < 640) {
+    await page.getByRole("button", { name: "Scan card", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Camera unavailable" })).toBeVisible();
+    const capture = page.getByRole("region", { name: "Photograph your card", exact: true });
+    for (const name of ["Take photo", "Choose from photos", "Cancel"]) {
+      const box = await capture.getByRole("button", { name, exact: true }).boundingBox();
+      expect(box).not.toBeNull(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`camera-photo-fallback-${width}.png`) });
+  }
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
+  await (await chooser).setFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
   await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Use full photo" }).click(); await page.getByRole("button", { name: "Read card", exact: true }).click();
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242424242424242", { timeout: 120000 });
