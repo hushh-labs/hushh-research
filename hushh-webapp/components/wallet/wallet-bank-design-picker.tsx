@@ -76,7 +76,6 @@ export function WalletBankDesignPicker({ context, network, country, active, draf
     </Select>
     {bankKey ? <><p className={TYPOGRAPHY_CLASSNAMES.helperText}>Adapted bank artwork. It may differ from your physical card.</p>
       <div className="flex snap-x gap-3 overflow-x-auto p-1" aria-label="Bank designs">{context ? designs.map(variant => <WalletCardArtworkTile key={variant.assetId} context={context} variant={variant} catalogVersion={version} selected={selected === variant.assetId} onSelect={() => void choose(variant)} />) : null}</div>
-      <Button type="button" size="compact" variant="ghost" onClick={() => { manual.current = true; chosen.current = null; operation.current?.abort(); setSelected(""); handlers.current.onChange({ source: "neutral", version: 1 }); setNotice("Simple design selected."); }}>Use a simple design</Button>
       {hasPhoto ? <Button type="button" size="compact" variant="ghost" onClick={() => { operation.current?.abort(); manual.current = false; chosen.current = null; setBankKey(""); setSelected(""); setDesigns([]); onModeChange(false); handlers.current.onChange({ source: "neutral", version: 1 }); }}>Use your card photo</Button> : null}
     </> : null}
     {notice ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>{notice}</p> : null}

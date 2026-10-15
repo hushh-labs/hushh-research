@@ -680,10 +680,25 @@ for (const width of [320, 393, 1440]) {
     for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
-    await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
-    await expect(form.getByTestId("secure-card-save")).toBeVisible();
-    await expectCompactPrimary(form.getByTestId("secure-card-save"));
+    const save = form.getByTestId("secure-card-save");
+    await save.scrollIntoViewIfNeeded();
+    await expect(save).toBeVisible();
     const cancel = form.getByRole("button", { name: "Cancel", exact: true });
+    await expect(cancel).toBeVisible();
+    const saveBox = (await save.boundingBox())!, cancelBox = (await cancel.boundingBox())!;
+    const formBox = (await form.boundingBox())!;
+    for (const box of [cancelBox, saveBox]) {
+      expect(box.height).toBeCloseTo(50, 0);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeLessThanOrEqual(244);
+      expect(box.x).toBeGreaterThanOrEqual(formBox.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(formBox.x + formBox.width);
+    }
+    expect(saveBox.width).toBeCloseTo(cancelBox.width, 0);
+    expect(saveBox.y).toBeCloseTo(cancelBox.y, 0);
+    expect(saveBox.x).toBeGreaterThan(cancelBox.x + cancelBox.width);
+    expect((cancelBox.x + saveBox.x + saveBox.width) / 2).toBeCloseTo(formBox.x + formBox.width / 2, 0);
+    if (width === 1440) expect(saveBox.width).toBeCloseTo(244, 0);
     await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await page.screenshot({ path: test.info().outputPath("wallet-add-compact-actions.png") });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -942,14 +957,15 @@ for (const width of [390, 1440]) {
         await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
         await expectAligned();
         if (name === "Add") {
+          await expect(page.getByRole("button", { name: "Use a simple design", exact: true })).toHaveCount(0);
           for (let press = 0; press < 4; press++) {
-            const button = page.getByRole("button", { name: "Use a simple design", exact: true });
+            const button = page.getByRole("button", { name: "Add to Wallet", exact: true });
             await button.evaluate(el => {
               const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
               root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
             });
             const box = await button.boundingBox();
-            if (!box) throw new Error("Design control missing");
+            if (!box) throw new Error("Add control missing");
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
             expect(await alignment()).toBeLessThan(2);

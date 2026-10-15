@@ -82,6 +82,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => { if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); } });
 test("Back cancels the crop/read layer and keeps the Add draft in place", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "unknown"; await page.goto(origin);
+  await expect(page.getByRole("region", { name: "Card design", exact: true })).toHaveCount(0);
   await page.getByLabel("Name on card", { exact: true }).fill("Owner correction");
   await page.getByLabel("Choose a card photo", { exact: true }).setInputFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
   await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
@@ -91,6 +92,9 @@ test("Back cancels the crop/read layer and keeps the Add draft in place", async 
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Owner correction");
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("");
   await expect.poll(() => page.workers().length).toBe(0); expect(record).toBeNull();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Cards" })).toBeVisible();
+  expect(record).toBeNull();
 });
 for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real encrypted write → Cards/reload/lock at ${width}px`, async ({ page }, testInfo) => {
   test.setTimeout(180000); record = null; wire.length = 0; artworkMode = "unknown";
@@ -135,6 +139,16 @@ for (const width of [320, 390, 1440]) test(`approved artwork chooser reference a
   const images = page.getByLabel("Approved card designs").locator("img");
   await expect(images).toHaveCount(2);
   await page.screenshot({ path: testInfo.outputPath(`artwork-chooser-${width}.png`) });
+  const save = page.getByRole("button", { name: "Add to Wallet", exact: true }), cancel = page.getByRole("button", { name: "Cancel", exact: true });
+  await save.scrollIntoViewIfNeeded();
+  const saveBox = await save.boundingBox(), cancelBox = await cancel.boundingBox();
+  expect(saveBox).not.toBeNull(); expect(cancelBox).not.toBeNull();
+  expect(saveBox!.x).toBeGreaterThanOrEqual(cancelBox!.x + cancelBox!.width);
+  expect(Math.abs(saveBox!.y - cancelBox!.y)).toBeLessThan(1);
+  expect(saveBox!.height).toBeGreaterThanOrEqual(44); expect(cancelBox!.height).toBeGreaterThanOrEqual(44);
+  await expect(page.getByRole("button", { name: /Use (?:a simple|neutral) design/ })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(`add-actions-${width}.png`) });
+  await page.locator('[data-ui-role="flow-actions"]').screenshot({ path: testInfo.outputPath(`add-actions-footer-${width}.png`) });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -172,9 +186,11 @@ test("approved variant → encrypted save → reload → change design preserves
 test("exact artwork selects automatically; an unavailable provider keeps saving available", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "exact"; await page.goto(origin); await enterOwnedCard(page);
   await expect(page.getByRole("button", { name: "Test Blue", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Use a simple design" }).click();
-  await expect(page.getByRole("button", { name: "Test Blue", exact: true })).toHaveAttribute("aria-pressed", "false");
-  artworkMode = "outage"; await page.reload(); await enterOwnedCard(page);
+  await expect(page.getByRole("button", { name: "Use a simple design" })).toHaveCount(0);
+  artworkMode = "outage"; await page.reload();
+  const unavailable = page.waitForResponse(response => response.url().endsWith("/artwork/resolve") && response.status() === 503);
+  await enterOwnedCard(page); await unavailable;
+  await expect(page.getByRole("region", { name: "Card design", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Add to Wallet", exact: true }).click();
   await expect(page.getByRole("region", { name: "Cards" })).toBeVisible();

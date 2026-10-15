@@ -64,8 +64,10 @@ stable tie-break. Aliases of identical image bytes do not count as new designs.
 Last-four digits and PAN hashes are not used as card identity. No allocation
 counter, additional server record or plaintext storage is introduced.
 
-The owner can select another design, a simple design or the inspected card-photo
-flow. Add remains available while bank artwork loads and can save a neutral
+The owner can select another design, clear the bank choice or use the inspected
+card-photo flow. Add omits the simple-design control and empty design section;
+Cancel stays left of Add to Wallet in one row at phone and desktop widths.
+Add remains available while bank artwork loads and can save a neutral
 design if artwork is unavailable. Suffix-only edits cancel old suggestions;
 owner/vault changes and inactive views cancel pending work. A draft's chosen
 design is revalidated on resume rather than silently reallocated. Saving pins
