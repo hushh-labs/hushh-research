@@ -22558,7 +22558,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 908
+      "value": 913
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22594,7 +22594,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2321
+      "value": 2419
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -36211,6 +36211,27 @@
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
     "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+  },
+  "main_hd_artwork_composition_review_20261015": {
+    "entries": [
+      {
+        "after": 2419,
+        "before": 2321,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "9942f11ac813fa72f46041d6b45be11bdb931f21015f423e824da765fc05f61a"
+      },
+      {
+        "after": 913,
+        "before": 908,
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "3f431f3140470f6857940ebd1c86eef56c2b08e149db9f0f81f96272aaa3d53f"
+      }
+    ],
+    "incoming_main": "69c76021996130a6dbf405b81b29155bb4bb8981",
+    "review": "Independent read-only architecture and frontend review of the compact-header/HD-artwork union. Retains geometry, texture, native playback and frozen-render negative controls. These are bounded retained source-size debt observations, not prior main ratchet approval. No runtime authority, budget, exemption or finding slot removed.",
+    "source_commit": "379798a6ca14205b5934b1b533346198cc378b82"
   },
   "main_referral_integration_review_20261015": {
     "entries": [
