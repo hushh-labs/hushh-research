@@ -24,10 +24,15 @@ from hushh_mcp.services.drive_document_store import (
     DriveDocumentStore,
 )
 from hushh_mcp.services.drive_document_targets import document_targets
-from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
+from hushh_mcp.services.google_drive_adapter import (
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
+    DriveMetadata,
+    DriveReadError,
+)
 
 LEASE_SECONDS = 190
 MAX_ATTEMPTS = 5
+LIVE_UNSUPPORTED_SCAN_LIMIT = 128
 PURGE_ERRORS = frozenset({"source_unavailable", "reconnect_required", "unsafe_document"})
 RETRYABLE_ERRORS = frozenset(
     {
@@ -68,6 +73,58 @@ class DriveIngestionStore(DriveDocumentStore):
         current = self._active(connection, user_id, generation)
         self._selection_policy(connection, user_id, feature="drive_document_indexing")
         return dict(current)
+
+    def _classify_unsupported_live_due(self, connection, *, user_id: str, generation: int) -> None:
+        """Retire a bounded old queue prefix using the same MIME rule as live fetch."""
+        rows = list(
+            connection.execute(
+                text("""
+            SELECT document_id,user_id,connection_generation,source_version,metadata_envelope
+            FROM connected_documents
+            WHERE user_id=:user AND connection_generation=:generation AND source_profile='live'
+              AND processing_enabled AND processing_disclosure_version='live-drive-collection-v1'
+              AND status='queued' AND next_attempt_at<=clock_timestamp()
+              AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+            ORDER BY next_attempt_at,created_at,document_id
+            LIMIT :limit FOR UPDATE SKIP LOCKED
+        """),
+                {
+                    "user": user_id,
+                    "generation": generation,
+                    "limit": LIVE_UNSUPPORTED_SCAN_LIMIT,
+                },
+            ).mappings()
+        )
+        unsupported = []
+        for row in rows:
+            try:
+                metadata = self.cipher.open(dict(row))
+            except DriveReadError:
+                # The normal claim path reports corrupt metadata as a failure.
+                continue
+            if metadata.get("mime_type") not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+                unsupported.append((str(row["document_id"]), row["source_version"]))
+        if unsupported:
+            connection.execute(
+                text("""
+                UPDATE connected_documents d SET status='unsupported',
+                  last_error_code='unsupported_format',updated_at=clock_timestamp()
+                FROM unnest(CAST(:ids AS uuid[]),CAST(:versions AS text[]))
+                  AS candidate(document_id,source_version)
+                WHERE d.document_id=candidate.document_id
+                  AND d.source_version=candidate.source_version
+                  AND d.user_id=:user AND d.connection_generation=:generation
+                  AND d.source_profile='live' AND d.processing_enabled
+                  AND d.processing_disclosure_version='live-drive-collection-v1'
+                  AND d.status='queued'
+            """),
+                {
+                    "ids": [item[0] for item in unsupported],
+                    "versions": [item[1] for item in unsupported],
+                    "user": user_id,
+                    "generation": generation,
+                },
+            )
 
     async def claim(
         self, *, user_id: str, generation: int, document_ids=None, prefer_profile_upgrade=False
@@ -113,6 +170,10 @@ class DriveIngestionStore(DriveDocumentStore):
             )
             if active:
                 return None
+            if profile == "live" and targets is None and not prefer_profile_upgrade:
+                self._classify_unsupported_live_due(
+                    connection, user_id=user_id, generation=generation
+                )
             params = {
                 "user": user_id,
                 "generation": generation,

@@ -603,6 +603,214 @@ async def seed_collection(collection, *, files=None):
     )
 
 
+async def test_live_discovery_retires_unsupported_mime_and_source_change_requeues(
+    collection, ingestion
+):
+    unsupported = replace(source(), mime_type="application/zip")
+    await seed_collection(collection, files=[unsupported])
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(text("SELECT status,last_error_code FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        assert (row["status"], row["last_error_code"]) == ("unsupported", "unsupported_format")
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+    with collection.db.engine.begin() as conn:
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    current = await collection.claim(user_id="owner")
+    await collection.commit_page(
+        current,
+        checkpoint={"changes_token": "supported-version"},
+        files=[replace(source(), version="2")],
+    )
+    claimed = await ingestion.claim(user_id="owner", generation=1)
+    assert claimed and claimed["source_version"] == "2"
+    assert claimed["status"] == "fetching" and claimed["last_error_code"] is None
+
+
+async def test_live_unsupported_survives_pause_resume_without_recreating_queue(
+    collection, ingestion
+):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    await seed_collection(collection, files=[replace(source(), mime_type="application/zip")])
+    await collection.set_processing(user_id="owner", enabled=False)
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(
+                text("SELECT status,last_error_code,processing_enabled FROM connected_documents")
+            )
+            .mappings()
+            .one()
+        )
+    assert (row["status"], row["last_error_code"], row["processing_enabled"]) == (
+        "unsupported",
+        "unsupported_format",
+        True,
+    )
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+
+
+async def test_live_discovery_requeues_newly_supported_parser_type_without_source_change(
+    collection, ingestion
+):
+    await seed_collection(collection)
+    with ingestion.db.engine.begin() as conn:
+        original = (
+            conn.execute(text("SELECT document_id,source_version FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        conn.execute(
+            text("""
+            UPDATE connected_documents SET status='unsupported',
+              last_error_code='unsupported_format'
+            WHERE document_id=:id
+        """),
+            {"id": original["document_id"]},
+        )
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    current = await collection.claim(user_id="owner")
+    await collection.commit_page(
+        current,
+        checkpoint={"changes_token": "same-source-new-parser"},
+        files=[source()],
+    )
+    with ingestion.db.engine.connect() as conn:
+        updated = (
+            conn.execute(
+                text("""
+            SELECT document_id,source_version,status,last_error_code
+            FROM connected_documents
+        """)
+            )
+            .mappings()
+            .one()
+        )
+        assert updated["document_id"] == original["document_id"]
+        assert updated["source_version"] == original["source_version"]
+        assert (updated["status"], updated["last_error_code"]) == ("queued", None)
+
+
+async def test_incremental_sync_rechecks_parser_upgrade_without_drive_change(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services import drive_collection_store
+    from hushh_mcp.services.drive_collection_sync import DriveCollectionSync
+
+    current_types = drive_collection_store.LIVE_EXTRACTABLE_ORIGINAL_TYPES
+    monkeypatch.setattr(
+        drive_collection_store, "LIVE_EXTRACTABLE_ORIGINAL_TYPES", current_types - {"text/csv"}
+    )
+    await seed_collection(collection, files=[replace(source(), mime_type="text/csv")])
+    with ingestion.db.engine.connect() as conn:
+        before = (
+            conn.execute(text("SELECT document_id,source_version,status FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+    assert before["status"] == "unsupported"
+
+    monkeypatch.setattr(drive_collection_store, "LIVE_EXTRACTABLE_ORIGINAL_TYPES", current_types)
+    with collection.db.engine.begin() as conn:
+        conn.execute(text("UPDATE drive_collection_sync SET next_at=clock_timestamp()"))
+    adapter = SimpleNamespace(
+        collection_changes=AsyncMock(
+            return_value={"changes": [], "newStartPageToken": "after-parser-upgrade"}
+        )
+    )
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        )
+    )
+    sync = DriveCollectionSync(store=collection, oauth=oauth, adapter=adapter)
+    assert await sync.run_one(user_id="owner") == {"status": "synced"}
+    adapter.collection_changes.assert_awaited_once_with(
+        access_token="synthetic", page_token="synthetic-start"
+    )
+    with ingestion.db.engine.connect() as conn:
+        after = (
+            conn.execute(
+                text(
+                    "SELECT document_id,source_version,status,last_error_code FROM connected_documents"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert (after["document_id"], after["source_version"]) == (
+        before["document_id"],
+        before["source_version"],
+    )
+    assert (after["status"], after["last_error_code"]) == ("queued", None)
+
+
+async def test_live_claim_skips_bounded_old_unsupported_queue_under_consent(collection, ingestion):
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    await seed_collection(
+        collection,
+        files=[
+            source("old"),
+            replace(source("supported"), mime_type="application/vnd.google-apps.document"),
+        ],
+    )
+    with ingestion.db.engine.begin() as conn:
+        rows = conn.execute(text("SELECT * FROM connected_documents")).mappings().all()
+        old = next(row for row in rows if ingestion.cipher.open(dict(row))["file_id"] == "old")
+        metadata = replace(source("old"), mime_type="application/zip")
+        envelope = ingestion.cipher.seal(
+            metadata,
+            user_id="owner",
+            document_id=str(old["document_id"]),
+            generation=1,
+        )
+        conn.execute(
+            text("""
+            UPDATE connected_documents SET metadata_envelope=CAST(:metadata AS jsonb),
+              next_attempt_at=clock_timestamp()-interval '1 minute'
+            WHERE document_id=:id
+        """),
+            {"metadata": json.dumps(envelope), "id": old["document_id"]},
+        )
+    await collection.set_processing(user_id="owner", enabled=False)
+    with pytest.raises(DriveReadError, match="collection_processing_required"):
+        await ingestion.claim(user_id="owner", generation=1)
+    with ingestion.db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("""
+            SELECT status FROM connected_documents WHERE document_id=:id
+        """),
+                {"id": old["document_id"]},
+            ).scalar_one()
+            == "queued"
+        )
+
+    await collection.set_processing(user_id="owner", enabled=True, disclosure=COLLECTION_DISCLOSURE)
+    claimed = await ingestion.claim(user_id="owner", generation=1)
+    assert claimed and ingestion.cipher.open(claimed)["file_id"] == "supported"
+    with ingestion.db.engine.connect() as conn:
+        retired = (
+            conn.execute(
+                text("""
+            SELECT status,last_error_code FROM connected_documents WHERE document_id=:id
+        """),
+                {"id": old["document_id"]},
+            )
+            .mappings()
+            .one()
+        )
+        assert (retired["status"], retired["last_error_code"]) == (
+            "unsupported",
+            "unsupported_format",
+        )
+
+
 async def test_live_collection_resume_fences_old_work(collection, ingestion):
     from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
 
@@ -950,6 +1158,32 @@ async def test_live_ingestion_pause_during_metadata_prevents_download(collection
     )
     assert await service.run_one(user_id="owner") == {"status": "superseded"}
     adapter.read_live_bytes.assert_not_awaited()
+
+
+async def test_live_provider_unsupported_race_is_terminal_progress(collection, ingestion):
+    await seed_collection(collection)
+    oauth = SimpleNamespace(
+        lifecycle=ingestion,
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        ),
+    )
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(side_effect=DriveReadError("unsupported_format")),
+        read_live_bytes=AsyncMock(),
+    )
+    service = DriveIngestionService(
+        processor=SimpleNamespace(), oauth=oauth, store=ingestion, adapter=adapter
+    )
+    assert await service.run_one(user_id="owner") == {"status": "unsupported"}
+    adapter.read_live_bytes.assert_not_awaited()
+    with ingestion.db.engine.connect() as conn:
+        row = (
+            conn.execute(text("SELECT status,last_error_code FROM connected_documents"))
+            .mappings()
+            .one()
+        )
+        assert (row["status"], row["last_error_code"]) == ("unsupported", "unsupported_format")
 
 
 async def test_live_render_policy_upgrade_retries_only_legacy_render_gap(collection, ingestion):

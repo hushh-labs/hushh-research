@@ -171,6 +171,24 @@ LIVE_SUPPORTED_TYPES = SUPPORTED_TYPES | frozenset(
         "image/jpg",
     }
 )
+# The live provider can read more types than the page extractor can parse.
+# Use this original-file allowlist only when admitting background extraction.
+LIVE_EXTRACTABLE_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+)
+LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
+    LIVE_SUPPORTED_TYPES & LIVE_EXTRACTABLE_CONTENT_TYPES
+) | frozenset(
+    original
+    for original, exported in LIVE_EXPORTS.items()
+    if exported in LIVE_EXTRACTABLE_CONTENT_TYPES
+)
 
 
 class DriveReadError(RuntimeError):

@@ -113,6 +113,7 @@ _WORKER_ALLOWED_OUTCOMES = {
             "unavailable",
             "superseded",
             "not_ready",
+            "unsupported",
             "disabled",
             "deadline",
             "deferred",

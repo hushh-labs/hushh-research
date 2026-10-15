@@ -195,4 +195,8 @@ class DriveIngestionService:
                 await self.store.fail(job, code=code)
             except DriveReadError:
                 return {"status": "superseded"}
-            return {"status": "not_ready"}
+            return {
+                "status": "unsupported"
+                if job.get("source_profile") == "live" and code == "unsupported_format"
+                else "not_ready"
+            }

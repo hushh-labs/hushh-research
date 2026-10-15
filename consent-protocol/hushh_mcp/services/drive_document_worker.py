@@ -162,10 +162,11 @@ class DriveDocumentWorker:
                                     "unavailable",
                                     "superseded",
                                     "not_ready",
+                                    "unsupported",
                                 }
                                 else "not_ready"
                             ] += 1
-                            if status not in {"ready", "queued", "unchanged"}:
+                            if status not in {"ready", "queued", "unchanged", "unsupported"}:
                                 blocked.add(owner)
                         except Exception:
                             counts["not_ready"] += 1
@@ -237,7 +238,7 @@ class DriveDocumentWorker:
                     group.create_task(semantics())
         except TimeoutError:
             counts["deadline"] += 1
-        if counts["queued"] or counts["ready"]:
+        if counts["queued"] or counts["ready"] or counts["unsupported"]:
             from hushh_mcp.services.drive_work_wake import wake_drive_work
 
             await wake_drive_work("documents")
