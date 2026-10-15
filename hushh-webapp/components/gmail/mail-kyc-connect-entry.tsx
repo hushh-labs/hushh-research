@@ -21,7 +21,6 @@ export function MailConnectionStatus({
   isPassiveBackfillState = false,
   hasStaleBackgroundSync = false,
   onRetry,
-  connectGmailHelper,
   connectActionId,
 }: {
   statusSummary: GmailStatusSummary;
@@ -36,7 +35,6 @@ export function MailConnectionStatus({
   isPassiveBackfillState?: boolean;
   hasStaleBackgroundSync?: boolean;
   onRetry?: () => void;
-  connectGmailHelper?: string | null;
   connectActionId?: "setup.connect_gmail";
 }) {
   // Loading stays neutral while the authoritative connection status resolves.
@@ -145,11 +143,6 @@ export function MailConnectionStatus({
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry Mail status
             </Button>
-          ) : null}
-          {connectGmailHelper ? (
-            <p className="w-full text-center text-xs text-muted-foreground sm:basis-full">
-              {connectGmailHelper}
-            </p>
           ) : null}
         </div>
       ) : null}
