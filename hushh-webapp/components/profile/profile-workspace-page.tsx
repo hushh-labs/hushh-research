@@ -175,6 +175,7 @@ import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-pr
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
+import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -3510,11 +3511,15 @@ function ProfilePageContent({
             )}
             data-testid="profile-account-display-name-editor"
           >
-            <DisplayNameEditor
+            {presentation === "native-page" ? <NativeDisplayNameEditor
               user={user}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
-            />
+            /> : <DisplayNameEditor
+              user={user}
+              onSaved={() => setEditingDisplayName(false)}
+              onCancel={() => setEditingDisplayName(false)}
+            />}
           </div>
         ) : null}
         <SettingsRow

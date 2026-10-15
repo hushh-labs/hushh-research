@@ -3677,6 +3677,80 @@ final class AppUITests: XCTestCase {
         return frame
     }
 
+    func testLocalSessionNativeProfileNameSheetKeepsTheAccountAndDraft() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in private ordinary Profile scene continuity")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PROFILE_NAME_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let web = hosts.firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_UNAVAILABLE"); return }
+        let initialDraft = editor.value as? String // Memory only; never emitted or attached.
+        let opener = app.buttons["Open Profile"].firstMatch
+        let root = app.buttons["native-profile-row-account"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        let back = app.buttons["Back in Profile"].firstMatch
+        let cancel = app.buttons["native-profile-name-cancel"].firstMatch
+        let field = app.textFields["native-profile-name-editor"].firstMatch
+        defer {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            if back.exists && back.isHittable { back.tap() }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_NAME_OPENER_UNAVAILABLE"); return }
+        opener.tap()
+        for _ in 0..<3 {
+            if root.exists && root.isHittable && close.exists && close.isHittable { break }
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_PARENT_UNAVAILABLE"); return }
+            back.tap()
+        }
+        guard waitForAdmittedControl(root) else { XCTFail("PROFILE_NAME_ACCOUNT_UNAVAILABLE"); return }
+        root.tap()
+        let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Display name")).firstMatch
+        guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_EDIT_UNAVAILABLE"); return }
+        var originalName: String? // Private equality only; no screenshots or value diagnostics.
+        for cycle in 0..<10 {
+            guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_RETURN_UNAVAILABLE"); return }
+            row.tap()
+            guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
+                XCTFail("PROFILE_NAME_NATIVE_SCENE_UNAVAILABLE"); return
+            }
+            let value = field.value as? String
+            if cycle == 0 { originalName = value }
+            XCTAssertTrue(value == originalName, "Cancelling must not save the transient name")
+            XCTAssertFalse(app.buttons["native-profile-name-save"].firstMatch.isEnabled,
+                           "Unchanged ordinary form cannot save")
+            XCTAssertFalse(back.isHittable, "The owned sheet must isolate the underlying Profile header")
+            if cycle == 0 || cycle == 9 {
+                field.tap()
+                field.typeText(" A") // Synthetic unsaved edit; never submit a reviewer fixture change.
+                XCTAssertTrue((field.value as? String) != value, "The retained native field must accept keyboard editing")
+            }
+            cancel.tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && row.isHittable }, object: app)
+            guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else {
+                XCTFail("PROFILE_NAME_DISMISSAL_DID_NOT_RESTORE_TOUCH"); return
+            }
+            XCTAssertEqual(hosts.count, 1, "The ordinary form must not introduce another WebView")
+            XCTAssertFalse(web.textFields.matching(NSPredicate(format: "label == %@", "Display name")).firstMatch.exists,
+                           "The native form cannot reveal an interactive DOM duplicate")
+        }
+        guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_BACK_UNAVAILABLE"); return }
+        back.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PROFILE_NAME_CLOSE_UNAVAILABLE"); return }
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertTrue((editor.value as? String) == initialDraft, "Profile editing must preserve the Chat draft")
+        print("PROFILE_NAME_SCENE_CONTINUITY cycles=10 cancelled=true single_host=true")
+    }
+
     func testLocalSessionProfileBackAcrossTheSettingsStack() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in shared Profile Back and fallback regression")

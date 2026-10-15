@@ -28,6 +28,128 @@ import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
 import { projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
+import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
+import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
+
+function publicNameScene(): NativeProfileNameProjection {
+  return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
+    revision: 1, family: "profile", scene: "account-name", appearance: "light", accentHex: "#007aff",
+    foregroundHex: "#808080", updateSequence: 1, privacyGeneration: 0, draftRevision: 0,
+    acknowledgedEditRevision: 0, draft: "Public Example", canSave: true, busy: false, error: null };
+}
+
+describe("ordinary private Profile form contract", () => {
+  it("bounds stalled listener admission and removes its late handle without presenting a form", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = publicNameScene();
+      const late = deferred<{ remove: () => Promise<void> }>();
+      const remove = vi.fn(async () => undefined);
+      const phases: string[] = [];
+      const apply = vi.fn();
+      const plugin = { addListener: () => late.promise, applyProfileNameScene: apply,
+        retireProfileNameScene: async () => formRetirement({ ...state, updateSequence: 0 }),
+        getCapabilities: async () => ({ contractVersion: 1, supported: true,
+          generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      };
+      const presentation = new NativeProfileNamePresentation(state, plugin as never, () => true, phase => phases.push(phase));
+      const pending = presentation.listen();
+      expect(presentation.publish(state, { edit: vi.fn(), save: vi.fn(), saved: vi.fn(), cancel: vi.fn() })).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(phases).toEqual(["blocked", "fallback"]);
+      expect(await pending).toBe(false);
+      expect(apply).not.toHaveBeenCalled();
+      late.resolve({ remove });
+      await Promise.resolve();
+      expect(remove).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("admits only a bounded name scene, never credentials or another owner's edit", () => {
+    const state = publicNameScene();
+    expect(validNativeProfileNameProjection(state)).toBe(true);
+    expect(validNativeProfileNameProjection({ ...state, vaultKey: "synthetic-forbidden" } as NativeProfileNameProjection)).toBe(false);
+    const fence = new NativeProfileNameFence(state);
+    expect(fence.update(state)).toBe(true);
+    const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      editRevision: 1, text: "Public New Name", composing: true };
+    expect(fence.consumeEdit({ ...event, ownerEpoch: "another-owner" })).toBe(false);
+    expect(fence.consumeEdit(event)).toBe(true);
+    expect(fence.consumeEdit({ ...event, text: "Reordered old edit" })).toBe(false);
+    expect(fence.allows({ ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 1, action: "save" })).toBe(false);
+  });
+
+  it("consumes an acknowledged Save once and refuses a changed owner after confirmation", async () => {
+    const state = publicNameScene();
+    const fence = new NativeProfileNameFence(state);
+    fence.update(state);
+    const action = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 0, action: "save" as const };
+    const reply = deferred<{ valid: boolean }>();
+    let current = true;
+    const pending = fence.consumeAction(action, () => reply.promise, () => current);
+    expect(await fence.consumeAction(action, async () => ({ valid: true }), () => true)).toBe(false);
+    current = false;
+    reply.resolve({ valid: true });
+    expect(await pending).toBe(false);
+    const positive = new NativeProfileNameFence(state);
+    positive.update(state);
+    expect(await positive.consumeAction(action, async () => ({ valid: true }), () => true)).toBe(true);
+    positive.retire();
+    expect(positive.allows({ ...action, sequence: 2 })).toBe(false);
+  });
+
+  it("keeps a terminal Cancel through an appearance update but rejects an old Save", async () => {
+    const state = publicNameScene();
+    const fence = new NativeProfileNameFence(state);
+    fence.update(state);
+    const action = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 0, action: "cancel" as const };
+    const reply = deferred<{ valid: boolean }>();
+    const pending = fence.consumeAction(action, () => reply.promise, () => true);
+    expect(fence.update({ ...state, updateSequence: 2, appearance: "dark" })).toBe(true);
+    reply.resolve({ valid: true });
+    expect(await pending).toBe(true);
+    expect(fence.allows({ ...action, sequence: 2, action: "save" })).toBe(false);
+    expect(fence.allows({ ...action, sequence: 2, privacyGeneration: 1 })).toBe(false);
+  });
+
+  it("never reveals fallback until the owned native form finishes retirement", async () => {
+    const state = publicNameScene();
+    const retired = deferred<ReturnType<typeof formRetirement>>();
+    const phases: string[] = [];
+    const handles = new Map<string, (value: unknown) => void>();
+    const plugin = {
+      getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: vi.fn(async (name: string, listener: (value: unknown) => void) => {
+        handles.set(name, listener); return { remove: async () => { handles.delete(name); } };
+      }),
+      applyProfileNameScene: vi.fn(async () => { throw new Error("synthetic uncertain apply"); }),
+      confirmProfileNameAction: vi.fn(async () => ({ valid: true })),
+      settleProfileNameAction: vi.fn(async () => ({ valid: true })),
+      retireProfileNameScene: vi.fn(() => retired.promise),
+      apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+    };
+    const presentation = new NativeProfileNamePresentation(state, plugin, () => true, phase => phases.push(phase));
+    expect(await presentation.listen()).toBe(true);
+    const save = vi.fn(async () => ({ kind: "retained" as const }));
+    presentation.publish(state, { edit: vi.fn(), save, saved: vi.fn(), cancel: vi.fn() });
+    await waitFor(() => expect(phases).toEqual(["blocked"]));
+    expect(save).not.toHaveBeenCalled();
+    retired.resolve(formRetirement(state));
+    await waitFor(() => expect(phases).toEqual(["blocked", "fallback"]));
+    expect(handles.size).toBe(0);
+  });
+});
+
+function fenceIdentity(state: NativeProfileNameProjection) {
+  return { documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration,
+    revision: state.revision, family: "profile" as const, scene: "account-name" as const };
+}
+function formRetirement(state: NativeProfileNameProjection) {
+  return { ...fenceIdentity(state), updateSequence: state.updateSequence, privacyGeneration: state.privacyGeneration, phase: "retired" as const };
+}
 
 // Keep qualification-only lifecycle coverage without enabling it in the app.
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({

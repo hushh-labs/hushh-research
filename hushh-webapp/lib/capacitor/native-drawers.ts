@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
  * process-local replicas of the existing feature owner, not another store. */
@@ -59,14 +60,20 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean }>;
+  applyProfileNameScene?: NativeProfileNameScenePort["applyProfileNameScene"];
+  confirmProfileNameAction?: NativeProfileNameScenePort["confirmProfileNameAction"];
+  settleProfileNameAction?: NativeProfileNameScenePort["settleProfileNameAction"];
+  retireProfileNameScene?: NativeProfileNameScenePort["retireProfileNameScene"];
+  addListener: NativeProfileNameScenePort["addListener"] & {
+    (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
+    (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
+    (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
+  };
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
   retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
-  addListener(eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
 }
 export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
 

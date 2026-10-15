@@ -42,7 +42,7 @@ operation authority.
 | --- | --- | --- |
 | Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
 | Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
-| Account name | Existing React editor and shared memory-only controller | Owner-change, retained-callback, duplicate-submit and refresh-order regression checks; ordinary native editor not yet adopted |
+| Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Source implementation and signed native compile pass; fresh integrated device qualification pending. Web/Android/older wrappers retain the existing form |
 | Communication | `CommunicationPreferencesSection`; existing encrypted `saveOwnerStyleSettings` writer | Native ordinary settings scene not implemented; retain unlocked load, proposed-versus-saved state and explicit Save |
 | Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
 | Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
@@ -52,7 +52,13 @@ operation authority.
 The name-controller prerequisite uses the existing authenticated service writer.
 Confirmed provider writes remain distinct from failed shadow readback; stale
 owner callbacks and older refreshes cannot replace a newer presentation draft.
-This source change is not installed on the device above. Protected forms, rich
+The new native name scene owns its full sheet, keyboard and dismissal above
+retained chrome. Its private name/edit replicas are memory-only; public chrome
+metadata carries neither names nor feedback. Listener admission must finish
+before a scene can be applied, and fallback requires confirmed retirement.
+Profile retirement joins the sheet's actual dismissal, including an already
+retiring sheet. Presentation-time owner revocation withdraws that exact scene.
+The native scene is not installed on the device above. Protected forms, rich
 content, complex multiselects and other-platform fallbacks remain unchanged.
 No merge, deploy, distribution or new family qualification follows from these
 functional receipts. Transition frames, accessibility and physical Release

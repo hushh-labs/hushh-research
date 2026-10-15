@@ -338,16 +338,23 @@ export function useDisplayNameEditor({
   };
   return {
     uid, ready, draft, normalizedDraft, shownName, inlineError, canSave, saving,
-    changeDraft, submit,
+    draftRevision: renderedDraftRevision, changeDraft, submit,
   };
 }
 
 export function DisplayNameEditor(props: DisplayNameEditorProps) {
+  return <DisplayNameEditorForm {...props} model={useDisplayNameEditor(props)} />;
+}
+
+/** Shared web fallback, with no competing editor or operation state. */
+export function DisplayNameEditorForm(props: Pick<DisplayNameEditorProps, "onCancel" | "className"> & {
+  model: ReturnType<typeof useDisplayNameEditor>;
+}) {
   const { onCancel, className } = props;
   const {
     uid, ready, draft, normalizedDraft, shownName, inlineError, canSave, saving,
     changeDraft, submit,
-  } = useDisplayNameEditor(props);
+  } = props.model;
   const inputId = useId();
   const helpId = `${inputId}-help`;
   const errorId = `${inputId}-error`;

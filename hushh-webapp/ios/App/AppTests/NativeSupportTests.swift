@@ -4,6 +4,95 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testOrdinaryNameSheetReleasesGestureLockAndWaitsForUIKitRetirement() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native ordinary scene requires iOS 26") }
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = windowScene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        let scene = NativeProfileNameScene(publicNameScene())
+        let shown = expectation(description: "Public ordinary scene presented")
+        XCTAssertTrue(scene.present(from: parent) { admitted in XCTAssertTrue(admitted); shown.fulfill() })
+        await fulfillment(of: [shown], timeout: 3)
+        let presented = try XCTUnwrap(parent.presentedViewController)
+        var action: NativeProfileNameAction?
+        scene.model.choose = { action = $0; return true }
+        scene.model.action("save")
+        let pending = try XCTUnwrap(action)
+        XCTAssertTrue(scene.update(publicNameScene(update: 2, appearance: "dark")))
+        XCTAssertTrue(presented.isModalInPresentation)
+        XCTAssertTrue(scene.settle(pending))
+        XCTAssertFalse(presented.isModalInPresentation, "Rejected/refused Save must restore native drag dismissal")
+        let first = expectation(description: "First actual dismissal observer")
+        let second = expectation(description: "Joined actual dismissal observer")
+        scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
+        XCTAssertTrue(scene.model.retired)
+        XCTAssertTrue(scene.model.text.isEmpty, "Private replica must clear before dismissal completes")
+        scene.retire { XCTAssertNil(parent.presentedViewController); second.fulfill() }
+        await fulfillment(of: [first, second], timeout: 3)
+        XCTAssertFalse(scene.coversPresentation)
+    }
+
+    private func publicNameScene(update: Int = 1, ack: Int = 0, draft: String = "Public Example",
+                                 appearance: String = "light") -> NativeProfileNameProjection {
+        NativeProfileNameProjection(documentId: "public-name-document", ownerEpoch: "public-name-owner", ownerGeneration: 1,
+            revision: 1, family: "profile", scene: "account-name", updateSequence: update, privacyGeneration: 0,
+            draftRevision: update, acknowledgedEditRevision: ack, draft: draft, canSave: true, busy: false,
+            error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080")
+    }
+    @MainActor
+    func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
+        let model = NativeProfileNameModel(publicNameScene())
+        let field = UITextField()
+        model.editor = field
+        var edits = 0
+        model.edit = { _, _, revision in edits += 1; return revision == 1 }
+        var choice: NativeProfileNameAction?
+        model.choose = { choice = $0; return true }
+        field.text = "Public New Name"
+        model.capture(field)
+        XCTAssertEqual(edits, 1)
+        XCTAssertFalse(model.canSave)
+        model.action("save")
+        XCTAssertNil(choice, "An old Save projection cannot submit the native editor's newer text")
+        XCTAssertTrue(model.update(publicNameScene(update: 2, ack: 0, appearance: "dark")))
+        XCTAssertEqual(model.text, "Public New Name", "A theme echo cannot replace unacknowledged editing")
+        XCTAssertTrue(model.update(publicNameScene(update: 3, ack: 1, draft: "Public New Name", appearance: "dark")))
+        XCTAssertTrue(model.canSave)
+        model.action("save")
+        let action = try XCTUnwrap(choice)
+        XCTAssertFalse(model.confirm(NativeProfileNameAction(updateSequence: 3, editRevision: 0, sequence: action.sequence, action: "save")))
+        XCTAssertTrue(model.confirm(action))
+        XCTAssertFalse(model.confirm(action), "A duplicate acknowledgement cannot authorize another write")
+        XCTAssertFalse(model.canEdit)
+        XCTAssertTrue(model.settle(action))
+        XCTAssertTrue(model.canEdit)
+        XCTAssertTrue(model.editor === field)
+    }
+    @MainActor
+    func testNameSceneRetirementScrubsItsPrivateReplicaBeforeDismissing() {
+        let model = NativeProfileNameModel(publicNameScene())
+        let field = UITextField()
+        model.editor = field
+        field.text = "Public Unsaved Name"
+        model.edit = { _, _, _ in true }
+        model.capture(field)
+        model.clear()
+        XCTAssertEqual(model.text, "")
+        XCTAssertEqual(model.projection.draft, "")
+        XCTAssertNil(model.projection.error)
+        XCTAssertEqual(field.text, "")
+        XCTAssertNil(model.edit)
+        XCTAssertNil(model.choose)
+        XCTAssertFalse(model.canEdit)
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.update(publicNameScene(update: 2)))
+    }
+
     #if DEBUG
     func testControlHitEvidenceDetectsWindowInterceptionWithoutGrantingAdmission() throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1194, height: 834))

@@ -45,10 +45,18 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfileNameScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfileNameAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfileNameAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfileNameScene", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
     private var controllers = [String: NativeDrawerPresentationController]()
     private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
+    private var nameScene: NativeProfileNameScene?
+    private var retiringNameScenes = [ObjectIdentifier: NativeProfileNameScene]()
+    private var nameOwner: String?
+    private var nameRevision = 0
     private var sessionFence = NativeDrawerSessionFence()
     private var privacyObserver: NSObjectProtocol?
     private var isolationObserver: NSObjectProtocol?
@@ -87,6 +95,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
                 "profileContentHandoff": self?.supported == true,
+                "profileNameScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "agentProfileMenu": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
                 "terminalReadmission": self?.supported == true,
@@ -151,9 +160,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self else { return }
                     // Retiring presenters remain owners until their menu/alert
                     // disappears, even after leaving the active registry.
-                    let covered = self.controllers.values.contains { $0.coversUnderlyingPresentation } ||
-                        self.retiringControllers.values.contains { $0.coversUnderlyingPresentation }
-                    self.container?.isolateForOwnedDrawer(covered)
+                    self.reconcileIsolation()
                 }
                 controller.model.choose = { [weak self] action, row, text in self?.emit(next.family, action: action, row: row, text: text) == true }
                 controller.invalidateInteractions = { [weak self] in self?.leases[next.family]?.invalidateInteractions() }
@@ -250,7 +257,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             var lease = self.leases[identity.family] ?? NativeDrawerLease()
             if let retiring = self.retiringControllers.values.first(where: { $0.model.projection.identity == identity }) {
                 let state = retiring.model.projection
-                retiring.retire { call.resolve(self.receipt(state, phase: "retired")) }
+                retiring.retire {
+                    self.afterOwnedFormRetirement(identity.family) { call.resolve(self.receipt(state, phase: "retired")) }
+                }
                 return
             }
             // Privacy may already have detached this exact presentation. A
@@ -258,7 +267,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             // acknowledge or remove the next owner's controller.
             if self.controllers[identity.family] == nil, lease.retire(identity) {
                 self.leases[identity.family] = lease
-                call.resolve(self.retiredReceipt(identity, lease: lease)); return
+                self.afterOwnedFormRetirement(identity.family) { call.resolve(self.retiredReceipt(identity, lease: lease)) }; return
             }
             guard let controller = self.controllers[identity.family], lease.retire(identity) else {
                 call.reject("NATIVE_DRAWER_STALE_RETIREMENT"); return
@@ -284,21 +293,187 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
          "privacyGeneration": max(0, lease.privacyGeneration), "phase": "retired"]
     }
     @MainActor private func detach(_ family: String, completion: @escaping () -> Void = {}) {
-        guard let controller = controllers.removeValue(forKey: family) else { completion(); return }
+        guard let controller = controllers.removeValue(forKey: family) else {
+            afterOwnedFormRetirement(family, completion: completion); return
+        }
+        // Withdraw the private form immediately, but join its actual UIKit
+        // dismissal as well as the drawer before acknowledging retirement.
+        let group = DispatchGroup()
+        group.enter()
+        afterOwnedFormRetirement(family) { group.leave() }
         let shield = HushhSessionPrivacyShield.shared
         let token = shield.beginPresentationRetirement()
         let identity = ObjectIdentifier(controller)
         retiringControllers[identity] = controller
+        group.enter()
         controller.retire { [self] in
             retiringControllers.removeValue(forKey: identity)
             shield.completePresentationRetirement(token)
-            completion()
+            group.leave()
         }
+        group.notify(queue: .main, execute: completion)
+    }
+    @MainActor private func afterOwnedFormRetirement(_ family: String, completion: @escaping () -> Void) {
+        if family == "profile" { retireNameScene(completion: completion) }
+        else { completion() }
     }
     @MainActor private func retireAll() {
+        retireNameScene()
         for family in Array(controllers.keys) {
             if let identity = leases[family]?.identity { _ = leases[family]?.retire(identity) }
             detach(family)
+        }
+    }
+
+    @MainActor private func reconcileIsolation() {
+        let covered = controllers.values.contains { $0.coversUnderlyingPresentation } ||
+            retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
+            nameScene?.coversPresentation == true || retiringNameScenes.values.contains { $0.coversPresentation }
+        container?.isolateForOwnedDrawer(covered)
+    }
+    @MainActor private func nameOwnerIsCurrent(_ identity: NativeDrawerIdentity, privacy: Int) -> Bool {
+        let shield = HushhSessionPrivacyShield.shared
+        let state = shield.snapshot()
+        guard supported, NativeDrawerQualificationPolicy.coherentShell, UIDevice.current.userInterfaceIdiom == .phone,
+              sessionFence.contains(identity), state.appIsActive, !state.shielded, state.generation == privacy,
+              shield.acceptsDocument(identity.documentId), let profile = controllers["profile"]?.model.projection else { return false }
+        return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
+            profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true && !profile.open && profile.enabled
+    }
+    private func nameOwnerKey(_ identity: NativeDrawerIdentity) -> String {
+        "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
+    }
+    @objc func applyProfileNameScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativeProfileNameProjection.keys),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 32_768, let next = try? JSONDecoder().decode(NativeProfileNameProjection.self, from: bytes),
+                  next.valid, self.nameOwnerIsCurrent(next.identity, privacy: next.privacyGeneration), self.retiringNameScenes.isEmpty else {
+                call.reject("NATIVE_PROFILE_NAME_UNAVAILABLE"); return
+            }
+            if let scene = self.nameScene {
+                guard scene.model.projection.identity == next.identity, scene.update(next) else {
+                    call.reject("NATIVE_PROFILE_NAME_STALE_STATE"); return
+                }
+                call.resolve(next.receipt(phase: "active")); return
+            }
+            let owner = self.nameOwnerKey(next.identity)
+            if self.nameOwner != owner { self.nameOwner = owner; self.nameRevision = 0 }
+            guard next.revision > self.nameRevision, next.acknowledgedEditRevision == 0 else {
+                call.reject("NATIVE_PROFILE_NAME_RETIRED"); return
+            }
+            let scene = NativeProfileNameScene(next)
+            self.nameScene = scene
+            self.nameRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.edit = { [weak self, weak scene] text, composing, revision in
+                guard let self, let scene, self.nameScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.nameOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                var event = state.receipt(phase: "active")
+                event.removeValue(forKey: "phase")
+                event["text"] = text; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profileNameEdit", data: event, retainUntilConsumed: false)
+                return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.nameScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.nameOwnerIsCurrent(state.identity, privacy: state.privacyGeneration) else { return false }
+                var event = state.receipt(phase: "active")
+                event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profileNameAction", data: event, retainUntilConsumed: false)
+                return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_NAME_RETIRED"); return }
+                guard presented, self.nameScene === scene,
+                      self.nameOwnerIsCurrent(next.identity, privacy: next.privacyGeneration) else {
+                    if self.nameScene === scene { self.retireNameScene() }
+                    call.reject("NATIVE_PROFILE_NAME_RETIRED"); return
+                }
+                call.resolve(next.receipt(phase: "active"))
+            }) else {
+                self.retireNameScene()
+                call.reject("NATIVE_PROFILE_NAME_PRESENTATION_REFUSED"); return
+            }
+        }
+    }
+    private func nameAction(_ call: CAPPluginCall) -> NativeProfileNameAction? {
+        let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene",
+            "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]
+        guard Set(call.options.keys).isSubset(of: keys), call.getString("scene") == "account-name",
+              let update = call.getInt("updateSequence"), update > 0,
+              let edit = call.getInt("editRevision"), edit >= 0,
+              let sequence = call.getInt("sequence"), sequence > 0,
+              [update, edit, sequence].allSatisfy({ $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration }),
+              let action = call.getString("action"), ["save", "cancel"].contains(action) else { return nil }
+        return NativeProfileNameAction(updateSequence: update, editRevision: edit, sequence: sequence, action: action)
+    }
+    @objc func confirmProfileNameAction(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.nameOwnerIsCurrent(identity, privacy: privacy), let scene = self.nameScene,
+                  scene.model.projection.identity == identity, let action = self.nameAction(call) else {
+                call.resolve(["valid": false]); return
+            }
+            call.resolve(["valid": scene.model.confirm(action)])
+        }
+    }
+    @objc func settleProfileNameAction(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  self.nameOwnerIsCurrent(identity, privacy: privacy), let scene = self.nameScene,
+                  scene.model.projection.identity == identity, let action = self.nameAction(call) else {
+                call.resolve(["valid": false]); return
+            }
+            call.resolve(["valid": scene.settle(action)])
+        }
+    }
+    @objc func retireProfileNameScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), identity.family == "profile",
+                  call.getString("scene") == "account-name" else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
+            if let scene = self.retiringNameScenes.values.first(where: { $0.model.projection.identity == identity }) {
+                scene.retire { call.resolve(scene.model.projection.receipt(phase: "retired")) }; return
+            }
+            if let scene = self.nameScene {
+                guard scene.model.projection.identity == identity else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
+                self.retireNameScene { call.resolve(scene.model.projection.receipt(phase: "retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_NAME_STALE_RETIREMENT"); return }
+            let owner = self.nameOwnerKey(identity)
+            if self.nameOwner != owner { self.nameOwner = owner; self.nameRevision = 0 }
+            self.nameRevision = max(self.nameRevision, identity.revision)
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease())
+            receipt["scene"] = "account-name"
+            call.resolve(receipt)
+        }
+    }
+    @MainActor private func retireNameScene(completion: @escaping () -> Void = {}) {
+        guard let scene = nameScene else {
+            let retiring = Array(retiringNameScenes.values)
+            guard !retiring.isEmpty else { completion(); return }
+            let group = DispatchGroup()
+            for scene in retiring {
+                group.enter()
+                scene.retire { group.leave() }
+            }
+            group.notify(queue: .main, execute: completion)
+            return
+        }
+        nameScene = nil
+        let id = ObjectIdentifier(scene)
+        let shield = HushhSessionPrivacyShield.shared
+        let token = shield.beginPresentationRetirement()
+        retiringNameScenes[id] = scene
+        scene.retire { [self] in
+            retiringNameScenes.removeValue(forKey: id)
+            reconcileIsolation()
+            shield.completePresentationRetirement(token)
+            completion()
         }
     }
 }
