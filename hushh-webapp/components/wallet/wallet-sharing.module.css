@@ -93,19 +93,19 @@
 /* Use Profile's reference scale in the shared compact-row cascade too. */
 .history {
   font-family: var(--font-app-body);
-  --type-section-label-compact-size: 10px;
+  --type-section-label-compact-size: 13px;
   --type-section-label-compact-weight: 400;
-  --type-section-label-compact-line: 14px;
+  --type-section-label-compact-line: 18px;
   --type-row-label-compact-size: 13px;
   --type-row-label-compact-weight: 400;
   --type-row-label-compact-line: 1.2;
 }
 @layer base {
   .history [data-slot="settings-group-heading"] {
-    font-family: var(--font-app-mono) !important;
-    font-size: 10px !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
     font-weight: 400 !important;
-    line-height: 14px !important;
+    line-height: 18px !important;
   }
   .history [data-slot="settings-row-title"] {
     font-family: var(--font-app-body) !important;

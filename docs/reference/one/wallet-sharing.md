@@ -79,3 +79,11 @@ Postgres remains the shared coordination tier; a Redis replacement belongs behin
 the existing graph-lock and delivery ports, without changing access contracts.
 
 See [API contracts](../architecture/api-contracts.md) and [Wallet](./wallet.md).
+
+Both history directions preload in the mounted, unlocked Wallet. Confirmed
+pages stay in component memory across tab changes and refresh on sharing
+events, focus, visibility resume and the existing timer. They are cleared on
+hide, owner change or vault-session invalidation; no persistent history cache
+is introduced. Reading uses the owner session independently of card selection;
+revocation additionally requires the current Sharing-tab activation. Group
+headings use a readable 13px body font.

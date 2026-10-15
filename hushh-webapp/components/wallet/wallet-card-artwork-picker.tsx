@@ -11,11 +11,12 @@ import type { CardImageBox, CardPoint } from "@/lib/wallet/card-scan-image";
 import { WalletCardArtworkTile } from "./wallet-card-artwork-tile";
 
 /** Picker receives only an allowed IIN, never a complete card or vault key. */
-export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange }: {
+export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange, compact = false }: {
   context: WalletNetworkContext | null; prefix: string; panLength: number;
   active: boolean; sanitized?: Blob; candidate?: Blob; onChange: (artwork: WalletCardArtwork) => void;
   onBusyChange?: (busy: boolean) => void;
   value?: WalletCardArtwork;
+  compact?: boolean;
 }) {
   const [resolution, setResolution] = useState<WalletArtworkResolution | null>(null);
   const [notice, setNotice] = useState("");
@@ -76,12 +77,12 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
     } catch { if (!controller.signal.aborted) setNotice("This design is unavailable. Choose neutral artwork."); }
     finally { if (operation.current === controller) { operation.current = null; setBusy(false); } }
   };
-  if (!active) return null;
+  if (!active || (compact && !resolution?.variants.length && !visiblePreview)) return null;
   return <section aria-label="Card design" className="flex flex-col gap-3">
-    <h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
-    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p>
+    {!compact ? <><h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
+    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p></> : null}
     {resolution?.metadata && Object.values(resolution.metadata).some(Boolean) ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{[resolution.metadata.issuerName, resolution.metadata.productFamily, resolution.metadata.cardType, resolution.metadata.tier, resolution.metadata.country].filter(Boolean).join(" · ")}</p> : null}
-    {resolution?.match === "unknown" ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Original design unavailable. You can use a neutral design.</p> : null}
+    {!compact && resolution?.match === "unknown" ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Original design unavailable. You can use a neutral design.</p> : null}
     {resolution && resolution.variants.length ? <>
       <div className="flex snap-x gap-3 overflow-x-auto p-1" aria-label="Approved card designs">{context ? resolution.variants.map(variant => <WalletCardArtworkTile key={`${userId}:${ownerToken}:${resolution.catalogVersion}:${variant.assetId}`} context={context} variant={variant} catalogVersion={resolution.catalogVersion} selected={value?.source === "catalog" && value.assetId === variant.assetId} onSelect={() => void apply(signal => WalletService.selectCardArtwork(context, variant, resolution.catalogVersion, signal))} />) : null}</div>
     </> : null}
@@ -114,7 +115,7 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
       }}>Remove selected area</Button>
       {inspectedPhoto ? <Button type="button" variant="secondary" size="compact" disabled={busy || Boolean(mask) || Boolean(maskStart)} onClick={() => void apply(async () => approveWalletPhoto(inspectedPhoto, context.userId))}>I checked — use photo</Button> : null}
     </> : null}
-    <Button type="button" variant="ghost" size="compact" aria-pressed={!value || value.source === "neutral"} onClick={() => { choiceRevision.current++; operation.current?.abort(); onChange({ source: "neutral", version: 1 }); setBusy(false); setNotice("Simple design selected."); }}>Use a simple design</Button>
+    {!compact ? <Button type="button" variant="ghost" size="compact" aria-pressed={!value || value.source === "neutral"} onClick={() => { choiceRevision.current++; operation.current?.abort(); onChange({ source: "neutral", version: 1 }); setBusy(false); setNotice("Simple design selected."); }}>Use a simple design</Button> : null}
     {notice ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>{notice}</p> : null}
   </section>;
 }

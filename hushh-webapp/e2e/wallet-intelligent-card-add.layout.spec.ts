@@ -172,8 +172,8 @@ test("approved variant → encrypted save → reload → change design preserves
 test("exact artwork selects automatically; an unavailable provider keeps saving available", async ({ page }) => {
   record = null; wire.length = 0; artworkMode = "exact"; await page.goto(origin); await enterOwnedCard(page);
   await expect(page.getByRole("button", { name: "Test Blue", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Use a simple design" }).click();
-  await expect(page.getByRole("button", { name: "Test Blue", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "Use a simple design" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Choose your card design" })).toHaveCount(0);
   artworkMode = "outage"; await page.reload(); await enterOwnedCard(page);
   await expect(page.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Add to Wallet", exact: true }).click();
