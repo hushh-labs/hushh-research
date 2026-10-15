@@ -7,9 +7,9 @@
   ],
   "actions": [
     {
-      "action_id": "profile.world_model.build",
-      "label": "Prepare my model",
-      "meaning": "Consent to native Gemini public research using the verified owner identity, then start or resume preparation.",
+      "action_id": "profile.world_model.open_fact",
+      "label": "Open a detail",
+      "meaning": "Show one detail's sources, why it may be about the owner, how certain it is, and its choices.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -39,20 +39,192 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_build"
+        "pwm_fact_open"
       ],
       "state_exposure": [],
       "docs_references": [
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
       ],
       "speaker_persona": "one"
     },
     {
-      "action_id": "profile.world_model.review",
-      "label": "Review selected details",
-      "meaning": "Review source-cited statements, edit and save exactly the checked details.",
+      "action_id": "profile.world_model.confirm_fact",
+      "label": "Yes, this is right",
+      "meaning": "Save the exact statement to the owner's memory. Success is shown only after the encrypted write commits.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_yes"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.reject_fact",
+      "label": "No, this isn't right",
+      "meaning": "Remember privately that a statement is not about the owner so research does not propose it again. Saves no opposite fact.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_no"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.edit_fact",
+      "label": "Edit a detail",
+      "meaning": "Save only the owner's corrected wording in place of the statement.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_edit",
+        "pwm_fact_edit_save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.remove_fact",
+      "label": "Remove a detail",
+      "meaning": "After one confirmation, remove a saved detail from the owner's memory and keep it from coming back.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_remove",
+        "pwm_fact_remove_confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.research",
+      "label": "Use public sources",
+      "meaning": "Turn public research on or off. Off is an explicit opt-out that research respects.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -82,19 +254,270 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_review"
+        "pwm_settings_open",
+        "pwm_research_enabled",
+        "pwm_turn_on"
       ],
       "state_exposure": [],
       "docs_references": [
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-options.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.email",
+      "label": "Email me when it's ready",
+      "meaning": "Set the persistent readiness email preference.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_email"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/world-model-options.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.refresh",
+      "label": "Check for updates",
+      "meaning": "Start a fresh research pass when research is on and none is running.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_refresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/world-model-options.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.retry",
+      "label": "Try again",
+      "meaning": "Resume preparation or reopen saved details under fresh owner authority.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.open",
+      "label": "Open Personal World Model",
+      "meaning": "Open the dedicated Personal World Model page.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_open_page"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/personal-world-model-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.sources",
+      "label": "Add a public source",
+      "meaning": "Read independently supplied permitted public URLs for owner review.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_sources_open",
+        "pwm_sources_prepare",
+        "pwm_manage_sourced"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-sources.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.world_model.preview",
+      "label": "Prepare invitation preview",
+      "meaning": "Read a supplied professional source and review selected preview facts.",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-invitations.tsx"
       ],
       "speaker_persona": "one"
     },
     {
       "action_id": "profile.world_model.invite",
-      "label": "Create model invitation",
+      "label": "Invite someone",
       "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
       "aliases": [],
       "search_keywords": [
@@ -125,13 +548,13 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
+        "pwm_invite_open",
         "pwm_invite"
       ],
       "state_exposure": [],
       "docs_references": [
-        "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-invitations.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -173,309 +596,7 @@
       "state_exposure": [],
       "docs_references": [
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.email",
-      "label": "Readiness emails",
-      "meaning": "Set the persistent readiness email preference.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_email"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.pause",
-      "label": "Stop automatic research",
-      "meaning": "Revoke automatic research consent and fence running work.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_pause"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.refresh",
-      "label": "Refresh research",
-      "meaning": "Explicitly start fresh after the prior draft was discarded or expired.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_refresh"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.retry",
-      "label": "Retry research",
-      "meaning": "Resume completed research steps under fresh owner authority.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_retry"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.discard",
-      "label": "Discard research",
-      "meaning": "Remove the current research draft while retaining spent provider budget.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_discard"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.sources",
-      "label": "Prepare source details",
-      "meaning": "Read independently supplied permitted public URLs for owner review.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_sources_prepare"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
-      "action_id": "profile.world_model.preview",
-      "label": "Prepare invitation preview",
-      "meaning": "Read a supplied professional source and review selected preview facts.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_preview"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
+        "components/profile/world-model-claim-invitation.tsx"
       ],
       "speaker_persona": "one"
     },
@@ -516,9 +637,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "components/profile/world-model-research-panel.tsx",
-        "components/profile/world-model-sources.tsx",
-        "components/profile/world-model-invitations.tsx"
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-claim-invitation.tsx"
       ],
       "speaker_persona": "one"
     }

@@ -6,6 +6,11 @@ const mock = vi.hoisted(() => ({
   replace: vi.fn(),
   refresh: vi.fn(),
   reloadResearch: vi.fn(),
+  preferences: null as null | {
+    enabled: boolean;
+    email_enabled: boolean;
+    consent_version: "pwm-native-v1";
+  },
   preview: vi.fn(),
   list: vi.fn(),
   claim: vi.fn(),
@@ -21,7 +26,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 vi.mock("@/components/profile/world-model-provider", () => ({
-  useWorldModelResearch: () => ({ reload: mock.reloadResearch }),
+  useWorldModelResearch: () => ({
+    reload: mock.reloadResearch,
+    preferences: mock.preferences,
+  }),
 }));
 vi.mock("@/lib/agent/agent-pkm-capture-runtime", () => ({
   createAgentPkmCaptureGuard: ({
@@ -46,7 +54,7 @@ vi.mock("@/lib/services/world-model-invitations-service", () => ({
   },
 }));
 
-import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
+import { WorldModelClaimInvitation } from "@/components/profile/world-model-claim-invitation";
 import {
   createWorldModelInvitationHandoff,
   readWorldModelInvitationHandoff,
@@ -57,6 +65,7 @@ const token = "a".repeat(43);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.preferences = null;
   window.sessionStorage.clear();
   const handoff = createWorldModelInvitationHandoff(token, "recipient")!;
   window.history.replaceState(
@@ -76,7 +85,7 @@ beforeEach(() => {
 
 it("lets a verified recipient claim a previewless invitation without promising source details", async () => {
   render(
-    <WorldModelInvitations
+    <WorldModelClaimInvitation
       ownerId="recipient"
       vaultKey="vault-key"
       vaultOwnerToken="owner-token"
@@ -94,7 +103,7 @@ it("lets a verified recipient claim a previewless invitation without promising s
     ),
   );
   expect(
-    await screen.findByText(/you can now review and build your model/i),
+    await screen.findByText(/you can now review your model here/i),
   ).toBeInTheDocument();
   expect(mock.replace).toHaveBeenCalledWith("/one/profile/world-model");
   expect(mock.reloadResearch).toHaveBeenCalled();
@@ -106,10 +115,48 @@ it("lets a verified recipient claim a previewless invitation without promising s
   ).toBeNull();
 });
 
+it.each([
+  ["on by default", true, false],
+  ["turned off and left off", false, false],
+  ["turned off and turned back on", false, true],
+])(
+  "asks about research only when the recipient turned it off (%s)",
+  async (_case, enabled, check) => {
+    mock.preferences = {
+      enabled,
+      email_enabled: true,
+      consent_version: "pwm-native-v1",
+    };
+    render(
+      <WorldModelClaimInvitation
+        ownerId="recipient"
+        vaultKey="vault-key"
+        vaultOwnerToken="owner-token"
+      />,
+    );
+    await screen.findByRole("button", { name: "Claim my model" });
+    const box = screen.queryByRole("checkbox", {
+      name: "Turn public research back on after claiming",
+    });
+    // Negative control: default-on research shows no box and requests nothing.
+    if (enabled) expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    else expect(box).toBeInTheDocument();
+    if (check) fireEvent.click(box!);
+    fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
+    await waitFor(() =>
+      expect(mock.claim).toHaveBeenCalledWith(
+        { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+        token,
+        check,
+      ),
+    );
+  },
+);
+
 it("clears the handoff after the recipient rejects the invitation", async () => {
   mock.reject.mockResolvedValue({ rejected: true });
   render(
-    <WorldModelInvitations
+    <WorldModelClaimInvitation
       ownerId="recipient"
       vaultKey="vault-key"
       vaultOwnerToken="owner-token"
@@ -132,7 +179,7 @@ it("clears the handoff after the recipient rejects the invitation", async () => 
 
 it("routes a different signed-in account back to explicit invitation recovery", async () => {
   render(
-    <WorldModelInvitations
+    <WorldModelClaimInvitation
       ownerId="different-account"
       vaultKey="vault-key"
       vaultOwnerToken="owner-token"

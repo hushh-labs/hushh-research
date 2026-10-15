@@ -1,4 +1,4 @@
-"""Owner-scoped PWM preparation with explicit, persistent research consent."""
+"""Owner-scoped PWM preparation; default-on after setup, with a persistent opt-out."""
 
 from typing import Literal
 from uuid import UUID
@@ -14,6 +14,7 @@ from api.routes.one.profile_research import (
     MagicReviewCompletion,
     PrivateProfileRoute,
 )
+from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services import world_model_preferences as preferences
 from hushh_mcp.services import world_model_source_review as source_reviews
@@ -34,9 +35,26 @@ def owner(token):
     return token["user_id"], token["token"]
 
 
-async def operation(token, start):
+class PreparationInput(BaseModel):
+    """Optional: owner decisions the model must not propose again."""
+
+    model_config = ConfigDict(extra="forbid")
+    owner_decisions: OwnerDecisions | None = None
+
+
+def decisions(body: PreparationInput | None):
+    return body.owner_decisions.model_dump() if body and body.owner_decisions else None
+
+
+async def operation(token, start, owner_decisions=None):
     try:
-        result = await (world_model_jobs.start if start else world_model_jobs.status)(*owner(token))
+        if owner_decisions is not None:
+            inputs = {"owner_decisions": owner_decisions}
+            result = await world_model_jobs.start(*owner(token), inputs=inputs)
+        else:
+            result = await (world_model_jobs.start if start else world_model_jobs.status)(
+                *owner(token)
+            )
         return JSONResponse(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
@@ -48,8 +66,12 @@ async def operation(token, start):
 
 @router.post("/jobs")
 @limiter.limit("20/hour")
-async def start(request: Request, token: dict = Depends(require_vault_owner_chat_key)):
-    return await operation(token, True)
+async def start(
+    request: Request,
+    body: PreparationInput | None = None,
+    token: dict = Depends(require_vault_owner_chat_key),
+):
+    return await operation(token, True, decisions(body))
 
 
 @router.get("/jobs")
@@ -99,9 +121,13 @@ async def set_preferences(
 
 @router.post("/ensure")
 @limiter.limit("30/hour")
-async def ensure(request: Request, token: dict = Depends(require_vault_owner_chat_key)):
+async def ensure(
+    request: Request,
+    body: PreparationInput | None = None,
+    token: dict = Depends(require_vault_owner_chat_key),
+):
     try:
-        result = await world_model_jobs.ensure(*owner(token))
+        result = await world_model_jobs.ensure(*owner(token), owner_decisions=decisions(body))
         return JSONResponse(
             result, status_code=202 if result["status"] in {"pending", "paused"} else 200
         )
@@ -227,7 +253,14 @@ async def claim_invitation(
         result = await invitations.claim(*owner(token), body.token)
         if body.research_consent:
             # Claim and consent are explicit; retries reuse the claimed draft/job.
-            await preferences.update_preferences(*owner(token), enabled=True, email_enabled=False)
+            # The owner's existing email choice is kept.
+            current = await preferences.preferences(owner(token)[0])
+            if current is None:
+                await preferences.enroll_default(*owner(token))
+            else:
+                await preferences.update_preferences(
+                    *owner(token), enabled=True, email_enabled=current["email_enabled"]
+                )
             prepared = await world_model_jobs.ensure(*owner(token))
             result["research_started"] = prepared["status"] in {"pending", "paused", "offered"}
         return result

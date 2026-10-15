@@ -101,6 +101,10 @@ describe("AI-choice setup invitation continuation", () => {
         }),
     );
     render(<GeminiRuntimeConfigurationPage setupMode />);
+    // Continue finishes setup without the hub, so it carries the research disclosure.
+    expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+      "Your private agent will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
     fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
     await waitFor(() => expect(state.acknowledge).toHaveBeenCalledOnce());

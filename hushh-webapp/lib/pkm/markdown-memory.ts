@@ -20,6 +20,7 @@ import {
 } from "@/lib/vault/session-epoch";
 
 import { readLabelledSoulFacts } from "@/lib/pkm/soul-labelled-facts";
+import type { PwmClaim } from "@/lib/services/world-model-decision-service";
 
 export const MARKDOWN_MEMORY_DOMAIN = "one_memory";
 export const MARKDOWN_MEMORY_SCHEMA = "one.memory.md.v1";
@@ -39,7 +40,34 @@ type CachedMarkdownMemory = {
   sourceSummaries?: SourceSummaries;
   /** Owner deletions must not resurrect an older structured identity value. */
   deletedFactLabels?: string[];
+  /** Owner decisions on research statements; private, never model context. */
+  pwmClaims?: PwmClaims;
 };
+
+type PwmClaims = Record<string, PwmClaim>;
+const PWM_DECISIONS = new Set(["accepted", "edited", "rejected", "removed"]);
+const MAX_DECLINED_PWM_CLAIMS = 150;
+
+function readPwmClaims(value: unknown): PwmClaims {
+  return Object.fromEntries(Object.entries(record(value)).filter(([key, raw]) => {
+    const claim = record(raw);
+    return /^[a-f0-9]{64}$/.test(key) && claim.key === key && PWM_DECISIONS.has(String(claim.decision)) &&
+      typeof claim.text === "string" && Boolean(claim.text) && typeof claim.topic === "string" &&
+      typeof claim.decided_at === "string" && Number.isFinite(Date.parse(claim.decided_at)) && claim.basis === "owner_declaration";
+  })) as PwmClaims;
+}
+
+function samePwmClaim(a: PwmClaim | undefined, b: PwmClaim | undefined): boolean {
+  return a === b || (!!a && !!b && a.decision === b.decision && a.text === b.text && a.decided_at === b.decided_at);
+}
+
+/** Saved decisions are kept; only the newest declined ones are remembered. */
+function boundPwmClaims(claims: PwmClaims): PwmClaims {
+  const declined = Object.values(claims).filter(claim => claim.decision === "rejected" || claim.decision === "removed")
+    .sort((a, b) => Date.parse(b.decided_at) - Date.parse(a.decided_at));
+  const dropped = new Set(declined.slice(MAX_DECLINED_PWM_CLAIMS).map(claim => claim.key));
+  return Object.fromEntries(Object.entries(claims).filter(([key]) => !dropped.has(key)));
+}
 
 type SourceSummaries = Record<string, { observedAt: string; facts: string[] }>;
 type ReceiptSnapshotFence = { resourceKey: string; revision: number };
@@ -163,7 +191,7 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[] } | null {
+function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
     if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
@@ -176,6 +204,7 @@ function readStoredDocument(data: unknown): { markdown: string; updatedAt: strin
     kycIntakeCompletedAt: typeof root._kyc_intake_completed_at === "string" ? root._kyc_intake_completed_at : null,
     sourceSummaries: readSourceSummaries(root._source_summaries),
     deletedFactLabels: Array.isArray(root._deleted_fact_labels) ? root._deleted_fact_labels.filter((label): label is string => typeof label === "string") : [],
+    pwmClaims: readPwmClaims(root._pwm_claims),
   };
 }
 
@@ -189,6 +218,21 @@ function normalizeFact(value: SoulFact): string {
 
 function factKey(value: string): string {
   return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/** The bullet text a fact is stored as, or "" when it cannot be saved. */
+export function markdownMemoryFactText(value: string): string {
+  const fact = normalizeFact(value);
+  return fact === "[credential omitted]" || !factKey(fact) ? "" : fact;
+}
+
+/** The exact bullet the store treats as this fact, using its own dedupe identity. */
+export function findMarkdownMemoryBullet(markdown: string, text: string): string | null {
+  const wanted = factKey(normalizeFact(text));
+  if (!wanted) return null;
+  const bullets = scanSoulBullets(markdown);
+  return bullets.find(bullet => bullet.target === `- ${text}`)?.target ??
+    bullets.find(bullet => factKey(normalizeFact(bullet.target)) === wanted)?.target ?? null;
 }
 
 function storedFactKeys(markdown: string): Set<string> {
@@ -217,7 +261,8 @@ function appendFactsToMarkdown(markdown: string, facts: readonly SoulFact[]): {
   for (const fact of facts) {
     if (typeof fact === "string" || !fact.mutation) continue;
     if (!isSoulFact(fact)) throw new Error("Invalid memory mutation.");
-    const offered = soulMemoryCandidates(base).filter(candidate => candidate.target === fact.mutation!.target);
+    // An exact target needs no reconciliation cap; only offered candidates are bounded.
+    const offered = scanSoulBullets(base).filter(candidate => candidate.target === fact.mutation!.target);
     if (offered.length !== 1) throw new Error("Memory changed during preparation. Reassess before updating it.");
     const lines = base.split("\n");
     lines.splice(offered[0]!.lineIndex, 1);
@@ -295,10 +340,12 @@ function cacheDocument(params: {
   sourceSummaries?: SourceSummaries;
   /** Owner deletions must not resurrect an older structured identity value. */
   deletedFactLabels?: string[];
+  pwmClaims?: PwmClaims;
 }): CachedMarkdownMemory {
   const entry = {
     ...params,
     deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
+    pwmClaims: params.pwmClaims ?? cache.get(params.userId)?.pwmClaims ?? {},
     vaultEpoch: snapshotVaultSessionEpoch(),
   };
   cache.set(params.userId, entry);
@@ -363,6 +410,7 @@ async function readMarkdownMemory(params: {
     markdown: pending.markdown,
     sourceSummaries: pending.sourceSummaries,
     deletedFactLabels: stored?.deletedFactLabels ?? [],
+    pwmClaims: stored?.pwmClaims ?? {},
     updatedAt: stored?.updatedAt ?? null,
     dataVersion: snapshot?.key?.contentRevision ?? undefined,
     persisted: Boolean(stored),
@@ -376,6 +424,12 @@ export type SoulMemoryCandidate = PkmReconciliationCandidate & { target: string;
 
 /** Offered references are session-local; neither IDs nor paths enter Soul.md. */
 export function soulMemoryCandidates(markdown: string): SoulMemoryCandidate[] {
+  const candidates = scanSoulBullets(markdown);
+  if (candidates.length > 256) throw new Error("Memory has too many items for automatic reconciliation.");
+  return candidates;
+}
+
+function scanSoulBullets(markdown: string): SoulMemoryCandidate[] {
   const candidates: SoulMemoryCandidate[] = [];
   const lines = markdown.split("\n");
   let fence: { marker: string; size: number } | null = null;
@@ -392,7 +446,6 @@ export function soulMemoryCandidates(markdown: string): SoulMemoryCandidate[] {
     candidates.push({ domain: MARKDOWN_MEMORY_DOMAIN, entity_id: `soul_${index}`,
       entity_scope: "markdown", message: maskSecretSpans(line.slice(2)), active: true, target: line, lineIndex: index });
   });
-  if (candidates.length > 256) throw new Error("Memory has too many items for automatic reconciliation.");
   return candidates;
 }
 
@@ -446,10 +499,14 @@ export async function appendMarkdownMemoryFacts(params: {
   replaceSource?: ReplaceSource;
   receiptGeneration?: number;
   receiptSnapshotFence?: ReceiptSnapshotFence;
+  /** Owner decision on a research statement, committed in the same write as its bullet. */
+  pwmClaim?: PwmClaim;
+  /** The decision this one replaces (null when none); a different stored one is a conflict. */
+  pwmClaimPrevious?: PwmClaim | null;
 }): Promise<MarkdownMemoryAppendResult> {
   if (params.replaceSource) assertLightweightReceiptFacts(params.facts);
   const facts = params.facts.map(fact => typeof fact === "string" ? normalizeFact(fact) : { ...fact, text: normalizeFact(fact) }).filter(fact => Boolean(soulFactText(fact)) || (typeof fact !== "string" && fact.mutation?.kind === "delete"));
-  if (facts.length === 0 && !params.completeKycIntake && !params.replaceSource) {
+  if (facts.length === 0 && !params.completeKycIntake && !params.replaceSource && !params.pwmClaim) {
     return { success: true, saved: 0, markdown: peekMarkdownMemory(params.userId)?.markdown ?? null };
   }
   const seed = peekMarkdownMemory(params.userId)?.markdown ?? emptySoulDocument();
@@ -464,6 +521,7 @@ export async function appendMarkdownMemoryFacts(params: {
   let kycIntakeCompletedAt: string | null = null;
   let sourceSummaries: SourceSummaries = {};
   let deletedFactLabels = peekMarkdownMemory(params.userId)?.deletedFactLabels ?? [];
+  let pwmClaims = peekMarkdownMemory(params.userId)?.pwmClaims ?? {};
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -479,6 +537,12 @@ export async function appendMarkdownMemoryFacts(params: {
       if (params.replaceSource) assertReceiptMemoryBudget(appended.sourceSummaries);
       sourceSummaries = appended.sourceSummaries;
       deletedFactLabels = deletedLabelsAfter(stored?.markdown ?? seed, appended.markdown, stored?.deletedFactLabels ?? deletedFactLabels);
+      const currentClaims = stored ? stored.pwmClaims : pwmClaims;
+      // A decision made on a stale view (another tab, a quick second tap) must
+      // not overwrite a newer one and leave an orphaned bullet behind.
+      if (params.pwmClaim && !samePwmClaim(currentClaims[params.pwmClaim.key], params.pwmClaimPrevious ?? undefined))
+        throw new Error("Memory changed during preparation. Reassess before updating it.");
+      pwmClaims = params.pwmClaim ? boundPwmClaims({ ...currentClaims, [params.pwmClaim.key]: params.pwmClaim }) : currentClaims;
       writtenMarkdown = appended.markdown;
       saved = appended.saved;
       const updatedAt = new Date().toISOString();
@@ -492,6 +556,7 @@ export async function appendMarkdownMemoryFacts(params: {
           updated_at: updatedAt,
           ...(kycIntakeCompletedAt ? { _kyc_intake_completed_at: kycIntakeCompletedAt } : {}),
           ...(Object.keys(sourceSummaries).length ? { _source_summaries: sourceSummaries } : {}),
+          ...(Object.keys(pwmClaims).length ? { _pwm_claims: pwmClaims } : {}),
         },
         summary: {
           schema_version: MARKDOWN_MEMORY_SCHEMA,
@@ -513,6 +578,7 @@ export async function appendMarkdownMemoryFacts(params: {
       markdown: pending.markdown,
       sourceSummaries: pending.sourceSummaries,
       deletedFactLabels: deletedLabelsAfter(writtenMarkdown, pending.markdown, deletedFactLabels),
+      pwmClaims,
       updatedAt: result.updatedAt ?? new Date().toISOString(),
       dataVersion: result.dataVersion,
       persisted: true,
@@ -602,7 +668,7 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
 }
 
 /** Publish accepted facts immediately; encryption and CAS commits run in parallel with chat. */
-export async function stageMarkdownMemoryFacts(params: AppendParams & { recoveryKey?: string; stagingOrder?: number }): Promise<MarkdownMemoryAppendResult> {
+export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmClaim"> & { recoveryKey?: string; stagingOrder?: number }): Promise<MarkdownMemoryAppendResult> {
   await params.beforeEffect?.();
   const receiptGeneration = params.replaceSource ? params.receiptGeneration ?? (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation : undefined;
   if (receiptGeneration !== undefined && (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation !== receiptGeneration)
@@ -799,6 +865,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   let kycIntakeCompletedAt = local?.kycIntakeCompletedAt ?? null;
   let sourceSummaries = local?.sourceSummaries ?? {};
   let deletedFactLabels = local?.deletedFactLabels ?? [];
+  let pwmClaims = local?.pwmClaims ?? {};
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
@@ -812,6 +879,7 @@ export async function replaceMarkdownMemoryDocument(params: {
       kycIntakeCompletedAt = stored?.kycIntakeCompletedAt ?? kycIntakeCompletedAt;
       sourceSummaries = stored?.sourceSummaries ?? sourceSummaries;
       deletedFactLabels = stored?.deletedFactLabels ?? deletedFactLabels;
+      pwmClaims = stored?.pwmClaims ?? pwmClaims;
       const currentMarkdown = stored?.markdown ?? seed;
       if ((params.expectedPersisted && !stored) || currentMarkdown !== params.expectedMarkdown ||
         (peekMarkdownMemory(params.userId)?.markdown ?? params.expectedMarkdown) !== params.expectedMarkdown) {
@@ -822,7 +890,8 @@ export async function replaceMarkdownMemoryDocument(params: {
       const updatedAt = new Date().toISOString();
       return {
         domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown,
-          _deleted_fact_labels: deletedFactLabels, updated_at: updatedAt },
+          _deleted_fact_labels: deletedFactLabels, updated_at: updatedAt,
+          ...(Object.keys(pwmClaims).length ? { _pwm_claims: pwmClaims } : {}) },
         summary: { schema_version: MARKDOWN_MEMORY_SCHEMA, storage_mode: "encrypted_markdown", character_count: markdown.length, updated_at: updatedAt },
       };
     },
@@ -835,7 +904,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
   if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen memory.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
-  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
+  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, pwmClaims, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)
       ? peekMarkdownMemory(params.userId)?.kycIntakeCompletedAt ?? kycIntakeCompletedAt : kycIntakeCompletedAt });
   releaseQueue();

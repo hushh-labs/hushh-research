@@ -12,13 +12,12 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { WorldModelResearchService } from "@/lib/services/world-model-research-service";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -67,13 +66,6 @@ export function OneSetupHub() {
     (state) => state.queueEntryWelcome,
   );
   const [dismissing, setDismissing] = useState(false);
-  const [pwmConsent, setPwmConsent] = useState<{
-    owner: string;
-    enabled: boolean;
-    email: boolean;
-  } | null>(null);
-  const preparePwm = pwmConsent?.owner === user?.uid && pwmConsent?.enabled;
-  const emailPwm = pwmConsent?.owner === user?.uid && pwmConsent?.email;
   const [finalizationError, setFinalizationError] = useState<string | null>(
     null,
   );
@@ -222,13 +214,6 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      if (preparePwm) {
-        await WorldModelResearchService.updatePreferences(
-          { vaultKey, vaultOwnerToken },
-          { enabled: true, email_enabled: !!emailPwm },
-        );
-      }
-
       await acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: false,
@@ -271,8 +256,6 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
-    preparePwm,
-    emailPwm,
     returnTo,
     queueEntryWelcome,
     router,
@@ -456,46 +439,7 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
               <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
-                <div className="mb-4 space-y-2 text-xs text-muted-foreground">
-                  <label className="flex min-h-11 items-start gap-3 py-2">
-                    <Checkbox
-                      checked={!!preparePwm}
-                      disabled={dismissing}
-                      data-voice-control-id="one_setup_pwm_consent"
-                      onCheckedChange={(checked) =>
-                        user &&
-                        setPwmConsent({
-                          owner: user.uid,
-                          enabled: checked === true,
-                          email: !!emailPwm,
-                        })
-                      }
-                    />
-                    <span>
-                      Prepare my Personal World Model. Gemini may search public
-                      sources using my name and verified contact. I’ll review
-                      the results.
-                    </span>
-                  </label>
-                  {preparePwm && (
-                    <label className="flex min-h-11 items-center gap-3">
-                      <Checkbox
-                        checked={!!emailPwm}
-                        disabled={dismissing}
-                        data-voice-control-id="one_setup_pwm_email"
-                        onCheckedChange={(checked) =>
-                          user &&
-                          setPwmConsent({
-                            owner: user.uid,
-                            enabled: true,
-                            email: checked === true,
-                          })
-                        }
-                      />
-                      Email me when it is ready
-                    </label>
-                  )}
-                </div>
+                <PwmResearchDisclosure className="mb-4" />
                 <Button
                   type="button"
                   variant="blue"
