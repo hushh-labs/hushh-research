@@ -71,3 +71,28 @@ describe("collection indexing stages", () => {
     ]) expect(() => parseDriveCollectionStatus({ ...status, counts })).toThrow();
   });
 });
+
+describe("what is inside a packet", () => {
+  const contents = { period: { start: "2026-01-01", end: "2026-06-30" }, documents: [
+    { name: "Example Bank statement Jan 2026.pdf", type: "bank statement", pages: 2, period: { start: "2026-01-01", end: "2026-01-31" } },
+    { name: "Example Bank statement Feb 2026.pdf", type: null, pages: null, period: null },
+  ] };
+  const owned = { ...packet, title: "Example Bank statements", contents };
+  it("keeps the owner's own file list and never hands it to a buyer view", async () => {
+    expect(parseDrivePacket(owned, "owner").contents).toEqual(contents);
+    expect(parseDrivePacket(owned).contents).toBeUndefined();
+    expect(parseDrivePacket(packet, "owner").contents).toBeUndefined();
+    api.fetch.mockImplementation(async () => Response.json({ packets: [owned], nextCursor: null }));
+    expect((await DrivePacketService.packets("owner", () => undefined)).packets[0].contents).toEqual(contents);
+    const bought = await DrivePacketService.packets("buyer", () => undefined, id);
+    expect(bought.packets[0].contents).toBeUndefined();
+    expect(JSON.stringify(bought)).not.toContain("Example Bank statement Jan 2026.pdf");
+  });
+  it("rejects a malformed file list", () => {
+    for (const change of [{ period: { start: "2026-02-01", end: "2026-01-01" } }, { period: { start: "Jan", end: "2026-01-01" } },
+      { documents: [{ ...contents.documents[0], name: "" }] }, { documents: [{ ...contents.documents[0], pages: 0 }] },
+      { documents: "Example Bank statement Jan 2026.pdf" }, { documents: Array(121).fill(contents.documents[1]) }]) {
+      expect(() => parseDrivePacket({ ...owned, contents: { ...contents, ...change } }, "owner")).toThrow();
+    }
+  });
+});

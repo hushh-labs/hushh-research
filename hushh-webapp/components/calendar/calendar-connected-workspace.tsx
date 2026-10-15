@@ -1,5 +1,9 @@
 "use client";
 
+import { CalendarInvitations } from "./calendar-invitations";
+import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
+
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckCircle, ChevronLeft, ChevronRight, Lock, MoreHorizontal, Plus } from "@/components/icons";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -27,6 +31,7 @@ import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/c
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import scheduleStyles from "./calendar-schedule.module.css";
+import invitationStyles from "./calendar-invitations.module.css";
 
 const MAIN_TABS = [
   { value: "schedule", label: "Schedule", href: "/one/calendar" },
@@ -45,7 +50,7 @@ type Props = {
   status: GoogleCalendarStatus;
   busy: boolean;
   onConnect: (access: "read" | "manage", includeCalendarList?: boolean) => void;
-  onChat: (prompt?: string, slot?: CalendarSlotHandoff) => void;
+  onChat: (prompt?: string, slot?: CalendarSlotHandoff, invitation?: CalendarInvitationHandoff) => void;
   onDisconnect: () => void;
   onMailConnect?: () => Promise<void>;
   connectionNotice?: ReactNode;
@@ -325,7 +330,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
     const next = await GoogleCalendarService.confirmAttendance({ firebaseIdToken, isEffectCurrent: isCurrent, vaultOwnerToken: token, reviewId: review.review_id, reviewToken: review.review_token });
     if (!isCurrent()) return;
     setResult(next); setStep("result");
-    if (next.calendar === "declined") void loadEvents();
+    if (next.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
   });
   const saveSettings = () => {
     try {
@@ -386,8 +391,10 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
   const scheduleLoading = view === "today" ? eventsLoading : availabilityLoading;
   const reconnectRequired = [eventsError, availabilityError].some(error => error instanceof GoogleCalendarError && (error.recovery === "reconnect" || error.recovery === "connect"));
 
+  const calendarFooter = <div className="flex flex-col items-center gap-2 pt-1"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className="min-h-11 px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" onClick={onDisconnect}>Disconnect Calendar</button></div>;
+
   return <AppPageShell width="agent" headerContentSpacing="compact" fitContent className="relative isolate" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: view === "today" ? eventsLoading ? "loading" : eventsError ? "error" : events?.length ? "loaded" : "empty-valid" : availabilityLoading ? "loading" : availabilityError ? "error" : availability ? availability.windows.length ? "loaded" : "empty-valid" : "unavailable-valid" }}>
-    <div className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]" data-calendar-workspace>
+    <div className={`${invitationStyles.calendarTypography} mx-auto w-full space-y-[var(--page-header-section-gap)]`} data-calendar-workspace>
       <PageHeader title="Calendar" titleRole="agent" actionsInlineMobile description={<div className="space-y-1"><p className="break-all text-sm text-muted-foreground">{status.google_email || "Connected Google account"}</p><p className={`flex items-center gap-1.5 text-sm font-normal ${reconnectRequired ? "text-muted-foreground" : "text-[color:var(--app-success-deep)]"}`}>{reconnectRequired ? <Lock aria-hidden className="size-4" /> : <CheckCircle aria-hidden weight="fill" className="size-5 text-[color:var(--app-success)]" />}{reconnectRequired ? "Reconnect required" : "Connected"}</p></div>} actions={<>
         <a aria-label="Open Google Calendar" className="inline-flex size-[42px] items-center justify-center rounded-[var(--app-radius-sm)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-compact)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:size-12" href={providerUrl} target="_blank" rel="noopener noreferrer"><GoogleCalendarMark className="size-7" /></a>
         <DropdownMenu><DropdownMenuTrigger asChild><Button ref={accountMenuButton} aria-label="Calendar settings and actions" disabled={busy || submitting} variant="ghost" size="icon" className="size-10 rounded-[var(--app-radius-sm)] bg-[color:var(--app-segmented-track-surface)] !text-[color:var(--app-label)] sm:size-[46px]"><MoreHorizontal className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
@@ -399,7 +406,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
       </>} />
       {connectionNotice}
       <TopShellTabs disabled={submitting || busy} tabSet={{ id: "calendar", label: "Calendar", queryParam: null, activeValue: tab, tabs: MAIN_TABS }} onValueChange={setTab} />
-      {tab !== "schedule" ? <SurfaceCard role="tabpanel" id={`top-shell-calendar-panel-${tab}`} aria-labelledby={`top-shell-calendar-tab-${tab}`} className="p-6 shadow-none"><h2 className="font-semibold">{tab === "invitations" ? "Invitations" : "Insights"}</h2><p className="mt-2 text-sm text-muted-foreground">Coming soon</p></SurfaceCard> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
+      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} onOfferTimes={invitation => onChat(undefined, undefined, invitation)} /></div> : tab !== "schedule" ? <SurfaceCard role="tabpanel" id={`top-shell-calendar-panel-${tab}`} aria-labelledby={`top-shell-calendar-tab-${tab}`} className="p-6 shadow-none"><h2 className="font-semibold">{tab === "invitations" ? "Invitations" : "Insights"}</h2><p className="mt-2 text-sm text-muted-foreground">Coming soon</p></SurfaceCard> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" aria-labelledby="top-shell-calendar-tab-schedule" className="space-y-3">
         <div className="py-1"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel="Schedule views" options={SCHEDULE_TABS} value={view} onValueChange={setView} /></div>
         <div className="flex min-h-10 items-center justify-between gap-2 sm:min-h-[34px]">
           <label className="relative min-w-0 cursor-pointer rounded-md text-[13px] sm:text-[15px] focus-within:ring-2 focus-within:ring-[color:var(--app-accent-ring)]"><span className="font-semibold">{calendarDayLabel(date)}</span><input aria-label="Selected date" type="date" value={date} disabled={submitting || busy} onChange={event => { if (event.target.value) setDate(event.target.value); }} className="absolute inset-0 w-full cursor-pointer opacity-0" /></label>
@@ -433,8 +440,9 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
           <CalendarProviderShortcut date={date} email={status.google_email} availability />
           <SurfaceCard className="shadow-none bg-[color:var(--app-card-surface-surface)]"><button type="button" onClick={() => onChat(`Help me find a different time on ${date} in ${zone} for a ${duration}-minute meeting. Check the full selected local day.`)} className="flex min-h-[90px] w-full items-start gap-[14px] px-3 py-[14px] text-left sm:gap-[17px] sm:px-4 sm:py-[13px] focus-visible:rounded-[var(--app-card-radius-standard)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"><CalendarHelperIcon /><span><span className="block text-sm font-normal">Need a different time?</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Just ask One to find time, schedule a meeting or reschedule for you.</span></span></button></SurfaceCard>
         </section>}
-        <div className="flex flex-col items-center gap-2 pt-1"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className="min-h-11 px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" onClick={onDisconnect}>Disconnect Calendar</button></div>
+
       </div>}
+      {tab !== "insights" ? calendarFooter : null}
     </div>
     <Dialog modal open={settingsActive} onOpenChange={open => { if (!open && pendingExclusion) setPendingExclusion(null); else setSettingsOpen(open); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto" onEscapeKeyDown={event => { if (pendingExclusion) { event.preventDefault(); setPendingExclusion(null); } }} onCloseAutoFocus={event => { if (settingsTrigger.current?.isConnected) { event.preventDefault(); settingsTrigger.current.focus(); } }}><DialogHeader><DialogTitle>Calendar settings</DialogTitle><DialogDescription>Time zone and calendars for this session. Free time checks the whole selected day.</DialogDescription></DialogHeader>

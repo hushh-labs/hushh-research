@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 STATE_EVENT_OFFER = "hussh:calendar_event_read_offer"
+STATE_INVITATION_OFFER = "hussh:calendar_invitation_read_offer"
 STATE_CALENDAR_OFFER = "hussh:calendar_list_read_offer"
 _OFFER_TTL_MS = 5 * 60 * 1000
 
@@ -19,7 +20,7 @@ _OFFER_TTL_MS = 5 * 60 * 1000
 class CalendarReadOffer(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    kind: Literal["events", "calendars"]
+    kind: Literal["events", "calendars", "invitations"]
     owner_id: str = Field(min_length=1, max_length=256)
     conversation_id: str = Field(min_length=1, max_length=256)
     grant_binding: list[str] = Field(min_length=6, max_length=6)
@@ -37,7 +38,7 @@ class CalendarReadOffer(BaseModel):
 
 def make_calendar_read_offer(
     *,
-    kind: Literal["events", "calendars"],
+    kind: Literal["events", "calendars", "invitations"],
     owner_id: str,
     conversation_id: str,
     grant_binding: tuple[str, ...],
@@ -68,7 +69,7 @@ def make_calendar_read_offer(
 def current_calendar_read_offer(
     raw: Any,
     *,
-    kind: Literal["events", "calendars"],
+    kind: Literal["events", "calendars", "invitations"],
     owner_id: str,
     conversation_id: str,
     grant_binding: tuple[str, ...] | None,

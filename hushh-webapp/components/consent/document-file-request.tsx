@@ -19,6 +19,7 @@ import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +29,9 @@ import {
   DocumentRequestQuoteNotice,
   useDocumentRequestQuote,
 } from "@/components/consent/document-request-quote";
+import { IDENTITY_REQUIRED, fileRequestError } from "@/components/consent/file-request-errors";
+import { PacketRow } from "@/components/consent/packets/packet-rows";
+import { dayRangeLabel } from "@/components/consent/packets/packet-copy";
 import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
 import {
   Dialog,
@@ -45,11 +49,6 @@ export type FileRequestTerms = {
 
 export const FILE_REQUEST_HELPER =
   "You get original Drive links for the files they share with you.";
-
-const IDENTITY_REQUIRED = new Set([
-  "verify_google_identity_required",
-  "google_identity_required",
-]);
 
 export function validFileRequest(terms: FileRequestTerms): boolean {
   return validDocumentRequestTerms(
@@ -138,42 +137,6 @@ export function RecipientIdentityNotice({ preview }: { preview: RecipientIdentit
   if (preview.state === "missing")
     return <HelperText role="status">Add a Google account to receive the files.</HelperText>;
   return null;
-}
-
-function fileRequestError(code: string): string {
-  if (IDENTITY_REQUIRED.has(code))
-    return "Add a Google account once to receive original files.";
-  switch (code) {
-    case "identity_link_web_required":
-      return "Open One on the web to add your Google account once.";
-    case "identity_already_linked":
-      return "That Google account belongs to another One account. Choose another.";
-    case "identity_cancelled":
-      return "Google verification was cancelled. No new request was sent.";
-    case "identity_busy":
-      return "Finish the verification already open, then retry.";
-    case "identity_timeout":
-      return "Google verification timed out. Close any open verification window, then retry.";
-    case "identity_mismatch":
-      return "Use the Google account linked to your One account.";
-    case "native_identity_unavailable":
-      return "Update the app to verify your Google account, then retry.";
-    case "identity_popup_blocked":
-      return "Allow the Google verification popup, then retry.";
-    case "sharing_unavailable":
-    case "connector_unavailable":
-      return "File requests aren't available for this connection yet.";
-    case "connection_required":
-      return "You need an active connection with this person.";
-    case "request_changed":
-      return "This request was already sent with different details. Start a new request.";
-    case "price_changed":
-      return "The owner changed the price. Review the updated quote before sending.";
-    case "date_range_required":
-      return "Choose exact start and end dates before sending this request.";
-    default:
-      return "Couldn't confirm it was sent. Send again. It won't be sent twice.";
-  }
 }
 
 /**
@@ -347,7 +310,8 @@ export function RequestFilesButton({
   const [purpose, setPurpose] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [created, setCreated] = useState<string | null>(null);
+  // What was sent, kept for its status row; the form itself starts over.
+  const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
   const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
   const identity = useRecipientIdentityPreview({ active: open && !created, userId, getToken });
   const request = useFileRequest({
@@ -370,7 +334,7 @@ export function RequestFilesButton({
   const submit = async () => {
     const requestId = await request.send(terms, quote.quote);
     if (!requestId) return;
-    setCreated(requestId);
+    setCreated({ requestId, purpose: purpose.trim(), start, end });
     setPurpose("");
     setStart("");
     setEnd("");
@@ -405,15 +369,28 @@ export function RequestFilesButton({
           </DialogHeader>
           {created ? (
             <div className="min-w-0 space-y-4">
-              <BodyText role="status" className="text-center">
-                Request sent.
-              </BodyText>
+              <BodyText role="status">Request sent.</BodyText>
+              {/* The request reads like a packet row: what was asked, who it waits on, and the dates. */}
+              <SettingsGroup density="compact">
+                <PacketRow
+                  item={{
+                    id: created.requestId,
+                    title: created.purpose,
+                    statusLine: [`Waiting for ${personName}`, dayRangeLabel(created.start, created.end)]
+                      .filter(Boolean)
+                      .join(" · "),
+                    // The quote is only an estimate; the price comes with their approval.
+                    amountCents: null,
+                    tone: "waiting",
+                  }}
+                />
+              </SettingsGroup>
               <FlowActionGroup
                 primary={
                   <Button asChild size="prominent">
                     <Link
                       href={buildConsentCenterHref("pending", {
-                        requestId: `document_share_request:${created}`,
+                        requestId: `document_share_request:${created.requestId}`,
                         requestView: "sent",
                       })}
                     >
@@ -459,7 +436,7 @@ export function RequestFilesButton({
                 />
               </div>
               <fieldset className="min-w-0" disabled={busy}>
-                <legend className="mb-2">Period (required)</legend>
+                <legend className="mb-2">Dates</legend>
                 <MobileDocumentDateRange
                   start={start}
                   end={end}
@@ -490,13 +467,11 @@ export function RequestFilesButton({
                 </div>
               </fieldset>
               {!start || !end ? (
-                <HelperText role="status">
-                  Choose exact start and end dates before sending this request.
-                </HelperText>
+                <HelperText role="status">Choose a start and end date.</HelperText>
               ) : null}
               {start && end && !validDocumentRequestPeriod(start, end) ? (
                 <HelperText role="status">
-                  Choose both dates, with the end on or after the start.
+                  The end date must be on or after the start date.
                 </HelperText>
               ) : null}
               {request.error ? (
@@ -506,7 +481,7 @@ export function RequestFilesButton({
               ) : null}
               <RecipientIdentityNotice preview={identity} />
               <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
-                error={quote.error} onRetry={quote.refresh} />
+                error={quote.error} onRetry={quote.refresh} personName={personName} />
               <FlowActionGroup
                 primary={
                   <Button type="submit" size="prominent" disabled={!valid || !quote.quote || busy}>

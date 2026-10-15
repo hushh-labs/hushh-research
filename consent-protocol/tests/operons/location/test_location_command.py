@@ -39,7 +39,11 @@ def test_all_current_location_capabilities_have_an_authored_destination():
     revision, actions = catalog()
     assert len(actions) >= 54
     assert len(semantic_catalog(actions)) == len(actions)
-    assert all(a["command"]["review_route"].startswith("/one/") for a in actions.values())
+    assert all(
+        a["command"]["review_route"].startswith("/one/")
+        for a in actions.values()
+        if a["action_id"].startswith("location.")
+    )
     altered = list(actions.values())
     altered[0] = {**altered[0], "meaning": "changed owning contract"}
     assert compile_location_capabilities(altered)[0] != revision
@@ -451,3 +455,30 @@ def test_provider_shape_omits_unsupported_numeric_bounds_without_loosening_typed
             unsupported=False,
             intent_summary="Add a person.",
         )
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "Show my pending invitations",
+        "Accept tomorrow's client meeting",
+        "Decline my 3 PM invitation",
+        "I can't attend. Ask the organizer to choose another time",
+    ],
+)
+def test_calendar_handoff_is_discoverable_without_admitting_provider_writes(utterance):
+    revision, actions = catalog()
+    assert {key for key in actions if key.startswith("calendar.")} == {"calendar.invitation.review"}
+    action = actions["calendar.invitation.review"]
+    assert action["execution_target"]["target"] == "continue_calendar_in_chat"
+    assert not (action.get("command") or {}).get("backend_binding")
+    plan = validate_assessment(
+        LocationAssessment(
+            steps=[{"action_id": "calendar.invitation.review", "slots": {"request": utterance}}]
+        ),
+        actions,
+        capability_revision=revision,
+        context_revision="ctx",
+    )
+    assert plan.mode == "end_to_end"
+    assert plan.steps[0].slots == {"request": utterance}

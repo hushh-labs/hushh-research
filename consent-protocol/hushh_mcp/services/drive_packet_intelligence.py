@@ -7,12 +7,13 @@ The caller supplies current, consented, version-bound evidence and owns leases.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import logging
 import re
 import time
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -72,10 +73,28 @@ _NAMED_MONTH_YEAR = re.compile(
 )
 _DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{4}})\b", re.I)
 _MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
+_ISO_DAY = re.compile(r"(?<!\d)(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?!\d)")
+_NUMERIC_DAY = re.compile(r"(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)")
+_NAMED_DAY = re.compile(
+    rf"\b({_MONTH_WORD})\.?\s*(\d{{1,2}})(?:st|nd|rd|th)?,?\s*(\d{{4}})(?!\d)", re.I
+)
+_DAY_NAMED = re.compile(
+    rf"(?<!\d)(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH_WORD})\.?,?\s*(\d{{4}})(?!\d)", re.I
+)
 ACCOUNT_MISMATCH = "Documents name different accounts"
 HOLDER_MISMATCH = "Documents name different account holders"
 DIFFERENT_PERSON = "Document names a different person"
 OWNER_UNCONFIRMED = "Owner name on file cannot confirm the account holder"
+SAME_STATEMENT = "Two documents look like the same statement"
+PERIOD_ROLE = "Period is dated only by a due, print, transaction, event or snapshot date"
+UNSUPPORTED_COMPLETE = "Copy claims complete coverage the periods do not show"
+_SOURCE_REASONS = frozenset(
+    {ACCOUNT_MISMATCH, HOLDER_MISMATCH, DIFFERENT_PERSON, OWNER_UNCONFIRMED}
+)
+# Host-side member fields the model is never shown: a file's creation time
+# tells two undated originals of one record apart, but never dates coverage.
+_HOST_ONLY_FIELDS = frozenset({"created_time"})
+_AMOUNT = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})(?![\d.])")
 
 
 class EvidenceValidationError(ValueError):
@@ -403,6 +422,328 @@ def _require_dated_periods(periods):
         raise EvidenceValidationError("model_period_invalid", issues=issues[:8])
 
 
+def _month_span(start, end):
+    """Every (year, month) from start's month through end's, in order."""
+    months, (year, month) = [], (start.year, start.month)
+    while (year, month) <= (end.year, end.month):
+        months.append((year, month))
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return months
+
+
+def _quoted_days(quote):
+    """Calendar days a quote states, by text span. A numeric date is read
+    both ways (month/day and day/month) where both are real days."""
+    days = {}
+
+    def add(span, year, month, day):
+        try:
+            days.setdefault(span, set()).add(date(year, month, day))
+        except ValueError:
+            return
+
+    for match in _ISO_DAY.finditer(quote):
+        add(match.span(), *(int(part) for part in match.groups()))
+    for match in _NUMERIC_DAY.finditer(quote):
+        first, second, year = (int(part) for part in match.groups())
+        year = year + (2000 if year < 70 else 1900) if year < 100 else year
+        add(match.span(), year, first, second)
+        add(match.span(), year, second, first)
+    for pattern, month_group, day_group in ((_NAMED_DAY, 1, 2), (_DAY_NAMED, 2, 1)):
+        for match in pattern.finditer(quote):
+            month = MONTHS[match.group(month_group).casefold()]
+            add(match.span(), int(match.group(3)), month, int(match.group(day_group)))
+    return days
+
+
+def _citation_key(citation):
+    return (citation["page"], citation.get("unit_kind", "page"), citation["quote"])
+
+
+_OTHER_DATE_ROLES = frozenset({"as_of", "publication", "planned_action", "transaction", "event"})
+_ENDED_UNIT = re.compile(r"\b(month|quarter|year)(?:ly)?\s+(?:ended|ending)\b", re.I)
+_UNIT_MONTHS = {"month": 1, "quarter": 3, "year": 12}
+
+
+def _period_date_role(period, date_evidence):
+    """The role of another kind of date that alone dates a coverage period.
+
+    Facts can date one quoted line twice: as a snapshot, due, print,
+    transaction or event date, and as a coverage window. The window stands
+    when its quotes, or snapshot dates on them (opening and closing
+    balances), state both its endpoints, when a quote states a whole-month
+    window by its unit and end date (the quarter ended September 30), or
+    when a quote carries an in-window date those other dates do not account
+    for. Otherwise the window was read from the other date: a due date, print
+    date or benchmark month taken as the statement period. Evidence equal to
+    the window only restates it.
+    Compact evidence carries no citations, so only full member facts are
+    checked.
+    """
+    start, end = (date.fromisoformat(period[key]) for key in ("start", "end"))
+    keys = {_citation_key(citation) for citation in period["citations"]}
+    others = [
+        item
+        for item in date_evidence
+        if isinstance(item, dict)
+        and item.get("role") in _OTHER_DATE_ROLES
+        and item.get("start")
+        and item.get("end")
+        and (item["start"], item["end"]) != (period["start"], period["end"])
+        and keys & {_citation_key(citation) for citation in item.get("citations") or []}
+    ]
+    if not others:
+        return None
+    window = _month_span(start, end)
+    quoted = [(citation, _quoted_days(citation["quote"])) for citation in period["citations"]]
+    days = {day for _, found in quoted for candidates in found.values() for day in candidates}
+    days |= {date.fromisoformat(item["start"]) for item in others if item["role"] == "as_of"}
+    if start < end and {start, end} <= days:
+        return None
+    # A calendar window its quote states by unit and end date (the quarter
+    # ended September 30) stands beside a snapshot quoted on the same line.
+    if (
+        start.day == 1
+        and (end + timedelta(days=1)).day == 1
+        and any(
+            _UNIT_MONTHS[unit.casefold()] == len(window)
+            and any(end in candidates for candidates in found.values())
+            for citation, found in quoted
+            for unit in _ENDED_UNIT.findall(citation["quote"])
+        )
+    ):
+        return None
+    if len(window) > 1:
+        named = set()
+        for citation, _ in quoted:
+            pairs, months, _ = _quoted_dates(citation["quote"])
+            named |= {pair[1] for pair in pairs if pair in window} | months
+        if {window[0][1], window[-1][1]} <= named:
+            return None
+    for citation, found in quoted:
+        key = _citation_key(citation)
+        mine = [
+            item
+            for item in others
+            if key in {_citation_key(other) for other in item.get("citations") or []}
+        ]
+        explained, coarse = set(), set()
+        stated = {day for candidates in found.values() for day in candidates}
+        for item in mine:
+            bounds = {date.fromisoformat(item["start"]), date.fromisoformat(item["end"])}
+            explained |= bounds
+            if not bounds <= stated:
+                # Dated from a month or year mention, not a quoted day.
+                coarse.update(_month_span(min(bounds), max(bounds)))
+        for candidates in found.values():
+            inside = {day for day in candidates if start <= day <= end}
+            if inside and not inside & explained:
+                return None
+        text = citation["quote"]
+        for first, last in found:
+            text = text[:first] + " " * (last - first) + text[last:]
+        pairs, months, years = _quoted_dates(text)
+        if any(pair in window and pair not in coarse for pair in pairs):
+            return None
+        if {month for _, month in window} & (months - {month for _, month in coarse}):
+            return None
+        if len(window) > 1 and {year for year, _ in window} & (
+            years - {year for year, _ in coarse}
+        ):
+            return None
+    return others[0]["role"]
+
+
+def _require_period_roles(periods, date_evidence):
+    """A Ready coverage window cannot rest only on a date of another role.
+
+    The feedback names the period and the role its quoted date has; the model
+    keeps the windows the document states, or the packet is not Ready.
+    """
+    issues = [
+        {"field": "periods", "item": index, "date_role": role}
+        for index, period in enumerate(periods)
+        if (role := _period_date_role(period, date_evidence))
+    ]
+    if issues:
+        raise EvidenceValidationError("model_period_invalid", issues=issues[:8])
+
+
+_COMPLETE_WORDS = frozenset(
+    {
+        "complete",
+        "completely",
+        "full",
+        "fully",
+        "all",
+        "entire",
+        "entirely",
+        "every",
+        "whole",
+        "continuous",
+        "continuously",
+        "uninterrupted",
+        "unbroken",
+        "comprehensive",
+    }
+)
+_TEMPORAL_WORDS = frozenset(
+    {
+        "year",
+        "years",
+        "yearly",
+        "annual",
+        "annually",
+        "quarter",
+        "quarters",
+        "quarterly",
+        "month",
+        "months",
+        "monthly",
+        "week",
+        "weeks",
+        "weekly",
+        "period",
+        "periods",
+        "coverage",
+        "history",
+        "span",
+        "window",
+        "timeline",
+        "calendar",
+        "fiscal",
+        "ytd",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+    }
+)
+_NEGATIONS = frozenset({"no", "not", "never", "without", "nor", "cannot"})
+# "may" is the month only beside a day or year number (May 2026, May 5).
+_MODAL_MAY = re.compile(r"\bmay\b(?!\.?\s*\d)", re.I)
+_QUARTER = re.compile(
+    r"\bq([1-4])\b|\b(first|second|third|fourth|1st|2nd|3rd|4th)[\s-]+quarter\b", re.I
+)
+_QUARTER_WORDS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "1st": 1,
+    "2nd": 2,
+    "3rd": 3,
+    "4th": 4,
+}
+_YEAR_TO_DATE = re.compile(r"\bytd\b|\byear[\s-]+to[\s-]+date\b", re.I)
+_COPY_FIELDS = ("title", "description", "coverage_summary", "utility_rationale")
+
+
+def _calendar_year(year):
+    """A year a claim can name; form numbers such as 1099 or 1065 are not."""
+    return 1900 <= year <= 2099
+
+
+def _temporal_word(word):
+    return (
+        word in _TEMPORAL_WORDS
+        or word in MONTHS
+        or (len(word) == 4 and word.isdigit() and _calendar_year(int(word)))
+    )
+
+
+def _claimed_months(clause, periods):
+    """The months a completeness claim covers: those its clause names (a bare
+    year is the whole year, a quarter its three months, year-to-date January
+    through the packet's last month that year), else the span of the
+    packet's own periods."""
+    pairs, months, years = _quoted_dates(clause)
+    pairs = {pair for pair in pairs if _calendar_year(pair[0])}
+    years = {year for year in years if _calendar_year(year)} | {year for year, _ in pairs}
+    months |= {
+        month
+        for number, word in _QUARTER.findall(clause)
+        for quarter in (int(number) if number else _QUARTER_WORDS[word.casefold()],)
+        for month in range(3 * quarter - 2, 3 * quarter + 1)
+    }
+    to_date = bool(_YEAR_TO_DATE.search(clause))
+    claimed = set()
+    for year in years:
+        stated = {month for pair_year, month in pairs if pair_year == year}
+        if len(years) == 1:
+            stated |= months
+        if to_date:
+            stated |= {1} | {
+                date.fromisoformat(period["end"]).month
+                for period in periods
+                if date.fromisoformat(period["end"]).year == year
+            }
+        first, last = (min(stated), max(stated)) if stated else (1, 12)
+        claimed.update(_month_span(date(year, first, 1), date(year, last, 1)))
+    if claimed or not periods:
+        return claimed
+    return set(
+        _month_span(
+            min(date.fromisoformat(period["start"]) for period in periods),
+            max(date.fromisoformat(period["end"]) for period in periods),
+        )
+    )
+
+
+def _unsupported_completeness(packet):
+    """Copy fields claiming complete coverage of months no dated period covers.
+
+    A claim is a complete, all, full or similar word followed within three
+    words by a period word, a month or a year, with no negation in the three
+    words before it. Every month it names (a quarter names three, a bare
+    year twelve), or else every month of the packet's span, needs a dated
+    period. A packet without periods supports no such claim. Calling bounded
+    content complete (a complete 9-page draft) names no months and is left to
+    the model checker.
+    """
+    periods = [period.model_dump() for period in packet.periods]
+    covered = {
+        month
+        for period in periods
+        if _period_dated(period)
+        for month in _month_span(
+            date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
+        )
+    }
+    copy = [(field, getattr(packet, field) or "") for field in _COPY_FIELDS]
+    copy.append(("pricing.rationale", packet.pricing.rationale))
+    unsupported = []
+    for field, text in copy:
+        for clause in re.split(r"[.;!?\n]+", text):
+            clause = _MODAL_MAY.sub(" ", clause)
+            words = re.findall(r"q[1-4]\b|[a-z]+|\d+", clause.casefold())
+            claimed = any(
+                word in _COMPLETE_WORDS
+                and not _NEGATIONS & set(words[max(0, index - 3) : index])
+                and any(_temporal_word(item) for item in words[index + 1 : index + 4])
+                for index, word in enumerate(words)
+            )
+            months = _claimed_months(clause, periods) if claimed else None
+            if claimed and (not months or not months <= covered):
+                unsupported.append(field)
+                break
+    return unsupported
+
+
+def _require_supported_completeness(packet):
+    """Ready copy may claim complete coverage only of months with a dated period.
+
+    Otherwise the copy states exactly what is covered, or the packet is not
+    Ready; the feedback names each copy field that overclaims.
+    """
+    fields = _unsupported_completeness(packet)
+    if fields:
+        raise EvidenceValidationError(
+            "model_readiness_invalid",
+            issues=[{"field": field, "unsupported": "complete_coverage"} for field in fields],
+        )
+
+
 def _member_content_keys(item):
     """What identifies a member's content: the provider's checksum of the
     original bytes, and a digest of its full extracted facts (carried as
@@ -629,8 +970,8 @@ def _owner_mismatch(selected_facts, owner):
     named on, so those are not guessed Ready either; other subjects are
     topics and stay with the model checker. With no usable name on file an
     account record naming anyone is unconfirmed, never a match. A caller that
-    passes no listing at all (the offline eval replay) is not checked; the
-    packet worker always passes one.
+    passes no listing at all (an offline eval replay run without an owner
+    name) is not checked; the packet worker always passes one.
     """
     if owner is None:
         return None
@@ -650,18 +991,115 @@ def _owner_mismatch(selected_facts, owner):
     return None
 
 
-def _close_source_mismatch(packet, selected_facts, owner):
+def _record_identity(facts, created_time):
+    """What says which record a member is: issuer, type, account, and its
+    periods, else its own publication or snapshot dates with what else it
+    dates or totals, else (when it states no date at all) the day its file
+    was created."""
+    issuer = _holder_name(_fact_value(facts, "issuer"))
+    kind = _holder_name(_fact_value(facts, "document_type"))
+    if not issuer or not kind:
+        return None
+    periods = frozenset(
+        (item.get("start"), item.get("end"))
+        for item in facts.get("periods") or facts.get("content_periods") or []
+        if isinstance(item, dict)
+    )
+    dated = [
+        item
+        for item in facts.get("date_evidence") or []
+        if isinstance(item, dict) and item.get("start")
+    ]
+    days = frozenset(
+        item["start"]
+        for item in dated
+        if item.get("role") in {"publication", "as_of"} and item.get("end") == item["start"]
+    )
+    undated = not periods and not dated and isinstance(created_time, str)
+    # What a record dates or totals besides its issue date: a claim's service
+    # date, a trade date, a due date, an amount with cents.
+    details = (
+        frozenset(
+            (item["start"], item.get("end"))
+            for item in dated
+            if item.get("role") in {"event", "transaction", "planned_action"}
+        ),
+        frozenset(
+            f"{int(whole.replace(',', ''))}.{cents}"
+            for item in facts.get("facts") or []
+            for value in ((item.get("value") if isinstance(item, dict) else item),)
+            if isinstance(value, str)
+            for whole, cents in _AMOUNT.findall(value)
+        ),
+    )
+    return (
+        issuer,
+        kind,
+        _account_identifier(_fact_value(facts, "account")),
+        periods,
+        days,
+        created_time[:10] if undated and len(created_time) >= 10 else None,
+        details,
+    )
+
+
+def _one_record(first, second):
+    issuer, kind, account, periods, days, created, details = first
+    other_issuer, other_kind, other_account, other_periods, other_days, other_created, theirs = (
+        second
+    )
+    if kind != other_kind or not (issuer <= other_issuer or other_issuer <= issuer):
+        return False
+    if account and other_account and account != other_account:
+        return False
+    if periods or other_periods:
+        return periods == other_periods
+    if days or other_days:
+        # Claims, trades or invoices issued on one day are different records
+        # when they date or total different things; two originals agree.
+        return bool(days & other_days) and not any(
+            mine and other and not mine & other for mine, other in zip(details, theirs, strict=True)
+        )
+    return created is not None and created == other_created
+
+
+def _same_statement(members):
+    """Two selected members with one issuer, type and account (when both name
+    one) and the same periods, own document date or, for documents stating no
+    date, file creation day are one statement in two originals that are not
+    byte copies. Records issued on one day that date or total different
+    things (two claims, two trades) are two records. A member the model
+    excluded as the other's duplicate is not selected, so keeping one stays
+    Ready; the host never picks which."""
+    records = [record for facts, created in members if (record := _record_identity(facts, created))]
+    if any(_one_record(first, second) for first, second in itertools.combinations(records, 2)):
+        return SAME_STATEMENT
+    return None
+
+
+def _close_source_mismatch(packet, selected_facts, owner, members=()):
     """Ready cannot rest on the model checker when the sources disagree about
-    the account or name someone other than the owner.
+    the account, name someone other than the owner, or are one statement twice.
 
     The packet closes as Incomplete with the reason visible; the host does not
     pick a member and the model is not asked to guess again.
     """
-    reason = _account_mismatch(selected_facts) or _owner_mismatch(selected_facts, owner)
+    reason = (
+        _account_mismatch(selected_facts)
+        or _owner_mismatch(selected_facts, owner)
+        or _same_statement(members)
+    )
     if reason is None:
         return
     packet.state = "incomplete"
     packet.gaps = [*packet.gaps[:63], reason]
+
+
+def _model_view(item):
+    """A member as the model is shown it, without host-only fields."""
+    if not isinstance(item, dict):
+        return item
+    return {key: value for key, value in item.items() if key not in _HOST_ONLY_FIELDS}
 
 
 async def consolidate_facts(
@@ -783,16 +1221,27 @@ async def construct_packet(
         _check_requested_event_claims(result, selected_facts)
         if result.state == "ready":
             _require_distinct_member_content(documents, selected)
-            _require_dated_periods([period.model_dump() for period in result.periods])
+            periods = [period.model_dump() for period in result.periods]
+            _require_dated_periods(periods)
+            _require_period_roles(
+                periods,
+                [item for facts in selected_facts for item in facts.get("date_evidence", [])],
+            )
+            _require_supported_completeness(result)
             if not complete:
                 raise ValueError("unfinished assembly cannot be ready")
-            _close_source_mismatch(result, selected_facts, owner)
+            members = [
+                (item["facts"], item.get("created_time"))
+                for item in documents
+                if item["document_id"] in selected
+            ]
+            _close_source_mismatch(result, selected_facts, owner, members)
 
     return await _ask(
         "canonical_packet",
         {
             "canonical_key": key,
-            "documents": documents,
+            "documents": [_model_view(item) for item in documents],
             "previous_packet": previous,
             "all_members_observed": complete,
             "owner_pricing_preferences": owner_preferences,
@@ -871,13 +1320,36 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
-            reason = _account_mismatch(selected_facts) or _owner_mismatch(selected_facts, owner)
+            members = [
+                (
+                    item.get("facts") if isinstance(item.get("facts"), dict) else item,
+                    item.get("created_time"),
+                )
+                for item in documents
+                if item["document_id"] in set(selected)
+            ]
+            periods = [period.model_dump() for period in proposal.periods]
+            evidence = [
+                item for facts in selected_facts for item in facts.get("date_evidence") or []
+            ]
+            reason = (
+                _account_mismatch(selected_facts)
+                or _owner_mismatch(selected_facts, owner)
+                or _same_statement(members)
+                or (PERIOD_ROLE if any(_period_date_role(p, evidence) for p in periods) else None)
+                or (UNSUPPORTED_COMPLETE if _unsupported_completeness(proposal) else None)
+            )
             if reason is not None:
                 # A batch or final checker that certifies members naming different
-                # accounts, or someone other than the owner on file, is overruled
-                # by the extracted facts, with the reason kept.
+                # accounts, someone other than the owner on file, one statement
+                # twice, a period dated by another kind of date, or complete
+                # coverage the periods do not show, is overruled by the extracted
+                # facts, with the reason kept.
                 result.state = "incomplete"
-                result.correct_subject_and_account = False
+                if reason in _SOURCE_REASONS:
+                    result.correct_subject_and_account = False
+                else:
+                    result.correct_coverage = False
                 result.issues = [*result.issues, reason][:64]
         if (
             result.state != "ready"
@@ -906,7 +1378,7 @@ async def verify_packet(
         "packet_verification",
         {
             "proposed_packet": packet,
-            "document_facts": documents,
+            "document_facts": [_model_view(item) for item in documents],
             "all_evidence_current_and_complete": complete,
             "batch_scope": batch_scope,
         },

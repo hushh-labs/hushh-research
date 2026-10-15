@@ -263,6 +263,65 @@ async def test_exact_version_reuse_and_summary_listing_need_separate_allow(reusa
         await reusable.packets.list_packets(user_id="unrelated", owner_user_id="owner")
 
 
+async def test_owner_list_names_its_own_files_and_buyers_never_receive_them(reusable, monkeypatch):
+    packet = await ready_packet(reusable)
+    # Internal callers (request matching) never pay for or carry file names.
+    assert "contents" not in packet
+    listing = await reusable.packets.list_packets(user_id="owner", owner_contents=True)
+    packet = listing["packets"][0]
+    assert packet["contents"] == {
+        "period": None,
+        "documents": [
+            {"name": "Private synthetic filename", "type": "statement", "pages": 1, "period": None}
+        ],
+    }
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    # Even when asked, a buyer's list never carries the owner's files.
+    buyer = await reusable.packets.list_packets(
+        user_id="recipient", owner_user_id="owner", owner_contents=True
+    )
+    assert buyer["packets"] and all("contents" not in item for item in buyer["packets"])
+    assert "Private synthetic filename" not in json.dumps(buyer)
+    # Waiting for a policy recheck: its own file names stay, stale model readings do not.
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_intelligence.facts_policy_version",
+        lambda: "new-facts-policy",
+    )
+    listing = await reusable.packets.list_packets(user_id="owner", owner_contents=True)
+    owner = listing["packets"][0]
+    assert owner["title"] == "Packet being checked"
+    assert owner["contents"] == {
+        "period": None,
+        "documents": [
+            {"name": "Private synthetic filename", "type": None, "pages": 1, "period": None}
+        ],
+    }
+
+
+def test_owner_contents_text_and_dates_are_plain():
+    from hushh_mcp.services.drive_packet_store import _plain, _span
+
+    assert _plain(" Example\x00 Bank\n statement.pdf ", 120) == "Example Bank statement.pdf"
+    assert _plain("x" * 200, 120) == "x" * 120 and _plain("\x07 ", 120) is None
+    assert _plain(None, 120) is None
+    assert _span(
+        [
+            {"start": "20260201", "end": "2026-02-28"},
+            {"start": "2026-01-01", "end": "2026-01-31"},
+            {"start": "Jan", "end": "2026-03-01"},
+        ]
+    ) == {"start": "2026-01-01", "end": "2026-02-28"}
+    assert _span([]) is None and _span(None) is None
+
+
 async def test_extraction_profile_upgrade_fences_old_packet_before_reprocessing(
     reusable, monkeypatch
 ):
@@ -1829,3 +1888,34 @@ async def test_incomplete_packet_reports_every_gap_and_cannot_be_listed(reusable
     assert outcome == "incomplete"
     view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
     assert view["state"] == "incomplete" and view["gaps"] == gaps and not view["canList"]
+
+
+async def test_packet_gates_read_the_file_creation_time_the_manifest_never_keeps(reusable):
+    # The same-statement gate tells two undated originals of one record apart
+    # by the day their files were created. The store carries that time to the
+    # builder and checker; the immutable manifest never keeps it.
+    from dataclasses import replace
+
+    seen, checker = [], reusable.worker.checker
+
+    async def recording(**kwargs):
+        seen.extend(kwargs["documents"])
+        return await checker(**kwargs)
+
+    reusable.worker.checker = recording
+    created = "2026-09-20T08:00:00Z"
+    files = [replace(source("synthetic-created-source"), created_time=created)]
+    await seed_collection(reusable.collection, files=files)
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    await reusable.ingestion.publish_pages(job, metadata=files[0], batch=collection_pages())
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    assert seen and {item.get("created_time") for item in seen} == {created}
+    [packet] = (await reusable.packets.list_packets(user_id="owner"))["packets"]
+    manifest = await reusable.packets.current_packet_manifest(
+        owner_user_id="owner", packet_id=packet["packetId"], version=1
+    )
+    assert manifest["sources"]
+    assert all("created_time" not in item for item in manifest["sources"])

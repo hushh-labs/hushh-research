@@ -1471,3 +1471,26 @@ async def test_receipt_questions_run_the_real_one_email_path_from_saved_memory_n
         assert mailbox_requests == [] and len(genes) == 0
     finally:
         await runner.close()
+
+
+def test_calendar_invitation_continuation_admits_only_exact_client_review_tool():
+    from hushh_mcp.agents.calendar.tools import open_calendar_invitation
+
+    context = SimpleNamespace(
+        invocation_id="read",
+        state={
+            STATE_EXECUTION_SURFACE: "typed_chat",
+            STATE_EXTERNAL_READ: "read",
+            STATE_EXTERNAL_READ_CONTINUATION: "read",
+        },
+    )
+    exact = FunctionTool(open_calendar_invitation)
+    assert before_external_read_tool(exact, {}, context) is None
+
+    async def same_name():
+        raise AssertionError("Never executed")
+
+    same_name.__name__ = "open_calendar_invitation"
+    assert before_external_read_tool(FunctionTool(same_name), {}, context)["status"] == "blocked"
+    context.state.pop(STATE_EXTERNAL_READ_CONTINUATION)
+    assert before_external_read_tool(exact, {}, context)["status"] == "blocked"

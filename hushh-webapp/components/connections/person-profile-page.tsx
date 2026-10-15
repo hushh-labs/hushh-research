@@ -882,7 +882,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </div>
         </SectionCard>
 
-        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && <div ref={packetsSectionRef}><SectionCard><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} /></SectionCard></div>}
+        {/* Their listed packets read like Payouts history: the list is its own group, not a card in a card. */}
+        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
 
         {!user && !authLoading ? (
           <SectionCard>
