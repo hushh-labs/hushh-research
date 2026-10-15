@@ -149,14 +149,43 @@ final class NativeDrawerModel: ObservableObject {
     }
 }
 
+/// The navigation item belongs to UIKit, not the hosted SwiftUI body's
+/// navigation environment. Both lifetimes are retained through push/pop.
+@MainActor
+private final class NativeProfilePageController: UIViewController {
+    private let bodyHost: UIHostingController<NativeProfilePageBody>
+
+    init(model: NativeDrawerModel, account: Bool, observer: ((String, CGRect, Bool) -> Void)?) {
+        bodyHost = UIHostingController(rootView: NativeProfilePageBody(model: model, account: account, observer: observer))
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("Native Profile pages are programmatic") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        addChild(bodyHost)
+        bodyHost.view.backgroundColor = .clear
+        bodyHost.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bodyHost.view)
+        NSLayoutConstraint.activate([
+            bodyHost.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bodyHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bodyHost.view.topAnchor.constraint(equalTo: view.topAnchor),
+            bodyHost.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        bodyHost.didMove(toParent: self)
+    }
+}
+
 /// UIKit owns the complete push/pop transition. The model projects React's
 /// route and emits the existing Back intent only after a user pop commits.
 /// No asynchronous bridge receipt decides whether UIKit finished animating.
 @MainActor
 final class NativeProfileNavigationController: UINavigationController, UINavigationControllerDelegate {
     private let model: NativeDrawerModel
-    private let rootPage: UIHostingController<NativeProfilePageBody>
-    private let accountPage: UIHostingController<NativeProfilePageBody>
+    private let rootPage: NativeProfilePageController
+    private let accountPage: NativeProfilePageController
     private var transitioning = false
     private var applyingProjection = false
     private var retired = false
@@ -165,8 +194,8 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
 
     init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
         self.model = model
-        rootPage = UIHostingController(rootView: NativeProfilePageBody(model: model, account: false, observer: observer))
-        accountPage = UIHostingController(rootView: NativeProfilePageBody(model: model, account: true, observer: observer))
+        rootPage = NativeProfilePageController(model: model, account: false, observer: observer)
+        accountPage = NativeProfilePageController(model: model, account: true, observer: observer)
         super.init(rootViewController: rootPage)
         delegate = self
         model.profileNavigationController = self

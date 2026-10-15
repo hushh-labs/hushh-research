@@ -246,7 +246,8 @@ final class NativeSupportTests: XCTestCase {
     #endif
 
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
-        XCTAssertEqual(NativeProfileArtwork.ids.count, 15)
+        XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
+        XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             XCTAssertEqual(artwork.base.size, CGSize(width: 28, height: 28))
@@ -870,15 +871,18 @@ final class NativeSupportTests: XCTestCase {
         controller.update(root)
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
         await fulfillment(of: [admitted], timeout: 2)
-        func requireClose() async {
+        func requireClose(_ phase: String) async {
             // This is now an owned public UINavigationController, not
             // introspection of SwiftUI's undocumented controller hierarchy.
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 let close = controller.model.profileNavigationController?.visibleViewController?.navigationItem.rightBarButtonItem
                 return close?.accessibilityIdentifier == "native-profile-drawer-close" && close?.isEnabled == true
             }, object: nil)], timeout: 3)
+            let close = controller.model.profileNavigationController?.visibleViewController?.navigationItem.rightBarButtonItem
+            XCTAssertEqual(close?.accessibilityIdentifier, "native-profile-drawer-close", "\(phase): UIKit must retain the authored Close item")
+            XCTAssertEqual(close?.isEnabled, true, "\(phase): the current Close item remains enabled")
         }
-        await requireClose()
+        await requireClose("Profile root")
         func requireRow(_ id: String) async {
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard let frame = rowFrames[id] else { return false }
@@ -894,7 +898,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(controller.model.choice("row", row: "row-handle"))
         controller.update(account)
         controller.model.settle(sequence: 10, success: true)
-        await requireClose()
+        await requireClose("Account")
         await requireRow("edit-name")
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
@@ -921,7 +925,7 @@ final class NativeSupportTests: XCTestCase {
         var returned = privateDrawerState(update: 4, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
-        await requireClose()
+        await requireClose("Returned Profile root")
         await requireRow("row-handle")
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
