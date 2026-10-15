@@ -1149,6 +1149,144 @@ async def test_targeted_ingestion_keeps_owner_lease_and_default_fifo(collection,
     assert str(fifo["document_id"]) == ids[0]
 
 
+def retire_active_extraction(ingestion, document_id):
+    """Model a prior profile with a distinct version, never a relabeled current cache."""
+    retired_version = "0" * 64
+    with ingestion.db.engine.begin() as connection:
+        connection.execute(
+            text("DELETE FROM drive_document_extractions WHERE document_id=:id"),
+            {"id": document_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_document_extractions
+              (document_id,user_id,connection_generation,source_version,extraction_version,
+               extraction_profile,next_page,total_pages,complete,has_gaps,unit_kind,engine_versions,
+               updated_at)
+              SELECT document_id,user_id,connection_generation,source_version,:version,
+                'retired-ocr-profile',NULL,1,TRUE,FALSE,'page','{}'::jsonb,
+                clock_timestamp()-interval '7 days'
+              FROM connected_documents WHERE document_id=:id"""),
+            {"id": document_id, "version": retired_version},
+        )
+        connection.execute(
+            text("UPDATE connected_documents SET active_version=:version WHERE document_id=:id"),
+            {"id": document_id, "version": retired_version},
+        )
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+async def test_live_extraction_profile_upgrade_is_due_before_seven_day_refresh(
+    collection, ingestion, targeted
+):
+    await seed_collection(collection)
+    first = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(first, metadata=source(), batch=collection_pages())
+    document_id = str(first["document_id"])
+    assert await ingestion.claim(user_id="owner", generation=1, document_ids=[document_id]) is None
+    retire_active_extraction(ingestion, document_id)
+    with ingestion.db.engine.begin() as connection:
+        assert connection.execute(
+            text(
+                "SELECT next_attempt_at > clock_timestamp() FROM connected_documents WHERE document_id=:id"
+            ),
+            {"id": document_id},
+        ).scalar_one()
+
+    upgrade = await ingestion.claim(
+        user_id="owner",
+        generation=1,
+        **({"document_ids": [document_id]} if targeted else {}),
+    )
+    assert upgrade is not None and str(upgrade["document_id"]) == document_id
+    progress = await ingestion.page_progress(upgrade, source_version="1")
+    assert not progress["complete"] and progress["next_page"] == 1
+
+
+async def test_profile_upgrade_reserves_capacity_without_displacing_due_document(
+    collection, ingestion
+):
+    await seed_collection(collection, files=[source("retired"), source("new")])
+    old = await ingestion.claim(user_id="owner", generation=1)
+    old_metadata = source(ingestion.cipher.open(old)["file_id"])
+    await ingestion.publish_pages(old, metadata=old_metadata, batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+
+    due = await ingestion.claim(user_id="owner", generation=1)
+    assert due is not None and due["document_id"] != old["document_id"]
+    due_metadata = source(ingestion.cipher.open(due)["file_id"])
+    await ingestion.publish_pages(due, metadata=due_metadata, batch=collection_pages())
+    upgrade = await ingestion.claim(user_id="owner", generation=1, prefer_profile_upgrade=True)
+    assert upgrade is not None and upgrade["document_id"] == old["document_id"]
+
+
+async def test_due_owner_precedes_older_upgrade_only_owner(collection, ingestion, monkeypatch):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,other-owner")
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+    with ingestion.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO user_external_connector_connections
+              (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+              SELECT 'other-owner','google_drive',1,'connected','verified',verified_policy_hash
+              FROM user_external_connector_connections
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+        connection.execute(
+            text("""INSERT INTO connected_documents
+              (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+               source_version,source_profile,processing_enabled,processing_disclosure_version,
+               collection_revision,next_attempt_at)
+              VALUES (:id,'other-owner',1,:fingerprint,'{}'::jsonb,'1','live',TRUE,
+                'live-drive-collection-v1',1,clock_timestamp()-interval '1 minute')"""),
+            {"id": str(uuid.uuid4()), "fingerprint": "f" * 64},
+        )
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion))
+    assert await worker.due_owners(limit=1) == ["other-owner"]
+
+
+async def test_reserved_upgrade_owner_cannot_be_crowded_out_by_due_owners(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,due-a,due-b,due-c")
+    await seed_collection(collection)
+    old = await ingestion.claim(user_id="owner", generation=1)
+    await ingestion.publish_pages(old, metadata=source(), batch=collection_pages())
+    retire_active_extraction(ingestion, old["document_id"])
+    with ingestion.db.engine.begin() as connection:
+        for number, user_id in enumerate(("due-a", "due-b", "due-c"), 1):
+            connection.execute(
+                text("""INSERT INTO user_external_connector_connections
+                  (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+                  SELECT :user,'google_drive',1,'connected','verified',verified_policy_hash
+                  FROM user_external_connector_connections
+                  WHERE user_id='owner' AND connector_id='google_drive'"""),
+                {"user": user_id},
+            )
+            connection.execute(
+                text("""INSERT INTO connected_documents
+                  (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,
+                   source_version,source_profile,processing_enabled,processing_disclosure_version,
+                   collection_revision,next_attempt_at)
+                  VALUES (:id,:user,1,:fingerprint,'{}'::jsonb,'1','live',TRUE,
+                    'live-drive-collection-v1',1,clock_timestamp()-interval '1 minute')"""),
+                {"id": str(uuid.uuid4()), "user": user_id, "fingerprint": f"{number:064x}"},
+            )
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion))
+    assert await worker.due_owners(limit=2) == ["due-a", "due-b"]
+    assert await worker.due_owners(limit=2, reserve_profile_upgrade=True) == [
+        "owner",
+        "due-a",
+    ]
+
+
 @pytest.mark.parametrize("change", ["paused", "background_off", "generation", "revoked"])
 async def test_candidate_observation_cannot_commit_after_authority_changes(
     collection, drive, change

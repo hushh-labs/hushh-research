@@ -257,7 +257,10 @@ class EnterpriseSsoService:
         if event_type == "dsync.user.deleted":
             return True
         # A directory deactivation arrives as an update to the user, not its own event.
-        return event_type == "dsync.user.updated" and str(data.get("state") or "") == "inactive"
+        return event_type == "dsync.user.updated" and str(data.get("state") or "") in {
+            "inactive",
+            "suspended",
+        }
 
     async def _deprovision(self, data: dict[str, Any]) -> int:
         workos_org_id = str(data.get("organization_id") or "")

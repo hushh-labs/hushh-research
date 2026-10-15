@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_citation_references import (
     page_references,
     resolve_references,
 )
+from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
     DocumentPageFacts,
@@ -70,6 +71,7 @@ def _validation_code(error):
         "unfinished assembly cannot be ready": "model_readiness_invalid",
         "incomplete evidence cannot verify ready": "model_readiness_invalid",
         "nonready proposal cannot verify ready": "model_readiness_invalid",
+        "unsupported standalone packet evidence": "model_readiness_invalid",
         "invented packet match": "model_membership_invalid",
         "unsupported content period": "model_period_invalid",
         "unsupported snapshot scope": "model_period_invalid",
@@ -94,6 +96,8 @@ def facts_policy_version() -> str:
             + model.encode()
             + b"\0"
             + FACTS_SCHEMA_VERSION.encode()
+            + b"\0"
+            + EXTRACTION_PROFILE.encode()
         ).hexdigest()
     )
 
@@ -471,6 +475,13 @@ async def verify_packet(
                     for date in facts.get("date_evidence", [])
                 ):
                     raise ValueError("unsupported snapshot scope")
+                if scope_mode == "complete_compact_summary" and not any(
+                    facts.get("facts") or facts.get("periods") for facts in selected_facts
+                ):
+                    # Type, subject and event/metadata dates alone cannot make
+                    # an automatically prepared packet useful to a buyer.
+                    # Source facts and periods were citation-checked at indexing.
+                    raise ValueError("unsupported standalone packet evidence")
 
     return await _ask(
         "packet_verification",

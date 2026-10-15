@@ -34,6 +34,7 @@ CHECKS = (
     "correct_subject_and_account",
     "correct_issuer_and_type",
     "correct_record_status",
+    "correct_standalone_value",
     "correct_coverage",
     "no_unrelated_inclusions",
     "no_unexplained_omissions",

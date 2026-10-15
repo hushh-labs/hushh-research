@@ -18,6 +18,7 @@ from hushh_mcp.services.document_index_service import (
     PreparedIndex,
     index_version,
 )
+from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
@@ -68,8 +69,12 @@ class DriveIngestionStore(DriveDocumentStore):
         self._selection_policy(connection, user_id, feature="drive_document_indexing")
         return dict(current)
 
-    async def claim(self, *, user_id: str, generation: int, document_ids=None) -> dict | None:
+    async def claim(
+        self, *, user_id: str, generation: int, document_ids=None, prefer_profile_upgrade=False
+    ) -> dict | None:
         targets = document_targets(document_ids)
+        if type(prefer_profile_upgrade) is not bool:
+            raise DriveReadError("invalid_argument")
         self.cipher._key()
 
         def operation(connection):
@@ -108,38 +113,73 @@ class DriveIngestionStore(DriveDocumentStore):
             )
             if active:
                 return None
-            claimed = self._row(
-                connection,
+            params = {
+                "user": user_id,
+                "generation": generation,
+                "attempts": MAX_ATTEMPTS,
+                "lease": str(uuid.uuid4()),
+                "seconds": LEASE_SECONDS,
+                "disclosure": "live-drive-collection-v1"
+                if profile == "live"
+                else PROCESSING_DISCLOSURE_VERSION,
+                "extraction_profile": EXTRACTION_PROFILE,
+                "profile": profile,
+                "all_documents": targets is None,
+                "document_ids": list(targets or ()),
+            }
+            # Keep the ordinary due queue on its (user_id,next_attempt_at) index.
+            # The bounded upgrade lane starts from the much smaller extraction
+            # table, so it does not sort an owner's entire live collection.
+            upgrade_sql = """
+                    WITH candidate AS (
+                      SELECT d.document_id FROM drive_document_extractions e
+                      JOIN connected_documents d ON d.document_id=e.document_id
+                        AND d.active_version=e.extraction_version
+                      WHERE e.user_id=:user AND e.connection_generation=:generation
+                        AND e.extraction_profile<>:extraction_profile
+                        AND d.user_id=:user AND d.connection_generation=:generation
+                        AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
+                        AND d.source_profile='live' AND d.processing_enabled
+                        AND d.processing_disclosure_version=:disclosure
+                        AND d.status='ready'
+                        AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                      ORDER BY e.updated_at,e.document_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
                 """
-                WITH candidate AS (
-                  SELECT document_id FROM connected_documents
-                  WHERE user_id=:user AND connection_generation=:generation
-                    AND (:all_documents OR document_id=ANY(CAST(:document_ids AS uuid[])))
-                    AND source_profile=:profile
-                    AND processing_enabled AND processing_disclosure_version=:disclosure
-                    AND status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
-                    AND next_attempt_at <= clock_timestamp() AND (source_profile='live' OR attempt_count < :attempts)
-                    AND (lease_id IS NULL OR lease_expires_at <= clock_timestamp())
-                  ORDER BY next_attempt_at, created_at, document_id LIMIT 1 FOR UPDATE SKIP LOCKED
-                ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
-                    lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
-                    attempt_count=attempt_count+1, updated_at=clock_timestamp()
-                  FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
-            """,
-                {
-                    "user": user_id,
-                    "generation": generation,
-                    "attempts": MAX_ATTEMPTS,
-                    "lease": str(uuid.uuid4()),
-                    "seconds": LEASE_SECONDS,
-                    "disclosure": "live-drive-collection-v1"
-                    if profile == "live"
-                    else PROCESSING_DISCLOSURE_VERSION,
-                    "profile": profile,
-                    "all_documents": targets is None,
-                    "document_ids": list(targets or ()),
-                },
-            )
+            claimed = None
+            if profile == "live" and (prefer_profile_upgrade or targets is not None):
+                claimed = self._row(connection, upgrade_sql, params)
+            if claimed is None:
+                claimed = self._row(
+                    connection,
+                    """
+                    WITH candidate AS (
+                      SELECT d.document_id FROM connected_documents d
+                      WHERE d.user_id=:user AND d.connection_generation=:generation
+                        AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
+                        AND d.source_profile=:profile
+                        AND d.processing_enabled AND d.processing_disclosure_version=:disclosure
+                        AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
+                        AND d.next_attempt_at<=clock_timestamp()
+                        AND (d.source_profile='live' OR d.attempt_count<:attempts)
+                        AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                      ORDER BY d.next_attempt_at,d.created_at,d.document_id
+                      LIMIT 1 FOR UPDATE SKIP LOCKED
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
+                    """,
+                    params,
+                )
+            # An owner with only old-profile Ready rows still makes progress in
+            # ordinary slots; the preferred lane only controls ordering when
+            # both fresh due work and upgrades are available.
+            if claimed is None and profile == "live" and not prefer_profile_upgrade:
+                claimed = self._row(connection, upgrade_sql, params)
             return (
                 {**dict(claimed), "background_revision": background_revision} if claimed else None
             )

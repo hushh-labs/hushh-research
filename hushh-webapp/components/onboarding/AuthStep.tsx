@@ -1094,16 +1094,16 @@ export function AuthStep({
                   )}
                 />
               ))}
+              <EnterpriseSsoSection
+                redirectPath={redirectPath}
+                disabled={providerBusy}
+              />
+
               <button type="button" disabled={providerBusy}
                 className="min-h-11 w-full text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => setReturningSignIn((value) => !value)}>
                 {returningSignIn ? "New to One? Get started" : "Already have an account? Sign in"}
               </button>
-
-              <EnterpriseSsoSection
-                redirectPath={redirectPath}
-                disabled={providerBusy}
-              />
 
               {showReviewer ? (
                 <AuthProviderButton

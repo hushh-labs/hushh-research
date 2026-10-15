@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import drive_packet_intelligence
 from hushh_mcp.services.drive_citation_references import page_references
 from hushh_mcp.services.drive_packet_contract import (
     DocumentPageFacts,
@@ -18,6 +19,14 @@ from hushh_mcp.services.drive_packet_intelligence import (
     extract_page_facts,
     verify_packet,
 )
+
+
+def test_facts_policy_changes_with_extraction_profile(monkeypatch):
+    current = drive_packet_intelligence.facts_policy_version()
+    monkeypatch.setattr(
+        drive_packet_intelligence, "EXTRACTION_PROFILE", "future-extraction-profile"
+    )
+    assert drive_packet_intelligence.facts_policy_version() != current
 
 
 def page_facts():
@@ -160,6 +169,7 @@ async def test_checker_cannot_make_incomplete_evidence_ready():
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -189,6 +199,7 @@ async def test_correct_abstention_is_not_a_deliverable_ready_packet(proposal):
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -325,6 +336,8 @@ def packet(periods, selected=None):
         "gaps": [],
         "assessment_score": 90,
         "importance": 25,
+        "standalone_value": "supported",
+        "utility_rationale": "A verified statement with a clear recipient use",
         "pricing": {
             "rubric_version": "drive-packet-price-v1",
             "useful_scope": "single",
@@ -334,6 +347,51 @@ def packet(periods, selected=None):
             "suggested_price_cents": 50,
         },
     }
+
+
+def test_standalone_value_gate_keeps_substantive_records_and_qualified_drafts():
+    from hushh_mcp.services.drive_packet_contract import PacketProposal
+
+    financial = packet([period()])
+    financial["title"] = "Internal financial report · January 2026"
+    assert PacketProposal.model_validate(financial).state == "ready"
+
+    draft = packet([])
+    draft["title"] = "Draft business brief"
+    draft["description"] = "A clearly labeled draft with substantive analysis"
+    assert PacketProposal.model_validate(draft).state == "ready"
+
+    for source_title in ("Diagnostic projection", "Developer test script"):
+        artifact = packet([])
+        artifact.update(
+            title=source_title,
+            standalone_value="unsupported",
+            utility_rationale="Only source-workflow diagnostics, without a standalone record",
+        )
+        with pytest.raises(ValueError, match="ready packet requires supported standalone value"):
+            PacketProposal.model_validate(artifact)
+        artifact["state"] = "incomplete"
+        assert PacketProposal.model_validate(artifact).state == "incomplete"
+
+
+def test_invite_metadata_cannot_verify_as_meeting_notes():
+    from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
+
+    verdict = {
+        "state": "ready",
+        "correct_subject_and_account": True,
+        "correct_issuer_and_type": False,
+        "correct_record_status": True,
+        "correct_standalone_value": False,
+        "correct_coverage": True,
+        "no_unrelated_inclusions": True,
+        "no_unexplained_omissions": True,
+        "issues": [],
+    }
+    with pytest.raises(ValueError, match="checker cannot declare unresolved packet ready"):
+        PacketVerificationProposal.model_validate(verdict)
+    verdict.update(state="unable_to_verify", issues=["Invite contains no meeting notes"])
+    assert PacketVerificationProposal.model_validate(verdict).state == "unable_to_verify"
 
 
 def period(quote="January 2026"):
@@ -462,6 +520,7 @@ async def test_checker_cannot_mark_unaccounted_month_ready():
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": True,
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -601,6 +660,7 @@ async def test_final_checker_cannot_certify_event_as_document_period():
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
         correct_record_status=True,
+        correct_standalone_value=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,
@@ -617,12 +677,95 @@ async def test_final_checker_cannot_certify_event_as_document_period():
         )
 
 
+async def test_auto_packet_requires_substantive_source_evidence_not_invite_metadata():
+    verdict = dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+    invitation = packet([])
+    invitation["title"] = "Meeting notes"
+    documents = [
+        {
+            "document_id": "selected",
+            "document_type": "event invitation",
+            "periods": [],
+            "date_evidence": [dated_evidence("event")],
+            "facts": [],
+        }
+    ]
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=invitation,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+    draft = packet([])
+    draft.update(title="Draft business brief", description="Substantive draft analysis")
+    documents[0].update(document_type="business brief", facts=["Cited draft analysis"])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=draft,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+    financial = packet([period()])
+    documents[0].update(document_type="financial report", facts=[], periods=[period()])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=financial,
+            complete=True,
+            documents=documents,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+    # An explicit buyer request is judged against that request, not against
+    # the automatic catalog's standalone-value requirement.
+    requested_script = {
+        "decision": "ready",
+        "selected_document_refs": ["selected"],
+        "request": {"purpose": "the source script"},
+    }
+    documents[0].update(document_type="source script", facts=[], periods=[])
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=requested_script,
+            complete=True,
+            documents=documents,
+            batch_scope={"kind": "final_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
+
+
 async def test_global_checker_preserves_snapshot_role_and_event_qualification():
     from hushh_mcp.services.drive_packet_worker import compact_evidence
 
     evidence = page_facts()
     evidence.pop("pages")
     evidence["date_evidence"] = [dated_evidence("as_of"), dated_evidence("event")]
+    evidence["facts"] = [
+        {"value": "A substantive draft position", "citations": [{"page": 1, "quote": "Cover"}]}
+    ]
     evidence["record_status"] = {
         "status": "draft",
         "evidence_basis": "documentary_form",
@@ -650,6 +793,7 @@ async def test_global_checker_preserves_snapshot_role_and_event_qualification():
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
         correct_record_status=True,
+        correct_standalone_value=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,
@@ -696,6 +840,7 @@ async def test_request_checker_accepts_bounded_financial_coverage_with_request_c
         correct_subject_and_account=True,
         correct_issuer_and_type=True,
         correct_record_status=True,
+        correct_standalone_value=True,
         correct_coverage=True,
         no_unrelated_inclusions=True,
         no_unexplained_omissions=True,

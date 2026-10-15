@@ -2454,14 +2454,13 @@ export function PortfolioReviewView({
       >
         <MorphyButton
           variant="blue-gradient"
-          effect="fade"
+          effect="fill"
           fullWidth
           onClick={() => {
             createdVaultCopyRef.current = hasVault === false;
             void handleSave();
           }}
           disabled={isBusySaving || activeHoldings.length === 0}
-          className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
         >
           {isBusySaving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
