@@ -384,9 +384,9 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 #
 # One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
 # at once (manifests say `gemini-default` and resolve here). The default is the
-# last generation proven in every lane; a lane flips the switch through the
-# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
-# policy admits the new id. Founder rule 2026-09-14: the Gemini catalog
+# configured release target; each lane proves model availability under its own
+# runtime identity before traffic promotion. Its Vertex allowed-models policy
+# must admit the configured id. Founder rule 2026-09-14: the Gemini catalog
 # (runtime_providers/model_catalog.py and registry.py) lists only the last two
 # releases at all times; a roll-forward replaces the oldest, never adds a third.
 # Every text manifest, the memory chain included, names `gemini-default`; only
