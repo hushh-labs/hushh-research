@@ -896,14 +896,15 @@ for (const width of [390, 1440]) {
         await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
         await expectAligned();
         if (name === "Add") {
+          await expect(page.getByRole("button", { name: "Use a simple design", exact: true })).toHaveCount(0);
           for (let press = 0; press < 4; press++) {
-            const button = page.getByRole("button", { name: "Use a simple design", exact: true });
+            const button = page.getByRole("button", { name: "Add to Wallet", exact: true });
             await button.evaluate(el => {
               const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
               root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
             });
             const box = await button.boundingBox();
-            if (!box) throw new Error("Design control missing");
+            if (!box) throw new Error("Add control missing");
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
             expect(await alignment()).toBeLessThan(2);
