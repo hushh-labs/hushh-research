@@ -1,3 +1,4 @@
+import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -7,7 +8,6 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import type { VaultWrapper } from "@/lib/services/vault-service";
-import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {

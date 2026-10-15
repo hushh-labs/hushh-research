@@ -128,7 +128,7 @@ private enum NativeRegionRefusal: Int {
 
 /// One WebView, retained native base plane, bounded overlay groups. The outer
 /// container routes only explicitly admitted hits; Maps keeps its WK hit path.
-final class NativePresentationContainer: UIView {
+final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     static let isolationDidChange = Notification.Name("HushhNativeDrawerIsolationDidChange")
     enum BasePresentation { case underlay, contentBacked, coherentDrawers }
     let webView: WKWebView
@@ -149,6 +149,8 @@ final class NativePresentationContainer: UIView {
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, pane: NativeContentPaneIdentity?, admitted: Bool)] = [:]
+    private(set) var bottomChromeScrollOffset: CGFloat = 0
+    var bottomChromePressChanged: ((Bool) -> Void)?
     private var regionDocument: String?
     private var regionRevision = -1
     private var regionPrivacyGeneration: Int?
@@ -289,6 +291,12 @@ final class NativePresentationContainer: UIView {
         contentChrome.backgroundColor = .clear
         contentChrome.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(contentChrome)
+        let press = NativeBottomChromePressObserver { [weak self] held in self?.bottomChromePressChanged?(held) }
+        press.cancelsTouchesInView = false
+        press.delaysTouchesBegan = false
+        press.delaysTouchesEnded = false
+        press.delegate = self
+        underlay.addGestureRecognizer(press)
         // DOM aperture ownership is explicit; this does not clear page CSS.
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -316,6 +324,36 @@ final class NativePresentationContainer: UIView {
             host.addSubview(view)
         } else { underlay.addSubview(view) }
         controls[id] = (view, group, pane, false)
+        if Self.bottomChromeIds.contains(id), pane == nil {
+            view.transform = CGAffineTransform(translationX: 0, y: bottomChromeScrollOffset)
+        }
+    }
+
+    private static let bottomChromeIds: Set<String> = ["bottom-navigation", "agent-dock"]
+    /// Both retained native surfaces move in one UIKit transaction. Header,
+    /// WebView, layout reservations and operation admission never move with them.
+    func setBottomChromeScrollOffset(_ offset: CGFloat) {
+        guard offset.isFinite, (0...160).contains(offset) else { return }
+        bottomChromeScrollOffset = offset
+        UIView.performWithoutAnimation {
+            for (id, control) in controls where Self.bottomChromeIds.contains(id) && control.pane == nil {
+                control.view.transform = CGAffineTransform(translationX: 0, y: offset)
+            }
+        }
+    }
+    func restingBottomChromeFrame(_ id: String) -> CGRect? {
+        guard Self.bottomChromeIds.contains(id), let control = controls[id], control.pane == nil else { return nil }
+        return control.view.convert(control.view.bounds, to: self).offsetBy(dx: 0, dy: -bottomChromeScrollOffset)
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is NativeBottomChromePressObserver, let touched = touch.view else { return true }
+        return !interactionIsolated && controls.contains { id, control in
+            Self.bottomChromeIds.contains(id) && control.admitted &&
+                (touched === control.view || touched.isDescendant(of: control.view))
+        }
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer is NativeBottomChromePressObserver || otherGestureRecognizer is NativeBottomChromePressObserver
     }
 
     /// A full-height React pane owns WK's whole paint plane, not frame-by-frame
@@ -633,6 +671,27 @@ final class NativePresentationContainer: UIView {
         groups[id] = host
         return host
     }
+}
+
+/// Observes a native press without consuming it or moving its target. The
+/// complete touch lifetime quarantines scroll updates, not normal actions.
+private final class NativeBottomChromePressObserver: UIGestureRecognizer {
+    private let changed: (Bool) -> Void
+    private var held = false
+    private var touches = Set<UITouch>()
+    init(_ changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(target: nil, action: nil) }
+    private func hold(_ value: Bool) { if held != value { held = value; changed(value) } }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { self.touches.formUnion(touches); state = .began; hold(true) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) { state = .changed }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        self.touches.subtract(touches)
+        if self.touches.isEmpty { state = .ended; hold(false) }
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        self.touches.subtract(touches)
+        if self.touches.isEmpty { state = .cancelled; hold(false) }
+    }
+    override func reset() { touches.removeAll(); hold(false); super.reset() }
 }
 
 #if DEBUG

@@ -117,6 +117,11 @@ final class AppUITests: XCTestCase {
                ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(choice) {
                 print("NATIVE_CONTROL_CHOICE control=\(control.replacingOccurrences(of: "-", with: "_")) outcome=\(choice)")
             }
+            let guardKeys = ["overlayBlocked", "inertBlocked", "moving", "suppressed", "voiceBlocked", "documentHidden"]
+            if guardKeys.allSatisfy({ fields[$0] is Bool }) {
+                let flags = guardKeys.map { fields[$0] as? Bool == true ? "1" : "0" }.joined(separator: ",")
+                print("NATIVE_CONTROL_GUARDS control=\(control.replacingOccurrences(of: "-", with: "_")) flags=\(flags)")
+            }
         }
     }
 
@@ -154,12 +159,64 @@ final class AppUITests: XCTestCase {
             print("COHERENT_HISTORY_AX_ELEMENT index=\(index) hittable=\(candidate.isHittable) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
         }
         print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        for (name, label) in [("blue", "Blue"), ("gold", "Molten Gold")] {
+            let matches = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            let option = matches.firstMatch
+            print("NATIVE_ACCENT_OPTION name=\(name) count=\(matches.count) role=\(option.exists ? option.elementType.rawValue : 0) hittable=\(option.exists && option.isHittable)")
+        }
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
+           let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
+            let keys = ["profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden"]
+            if keys.allSatisfy({ packet[$0] != nil }) {
+                let flags = keys.map { packet[$0]!.boolValue ? "1" : "0" }.joined(separator: ",")
+                print("NATIVE_PROFILE_GUARDS flags=\(flags)")
+            }
+        }
+        for (name, label, identifier) in [("one_profile", "Open One profile", "public-one-profile-opener"),
+                                         ("connectors", "Connectors", "native-history-row-connectors")] {
+            let byLabel = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label))
+            let byId = app.descendants(matching: .any).matching(identifier: identifier)
+            let candidate = byLabel.firstMatch
+            let observed = candidate.exists ? candidate.frame : .zero
+            let frame = [observed.minX, observed.minY, observed.width, observed.height].allSatisfy({ $0.isFinite && abs($0) <= 10_000 }) ? observed : .zero
+            print("COHERENT_PUBLIC_CONTROL name=\(name) label_count=\(byLabel.count) id_count=\(byId.count) role=\(candidate.exists ? candidate.elementType.rawValue : 0) hittable=\(candidate.exists && candidate.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+        }
         let probe = app.buttons["native-profile-back-admission"].firstMatch
         if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
             let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
                 let pair = item.split(separator: "=", maxSplits: 1)
                 return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
             }, uniquingKeysWith: { _, newest in newest })
+            for (control, prefix) in [("back", "pb"), ("close", "pc")] {
+                if let count = Int(fields["\(prefix)Tap"] ?? ""), (0...1_000_000).contains(count),
+                   let stage = fields["\(prefix)Stage"], ["none", "tap", "refused", "emitted", "confirmed", "confirmation-refused"].contains(stage) {
+                    print("COHERENT_PROFILE_TAP control=\(control) count=\(count) stage=\(stage)")
+                }
+                if fields["\(prefix)Available"] == "0" {
+                    print("COHERENT_PANE_HIT control=\(control) available=false")
+                } else {
+                    let keys = ["Available", "Layout", "Enabled", "Privacy", "Pane", "Admitted", "Allowed", "Isolated", "Hidden", "TouchBlocked", "AXHidden"]
+                    if keys.allSatisfy({ ["0", "1"].contains(fields["\(prefix)\($0)"] ?? "") }),
+                       let hit = fields["\(prefix)Hit"], ["target", "web", "drawer", "privacy", "navigation", "other", "none"].contains(hit) {
+                        let bits = keys.map { "\($0)=\(fields["\(prefix)\($0)"]!)" }.joined(separator: " ")
+                        print("COHERENT_PANE_HIT control=\(control) \(bits) hit=\(hit)")
+                    }
+                }
+            }
+            if let stage = fields["drawerCloseStage"], ["none", "emitted", "confirmed", "rejected"].contains(stage),
+               ["drawerOpen", "drawerInteractive", "drawerAwaiting", "profileQueryOpen"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }),
+               let depth = Int(fields["profileHistoryDepth"] ?? ""), (0...10000).contains(depth) {
+                print("PROFILE_CLOSE_BOUNDARY stage=\(stage) open=\(fields["drawerOpen"]!) interactive=\(fields["drawerInteractive"]!) awaiting=\(fields["drawerAwaiting"]!) query_open=\(fields["profileQueryOpen"]!) depth=\(depth)")
+            }
+            if let projected = Int(fields["drawerProjectedDepth"] ?? ""), (-1...1).contains(projected),
+               let path = Int(fields["drawerPathDepth"] ?? ""), (0...1).contains(path),
+               let pending = fields["drawerChoicePending"], ["true", "false"].contains(pending) {
+                print("PROFILE_STACK_BOUNDARY projected=\(projected) path=\(path) pending=\(pending)")
+                if let appeared = fields["drawerAccountAppeared"], ["true", "false"].contains(appeared) {
+                    print("PROFILE_ACCOUNT_APPEARED value=\(appeared)")
+                }
+            }
             let bits = ["hLayout", "hPending", "hEnabled", "hDocument", "hPrivacy", "hViewport", "hAdmitted", "hAllowed", "hIsolated", "hPane", "hHidden", "hTouchBlocked", "hAXHidden"]
             if fields["hActive"] == "1", fields["hAvailable"] == "1",
                let sequence = Int(fields["hSeq"] ?? ""), (1...1_000_000).contains(sequence),
@@ -177,6 +234,19 @@ final class AppUITests: XCTestCase {
                     let publicFrame = dimensions.map(String.init).joined(separator: ",")
                     let publicHits = pairs.map { $0.map(String.init).joined(separator: ">") }.joined(separator: ",")
                     print("COHERENT_NATIVE_HIT seq=\(sequence) phase=\(phase) \(flags) frame=\(publicFrame) hits=\(publicHits)")
+                }
+            }
+            if let level = Int(fields["profilePaneLevel"] ?? ""), (0...2).contains(level) {
+                print("COHERENT_PROFILE_LOCATION level=\(level)")
+            }
+            let choiceOutcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
+                "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
+            let backPresent = fields["present"] ?? (fields["pbAvailable"] == "1" ? "true" : "false")
+            for (control, prefix, present) in [("back", "profileBack", backPresent), ("close", "profileClose", fields["profileClosePresent"])] {
+                if let choice = fields["\(prefix)Choice"], choiceOutcomes.contains(choice),
+                   let allowed = fields["\(prefix)Allowed"], ["true", "false"].contains(allowed),
+                   let present, ["true", "false"].contains(present) {
+                    print("COHERENT_PROFILE_CHOICE control=\(control) outcome=\(choice) allowed=\(allowed) present=\(present)")
                 }
             }
             let stage = fields["stage"] ?? "none", outcome = fields["outcome"] ?? "none", code = fields["code"] ?? "none"
@@ -507,7 +577,10 @@ final class AppUITests: XCTestCase {
             returnToRehearsalChat(app)
         }
         let hosts = app.webViews.matching(identifier: "native-webview")
-        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
+        if !hosts.firstMatch.waitForExistence(timeout: 15) {
+            printCoherentPresentationAdmission(app)
+            XCTFail("NATIVE_ADMISSION_HOST_UNAVAILABLE"); return
+        }
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_VERIFICATION"] == "true" {
@@ -531,13 +604,23 @@ final class AppUITests: XCTestCase {
             // Qualification changes launch configuration. Never discard an
             // owner's memory-only draft merely to prepare another renderer.
             // Inspect both authored editors in process; emit no contents.
-            let cloud = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
-            let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
+            let nativeSelector = app.segmentedControls["chat-agent-surface"].firstMatch
+            let nativeEditor = app.textViews["native-dock-editor"].firstMatch
+            let native = nativeSelector.exists
+            let cloud = native ? nativeSelector.buttons["One, your cloud agent"].firstMatch : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
+            let puppy = native ? nativeSelector.buttons["Puppy One"].firstMatch : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One")).firstMatch
             let oneEditor = rehearsalChatComposer(app)
+            func portReady(_ choice: XCUIElement, label: String) -> Bool {
+                if !native { return true }
+                let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    choice.exists && choice.isSelected && nativeEditor.exists && nativeEditor.isHittable && nativeEditor.label == label
+                }, object: app)
+                return XCTWaiter.wait(for: [applied], timeout: 10) == .completed
+            }
             let editorReady = waitForAdmittedControl(oneEditor)
             let puppyReady = waitForAdmittedControl(puppy)
             print("NATIVE_PREPARATION_CONTROLS editor=\(editorReady) puppy=\(puppyReady)")
-            guard editorReady && puppyReady else {
+            guard editorReady && puppyReady && portReady(cloud, label: "Message One") else {
                 XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return
             }
             func empty(_ field: XCUIElement) -> Bool {
@@ -547,24 +630,35 @@ final class AppUITests: XCTestCase {
                 return value.isEmpty
             }
             let oneEmpty = empty(oneEditor)
-            let attachmentPresent = ["Remove text attachment", "Remove selected Drive file"].contains {
-                web.buttons[$0].firstMatch.exists
+            func attachmentPresent() -> Bool {
+                ["Remove text attachment", "Remove selected Drive file", "Remove attachment"].contains {
+                    app.buttons[$0].firstMatch.exists
+                }
             }
-            let actionPending = ["Stop One", "Cancel recording", "Cancel voice command"].contains {
-                let control = app.buttons[$0].firstMatch
-                return control.exists && control.isHittable
+            func actionPending() -> Bool {
+                let cancel = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch.buttons["Cancel"].firstMatch
+                return (native && cancel.exists && cancel.isHittable) || ["Stop One", "Cancel recording", "Cancel voice command"].contains {
+                    let control = app.buttons[$0].firstMatch
+                    return control.exists && control.isHittable
+                }
             }
-            guard oneEmpty && !attachmentPresent && !actionPending else {
+            guard oneEmpty && !attachmentPresent() && !actionPending() else {
                 XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
             }
             puppy.tap()
-            defer { if !oneEditor.isHittable && cloud.exists && cloud.isHittable { cloud.tap() } }
-            guard empty(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch) else {
+            defer {
+                if cloud.exists && cloud.isHittable && (native ? !cloud.isSelected : !oneEditor.isHittable) {
+                    cloud.tap()
+                    XCTAssertTrue(portReady(cloud, label: "Message One"), "NATIVE_PREPARATION_ONE_RETURN_NOT_APPLIED")
+                }
+            }
+            let puppyEditor = native ? nativeEditor : web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch
+            guard portReady(puppy, label: "Message Puppy"), empty(puppyEditor), !attachmentPresent(), !actionPending() else {
                 XCTFail("NATIVE_PREPARATION_PUPPY_DRAFT_NOT_EMPTY_OR_UNAVAILABLE"); return
             }
             guard waitForAdmittedControl(cloud) else { XCTFail("NATIVE_PREPARATION_REQUIRES_ONE_CONTEXT"); return }
             cloud.tap()
-            guard waitForAdmittedControl(oneEditor), empty(oneEditor) else {
+            guard portReady(cloud, label: "Message One"), waitForAdmittedControl(oneEditor), empty(oneEditor) else {
                 XCTFail("NATIVE_PREPARATION_HAS_PENDING_ONE_DRAFT"); return
             }
             print("NATIVE_PREPARATION_GATE empty_drafts=true attachments=false submitted=false")
@@ -782,7 +876,7 @@ final class AppUITests: XCTestCase {
                 return
             }
         }
-        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "That password did not match")).firstMatch
+        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "That passphrase did not match", "That password did not match")).firstMatch
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !unlock.exists || rejected.exists
         }, object: web)
@@ -963,6 +1057,83 @@ final class AppUITests: XCTestCase {
         XCTAssertNotNil(resumed)
     }
 
+    func testLocalSessionNativeDrawersRecoverTouchAfterSystemInterruption() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Installed coherent qualification candidate only")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Attach only; installation and unlock are separate")
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let opener = app.buttons["Open Profile"].firstMatch
+        guard waitForAdmittedControl(editor), waitForAdmittedControl(opener), !web.buttons["Unlock"].exists else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("NATIVE_RESUME_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let draft = editor.value as? String // Process-only comparison; never emitted.
+        let profileClose = app.buttons["Close Profile"].firstMatch
+        func verifyTouchAndReturn() -> Bool {
+            guard waitForAdmittedControl(opener) else { return false }
+            opener.tap()
+            guard waitForAdmittedControl(profileClose) else { return false }
+            profileClose.tap()
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { return false }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            XCTAssertTrue((editor.value as? String) == draft, "NATIVE_RESUME_DRAFT_CHANGED")
+            return true
+        }
+        guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_BASELINE_TOUCH_FAILED"); return }
+        let controlCenterOnly = ProcessInfo.processInfo.environment["HUSHH_CONTROL_CENTER_ONLY"] == "true"
+        for cycle in 0..<(controlCenterOnly ? 0 : 2) {
+            opener.tap()
+            guard waitForAdmittedControl(profileClose) else { XCTFail("NATIVE_RESUME_DRAWER_NOT_OPEN"); return }
+            XCUIDevice.shared.press(.home)
+            guard app.wait(for: .runningBackground, timeout: 5) || app.state == .runningBackgroundSuspended else {
+                XCTFail("NATIVE_RESUME_BACKGROUND_NOT_OBSERVED"); return
+            }
+            app.activate()
+            guard waitForAdmittedControl(profileClose) else {
+                printCoherentPresentationAdmission(app)
+                XCTFail("NATIVE_RESUME_DRAWER_NOT_READMITTED"); return
+            }
+            profileClose.tap()
+            guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_TOUCH_NOT_RECOVERED"); return }
+            print("NATIVE_RESUME_TOUCH background_cycle=\(cycle + 1) passed=true")
+        }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let top = springboard.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: app.frame.width - 16, dy: 1))
+        top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)),
+            withVelocity: .slow, thenHoldForDuration: 0.2)
+        // System panels need not expose their title as an Other element. Keep
+        // this read-only: identify stock controls, never dump system/private AX.
+        let controlCenter = springboard.descendants(matching: .any).matching(NSPredicate(
+            format: "label IN %@ OR identifier IN %@", ["Control Center"], ["Control Center", "ControlCenter"])).firstMatch
+        let brightness = springboard.sliders.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Brightness")).firstMatch
+        let volume = springboard.sliders.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Volume")).firstMatch
+        let airplane = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Airplane Mode")).firstMatch
+        let bluetooth = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Bluetooth")).firstMatch
+        let observed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controlCenter.exists || brightness.exists && volume.exists || airplane.exists && bluetooth.exists
+        }, object: springboard)
+        let panelObserved = XCTWaiter.wait(for: [observed], timeout: 5) == .completed
+        print("NATIVE_SYSTEM_INTERRUPT target=control_center observed=\(panelObserved) title=\(controlCenter.exists) brightness=\(brightness.exists) volume=\(volume.exists) airplane=\(airplane.exists) bluetooth=\(bluetooth.exists)")
+        guard panelObserved else {
+            app.activate()
+            XCTFail("NATIVE_RESUME_CONTROL_CENTER_NOT_OBSERVED"); return
+        }
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+            .press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+        app.activate()
+        guard verifyTouchAndReturn() else { XCTFail("NATIVE_RESUME_CONTROL_CENTER_TOUCH_NOT_RECOVERED"); return }
+        print("NATIVE_RESUME_TOUCH control_center=true passed=true")
+    }
 
     /// Actual product port, not the synthetic study. Read-only, attach-only and
     /// credential-free after normal unlock; private labels never enter artifacts.
@@ -980,6 +1151,7 @@ final class AppUITests: XCTestCase {
         returnToRehearsalChat(app)
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
+            printCoherentPresentationAdmission(app)
             XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
         }
         for label in ["Close Profile", "Close chat history"] {
@@ -1126,7 +1298,7 @@ final class AppUITests: XCTestCase {
                     print("COHERENT_HISTORY_ACTION_STAGE stage=delete_cancelled")
                     guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CONFIRMATION_DID_NOT_RETIRE"); return }
                     let connectors = app.buttons["native-history-row-connectors"].firstMatch
-                    guard waitForAdmittedControl(connectors) else { XCTFail("COHERENT_HISTORY_CONNECTORS_TRIGGER_UNAVAILABLE"); return }
+                    guard waitForAdmittedControl(connectors) else { printCoherentPresentationAdmission(app); XCTFail("COHERENT_HISTORY_CONNECTORS_TRIGGER_UNAVAILABLE"); return }
                     connectors.tap()
                     print("COHERENT_HISTORY_ACTION_STAGE stage=connectors_opened")
                     let connectorsBack = app.buttons["Back to chats"].firstMatch
@@ -1831,6 +2003,102 @@ final class AppUITests: XCTestCase {
         print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
     }
 
+    func testLocalSessionNativeBottomChromeFollowsTheSharedScrollOwner() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in warm native scroll regression")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_BOTTOM_SCROLL_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate(); dismissRehearsalChatKeyboard(app)
+        for label in ["Close Profile", "Close chat history", "Close search"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
+        perfTapNav(app, label: "Chat")
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_ADMITTED"); return }
+        let initialDraft = editor.value as? String // Process-only, never an artifact.
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let webFrame = web.frame
+        // The compact launcher may correctly have no overflow. Qualify the
+        // actual Feed page without changing roster preferences or adding rows.
+        perfTapNav(app, label: "Feed")
+        if app.buttons["native-test-status"].exists && !waitForNativeRoute(app, route: "/one/feed", timeout: 15) {
+            XCTFail("NATIVE_BOTTOM_SCROLL_FEED_ROUTE_NOT_ADMITTED"); return
+        }
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        // Observe the rendered dock child, not an optional AX container.
+        let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
+        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
+            reportNativeDockAdmission(app)
+            XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
+        }
+        var returnedToChat = false
+        defer {
+            if !returnedToChat { perfTapNav(app, label: "Chat") }
+        }
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        if layout.exists {
+            let overflow = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let raw = layout.value as? String, let data = raw.data(using: .utf8),
+                      let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] else { return false }
+                return (packet["appScrollRange"]?.doubleValue ?? 0) >= 100
+            }, object: app)
+            guard XCTWaiter.wait(for: [overflow], timeout: 10) == .completed else {
+                reportNativeDockAdmission(app)
+                XCTFail("NATIVE_BOTTOM_SCROLL_REQUIRES_ACTUAL_FEED_OVERFLOW"); return
+            }
+        }
+        let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
+        print("NATIVE_BOTTOM_SCROLL_FRAME stage=baseline navigationY=\(baseline) dockY=\(dockBaseline)")
+        // Anchor touch coordinates to the application, not WebKit's scrolling
+        // accessibility node. A coordinate re-resolved from the latter can
+        // move with the content between the two halves of a reverse gesture.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
+                                               dy: webFrame.minY + webFrame.height * 0.65))
+        let end = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
+                                             dy: webFrame.minY + webFrame.height * 0.25))
+        // Three cycles protect reversal/repetition; endurance and frame pacing
+        // belong to the separate Release qualification, not this core smoke.
+        for _ in 0..<3 {
+            // Pan in the shared page gutter, never through an actionable tile.
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
+            let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
+            guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
+                reportNativeDockAdmission(app)
+                XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_FOLLOW_USER_SCROLL"); return
+            }
+            let displacement = bar.frame.minY - baseline
+            XCTAssertEqual(dock.frame.minY - dockBaseline, displacement, accuracy: 1,
+                "NATIVE_BOTTOM_SCROLL_PAIR_DIVERGED")
+            XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
+            // Touch-tracking freeze has native unit coverage. Do not combine
+            // a selection (which deliberately snaps the chrome) with reversal.
+            web.swipeDown(velocity: XCUIGestureVelocity(rawValue: 400))
+            let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in abs(bar.frame.minY - baseline) <= 1 }, object: app)
+            guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else {
+                reportNativeDockAdmission(app)
+                print("NATIVE_BOTTOM_SCROLL_FRAME stage=reverse navigationY=\(bar.frame.minY) dockY=\(dock.frame.minY)")
+                XCTFail("NATIVE_BOTTOM_SCROLL_REVERSE_DID_NOT_RESTORE"); return
+            }
+            XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)
+        }
+        perfTapNav(app, label: "Chat")
+        guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_RESTORED"); return }
+        XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_CHANGED_DRAFT")
+        editor.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else { XCTFail("NATIVE_BOTTOM_SCROLL_KEYBOARD_UNAVAILABLE"); return }
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY + 2)
+        dismissRehearsalChatKeyboard(app)
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        returnedToChat = true
+        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=3 pair=true keyboard=true draft=true single_host=true")
+    }
+
     func testLocalSessionNativeBackRetiresUnderProfileAndReturnsToOne() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in Back pilot acceptance; requires the current Debug candidate")
@@ -2263,7 +2531,8 @@ final class AppUITests: XCTestCase {
     private func reportNativeDockAdmission(_ app: XCUIApplication) {
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         for title in ["Chat", "One"] {
-            let authored = app.buttons["one-native-tab-\(title.lowercased())"].firstMatch
+            let key = title == "One" ? "dashboard" : title.lowercased()
+            let authored = app.buttons["one-native-tab-\(key)"].firstMatch
             let scoped = bar.buttons[title].firstMatch
             for (kind, target) in [("identifier", authored), ("native_label", scoped)] {
                 let present = target.exists
@@ -2273,14 +2542,19 @@ final class AppUITests: XCTestCase {
         let navigation = app.buttons["native-navigation-presentation"].firstMatch
         if navigation.exists, let raw = navigation.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for key in ["visible", "interactive", "covered", "planeVisible", "retained", "accessibilityHidden"] {
+            for key in ["visible", "interactive", "covered", "planeVisible", "retained", "accessibilityHidden", "scrollFollowing", "scrollActive", "scrollPressHeld", "keyboardVisible"] {
                 if let value = packet[key] as? Bool { print("NATIVE_NAVIGATION_ADMISSION key=\(key) value=\(value)") }
+            }
+            for key in ["scrollOffset", "scrollSequence"] {
+                if let value = packet[key] as? NSNumber, value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
+                    print("NATIVE_PUBLIC_GEOMETRY key=\(key) value=\(value.doubleValue)")
+                }
             }
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused"] {
+            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused", "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent"] {
                 if let value = packet[key], value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
                     // Keep finite subpixel evidence: rounding hid geometry
                     // rejected at the strict native containment boundary.
@@ -3014,83 +3288,138 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Preferences proof must attach to the existing session")
         }
         app.activate()
-        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
-        XCTAssertTrue(web.waitForExistence(timeout: 15))
-        XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
-        let picker = app.segmentedControls["profile-appearance"].firstMatch
-        let accent = app.buttons["profile-accent"].firstMatch
-        let accentSheet = app.descendants(matching: .any).matching(identifier: "native-accent-presentation").firstMatch
-        func controlsReady() -> Bool {
-            picker.exists && accent.exists && accent.isHittable &&
-                ["Light", "Dark", "System"].allSatisfy { picker.buttons[$0].exists && picker.buttons[$0].isHittable }
+        func accentOption(_ name: String) -> XCUIElement {
+            // Radix hides the underlying Profile accessibility subtree while
+            // its portal is open. Query the owned popup, not that hidden body.
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
         }
-        func openPreferences() {
-            if !picker.exists || !accent.exists {
-                let close = app.buttons["Close Profile"].firstMatch
-                if !close.exists { app.buttons["Open Profile"].firstMatch.tap() }
-                XCTAssertTrue(close.waitForExistence(timeout: 10))
-                let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Preferences")).firstMatch
-                // Profile preserves its internal route while closed. Return
-                // through authored Back controls, never a cold route/reset.
-                for _ in 0..<4 {
-                    if row.exists { break }
-                    let back = app.buttons["Back in Profile"].firstMatch
-                    if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
-                    back.tap()
-                }
-                XCTAssertTrue(row.waitForExistence(timeout: 10))
-                if !row.isHittable { web.swipeUp() }
-                XCTAssertTrue(row.isHittable)
-                row.tap()
-            }
-            // XCTest need not make the segmented container itself hittable;
-            // every actual segment and the Accent trigger must be interactive.
-            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controlsReady() }, object: app)
-            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, "NATIVE_PREFERENCES_UNAVAILABLE")
-        }
-        func selectedTheme(_ name: String) -> Bool { picker.buttons[name].exists && picker.buttons[name].isSelected }
-        func selectTheme(_ name: String) {
-            let segment = picker.buttons[name]
-            XCTAssertTrue(segment.exists && segment.isHittable)
-            if !selectedTheme(name) { segment.tap() }
-            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: picker)
-            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_APPEARANCE_NOT_ACKNOWLEDGED")
-        }
-        func selectAccent(_ name: String) {
-            if (accent.value as? String) == name { return }
-            accent.tap()
-            let option = accentSheet.buttons[name].firstMatch
-            XCTAssertTrue(option.waitForExistence(timeout: 10) && option.isHittable, "NATIVE_ACCENT_MENU_UNAVAILABLE")
-            option.tap()
-            let done = accentSheet.buttons["Done"].firstMatch
-            XCTAssertTrue(done.exists && done.isHittable, "NATIVE_ACCENT_COMMIT_UNAVAILABLE")
-            done.tap()
-            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", name), object: accent)
-            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
-        }
-        func cancelAccentMenu() -> Bool {
-            let sheet = accentSheet
-            guard sheet.waitForExistence(timeout: 5),
-                  sheet.buttons["iOS Blue"].firstMatch.isHittable,
-                  sheet.buttons["Molten Gold"].firstMatch.isHittable else {
+        func dismissAccentPopup() -> Bool {
+            let blue = accentOption("Blue"), gold = accentOption("Molten Gold")
+            guard blue.exists && blue.isHittable && gold.exists && gold.isHittable else {
                 XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
             }
-            let cancel = sheet.buttons["Cancel"].firstMatch
-            guard cancel.exists && cancel.isHittable else { XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false }
-            cancel.tap()
+            let bounds = app.frame, options = blue.frame.union(gold.frame)
+            let point = CGPoint(x: bounds.minX + 4, y: options.midY)
+            guard bounds.contains(point) && !options.contains(point) else {
+                XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false
+            }
+            // The authored Select outside-press contract; no disabled header
+            // action, route reset or preference mutation is used for recovery.
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: point.x - bounds.minX, dy: point.y - bounds.minY)).tap()
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !sheet.exists && controlsReady()
+                !(blue.exists && gold.exists)
             }, object: app)
             let completed = XCTWaiter.wait(for: [retired], timeout: 5) == .completed
             XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
             return completed
         }
-        if accentSheet.exists {
-            guard cancelAccentMenu() else { return }
+        // A previous diagnostic may have failed with the real Accent popup
+        // open. Dismiss only this positively identified popup before examining
+        // its obscured origin; preserve the app, draft and current preference.
+        if accentOption("Blue").exists && accentOption("Molten Gold").exists {
+            guard dismissAccentPopup() else { return }
         }
-        openPreferences()
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
+        addTeardownBlock {
+            guard (self.testRun?.failureCount ?? 0) > 0 else { return }
+            // Observe the failure before another runner activation/privacy
+            // cycle. No Back, Close, retry or protected hierarchy serialization.
+            self.printCoherentPresentationAdmission(app)
+            self.printNativeControlStatuses(web)
+        }
+        // The product Profile pane deliberately retains shared body controls.
+        // Its native Back/Close are qualified independently. Do not enable an
+        // unqualified renderer just to satisfy a historical native-only test.
+        let accent = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@", "App accent color")).firstMatch
+        func themeOption(_ name: String) -> XCUIElement {
+            web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+        }
+        func accentValue() -> String? {
+            ["Blue", "Molten Gold"].first { (accent.value as? String) == $0 || accent.staticTexts[$0].exists }
+        }
+        func controlsReady() -> Bool {
+            accent.exists && accent.isHittable &&
+                ["Light", "Dark", "System"].allSatisfy { themeOption($0).exists && themeOption($0).isHittable }
+        }
+        func openPreferences() -> Bool {
+            print("NATIVE_PREFERENCES_STAGE stage=enter")
+            if !themeOption("System").exists || !accent.exists {
+                let close = app.buttons["Close Profile"].firstMatch
+                if !close.exists {
+                    let opener = app.buttons["Open Profile"].firstMatch
+                    guard waitForAdmittedControl(opener) else { XCTFail("NATIVE_PREFERENCES_OPENER_NOT_ADMITTED"); return false }
+                    opener.tap()
+                }
+                guard waitForAdmittedControl(close) else { XCTFail("NATIVE_PREFERENCES_PROFILE_NOT_ADMITTED"); return false }
+                print("NATIVE_PREFERENCES_STAGE stage=profile")
+                let nativeRow = app.buttons["native-profile-row-preferences"].firstMatch
+                let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+                let row = nativeRow.exists || menu.exists ? nativeRow :
+                    web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Appearance & preferences")).firstMatch
+                // Profile preserves its internal route while closed. Return
+                // through authored Back controls, never a cold route/reset.
+                for _ in 0..<4 {
+                    if row.exists && row.isHittable { break }
+                    let back = app.buttons["profile-back"].firstMatch
+                    if !back.waitForExistence(timeout: 1) || !back.isHittable { break }
+                    back.tap()
+                }
+                guard row.waitForExistence(timeout: 10) else { XCTFail("NATIVE_PREFERENCES_ROW_UNAVAILABLE"); return false }
+                for _ in 0..<5 {
+                    if row.isHittable { break }
+                    if menu.exists { menu.swipeDown() } else { web.swipeUp() }
+                }
+                guard row.isHittable else { XCTFail("NATIVE_PREFERENCES_ROW_NOT_ADMITTED"); return false }
+                print("NATIVE_PREFERENCES_STAGE stage=row")
+                row.tap()
+            }
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controlsReady() }, object: app)
+            guard XCTWaiter.wait(for: [ready], timeout: 10) == .completed else { XCTFail("NATIVE_PREFERENCES_UNAVAILABLE"); return false }
+            print("NATIVE_PREFERENCES_STAGE stage=ready")
+            XCTAssertFalse(app.segmentedControls["profile-appearance"].exists, "Profile exposed a native Appearance duplicate")
+            XCTAssertFalse(app.buttons["profile-accent"].exists, "Profile exposed a native Accent duplicate")
+            return true
+        }
+        func selectedTheme(_ name: String) -> Bool {
+            let option = themeOption(name)
+            return option.exists && (option.isSelected || (option.value as? String) == "1")
+        }
+        func selectTheme(_ name: String) {
+            print("NATIVE_PREFERENCES_STAGE stage=theme_select")
+            let segment = themeOption(name)
+            XCTAssertTrue(segment.exists && segment.isHittable)
+            if !selectedTheme(name) { segment.tap() }
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: web)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_APPEARANCE_NOT_ACKNOWLEDGED")
+        }
+        func selectAccent(_ name: String) {
+            if accentValue() == name { return }
+            print("NATIVE_PREFERENCES_STAGE stage=accent_open")
+            accent.tap()
+            let option = accentOption(name)
+            guard option.waitForExistence(timeout: 10) && option.isHittable else {
+                XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return
+            }
+            option.tap()
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in accentValue() == name }, object: accent)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
+        }
+        func cancelAccentMenu() -> Bool {
+            guard dismissAccentPopup() else { return false }
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                controlsReady()
+            }, object: app)
+            let completed = XCTWaiter.wait(for: [retired], timeout: 5) == .completed
+            XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
+            return completed
+        }
+        guard openPreferences() else { return }
         guard let originalTheme = ["Light", "Dark", "System"].first(where: selectedTheme),
-              let originalAccent = accent.value as? String, ["iOS Blue", "Molten Gold"].contains(originalAccent) else {
+              let originalAccent = accentValue() else {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
         }
         guard let initialFailureCount = testRun?.failureCount else {
@@ -3100,26 +3429,40 @@ final class AppUITests: XCTestCase {
             guard self.testRun?.failureCount == initialFailureCount else {
                 print("NATIVE_PREFERENCES_TEARDOWN skipped_after_failure_no_navigation_replay"); return
             }
-            if accentSheet.exists { _ = cancelAccentMenu() }
-            if !picker.exists { openPreferences() }
+            if !controlsReady() && !openPreferences() { return }
             selectTheme(originalTheme); selectAccent(originalAccent)
-            app.buttons["Close Profile"].firstMatch.tap()
+            let close = app.buttons["Close Profile"].firstMatch
+            guard self.waitForAdmittedControl(close) else {
+                XCTFail("NATIVE_PROFILE_CLOSE_RESTORE_NOT_ADMITTED"); return
+            }
+            close.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !close.exists && !accent.exists
+            }, object: app)
+            guard XCTWaiter.wait(for: [retired], timeout: 10) == .completed else {
+                XCTFail("NATIVE_PROFILE_RESTORE_CLOSE_NOT_CONFIRMED"); return
+            }
             self.perfTapNav(app, label: "Chat")
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
-        for name in ["Light", "Dark", "System"] {
-            let segment = picker.buttons[name]
-            XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
-            XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
-            selectTheme(name)
-            XCTAssertTrue(accent.isHittable)
+        let reopenOnly = ProcessInfo.processInfo.environment["HUSHH_PREFERENCES_REOPEN_ONLY"] == "true"
+        if !reopenOnly {
+            for name in ["Light", "Dark", "System"] {
+                let segment = themeOption(name)
+                XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
+                XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
+                selectTheme(name)
+                XCTAssertTrue(accent.isHittable)
+            }
+            for name in ["Blue", "Molten Gold"] { selectAccent(name) }
         }
-        for name in ["iOS Blue", "Molten Gold"] { selectAccent(name) }
-        let value = accent.value as? String
-        for _ in 0..<2 {
-            accent.tap()
-            guard cancelAccentMenu() else { return }
-            XCTAssertEqual(accent.value as? String, value, "Native cancellation changed the preference")
+        let value = accentValue()
+        if !reopenOnly {
+            for _ in 0..<2 {
+                accent.tap()
+                guard cancelAccentMenu() else { return }
+                XCTAssertEqual(accentValue(), value, "Cancellation changed the preference")
+            }
         }
         let hostFrame = web.frame
         for cycle in 0..<10 {
@@ -3129,16 +3472,20 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.buttons.matching(NSPredicate(
                 format: "label == %@ AND identifier != %@", "Close Profile", "profile-close")).firstMatch.exists,
                 "Profile exposed a web Close beside its native control")
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=before privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             // Exercise the whole hit region, not only the visible X glyph.
             let point = cycle.isMultiple(of: 2) ? CGVector(dx: 0.1, dy: 0.5) : CGVector(dx: 0.9, dy: 0.5)
             close.coordinate(withNormalizedOffset: point).tap()
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=tapped privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             let openProfile = web.buttons["Open Profile"].firstMatch
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                !close.exists && !picker.exists && !accent.exists && openProfile.exists && openProfile.isHittable
+                !close.exists && !themeOption("System").exists && !accent.exists && openProfile.exists && openProfile.isHittable
             }, object: app)
             guard XCTWaiter.wait(for: [retired], timeout: 5) == .completed else {
+                print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=failed privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
                 XCTFail("NATIVE_PROFILE_CLOSE_NOT_CONFIRMED"); return
             }
+            print("NATIVE_PROFILE_CYCLE index=\(cycle) phase=closed privacy_cover=\(app.otherElements["session-privacy-shield"].exists) app_state=\(app.state.rawValue)")
             openProfile.tap()
             let reopened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 close.exists && close.isHittable
@@ -3146,14 +3493,16 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [reopened], timeout: 10) == .completed else {
                 XCTFail("NATIVE_PROFILE_REOPEN_NOT_CONFIRMED"); return
             }
-            openPreferences()
-            XCTAssertEqual(accent.value as? String, value, "Profile reopen lost the applied Accent")
+            guard openPreferences() else { return }
+            XCTAssertEqual(accentValue(), value, "Profile reopen lost the applied Accent")
             XCTAssertEqual(hosts.count, 1)
             XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
             XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
             XCTAssertFalse(web.buttons["Unlock"].exists)
         }
-        print("NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_ten_edge_reopens_single_host")
+        print(reopenOnly
+            ? "NATIVE_PUBLIC_PREFERENCES_CONTINUITY ten_edge_reopens_single_host"
+            : "NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_ten_edge_reopens_single_host")
     }
 
     func testLocalSessionNativeChromeFollowsAppTheme() throws {
@@ -3436,14 +3785,18 @@ final class AppUITests: XCTestCase {
         // application/window or entire tablet WebView cannot substitute for it.
         let candidates = app.descendants(matching: .any).containing(.button, identifier: "Close Profile")
         _ = candidates.firstMatch.waitForExistence(timeout: 10)
+        let excludedTypes: Set<XCUIElement.ElementType> = [.application, .window, .webView]
+        let accountHeading = NSPredicate(format: "label BEGINSWITH %@", "Your account")
+        let webFrame = web.frame
+        let appFrame = app.frame
         var frames: [CGRect] = []
         for element in candidates.allElementsBoundByIndex {
-            guard ![XCUIElement.ElementType.application, .window, .webView].contains(element.elementType) else { continue }
-            let account = element.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Your account")).firstMatch
-            guard account.exists else { continue }
-            let frame: CGRect = element.frame.intersection(web.frame).intersection(app.frame)
-            guard !frame.isNull, frame.width >= 200, frame.height > 100, frame.contains(closeCenter) else { continue }
-            guard web.frame.width < 600 || frame.width < web.frame.width - 1 else { continue }
+            guard !excludedTypes.contains(element.elementType),
+                  element.buttons.matching(accountHeading).firstMatch.exists else { continue }
+            let frame = element.frame.intersection(webFrame).intersection(appFrame)
+            guard !frame.isNull, frame.width >= 200, frame.height > 100,
+                  frame.contains(closeCenter),
+                  webFrame.width < 600 || frame.width < webFrame.width - 1 else { continue }
             frames.append(frame)
         }
         guard let frame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
@@ -3453,6 +3806,171 @@ final class AppUITests: XCTestCase {
         return frame
     }
 
+    func testLocalSessionNativeWritingStyleSheetKeepsDraftAndOwnedMenus() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else { throw XCTSkip("Opt-in ordinary preferences continuity") }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PROFILE_STYLE_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate(); dismissRehearsalChatKeyboard(app); returnToRehearsalChat(app)
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_STYLE_CHAT_UNAVAILABLE"); return }
+        let initialDraft = editor.value as? String
+        let opener = app.buttons["Open Profile"].firstMatch
+        let root = app.buttons["native-profile-row-preferences"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        let back = app.buttons["Back in Profile"].firstMatch
+        let cancel = app.buttons["native-style-close"].firstMatch
+        let field = app.textViews["native-style-preferred_name"].firstMatch
+        let tone = app.buttons["native-style-tone"].firstMatch
+        defer {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            if back.exists && back.isHittable { back.tap() }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_STYLE_OPENER_UNAVAILABLE"); return }
+        opener.tap()
+        for _ in 0..<3 {
+            if root.exists && root.isHittable { break }
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_PARENT_UNAVAILABLE"); return }; back.tap()
+        }
+        guard waitForAdmittedControl(root) else { XCTFail("PROFILE_STYLE_PREFERENCES_UNAVAILABLE"); return }; root.tap()
+        let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Writing style")).firstMatch
+        for _ in 0..<4 { if row.exists && row.isHittable { break }; web.swipeUp() }
+        var originalName: String?
+        for cycle in 0..<10 {
+            guard waitForAdmittedControl(row) else { XCTFail("PROFILE_STYLE_ROW_UNAVAILABLE"); return }; row.tap()
+            guard waitForAdmittedControl(field), waitForAdmittedControl(cancel), waitForAdmittedControl(tone) else {
+                XCTFail("PROFILE_STYLE_NATIVE_SCENE_UNAVAILABLE"); return
+            }
+            if cycle == 0 { originalName = field.value as? String }
+            XCTAssertTrue((field.value as? String) == originalName, "The transient preference replica must preserve its authoritative draft")
+            XCTAssertFalse(back.isHittable, "The complete native sheet must isolate the Profile header")
+            if cycle == 0 || cycle == 9 {
+                let originalTone = try XCTUnwrap(tone.value as? String)
+                tone.tap()
+                let direct = app.buttons["Direct"].firstMatch
+                guard waitForAdmittedControl(direct) else { XCTFail("PROFILE_STYLE_MENU_UNAVAILABLE"); return }; direct.tap()
+                let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in tone.value as? String == "Direct" }, object: app)
+                guard XCTWaiter.wait(for: [applied], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_CHOICE_NOT_APPLIED"); return }
+                tone.tap()
+                let restore = app.buttons[originalTone].firstMatch
+                guard waitForAdmittedControl(restore) else { XCTFail("PROFILE_STYLE_RESTORE_UNAVAILABLE"); return }; restore.tap()
+                let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in tone.value as? String == originalTone }, object: app)
+                guard XCTWaiter.wait(for: [restored], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_RESTORE_NOT_APPLIED"); return }
+                field.tap(); field.typeText(" A")
+                XCTAssertTrue((field.value as? String) != originalName, "The native preference editor accepts keyboard input")
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+                let nameRestored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in field.value as? String == originalName }, object: app)
+                guard XCTWaiter.wait(for: [nameRestored], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_TEXT_RESTORE_NOT_APPLIED"); return }
+            }
+            cancel.tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && row.isHittable }, object: app)
+            guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_DISMISSAL_BLOCKED_TOUCH"); return }
+            XCTAssertEqual(hosts.count, 1)
+            XCTAssertFalse(web.textViews["Style note"].exists, "The complete native scene cannot expose a DOM editor duplicate")
+        }
+        guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_BACK_UNAVAILABLE"); return }; back.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PROFILE_STYLE_CLOSE_UNAVAILABLE"); return }; close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_STYLE_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertTrue((editor.value as? String) == initialDraft, "Preference editing must preserve the Chat draft")
+        print("PROFILE_STYLE_SCENE_CONTINUITY cycles=10 restored=true single_host=true")
+    }
+
+    func testLocalSessionNativeProfileNameSheetKeepsTheAccountAndDraft() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in private ordinary Profile scene continuity")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PROFILE_NAME_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let web = hosts.firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_UNAVAILABLE"); return }
+        let initialDraft = editor.value as? String // Memory only; never emitted or attached.
+        let opener = app.buttons["Open Profile"].firstMatch
+        let root = app.buttons["native-profile-row-account"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        var back: XCUIElement {
+            let native = app.navigationBars["Your account"].buttons["Profile"].firstMatch
+            return native.exists ? native : app.buttons["Back in Profile"].firstMatch
+        }
+        let cancel = app.buttons["native-profile-name-cancel"].firstMatch
+        let field = app.textFields["native-profile-name-editor"].firstMatch
+        defer {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            if back.exists && back.isHittable { back.tap() }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_NAME_OPENER_UNAVAILABLE"); return }
+        opener.tap()
+        for _ in 0..<3 {
+            if root.exists && root.isHittable && close.exists && close.isHittable { break }
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_PARENT_UNAVAILABLE"); return }
+            back.tap()
+        }
+        guard waitForAdmittedControl(root) else { XCTFail("PROFILE_NAME_ACCOUNT_UNAVAILABLE"); return }
+        root.tap()
+        let row = app.buttons["native-profile-row-account-name"].firstMatch
+        guard waitForAdmittedControl(row) else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("PROFILE_NAME_EDIT_UNAVAILABLE"); return
+        }
+        var originalName: String? // Private equality only; no screenshots or value diagnostics.
+        for cycle in 0..<10 {
+            if cycle > 0 { root.tap() }
+            guard waitForAdmittedControl(row) else {
+                print("PROFILE_NAME_STAGE cycle=\(cycle) name_row=false")
+                printCoherentPresentationAdmission(app)
+                XCTFail("PROFILE_NAME_RETURN_UNAVAILABLE"); return
+            }
+            row.tap()
+            guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
+                XCTFail("PROFILE_NAME_NATIVE_SCENE_UNAVAILABLE"); return
+            }
+            let value = field.value as? String
+            if cycle == 0 { originalName = value }
+            XCTAssertTrue(value == originalName, "Cancelling must not save the transient name")
+            XCTAssertFalse(app.buttons["native-profile-name-save"].firstMatch.isEnabled,
+                           "Unchanged ordinary form cannot save")
+            XCTAssertFalse(back.isHittable, "The owned sheet must isolate the underlying Profile header")
+            if cycle == 0 || cycle == 9 {
+                field.tap()
+                field.typeText(" A") // Synthetic unsaved edit; never submit a reviewer fixture change.
+                XCTAssertTrue((field.value as? String) != value, "The retained native field must accept keyboard editing")
+            }
+            cancel.tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && row.isHittable }, object: app)
+            guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else {
+                XCTFail("PROFILE_NAME_DISMISSAL_DID_NOT_RESTORE_TOUCH"); return
+            }
+            // Native Profile intentionally AX-hides its covered WebView. A
+            // zero accessible count here is isolation, not host destruction.
+            XCTAssertEqual(hosts.count, 0, "Native Profile must isolate covered web content")
+            XCTAssertFalse(web.textFields.matching(NSPredicate(format: "label == %@", "Display name")).firstMatch.exists,
+                           "The native form cannot reveal an interactive DOM duplicate")
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_BACK_UNAVAILABLE"); return }
+            back.tap()
+            guard waitForAdmittedControl(root), waitForAdmittedControl(close) else {
+                XCTFail("PROFILE_NAME_NATIVE_STACK_RETURN_UNAVAILABLE"); return
+            }
+            XCTAssertTrue(app.otherElements["native-profile-drawer-body"].firstMatch.exists,
+                          "A nested pop must retain the encompassing native drawer")
+        }
+        guard waitForAdmittedControl(close) else { XCTFail("PROFILE_NAME_CLOSE_UNAVAILABLE"); return }
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertEqual(hosts.count, 1, "The same single web workspace returns after native Profile closes")
+        XCTAssertTrue((editor.value as? String) == initialDraft, "Profile editing must preserve the Chat draft")
+        print("PROFILE_NAME_SCENE_CONTINUITY cycles=10 cancelled=true single_host=true")
+    }
+
     func testLocalSessionProfileBackAcrossTheSettingsStack() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in shared Profile Back and fallback regression")
@@ -3460,6 +3978,10 @@ final class AppUITests: XCTestCase {
         let app = XCUIApplication()
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("PROFILE_STACK_REQUIRES_RUNNING_SESSION"); return
+        }
+        addTeardownBlock {
+            guard (self.testRun?.failureCount ?? 0) > 0 else { return }
+            self.printCoherentPresentationAdmission(app)
         }
         app.activate()
         dismissRehearsalChatKeyboard(app)
@@ -3632,12 +4154,46 @@ final class AppUITests: XCTestCase {
     private func verifyCoherentProfileDestinations(_ app: XCUIApplication) throws {
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else {
+            XCTFail("PROFILE_BATCH_CHAT_EDITOR_NOT_ADMITTED"); return
+        }
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let back = app.buttons["Back in Profile"].firstMatch
+        let nativeAccountBack = app.navigationBars["Your account"].buttons["Profile"].firstMatch
+        var back: XCUIElement {
+            nativeAccountBack.exists && nativeAccountBack.isHittable
+                ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
+        }
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
+        if let requestedStart, !destinations.contains(requestedStart) {
+            XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
+        }
+        let startIndex = requestedStart.flatMap { destinations.firstIndex(of: $0) } ?? 0
+        let admittedDestinations = Array(destinations.dropFirst(startIndex))
         func root(_ id: String) -> XCUIElement { app.buttons["native-profile-row-\(id)"].firstMatch }
+        func publicPaneLevel() -> Int? {
+            let probe = app.buttons["native-profile-back-admission"].firstMatch
+            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024 else { return nil }
+            let field = raw.split(separator: ";").first(where: { $0.hasPrefix("profilePaneLevel=") })
+            guard let field, let level = Int(field.dropFirst("profilePaneLevel=".count)), (0...2).contains(level) else { return nil }
+            return level
+        }
+        func publicPaneGeometry() -> (sample: Int, frame: CGRect)? {
+            let probe = app.buttons["native-profile-back-admission"].firstMatch
+            guard probe.exists, let raw = probe.value as? String, raw.utf8.count <= 1024 else { return nil }
+            let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
+                let pair = item.split(separator: "=", maxSplits: 1)
+                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+            }, uniquingKeysWith: { _, latest in latest })
+            guard fields["paneReady"] == "true", let sample = Int(fields["paneSample"] ?? ""),
+                  sample > 0, sample <= 1_000_000,
+                  let x = Double(fields["paneX"] ?? ""), let y = Double(fields["paneY"] ?? ""),
+                  let width = Double(fields["paneWidth"] ?? ""), let height = Double(fields["paneHeight"] ?? ""),
+                  [x, y, width, height].allSatisfy({ $0.isFinite && abs($0) <= 10_000 }), width >= 200, height > 100 else { return nil }
+            return (sample, CGRect(x: x, y: y, width: width, height: height))
+        }
         func row(_ title: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
         }
@@ -3660,6 +4216,33 @@ final class AppUITests: XCTestCase {
         if !close.exists || !close.isHittable {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
+        }
+        // Profile deliberately resumes its query-owned detail. Its admitted
+        // Back must restore the roster; opening Profile is not a root reset.
+        for _ in 0..<3 {
+            if close.exists && close.isHittable && root("account").exists { break }
+            if nativeAccountBack.exists && nativeAccountBack.isHittable {
+                nativeAccountBack.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    close.exists && close.isHittable && root("account").exists && root("account").isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
+                }
+                continue
+            }
+            guard waitForAdmittedControl(back), let level = publicPaneLevel(), level > 0 else { break }
+            print("PROFILE_RESUMED_PARENT phase=before level=\(level)")
+            back.tap()
+            print("PROFILE_RESUMED_PARENT phase=tapped level=\(level)")
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                if level == 1 { return close.exists && close.isHittable && root("account").exists }
+                return publicPaneLevel() == level - 1 && back.exists && back.isHittable
+            }, object: app)
+            guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
+            }
+            print("PROFILE_RESUMED_PARENT phase=returned level=\(level)")
         }
         let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
         guard menu.waitForExistence(timeout: 10) else {
@@ -3689,22 +4272,40 @@ final class AppUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
         XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
         XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
-        for id in destinations {
+        for id in admittedDestinations {
             let destination = root(id)
             for _ in 0..<5 {
                 if destination.exists && destination.isHittable { break }
                 menu.swipeUp()
             }
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
+            if id == "account", nativeAccountBack.waitForExistence(timeout: 5) {
+                // Account has an owned UIKit destination, not the React
+                // content plane used by the remaining rich detail families.
+                // Require the actual body and return, not a path receipt.
+                let name = app.buttons["native-profile-row-account-name"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(name) else {
+                    XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
+                }
+                XCTAssertTrue(close.exists && close.isHittable)
+                nativeAccountBack.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    close.exists && close.isHittable && destination.exists && destination.isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_PARENT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_DESTINATION family=account warm=true single_host=true")
+                continue
+            }
             if id == "invite" {
-                // Invite now opens the authored Referrals route, not a nested
-                // Profile detail. Its route parent is One; use those real
-                // controls before restoring the originating Chat menu.
+                // Referrals is a standalone destination. The shared origin
+                // owner restores the initiating Profile query; One is only
+                // the direct-entry fallback, not this warm journey's parent.
                 let routeBack = app.buttons["Go back"].firstMatch
-                // Attach-only qualification does not launch -UITestMode and
-                // has no cold-audit native-test-status overlay. Observe the
-                // actual destination and parent, without restarting the app.
+                // Observe the actual destination without changing the session.
                 guard web.staticTexts["Referrals"].firstMatch.waitForExistence(timeout: 15),
                       waitForAdmittedControl(routeBack) else {
                     XCTFail("PROFILE_BATCH_REFERRALS_ROUTE_UNAVAILABLE"); return
@@ -3712,21 +4313,18 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
                 XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
                 routeBack.tap()
-                guard web.links["Open Memory"].firstMatch.waitForExistence(timeout: 15) else {
+                let parent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    close.exists && close.isHittable && destination.exists && destination.isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [parent], timeout: 15) == .completed else {
+                    printCoherentPresentationAdmission(app)
                     XCTFail("PROFILE_BATCH_REFERRALS_PARENT_NOT_RESTORED"); return
                 }
-                perfTapNav(app, label: "Chat")
-                guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else {
-                    XCTFail("PROFILE_BATCH_CHAT_NOT_RESTORED"); return
-                }
-                XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
-                opener.tap()
-                XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
                 XCTAssertFalse(web.buttons["Unlock"].exists)
                 print("PROFILE_NATIVE_DESTINATION family=invite warm=true single_host=true")
                 continue
             }
-            guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+                guard admittedBack() else { printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
             let detailClose = app.buttons["profile-close"].firstMatch
             XCTAssertTrue(waitForAdmittedControl(detailClose), "PROFILE_DETAIL_CLOSE_UNAVAILABLE")
             XCTAssertEqual(detailClose.frame.width, 44, accuracy: 1)
@@ -3738,23 +4336,17 @@ final class AppUITests: XCTestCase {
                 "support": "Help & feedback", "privacy": "Privacy Policy", "terms": "Terms of Use"]
             let containers = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", detailTitles[id] ?? "Profile"))
             _ = containers.firstMatch.waitForExistence(timeout: 5)
-            var frames: [CGRect] = []
-            let detailCenter = CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)
-            for element in containers.allElementsBoundByIndex {
-                guard ![XCUIElement.ElementType.application, .window, .webView].contains(element.elementType) else { continue }
-                // A title, body-only scroll frame or whole viewport cannot pass.
-                let frame: CGRect = element.frame
-                guard frame.width >= 200, frame.height > 100, frame.contains(detailCenter) else { continue }
-                guard web.frame.width < 600 || frame.width < web.frame.width - 1 else { continue }
-                frames.append(frame)
-            }
-            guard let detailFrame = frames.min(by: { $0.width * $0.height < $1.width * $1.height }) else {
-                print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=\(frames.count)")
-                for (index, candidate) in containers.allElementsBoundByIndex.prefix(6).enumerated() {
-                    let frame = candidate.frame
-                    print("PROFILE_DETAIL_PUBLIC_CANDIDATE index=\(index) role=\(candidate.elementType.rawValue) x=\(Int(frame.minX.rounded())) y=\(Int(frame.minY.rounded())) width=\(Int(frame.width.rounded())) height=\(Int(frame.height.rounded()))")
-                }
-                print("PROFILE_DETAIL_PUBLIC_CLOSE x=\(Int(detailClose.frame.minX.rounded())) y=\(Int(detailClose.frame.minY.rounded())) width=\(Int(detailClose.frame.width.rounded())) height=\(Int(detailClose.frame.height.rounded()))")
+            var detailFrame: CGRect?
+            let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard containers.firstMatch.exists, let pane = publicPaneGeometry(), pane.sample > previousPaneSample,
+                      pane.frame.contains(CGPoint(x: detailClose.frame.midX, y: detailClose.frame.midY)),
+                      (web.frame.width < 600 || pane.frame.width < web.frame.width - 1) else { return false }
+                detailFrame = pane.frame
+                return true
+            }, object: app)
+            guard XCTWaiter.wait(for: [fresh], timeout: 10) == .completed, let detailFrame else {
+                print("PROFILE_DETAIL_FRAME_PROBE candidates=\(containers.count) admitted=0")
+                printCoherentPresentationAdmission(app)
                 XCTFail("PROFILE_DETAIL_FRAME_UNAVAILABLE"); return
             }
             print("PROFILE_DETAIL_PUBLIC_FRAME top=\(Int(detailFrame.minY)) bottom=\(Int(detailFrame.maxY)) expected_top=\(Int(app.frame.minY)) expected_bottom=\(Int(app.frame.maxY))")
@@ -3779,10 +4371,34 @@ final class AppUITests: XCTestCase {
                     nested.tap()
                     guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
                     back.tap()
-                    XCTAssertTrue(waitForAdmittedControl(row(title)), "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
+                    let parentRestored = waitForAdmittedControl(row(title))
+                    if !parentRestored {
+                        let kind = title == "Vault methods" ? "vault" : title == "Gemini" ? "gemini" : "voice"
+                        let parent = row(title)
+                        print("PROFILE_NESTED_RETURN kind=\(kind) level=\(publicPaneLevel() ?? -1) row_present=\(parent.exists) row_hittable=\(parent.exists && parent.isHittable)")
+                        printCoherentPresentationAdmission(app)
+                    }
+                    XCTAssertTrue(parentRestored, "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
                 }
             }
-            back.tap()
+            // A returned/direct query entry climbs its authored parents in
+            // place (Terms -> Legal -> Profile, Devices -> Security -> Profile).
+            // Do not mistake a still-visible staging menu for committed root.
+            for _ in 0..<3 {
+                guard let previousLevel = publicPaneLevel(), previousLevel > 0,
+                      waitForAdmittedControl(back) else { XCTFail("PROFILE_BATCH_PARENT_BOUNDARY_UNAVAILABLE"); return }
+                back.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    guard let level = publicPaneLevel(), level < previousLevel else { return false }
+                    return level == 0 ? destination.exists && destination.isHittable && destination.isEnabled :
+                        back.exists && back.isHittable && back.isEnabled
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    printCoherentPresentationAdmission(app); XCTFail("PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED"); return
+                }
+                if publicPaneLevel() == 0 { break }
+            }
+            XCTAssertEqual(publicPaneLevel(), 0, "PROFILE_BATCH_ROOT_NOT_COMMITTED")
             // Back must restore the originating row and menu scroll position,
             // not force Your account into view after a lower Legal destination.
             XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
@@ -3790,23 +4406,39 @@ final class AppUITests: XCTestCase {
             print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
         }
         XCTAssertTrue(waitForAdmittedControl(close))
+        printCoherentPresentationAdmission(app)
         close.tap()
-        XCTAssertTrue(waitForAdmittedControl(editor))
+        guard waitForAdmittedControl(editor) else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("PROFILE_BATCH_CLOSE_DID_NOT_RESTORE_CHAT"); return
+        }
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
-        print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
-        let oneProfile = web.buttons["Open One profile"].firstMatch
-        guard waitForAdmittedControl(oneProfile) else { XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return }
+        print("PROFILE_STACK_CONTINUITY screens=\(admittedDestinations.count) warm=true single_host=true")
+        // WebKit exposes this authored SVG button as an Other AX element on
+        // devices. Match its explicit label within the same WebView, not a
+        // UIKit-only button role or a coordinate fallback.
+        let oneProfiles = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open One profile"))
+        let oneProfile = oneProfiles.firstMatch
+        XCTAssertEqual(oneProfiles.count, 1, "ONE_PROFILE_OPENER_DUPLICATE")
+        guard waitForAdmittedControl(oneProfile) else {
+            let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+            let one = selector.buttons["One, your cloud agent"].firstMatch
+            print("PROFILE_ONE_OPENER exists=\(oneProfile.exists) hittable=\(oneProfile.exists && oneProfile.isHittable) one_selected=\(one.exists && one.isSelected) web=\(web.exists) web_hittable=\(web.exists && web.isHittable)")
+            printCoherentPresentationAdmission(app)
+            XCTFail("ONE_PROFILE_OPENER_UNAVAILABLE"); return
+        }
         oneProfile.tap()
-        let oneClose = app.buttons["native-agent-profile-drawer-close"].firstMatch
+        let oneClose = app.buttons["Close One profile"].firstMatch
         guard waitForAdmittedControl(oneClose) else { XCTFail("ONE_NATIVE_PROFILE_UNAVAILABLE"); return }
-        let oneRow = app.buttons["native-profile-row-one-profile"].firstMatch
-        guard waitForAdmittedControl(oneRow) else { XCTFail("ONE_NATIVE_PROFILE_ROW_UNAVAILABLE"); return }
-        oneRow.tap()
-        let oneBack = app.buttons["Back to One profile"].firstMatch
-        XCTAssertTrue(waitForAdmittedControl(oneBack), "ONE_PROFILE_DETAIL_BACK_UNAVAILABLE")
-        XCTAssertTrue(waitForAdmittedControl(app.buttons["profile-close"].firstMatch))
-        oneBack.tap()
+        let oneTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile")).firstMatch
+        let feedTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Feed")).firstMatch
+        guard waitForAdmittedControl(oneTab), waitForAdmittedControl(feedTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
+        oneTab.tap()
+        let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open memory.md in Memory")).firstMatch
+        XCTAssertTrue(waitForAdmittedControl(memory), "ONE_PROFILE_SHARED_CONTENT_UNAVAILABLE")
+        XCTAssertTrue(waitForAdmittedControl(app.buttons["Back to Chat"].firstMatch))
+        feedTab.tap()
         XCTAssertTrue(waitForAdmittedControl(oneClose))
         oneClose.tap()
         XCTAssertTrue(waitForAdmittedControl(editor))
@@ -4010,10 +4642,39 @@ final class AppUITests: XCTestCase {
         saved.tap()
         XCTAssertTrue(add.exists && sharing.exists, "Memory tabs are incomplete")
 
-        func swipeLeft() {
-            let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.56))
-            let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.56))
+        func swipeLeft() -> Bool {
+            // Start in the authored gap following the active pane's field,
+            // not over an arbitrary viewport fraction that can land on a
+            // saved-memory row or the Add textarea as content changes.
+            let label = add.isSelected ? "Memory note" : "Search Memory"
+            let anchor = webView.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@", label)).firstMatch
+            guard anchor.waitForExistence(timeout: 10) && anchor.isHittable else {
+                XCTFail("MEMORY_SWIPE_ANCHOR_UNAVAILABLE"); return false
+            }
+            // The shared pager deliberately yields to fields and row actions.
+            // Diagnose the actual start point without exposing Memory labels,
+            // values or its accessibility tree. Viewport fractions alone are
+            // not admission evidence for a changing, owner-specific list.
+            let point = CGPoint(x: webView.frame.minX + webView.frame.width * 0.82,
+                                y: anchor.frame.maxY + 8)
+            let guardedTypes: [XCUIElement.ElementType] = [.button, .textField, .secureTextField,
+                .textView, .searchField, .link, .slider, .switch]
+            let blocked = guardedTypes.contains { type in
+                webView.descendants(matching: type).allElementsBoundByIndex.contains { element in
+                    element.exists && element.isHittable && element.frame.contains(point)
+                }
+            }
+            print("MEMORY_SWIPE_ADMISSION guarded_start=\(blocked) saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+            guard webView.frame.contains(point) && !blocked else {
+                XCTFail("MEMORY_SWIPE_START_NOT_ADMITTED"); return false
+            }
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
+            let end = origin.withOffset(CGVector(dx: webView.frame.minX + webView.frame.width * 0.18 - app.frame.minX,
+                                                dy: point.y - app.frame.minY))
             start.press(forDuration: 0.06, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
+            return true
         }
         func waitForSelected(_ tab: XCUIElement) -> Bool {
             let deadline = Date().addingTimeInterval(12)
@@ -4024,10 +4685,12 @@ final class AppUITests: XCTestCase {
             return tab.isSelected
         }
 
-        swipeLeft()
-        XCTAssertTrue(waitForSelected(add), "One Memory swipe must land on Add")
+        guard swipeLeft() else { return }
+        let added = waitForSelected(add)
+        print("MEMORY_SWIPE_SELECTION saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+        XCTAssertTrue(added, "One Memory swipe must land on Add")
         XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
-        swipeLeft()
+        guard swipeLeft() else { return }
         XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
         // Keep the interruption test immediate. Selected state is not proof
         // that the compositor has settled or the original tab is reachable.
@@ -4723,7 +5386,7 @@ final class AppUITests: XCTestCase {
         }
 
         let unlockControls = app.buttons.matching(NSPredicate(
-            format: "label IN %@", ["Unlock", "Unlock with password"]
+            format: "label IN %@", ["Unlock", "Unlock with passphrase", "Unlock with password"]
         ))
         let hosts = app.webViews.matching(identifier: "native-webview")
         guard hosts.count == 1 else {
@@ -4736,8 +5399,8 @@ final class AppUITests: XCTestCase {
         ]
         let authoredField = NSPredicate(
             format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
-            ["Vault password", "Enter vault key", "Enter your password"],
-            ["Enter password", "Enter vault key", "Enter your password"],
+            ["Vault password", "Vault passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
+            ["Enter password", "Enter passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
             ["unlock-passphrase", "vault-key"]
         )
         let hasAuthoredField = {
@@ -4747,7 +5410,7 @@ final class AppUITests: XCTestCase {
         // is chosen. Existing passphrase entry must not trigger another choice.
         if !hasAuthoredField() {
             let methods = hosts.firstMatch.buttons.matching(NSPredicate(
-                format: "label IN %@", ["Password", "Use password instead", "Vault Key"]
+                format: "label IN %@", ["Password", "Use password instead", "Passphrase", "Use passphrase instead", "Vault Key"]
             ))
             guard hosts.count == 1, methods.count == 1, methods.firstMatch.isEnabled,
                   methods.firstMatch.isHittable else {
@@ -4778,6 +5441,7 @@ final class AppUITests: XCTestCase {
         let reviewerLabel = NSPredicate(format: "label == %@", reviewerEmail)
         let privateEntryAdmitted = { (field: XCUIElement) -> Bool in
             let account = owningWebView.staticTexts.matching(reviewerLabel).firstMatch
+            print("VAULT_ENTRY_FENCE owner_present=\(account.exists) owner_hittable=\(account.exists && account.isHittable) single_host=\(hosts.count == 1) field_hittable=\(field.exists && field.isHittable) privacy_cover=\(privacyCover.exists)")
             return !reviewerEmail.isEmpty && hosts.count == 1 &&
                 field.exists && field.isHittable && !privacyCover.exists && account.exists && account.isHittable
         }
@@ -6911,7 +7575,8 @@ final class AppUITests: XCTestCase {
         // UITabBarItem labels are system-owned and need not be bare titles.
         // Prefer the authored item identifier already used for admission;
         // finding an item must not then tap a different DOM/label match.
-        let authoredTab = app.buttons["one-native-tab-\(label.lowercased())"].firstMatch
+        let tabKey = label == "One" ? "dashboard" : label.lowercased()
+        let authoredTab = app.buttons["one-native-tab-\(tabKey)"].firstMatch
         let nativeTab = app.descendants(matching: .any)
             .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
         func admittedNativeTarget() -> XCUIElement? {

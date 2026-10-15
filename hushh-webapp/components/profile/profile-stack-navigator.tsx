@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -48,10 +48,12 @@ export function ProfileStackNavigator({
   rootContent,
   entries,
   resetScroll = true,
+  onActiveEntryChange,
 }: {
   rootContent: ReactNode;
   entries: ProfileStackEntry[];
   resetScroll?: boolean;
+  onActiveEntryChange?: (entry: Pick<ProfileStackEntry, "key" | "title"> | null) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
@@ -84,8 +86,9 @@ export function ProfileStackNavigator({
     }
     const enter = (index: number) => {
       entryFrameRef.current = requestAnimationFrame(() => {
+        if (generationRef.current !== generation) return;
         entryFrameRef.current = null;
-        if (generationRef.current === generation) setActiveIndex(index);
+        setActiveIndex(index);
       });
     };
     if (pruneTimerRef.current !== null) {
@@ -134,6 +137,18 @@ export function ProfileStackNavigator({
     setActiveIndex(nextLength);
   }, [entries, renderedEntries]);
 
+  const activeKey = activeIndex === 0
+    ? "root"
+    : renderedEntries[activeIndex - 1]?.key || "root";
+  const activeEntry = activeIndex > 0 ? renderedEntries[activeIndex - 1] : undefined;
+  const liveActiveEntry = activeEntry ? entries.find(entry => entry.key === activeEntry.key) ?? activeEntry : undefined;
+  const activeTitle = liveActiveEntry?.title;
+  // Displayed metadata follows this committed body, not the requested route.
+  // Route/Back authority still updates immediately in its existing owner.
+  useLayoutEffect(() => {
+    onActiveEntryChange?.(activeKey === "root" ? null : { key: activeKey, title: activeTitle });
+  }, [activeKey, activeTitle, onActiveEntryChange]);
+
   useEffect(() => {
     if (typeof document === "undefined") return;
     // A closing pane can remain in the DOM while a route-level Profile page
@@ -146,10 +161,6 @@ export function ProfileStackNavigator({
     );
     if (!scrollRoot) return;
 
-    const activeKey =
-      activeIndex === 0
-        ? "root"
-        : renderedEntries[activeIndex - 1]?.key || "root";
     const previousKey = previousActiveKeyRef.current;
     if (!resetScroll && previousKey !== activeKey) {
       scrollPositionsRef.current[previousKey] = scrollRoot.scrollTop;
@@ -160,7 +171,10 @@ export function ProfileStackNavigator({
       : scrollPositionsRef.current[activeKey] ?? 0;
     scrollRoot.scrollTo({ top: nextTop, behavior: "auto" });
     previousActiveKeyRef.current = activeKey;
-  }, [activeIndex, renderedEntries, resetScroll]);
+    // Mounting/pruning a retained screen is not a destination change. In the
+    // pre-slide frame the outgoing screen still owns scroll; restoring here
+    // would jump it to zero and overwrite its return position.
+  }, [activeKey, resetScroll]);
 
   const screens = [
     {

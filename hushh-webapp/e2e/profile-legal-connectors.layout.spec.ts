@@ -263,13 +263,13 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     { width: 393, regions: { top: 120, bottom: 280 } },
     { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
     const { width, regions } = options;
-    const rightInset = width < 640 ? 12 : 18;
+    const fullWindow = regions?.fullWindow || !regions && width < 640;
+    const rightInset = fullWindow ? 0 : width < 640 ? 12 : 18;
     await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
-    // The floating Profile pane keeps a 12–18px viewport gutter; it is not
-    // an edge-to-edge drawer. Keep an independent expected inset so removing
-    // the product gutter still fails this assertion.
+    // Phones are edge-to-edge unless a bounded native reservation is active;
+    // desktop and bounded native panes retain their independent outer gutter.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
@@ -308,6 +308,35 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
     expect(Math.abs(legal!.x + legal!.width - root.right)).toBeLessThanOrEqual(0.5);
   }
 });
+
+for (const width of [320, 390, 768, 1440])
+  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mount(page, { width });
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Keep this draft and conversation");
+    const original = await draft.elementHandle();
+    const receipt = page.getByRole("region", { name: "Mail read details" });
+    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
+    // The receipt names the connector and what the person will do there.
+    const button = receipt.getByRole("button", { name: "Review Gmail access" });
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await button.click();
+    await expect(paneTitle(page)).toHaveText("Gmail");
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(button).toBeFocused();
+    await expect(draft).toHaveValue("Keep this draft and conversation");
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
+  });
 
 test("Legal opens in place in the Profile pane and Back returns to Profile", async ({ page }) => {
   const errors = await mount(page, { at: "/one" });

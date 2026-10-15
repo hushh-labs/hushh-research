@@ -22,6 +22,8 @@ enum NativeDrawerLayout {
 final class NativeDrawerModel: ObservableObject {
     @Published private(set) var projection: NativeDrawerProjection
     @Published var interactionEnabled = false
+    // Motion/privacy quarantine affects hit testing, not authored appearance.
+    var controlsEnabled: Bool { projection.enabled }
     @Published var search = ""
     @Published var detailRow: String?
     @Published var detailMode = "actions"
@@ -29,6 +31,30 @@ final class NativeDrawerModel: ObservableObject {
     @Published var choicePending = false
     @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     @Published var panelCornerRadius: CGFloat = 0
+    @Published private(set) var navigationPath: [String] = []
+    @Published private var backPending = false
+    var navigationTransitioning = false
+    var awaitingBackAcknowledgement: Bool { backPending }
+    var allowsPageInteraction: Bool { !backPending && !navigationTransitioning }
+    weak var profileNavigationController: NativeProfileNavigationController?
+    private var navigationPages = [String: NativeProfilePage]()
+    #if DEBUG
+    var profileAccountAppeared = false
+    #endif
+    func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
+    func requestPath(_ path: [String], from state: NativeDrawerProjection) {
+        // UIKit owns presentation/pop motion. The authored React Back owner
+        // commits the route; an arbitrary path cannot dispatch an operation.
+        guard interactionEnabled, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
+              projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
+              projection.profileDestinationId == state.profileDestinationId, path.count + 1 == navigationPath.count,
+              Array(navigationPath.prefix(path.count)) == path else { return }
+        guard choice("back") else { return }
+        backPending = true
+        // The native pop has committed. React still owns the route and
+        // confirms the existing Back event; never replay UIKit's transition.
+        navigationPath = path
+    }
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
@@ -57,9 +83,24 @@ final class NativeDrawerModel: ObservableObject {
             }
         }
     }
-    init(_ projection: NativeDrawerProjection) { self.projection = projection }
-    func update(_ projection: NativeDrawerProjection) {
+    init(_ projection: NativeDrawerProjection) {
         self.projection = projection
+        navigationPath = projection.profileStack?.map(\.id) ?? []
+        projection.profileStack?.forEach { navigationPages[$0.id] = $0 }
+    }
+    func update(_ projection: NativeDrawerProjection) {
+        if projection.profileDestinationId != self.projection.profileDestinationId ||
+            projection.open != self.projection.open || projection.privacyGeneration != self.projection.privacyGeneration || !projection.enabled {
+            backPending = false
+        }
+        self.projection = projection
+        if let pages = projection.profileStack {
+            pages.forEach { navigationPages[$0.id] = $0 }
+            let next = pages.map(\.id)
+            if !backPending, next != navigationPath { navigationPath = next }
+        } else {
+            navigationPath = []; navigationPages.removeAll()
+        }
         if !projection.open || !projection.enabled || detailRow.map({ id in !projection.sections.contains { $0.rows.contains { $0.id == id } } }) == true {
             dismissMenus()
             clearDetails()
@@ -69,8 +110,18 @@ final class NativeDrawerModel: ObservableObject {
     func clearDetails() { detailRow = nil; renameDraft = ""; detailMode = "actions"; pendingSequence = nil; choicePending = false }
     func settle(sequence: Int, success: Bool) {
         guard pendingSequence == sequence else { return }
+        if backPending {
+            pendingSequence = nil
+            if !success { rejectBack() }
+            return
+        }
         pendingSequence = nil; choicePending = false
         if success { clearDetails() }
+    }
+    private func rejectBack() {
+        backPending = false
+        let committed = projection.profileStack?.map(\.id) ?? []
+        if committed != navigationPath { navigationPath = committed }
     }
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
@@ -90,10 +141,161 @@ final class NativeDrawerModel: ObservableObject {
     }
     @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
         guard projection.allows(action: action, row: row, text: text) else { return false }
+        guard action != "row" || allowsPageInteraction else { return false }
+        guard action == "open" || action == "close" || interactionEnabled else { return false }
         guard (action != "row" || !choicePending), choose?(action, row, text) == true else { return false }
         if action == "row" { choicePending = true }
         return true
     }
+}
+
+/// The navigation item belongs to UIKit, not the hosted SwiftUI body's
+/// navigation environment. Both lifetimes are retained through push/pop.
+@MainActor
+private final class NativeProfilePageController: UIViewController {
+    private let bodyHost: UIHostingController<NativeProfilePageBody>
+
+    init(model: NativeDrawerModel, account: Bool, observer: ((String, CGRect, Bool) -> Void)?) {
+        bodyHost = UIHostingController(rootView: NativeProfilePageBody(model: model, account: account, observer: observer))
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("Native Profile pages are programmatic") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        addChild(bodyHost)
+        bodyHost.view.backgroundColor = .clear
+        bodyHost.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bodyHost.view)
+        NSLayoutConstraint.activate([
+            bodyHost.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bodyHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bodyHost.view.topAnchor.constraint(equalTo: view.topAnchor),
+            bodyHost.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        bodyHost.didMove(toParent: self)
+    }
+}
+
+/// UIKit owns the complete push/pop transition. The model projects React's
+/// route and emits the existing Back intent only after a user pop commits.
+/// No asynchronous bridge receipt decides whether UIKit finished animating.
+@MainActor
+final class NativeProfileNavigationController: UINavigationController, UINavigationControllerDelegate {
+    private let model: NativeDrawerModel
+    private let rootPage: NativeProfilePageController
+    private let accountPage: NativeProfilePageController
+    private var transitioning = false
+    private var applyingProjection = false
+    private var retired = false
+    private weak var lastVisiblePage: UIViewController?
+    private var outgoingUserPop: NativeDrawerProjection?
+
+    init(model: NativeDrawerModel, observer: ((String, CGRect, Bool) -> Void)?) {
+        self.model = model
+        rootPage = NativeProfilePageController(model: model, account: false, observer: observer)
+        accountPage = NativeProfilePageController(model: model, account: true, observer: observer)
+        super.init(rootViewController: rootPage)
+        delegate = self
+        model.profileNavigationController = self
+        for page in [rootPage, accountPage] {
+            let close = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in
+                guard let self, !self.retired, self.model.profileNavigationController === self,
+                      self.model.interactionEnabled, self.model.allowsPageInteraction, !self.model.choicePending else { return }
+                self.model.close?()
+            })
+            close.accessibilityLabel = "Close Profile"
+            close.accessibilityIdentifier = "native-profile-drawer-close"
+            page.navigationItem.rightBarButtonItem = close
+        }
+        rootPage.navigationItem.backButtonDisplayMode = .default
+        reconcile()
+    }
+    required init?(coder: NSCoder) { fatalError("Native Profile navigation is programmatic") }
+
+    func reconcile() {
+        guard !retired, model.profileNavigationController === self else { return }
+        rootPage.title = model.projection.title
+        rootPage.navigationItem.backButtonTitle = model.projection.title
+        accountPage.title = model.page("account")?.title
+        navigationBar.tintColor = HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label
+        reconcileInteraction()
+        guard !transitioning else { return } // didShow reconciles the latest projection.
+        let destination: UIViewController = model.navigationPath.isEmpty ? rootPage : accountPage
+        guard topViewController !== destination else { return }
+        applyingProjection = true
+        let animated = viewIfLoaded?.window != nil && model.projection.open && !UIAccessibility.isReduceMotionEnabled
+        setViewControllers(destination === rootPage ? [rootPage] : [rootPage, accountPage], animated: animated)
+    }
+
+    func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
+        guard !retired, model.profileNavigationController === self else { return }
+        outgoingUserPop = !applyingProjection && lastVisiblePage === accountPage && viewController === rootPage ? model.projection : nil
+        transitioning = true
+        model.navigationTransitioning = true
+        reconcileInteraction()
+    }
+    func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
+        guard !retired, model.profileNavigationController === self else { return }
+        let projected = applyingProjection
+        let outgoing = outgoingUserPop
+        outgoingUserPop = nil
+        applyingProjection = false
+        transitioning = false
+        model.navigationTransitioning = false
+        lastVisiblePage = viewController
+        #if DEBUG
+        model.profileAccountAppeared = viewController === accountPage
+        #endif
+        // An interrupted edge swipe returns to Account and emits no Back.
+        // Programmatic projection changes are never echoed as user operations.
+        if !projected, let outgoing, viewController === rootPage,
+           !viewControllers.contains(where: { $0 === accountPage }), !model.navigationPath.isEmpty {
+            model.requestPath([], from: outgoing)
+        }
+        reconcile()
+    }
+    private func reconcileInteraction() {
+        let admitted = model.interactionEnabled && model.allowsPageInteraction
+        navigationBar.isUserInteractionEnabled = admitted && !model.choicePending
+        navigationBar.accessibilityElementsHidden = !admitted || model.choicePending
+        for page in [rootPage, accountPage] {
+            page.viewIfLoaded?.isUserInteractionEnabled = admitted
+            page.viewIfLoaded?.accessibilityElementsHidden = !admitted
+        }
+    }
+    func retire() {
+        guard !retired else { return }
+        retired = true
+        delegate = nil
+        outgoingUserPop = nil
+        if model.profileNavigationController === self {
+            model.profileNavigationController = nil
+            model.navigationTransitioning = false
+        }
+    }
+}
+
+private struct NativeProfilePageBody: View {
+    @ObservedObject var model: NativeDrawerModel
+    let account: Bool
+    var observer: ((String, CGRect, Bool) -> Void)?
+    var body: some View {
+        // Install the actual View, not a helper called on an uninstalled View:
+        // its ScaledMetric and environment properties need SwiftUI ownership.
+        NativeDrawerContent(model: model, profileRowObserver: observer, profilePage: account ? .account : .menu)
+    }
+}
+
+private struct NativeProfileNavigation: UIViewControllerRepresentable {
+    @ObservedObject var model: NativeDrawerModel
+    var observer: ((String, CGRect, Bool) -> Void)?
+    func makeUIViewController(context: Context) -> NativeProfileNavigationController {
+        NativeProfileNavigationController(model: model, observer: observer)
+    }
+    func updateUIViewController(_ controller: NativeProfileNavigationController, context: Context) { controller.reconcile() }
+    static func dismantleUIViewController(_ controller: NativeProfileNavigationController, coordinator: ()) { controller.retire() }
 }
 
 /// Native body, moving header, scrim and motion share one presentation owner.
@@ -110,13 +312,37 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     private var intentPending = false
     private var dragging = false
     private var awaitingReadmission = false
+    private var formCovered = false
     private var intentTimeout: DispatchWorkItem?
     private var retirementCompletions = [() -> Void]()
     private var detached = false
     private var deleteConfirmation: HushhNativeChromePresenter?
     var isolation: ((Bool) -> Void)?
     var invalidateInteractions: (() -> Void)?
+    var requestReadmission: (() -> Void)?
+    #if DEBUG
+    private var observedCloseSequence = 0
+    private var observedCloseStage = "none"
+    func observeClose(sequence: Int, confirmed: Bool? = nil) {
+        if let confirmed {
+            guard sequence == observedCloseSequence else { return }
+            observedCloseStage = confirmed ? "confirmed" : "rejected"
+        } else {
+            observedCloseSequence = sequence
+            observedCloseStage = "emitted"
+        }
+    }
+    var closeDiagnostic: String {
+        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission);drawerProjectedDepth=\(model.projection.profileStack?.count ?? -1);drawerPathDepth=\(model.navigationPath.count);drawerChoicePending=\(model.choicePending);drawerAccountAppeared=\(model.profileAccountAppeared)"
+    }
+    #endif
     var leadingHeaderFrame: (() -> CGRect?)?
+    func setFormCoverage(_ covered: Bool) {
+        guard formCovered != covered else { return }
+        formCovered = covered
+        if covered { invalidateInteractions?() }
+        reconcileIsolation()
+    }
     private var direction: CGFloat { model.projection.family == "history" ? -1 : 1 }
     // Keep the last committed layout's travel while reconstructing a drag
     // during resize. Reading the new viewport against the old frame would
@@ -160,6 +386,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
 
     private var covered: Bool { motion.progress > 0 || animator != nil || intentPending || model.projection.open }
+    var coversUnderlyingPresentation: Bool { !detached && (motion.retired || covered) }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard !motion.retired else { return }
@@ -268,9 +495,12 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pose(current)
     }
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, covered,
+        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.allowsPageInteraction, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
+        // A nested native page owns its system edge-pop. The outer drawer's
+        // drag-to-close must not steal that gesture or dismiss the whole stack.
+        if !model.navigationPath.isEmpty { return false }
         return abs(velocity.x) > abs(velocity.y)
     }
     func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -363,14 +593,14 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         let covered = covered
         scrim.isUserInteractionEnabled = covered
         view.accessibilityViewIsModal = covered
-        host.view.accessibilityElementsHidden = !covered
-        let interactive = covered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
+        host.view.accessibilityElementsHidden = !covered || formCovered
+        let interactive = covered && !formCovered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
         host.view.isUserInteractionEnabled = interactive
         if model.interactionEnabled != interactive { model.interactionEnabled = interactive }
         isolation?(covered)
     }
     func allowsInteraction(_ action: String, row: String?, text: String? = nil) -> Bool {
-        guard !motion.retired, !awaitingReadmission, !dragging, animator == nil,
+        guard !motion.retired, !formCovered, !awaitingReadmission, !dragging, animator == nil,
               model.projection.allows(action: action, row: row, text: text) else { return false }
         return !intentPending || action == "open" || action == "close"
     }
@@ -380,9 +610,11 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             guard let self, !self.motion.retired, self.motion.generation == generation, self.intentPending else { return }
             self.intentPending = false
             self.awaitingReadmission = true
+            self.invalidateInteractions?()
             // If JavaScript is stalled, restore a visible authored surface but
             // never revive its action eligibility or replay the terminal intent.
             self.settle(open: self.model.projection.open, userIntent: false)
+            self.requestReadmission?()
         }
         intentTimeout = deadline
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
@@ -393,11 +625,13 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         retirementCompletions.append(completion)
         guard !motion.retired else { return }
         motion.retire()
+        model.profileNavigationController?.retire()
         intentTimeout?.cancel(); intentTimeout = nil
         animator?.stopAnimation(true); animator = nil
         view.endEditing(true)
         model.choose = nil
         model.close = nil
+        requestReadmission = nil
         model.requestDelete = nil
         model.search = ""; model.clearDetails()
         invalidateInteractions = nil
@@ -417,8 +651,8 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         willMove(toParent: nil)
         view.removeFromSuperview()
         removeFromParent()
-        isolation?(false); isolation = nil
         detached = true
+        isolation?(false); isolation = nil
         let completions = retirementCompletions
         retirementCompletions.removeAll()
         for completion in completions { completion() }
@@ -465,8 +699,12 @@ private struct NativeHistoryLayoutMeasurement: ViewModifier {
 }
 
 struct NativeDrawerContent: View {
+    enum ProfilePage { case menu, account }
     @ObservedObject var model: NativeDrawerModel
     var historyLayoutObserver: ((String, NativeHistoryLayoutPart, CGRect) -> Void)? = nil
+    // Public-fixture-only measurement, never installed by a product host.
+    var profileRowObserver: ((String, CGRect, Bool) -> Void)? = nil
+    var profilePage: ProfilePage? = nil
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
@@ -474,6 +712,21 @@ struct NativeDrawerContent: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var renameFocused: String?
     var body: some View {
+        if let profilePage {
+            profileContent(profilePage == .account ? model.page("account")?.sections ?? [] : model.projection.sections)
+        } else if model.projection.family == "profile", model.projection.profileStack != nil {
+            profileNavigation
+        } else {
+            legacyContent
+        }
+    }
+    private var profileNavigation: some View {
+        NativeProfileNavigation(model: model, observer: profileRowObserver)
+            .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
+            .allowsHitTesting(model.interactionEnabled)
+            .accessibilityHidden(!model.interactionEnabled)
+    }
+    private var legacyContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if model.projection.family == "history" {
@@ -490,7 +743,7 @@ struct NativeDrawerContent: View {
             }.padding(model.projection.family == "history" ? model.headerInsets :
                 EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             if model.projection.family != "history" {
-                profileContent
+                profileContent(model.projection.sections)
             } else {
                 ForEach(model.projection.sections.filter { $0.id == "create" }) { section in
                     ForEach(section.rows) { historyRow($0) }
@@ -519,10 +772,15 @@ struct NativeDrawerContent: View {
                         Divider()
                         ForEach(section.rows) { historyRow($0) }
                     }.padding(.horizontal, 16).padding(.vertical, 8)
+                        // Keep this group's ID on its container, not inherited
+                        // by the authored Connectors/Drive/To-do buttons.
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("native-history-footer")
                 }
             }
-        }.background {
+        }.allowsHitTesting(model.interactionEnabled)
+            .accessibilityHidden(!model.interactionEnabled)
+            .background {
             if model.projection.family == "history" {
                 UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                     bottomTrailingRadius: model.panelCornerRadius, topTrailingRadius: model.panelCornerRadius, style: .continuous)
@@ -556,7 +814,7 @@ struct NativeDrawerContent: View {
                 }.padding(.horizontal, 12)
             }.buttonStyle(.borderless)
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                .disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
+                .disabled(!model.controlsEnabled || model.choicePending || !row.enabled || row.pending == true)
                 .onAppear { renameFocused = row.id }
         } else {
         HStack(spacing: 0) {
@@ -574,7 +832,7 @@ struct NativeDrawerContent: View {
                     if row.pending == true { ProgressView() }
                 }.padding(.leading, 12).padding(.trailing, 4)
                     .frame(minHeight: 44).contentShape(Rectangle())
-            }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
+            }.disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
                 .accessibilityLabel(row.label).accessibilityValue(row.detail ?? "")
                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
@@ -597,10 +855,10 @@ struct NativeDrawerContent: View {
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
     /// scroll/presentation. Dynamic Type may grow rows beyond the 56pt minimum.
-    private var profileContent: some View {
+    private func profileContent(_ sections: [NativeDrawerSection]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                ForEach(model.projection.sections) { section in
+                ForEach(sections) { section in
                     if section.id == "identity-section" {
                         ForEach(section.rows) { row in
                             Button { model.choice("row", row: row.id) } label: {
@@ -619,7 +877,10 @@ struct NativeDrawerContent: View {
                                     }
                                     Spacer(minLength: 0)
                                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(!row.enabled || !model.interactionEnabled || model.choicePending)
+                            }.buttonStyle(.plain)
+                                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+                                .disabled(!row.enabled || !model.controlsEnabled)
+                                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
                     } else {
@@ -633,7 +894,7 @@ struct NativeDrawerContent: View {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
-                                        Divider().padding(.leading, 50).padding(.trailing, 16)
+                                        Divider().padding(.leading, 60).padding(.trailing, 16)
                                     }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -641,15 +902,32 @@ struct NativeDrawerContent: View {
                     }
                 }
             }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
-        }.accessibilityIdentifier("native-profile-menu-scroll")
+        }.background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            // UIKit owns transition gating and restores it in didShow.
+            // Only this published route-acknowledgement state belongs here;
+            // sampling UIKit's transient flag can leave SwiftUI permanently inert.
+            .allowsHitTesting(!model.awaitingBackAcknowledgement)
+            .accessibilityHidden(model.awaitingBackAcknowledgement)
+            .accessibilityIdentifier("native-profile-menu-scroll")
     }
     private func profileInitials(_ name: String) -> String {
         name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
     }
-    private func profileRow(_ row: NativeDrawerRow) -> some View {
-        Button { model.choice("row", row: row.id) } label: {
+    @ViewBuilder private func profileRow(_ row: NativeDrawerRow) -> some View {
+        if row.readOnly == true {
+            profileRowLabel(row).accessibilityElement(children: .combine)
+        } else {
+            Button { model.choice("row", row: row.id) } label: { profileRowLabel(row) }
+                .buttonStyle(.plain)
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+                .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
+                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
+                .accessibilityIdentifier("native-profile-row-\(row.id)")
+        }
+    }
+    private func profileRowLabel(_ row: NativeDrawerRow) -> some View {
             HStack(spacing: 12) {
-                if let artwork = NativeProfileArtwork.resolve(row.id) {
+                if let artwork = NativeProfileArtwork.resolve(row.artworkId ?? row.id) {
                     ZStack {
                         Image(uiImage: artwork.base).resizable()
                             .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
@@ -657,15 +935,21 @@ struct NativeDrawerContent: View {
                             Image(uiImage: accent).resizable()
                                 .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
                         }
-                    }.frame(width: 22, height: 22).accessibilityHidden(true)
+                    }.frame(width: 28, height: 28).frame(width: 32, height: 32).accessibilityHidden(true)
                 } else if let symbol = row.symbol {
                     Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
                         .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
                         .frame(width: 32, height: 28).accessibilityHidden(true)
                 }
-                Text(row.label).font(.system(size: profileRowFont, weight: .medium))
-                    .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.label).font(.system(size: profileRowFont, weight: .medium))
+                        .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail = row.detail {
+                        Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Spacer(minLength: 8)
                 if let trailing = row.trailing {
                     Text(trailing).font(.caption).foregroundStyle(.secondary)
@@ -677,9 +961,7 @@ struct NativeDrawerContent: View {
                         .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
-                .padding(.horizontal, 16).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.interactionEnabled || model.choicePending)
-            .accessibilityIdentifier("native-profile-row-\(row.id)")
+                .padding(.horizontal, 16).padding(.vertical, row.detail == nil ? 0 : 8).contentShape(Rectangle())
     }
     private var searchContent: some View {
         HStack(spacing: 8) {
@@ -692,7 +974,7 @@ struct NativeDrawerContent: View {
                     Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.borderless).accessibilityLabel("Clear chat search")
             }
-        }.padding(.horizontal, 14).frame(minHeight: 44).disabled(!model.interactionEnabled)
+        }.padding(.horizontal, 14).frame(minHeight: 44).disabled(!model.controlsEnabled)
     }
     @ViewBuilder private var searchField: some View {
         if #available(iOS 26.0, *) {
@@ -708,12 +990,43 @@ struct NativeDrawerContent: View {
             }
                 .buttonStyle(.glass).buttonBorderShape(.circle).frame(width: 44, height: 44).accessibilityLabel(label)
                 .accessibilityIdentifier(identifier)
-                .disabled(!model.interactionEnabled)
+                .disabled(!model.controlsEnabled)
         } else {
             Button(action: action) { Image(systemName: symbol) }.frame(width: 44, height: 44)
-                .accessibilityLabel(label).disabled(!model.interactionEnabled)
+                .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// A bridge acknowledgement is not an authored disabled state. Keep the row's
+/// native appearance while refusing repeat pointer and accessibility actions;
+/// NativeDrawerModel and the lease still enforce one-shot operation admission.
+private struct NativeDrawerPendingChoice: ViewModifier {
+    let pending: Bool
+    func body(content: Content) -> some View {
+        content.allowsHitTesting(!pending)
+            .accessibilityRespondsToUserInteraction(!pending)
+    }
+}
+
+private struct NativeProfileRowMeasurement: ViewModifier {
+    let observe: ((String, CGRect, Bool) -> Void)?
+    let row: String
+    @Environment(\.isEnabled) private var enabled
+    @ViewBuilder func body(content: Content) -> some View {
+        if let observe {
+            content.background {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+                        .onAppear { observe(row, frame, enabled) }
+                        .onChange(of: frame) { _, next in observe(row, next, enabled) }
+                        .onChange(of: enabled) { _, next in observe(row, frame, next) }
+                        .onDisappear { observe(row, .zero, false) }
+                }
+            }
+        } else { content }
     }
 }
 
@@ -722,6 +1035,7 @@ struct NativeDrawerContent: View {
 /// completion. Menu actions carry the exact projection, never ambient rows.
 @MainActor final class NativeDrawerMenuControl: UIButton {
     private(set) var menuVisible = false
+    var visibilityChanged: (() -> Void)?
     private var completions = [() -> Void]()
     private var pendingChoice: (() -> Void)?
     func afterDismissal(_ choice: @escaping () -> Void) {
@@ -737,6 +1051,7 @@ struct NativeDrawerContent: View {
         willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         menuVisible = true
+        visibilityChanged?()
     }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
         willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
@@ -747,6 +1062,7 @@ struct NativeDrawerContent: View {
             let retired = completions; completions.removeAll()
             for completion in retired { completion() }
             if retired.isEmpty { choice?() }
+            visibilityChanged?()
         }
         if let animator { animator.addCompletion(finish) } else { finish() }
     }
@@ -772,7 +1088,9 @@ struct NativeDrawerRowMenu: UIViewRepresentable {
     func updateUIView(_ button: NativeDrawerMenuControl, context: Context) {
         button.accessibilityLabel = "Open actions for \(row.label)"
         button.accessibilityIdentifier = "native-\(model.projection.family)-actions-\(row.id)"
-        button.isEnabled = row.enabled && row.pending != true && model.interactionEnabled
+        button.isEnabled = row.enabled && row.pending != true && model.controlsEnabled
+        button.isUserInteractionEnabled = model.interactionEnabled
+        button.accessibilityElementsHidden = !model.interactionEnabled
         if !button.isEnabled { button.dismissOwnedMenu {} }
         let state = model.projection
         var actions = [UIAction]()

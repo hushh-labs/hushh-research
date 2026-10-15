@@ -22,6 +22,17 @@ const active = { shielded: true, generation: 3, cause: "background", appIsActive
 describe("native privacy bridge state validation", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.platform = "ios"; });
 
+  it("does not require native feedback or a secure-context UUID on web", () => {
+    mocks.platform = "web";
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => { throw new Error("UUID unavailable"); });
+    try {
+      expect(() => appHaptic("selection")).not.toThrow();
+      expect(uuid).not.toHaveBeenCalled();
+      expect(mocks.getFeedbackCapabilities).not.toHaveBeenCalled();
+      expect(mocks.interactionFeedback).not.toHaveBeenCalled();
+    } finally { uuid.mockRestore(); }
+  });
+
   it.each([
     {}, { ...active, generation: 0 }, { ...active, cause: "unknown" },
     { ...active, appIsActive: undefined }, { ...active, generation: 1.5 },

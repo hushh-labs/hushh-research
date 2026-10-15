@@ -7,7 +7,6 @@ import {
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { DevicesProfileIcon } from "@/components/icons/agents";
-import { ProfilePaneDevicesIcon } from "@/components/profile/profile-pane-icons";
 import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 
 import {
@@ -222,7 +221,7 @@ export default function TrustedDevicesPage({
                 return (
                   <SettingsRow
                     key={device.device_id}
-                    icon={panePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
+                    icon={DevicesProfileIcon}
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}

@@ -57,7 +57,8 @@ owner approval and complete cleanup composition remain required.
 | Azure | Owner inspection, exact resource/retention approval, fresh JIT callback and journalled teardown compose locally. 358 backend and 92 UI cases pass; removing the completion gate fails its negative control. The explicit checkpoint backend preserves fresh delegated authority; default-observer substitution fails its regression control | Generated UI contracts and typecheck pass. Responsive live review, combined core/hosted validation and disposable dev cleanup remain required; no personal account deletion was attempted |
 
 Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
-are candidate migrations, and962 remains unselected. Provider retention is not
+are candidate migrations; 962 is now selected for governed dev rehearsal,
+with full completion/archive guards. Provider retention is not
 immediate physical erasure. Existing owners keep resources and hosting choices.
 See the [deletion runbook](../operations/account-deletion-rollout.md).
 

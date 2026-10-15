@@ -117,12 +117,10 @@ GLOB_CHARS = set("*?[")
 IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']"""
 )
-CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
-# Explicit TS type declarations are erased; they do not load their provider
-# barrel or its transitive runtime modules into the editor fixture.
-TYPE_ONLY_DECLARATION_RE = re.compile(
-    r"""\b(?:import|export)\s+type\s+[^;]+?\s+from\s*["'][^"']+["']\s*;?"""
+EDITOR_TYPE_DECLARATION_RE = re.compile(
+    r"""\b(?:import\s+type\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)|export\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?))\s+from\s*["'][^"']+["']\s*;?"""
 )
+CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
 
 
 RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json")
@@ -507,8 +505,7 @@ def _editor_lane_closure() -> frozenset[str]:
         if path.suffix in CODE_SUFFIXES:
             text = path.read_text(encoding="utf-8")
             found = [
-                _resolve_import(path, specifier)
-                for specifier in IMPORT_RE.findall(TYPE_ONLY_DECLARATION_RE.sub("", text))
+                _resolve_import(path, specifier) for specifier in _editor_runtime_imports(text)
             ]
             # Read, not imported: a joined path that names a webapp file. The
             # lockfile pins node_modules, and a directory is a base, not a read.
@@ -528,21 +525,33 @@ def _editor_lane_closure() -> frozenset[str]:
     return frozenset(path.relative_to(ROOT.resolve()).as_posix() for path in seen)
 
 
+def _editor_runtime_imports(text: str) -> list[str]:
+    # Vite/Oxc erases explicit type declarations before resolving dependencies.
+    # Keep mixed declarations conservatively, and leave the iOS graph unchanged.
+    return IMPORT_RE.findall(EDITOR_TYPE_DECLARATION_RE.sub("", text))
+
+
+def test_editor_dependency_graph_excludes_only_erased_type_declarations() -> None:
+    imports = _editor_runtime_imports("""
+        import type { Settings } from "./type-only";
+        import type Default from "./default-type";
+        export type { Settings } from "./export-type";
+        export type * from "./export-all-types";
+        import { Settings } from "./runtime";
+        import { type Settings, create } from "./mixed";
+        import "./side-effect";
+        const lazy = import("./dynamic");
+        const legacy = require("./required");
+    """)
+    assert imports == ["./runtime", "./mixed", "./side-effect", "./dynamic", "./required"]
+    # Negative control: the same edge must become required when it is a value.
+    assert _editor_runtime_imports('import { Settings } from "./type-only";') == ["./type-only"]
+
+
 def _editor_uncovered(patterns: list[str]) -> list[str]:
     spec = _Filter(patterns)
     inputs = {*_editor_lane_closure(), *EDITOR_LANE_CONFIG_INPUTS}
     return sorted(path for path in inputs if not spec.match_file(path))
-
-
-def test_editor_runtime_trace_keeps_value_edges_and_erases_explicit_type_barrels():
-    text = """import type { Settings } from './type-barrel';
-        export type { Response } from './response-types';
-        import { runtimeValue } from './runtime-value';
-        const lazy = import('./lazy-runtime');"""
-    assert IMPORT_RE.findall(TYPE_ONLY_DECLARATION_RE.sub("", text)) == [
-        "./runtime-value",
-        "./lazy-runtime",
-    ]
 
 
 def test_editor_filter_schedules_the_macos_lane_for_every_file_it_builds_or_reads() -> None:

@@ -2,10 +2,6 @@
 
 import { PROFILE_MENU_GROUPS } from "./profile-menu-model";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import {
-  ProfilePanePrivacyIcon,
-  ProfilePaneTermsIcon,
-} from "@/components/profile/profile-pane-icons";
 import { LegalReader } from "@/components/legal/legal-reader";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
@@ -25,7 +21,6 @@ type UpdateLegalView = (
  */
 export function ProfileLegalRows({
   onOpen,
-  paneIcons = false,
 }: {
   onOpen: (document: LegalDocumentDetail) => void;
   paneIcons?: boolean;
@@ -33,7 +28,7 @@ export function ProfileLegalRows({
   return (
     <>
       {PROFILE_MENU_GROUPS[1].entries.map(entry => <SettingsRow key={entry.id}
-        icon={paneIcons ? entry.id === "privacy" ? ProfilePanePrivacyIcon : ProfilePaneTermsIcon : entry.icon}
+        icon={entry.icon}
         iconTone="capability" title={entry.label}
         testId={`profile-legal-${entry.id}-row`} chevron onClick={() => onOpen(entry.id)} />)}
     </>

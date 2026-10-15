@@ -84,7 +84,7 @@ import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journ
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
-import { useNativeNavigationInstalled } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigationInstalled, useNativeNavigationScrollFollowing } from "@/lib/capacitor/native-navigation";
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
 import {
   resetKaiBottomChromeVisibility,
@@ -398,11 +398,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();
-  // Native tabs and the web voice slot stay pinned together; no per-frame bridge traffic.
+  const nativeScrollFollowing = useNativeNavigationScrollFollowing();
+  // Only negotiated wrappers project the shared scroll owner into native
+  // presentation. Older wrappers keep the coherent pinned fallback.
   const pinnedBottomChrome =
     isRiaRoute(pathname) ||
     foundationVoiceOnlyChrome ||
-    nativeNavigationInstalled;
+    (nativeNavigationInstalled && !nativeScrollFollowing);
   // Stable identity: AppShellFrame re-renders on every pathname and query
   // change, and a fresh model object each time re-rendered the whole bottom
   // chrome (navbar, agent bar, masks) on every tab switch.
@@ -511,7 +513,8 @@ function AppShellFrame({ children }: ProvidersProps) {
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
-        profilePaneResumeLocation,
+        detail?.destination?.location ?? profilePaneResumeLocation,
+        { returnsToOrigin: detail?.destination?.returnsToOrigin },
       );
       if (detail?.source === "tap") appHaptic("light");
       else if (detail?.source === "native_swipe") appHaptic("selection");

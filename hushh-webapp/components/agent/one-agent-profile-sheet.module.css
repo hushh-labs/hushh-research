@@ -7,6 +7,15 @@
   padding: 0;
   font-family: var(--font-app-body);
 }
+.content,
+.nativeBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .scroll {
   min-height: 0;
   min-width: 0;

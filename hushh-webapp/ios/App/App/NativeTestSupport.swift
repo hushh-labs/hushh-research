@@ -811,7 +811,9 @@ final class NativeVaultLayoutProbe {
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
+                            "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
+                            "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
@@ -899,7 +901,31 @@ final class NativeVaultLayoutProbe {
       const root = document.documentElement;
       const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
       const dockFailure = document.querySelector('[data-native-dock-failure-code]');
+      const scrollRoot = document.querySelector('[data-app-scroll-root="true"]');
+      const progressConsumer = document.querySelector('[data-bottom-chrome-progress-consumer]') || root;
+      // Read only the authored public guard packet. Never include its raw text,
+      // private scene/body, document identity or an arbitrary DOM projection.
+      let profileGuards = {};
+      const profileStatus = document.getElementById('native-control-status-profile-back')?.textContent || '';
+      if (profileStatus.startsWith('NATIVE_SELECTOR_STATUS ') && profileStatus.length <= 1024) {
+        try {
+          const packet = JSON.parse(profileStatus.slice('NATIVE_SELECTOR_STATUS '.length));
+          for (const [key, output] of [['overlayBlocked', 'profileOverlayBlocked'], ['inertBlocked', 'profileInertBlocked'],
+            ['moving', 'profileMoving'], ['suppressed', 'profileSuppressed'], ['voiceBlocked', 'profileVoiceBlocked'], ['documentHidden', 'profileDocumentHidden']]) {
+            if (typeof packet[key] === 'boolean') profileGuards[output] = packet[key];
+          }
+        } catch { /* Malformed public diagnostics grant no authority. */ }
+      }
       const result = {
+        ...profileGuards,
+        bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
+        appScrollTop: scrollRoot?.scrollTop,
+        appScrollRange: scrollRoot ? scrollRoot.scrollHeight - scrollRoot.clientHeight : undefined,
+        appScrollHeight: scrollRoot?.scrollHeight,
+        appScrollClientHeight: scrollRoot?.clientHeight,
+        appScrollRootCount: document.querySelectorAll('[data-app-scroll-root="true"]').length,
+        windowScrollRange: document.scrollingElement ? document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight : undefined,
+        oneRosterPresent: Boolean(document.querySelector('[data-testid="one-agents-section"]')),
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
         cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),

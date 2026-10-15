@@ -858,7 +858,8 @@ test.describe("One compact header: phone regression", () => {
         const longName = await box(page, "agent-name");
         expect(longName.x).toBeGreaterThanOrEqual(0);
         expect(longName.x + longName.width).toBeLessThanOrEqual(width);
-        expect(longName.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
+        expect(longName.y).toBe(name.y);
+        expect(longName.height).toBe(name.height);
       }
     }
   });

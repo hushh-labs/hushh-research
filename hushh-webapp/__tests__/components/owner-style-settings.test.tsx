@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -29,7 +29,7 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
-import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
+import { CommunicationPreferencesSection, useCommunicationPreferencesEditor, type CommunicationSaveOutcome } from "@/components/profile/communication-preferences-section";
 import { parseAgentToolResultExperience } from "@/lib/agent/agui-structured-experiences";
 import {
   OWNER_STYLE_SETTINGS_SOURCE,
@@ -76,6 +76,89 @@ describe("chat offers a style change; it never writes", () => {
 });
 
 describe("Settings commits through the reserved writer", () => {
+  it("revokes a retained Save before a consumer's layout teardown can admit a write", async () => {
+    mocks.getStaleFirst.mockResolvedValue({ data: { communication_preferences: { preferred_name: "Stored" } } });
+    mocks.saveMergedDomain.mockResolvedValue({ success: true, saveState: "saved" });
+    let model!: ReturnType<typeof useCommunicationPreferencesEditor>;
+    let completion: Promise<CommunicationSaveOutcome> | undefined;
+    function Consumer() {
+      const editor = useCommunicationPreferencesEditor({ userId: "owner-1", vaultKey: "k", vaultOwnerToken: "t" });
+      useLayoutEffect(() => { model = editor; });
+      useLayoutEffect(() => () => { completion = model.save(); }, []);
+      return null;
+    }
+    const view = render(<Consumer />);
+    await waitFor(() => expect(model.ready).toBe(true));
+    act(() => model.changeField("preferred_name", "Changed"));
+    view.unmount();
+    expect(await completion).toBe("stale");
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("admits one same-tick Save and never turns a duplicate choice into another encrypted write", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.getStaleFirst.mockResolvedValue({ data: { communication_preferences: { preferred_name: "Stored" } } });
+    mocks.saveMergedDomain.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const { result } = renderHook(() => useCommunicationPreferencesEditor({ userId: "owner-1", vaultKey: "k", vaultOwnerToken: "t" }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.changeField("preferred_name", "Changed"));
+    let pending: Promise<CommunicationSaveOutcome>[] = [];
+    act(() => { const save = result.current.save; pending = [save(), save()]; });
+    expect(await pending[1]).toBe("busy");
+    expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1);
+    await act(async () => { finish({ success: true, saveState: "saved" }); expect(await pending[0]).toBe("saved"); });
+  });
+
+  it("keeps a later chat proposal unsaved instead of replacing it with an older completed save", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.getStaleFirst.mockResolvedValue({ data: { communication_preferences: { preferred_name: "Stored" } } });
+    mocks.saveMergedDomain.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Stored"));
+    fireEvent.change(screen.getByLabelText("Name One calls you"), { target: { value: "Changed" } });
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    await waitFor(() => expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1));
+    act(() => stageOwnerStyleProposal("owner-1", { tone: "formal" }));
+    await act(async () => { finish({ success: true, saveState: "saved" }); });
+    expect(screen.getByRole("combobox", { name: "Tone" })).toHaveTextContent("Formal");
+    expect(screen.getByText("Suggested in chat. Check it, then save.")).toBeTruthy();
+    expect(screen.getByTestId("style-settings-save")).toBeEnabled();
+    expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not admit edits until the owner's stored branch has loaded", async () => {
+    let resolve!: (value: unknown) => void;
+    mocks.getStaleFirst.mockReturnValueOnce(new Promise(value => { resolve = value; }));
+    render(<CommunicationPreferencesSection userId="owner-1" vaultKey="k" vaultOwnerToken="t" onRequestUnlock={() => undefined} />);
+    expect(screen.getByLabelText("Name One calls you")).toBeDisabled();
+    await act(async () => { resolve({ data: { communication_preferences: { preferred_name: "Stored" } } }); });
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Stored"));
+    expect(screen.getByLabelText("Name One calls you")).toBeEnabled();
+  });
+
+  it("conceals the previous owner's draft and ignores its late save after an owner switch", async () => {
+    let resolveSave!: (value: unknown) => void;
+    let resolveNext!: (value: unknown) => void;
+    mocks.getStaleFirst.mockResolvedValueOnce({ data: { communication_preferences: { preferred_name: "Owner A" } } });
+    mocks.getStaleFirst.mockReturnValueOnce(new Promise(value => { resolveNext = value; }));
+    mocks.saveMergedDomain.mockReturnValueOnce(new Promise(value => { resolveSave = value; }));
+    const view = render(<CommunicationPreferencesSection userId="owner-1" vaultKey="key-a" vaultOwnerToken="token-a" onRequestUnlock={() => undefined} />);
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Owner A"));
+    fireEvent.change(screen.getByLabelText("Name One calls you"), { target: { value: "Draft A" } });
+    fireEvent.click(screen.getByTestId("style-settings-save"));
+    await waitFor(() => expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1));
+    mocks.user = { uid: "owner-2" };
+    view.rerender(<CommunicationPreferencesSection userId="owner-2" vaultKey="key-b" vaultOwnerToken="token-b" onRequestUnlock={() => undefined} />);
+    expect(screen.getByLabelText("Name One calls you")).toHaveValue("");
+    expect(screen.getByLabelText("Name One calls you")).toBeDisabled();
+    await act(async () => { resolveNext({ data: { communication_preferences: { preferred_name: "Owner B" } } }); });
+    await waitFor(() => expect(screen.getByLabelText("Name One calls you")).toHaveValue("Owner B"));
+    await act(async () => { resolveSave({ success: true, saveState: "saved" }); });
+    expect(screen.getByLabelText("Name One calls you")).toHaveValue("Owner B");
+    expect(screen.getByTestId("style-settings-save")).toBeDisabled();
+    expect(mocks.saveMergedDomain).toHaveBeenCalledTimes(1);
+  });
+
   it("prefills a chat offer over the stored values and saves only on the owner's Save", async () => {
     const identity = {
       identity_profile: { full_name: "Synthetic Owner" },

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentConnectionsDrawer,
@@ -16,11 +16,10 @@ import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/age
 import { DriveRecentSharing } from "../../components/agent/drive-background-search";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
-import { ConnectorsPanel } from "../../components/agent/connectors-panel";
-import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
+import { HistoryConnectorsPage } from "../../components/agent/history-connectors-page";
+import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
-import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
@@ -205,6 +204,14 @@ function ChatConnectCards() {
 }
 
 function Fixture() {
+  useEffect(() => registerChatConnectorRecoveryHost({
+    prepare: async (request) => {
+      const fixtureWindow = window as RecoveryFixtureWindow;
+      (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
+      return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
+    },
+    clear: async () => undefined,
+  }), []);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -261,7 +268,7 @@ function Fixture() {
           if (trigger) triggerRef.current = trigger;
           changeOpen(!open);
         }} />
-      <button
+      {!new URLSearchParams(window.location.search).has("one-profile") ? <button
         className="h-11 shrink-0"
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
@@ -273,15 +280,14 @@ function Fixture() {
         }}
       >
         Open drawer
-      </button>
-      {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
-        <div data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}><div data-agent-chat-brand-tile>
-          <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
-            aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
-            onClick={() => setOneProfileOpen(true)}>
-            <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-          </ShellActionSurface>
-        </div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div></div>
+      </button> : null}
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div
+        data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}>
+        <div data-agent-chat-brand-tile className="grid h-11 w-11 shrink-0 place-items-center"><button
+        type="button" data-testid="one-presence-header" data-agent-chat-one-profile-trigger aria-label="Open One profile"
+        ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__} onClick={() => setOneProfileOpen(true)}>
+        <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
+      </button></div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div>
       </div> : null}
       </header>
       <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
@@ -307,28 +313,22 @@ function Fixture() {
             hideCloseButton={false}
             mode="mobile"
             className="h-full w-full"
-            onOpenConnectors={() => setMode("connections")}
+            onOpenConnectors={trigger => { triggerRef.current = trigger; setMode("connections"); }}
           />
         }
         connections={
-          <ConnectorsPanel
+          <HistoryConnectorsPage
+            native={false}
+            owner="fixture-owner"
+            context="public-layout"
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
             onClose={() => changeOpen(false)}
             onExternalModalChange={setExternal}
-            onPrepareRecovery={async (request) => {
-              const fixtureWindow = window as RecoveryFixtureWindow;
-              (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
-              return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
-            }}
-            onClearRecovery={async () => undefined}
           />
         }
       />
       <section ref={transcriptRef} inert={open} data-gesture-body className="flex min-h-0 flex-1 touch-pan-y flex-col p-4">
-        <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
-          status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
-          onOpenConnections={(_provider, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <ChatConnectCards />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>

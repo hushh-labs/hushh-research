@@ -75,9 +75,10 @@ The callback cannot approve terms or fall through into setup. Execution records 
 bounded, nonce-hashed authorization outcome before spawning; early failure and
 expiry remain visible without retaining tokens or provider bodies. Inspection
 failures return directly. Settings retains the account until the independent
-finalization transaction passes. The new flow is source-qualified only: 962 stays
-unselected until dev release/acceptance; it requires 963’s complete archive
-projection before destructive admission. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
+finalization transaction passes. The new flow is source-qualified only: 962 is selected in the dev manifest
+for governed rehearsal, together with 963’s complete archive projection.
+Destructive admission remains unavailable until both contracts are installed;
+selection does not establish disposable live acceptance. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
 ## OAuth-project Gmail cleanup
 

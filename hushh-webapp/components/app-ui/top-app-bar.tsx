@@ -42,6 +42,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
+  APP_MEASURE_STYLES,
 } from "@/components/app-ui/app-page-shell";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -1034,16 +1035,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             APP_SHELL_FRAME_CLASSNAME,
             "pointer-events-none relative flex w-full flex-col",
           )}
-          style={{ ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
+          style={topShellBreadcrumb?.width === "profile" ? APP_MEASURE_STYLES.reading : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
         >
           <div
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
-              // Clip only vertically: the max-height collapse needs it, but the
-              // back button sits in a -ml-3.5 box so its glyph lines up with the
-              // content column, which put its pressed/focus circle ~10px past a
-              // horizontal clip edge and sliced it. `clip` (unlike `hidden`)
+              // Clip only vertically for header collapse. `clip` (unlike `hidden`)
               // keeps the other axis visible without becoming a scroll
               // container; where `clip` is unsupported the overflow-hidden
               // class still applies.
@@ -1079,20 +1077,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     width: hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "auto"
                       : "var(--top-bar-side-w)",
-                    // The collapsed gutter otherwise leaves the back button's
-                    // focus ring / ripple flush against top-app-bar-header's
-                    // overflow-hidden edge, clipping it on the left in
-                    // browsers that round the centered 44px hit-box a
-                    // fraction of a pixel tighter than others.
-                    paddingLeft: hasBreadcrumbTrail ? "4px" : undefined,
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    // The arrow's glyph sits on the content column (16 px),
-                    // where the page title and every card below start; the
-                    // 44 px target reaches toward the screen edge. Centred in
-                    // its box it read 30 px in, while the avatar opposite
-                    // sits at 16 (Galaxy S24 Ultra, 2026-09-22).
+                    // Keep the entire target inside the authored reading frame.
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}

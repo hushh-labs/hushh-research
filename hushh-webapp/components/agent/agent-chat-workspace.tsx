@@ -2830,7 +2830,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       profileConnectorsLocation(
         provider === "drive" ? "google_drive" : provider === "gmail" ? "gmail" : null,
       ),
-      { returnsToOrigin: true },
+      { returnsToOrigin: true, returnFocus: trigger },
     );
   }, []);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
@@ -7364,7 +7364,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const runIntroTurn = async (textInput: string, replaceAssistantMessageId?: string) => {
     const chatEpoch = chatSessionRef.current.value;
-    const updateMessage: typeof updateWorkspaceMessage = (...args) => {
+    const updateIntroMessage: typeof updateWorkspaceMessage = (...args) => {
       if (chatSessionRef.current.isCurrent(chatEpoch)) updateWorkspaceMessage(...args);
     };
     const text = textInput.trim();
@@ -7386,7 +7386,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const delta = pendingAssistantDelta;
       pendingAssistantDelta = "";
       if (!delta) return;
-      updateMessage(assistantMessageId, (message) => ({
+      updateIntroMessage(assistantMessageId, (message) => ({
         ...message,
         text: `${message.text}${delta}`,
         status: "streaming",
@@ -7510,7 +7510,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onComplete: () => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (message) => ({
+            updateIntroMessage(assistantMessageId, (message) => ({
               ...message,
               text:
                 message.text ||
@@ -7525,7 +7525,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) =>
+            updateIntroMessage(assistantMessageId, (current) =>
               settleAssistantMessageError(current, message),
             );
             setIsChatLoading(false);
@@ -7538,7 +7538,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelAssistantFlush();
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
       if (streamAbortController.signal.aborted) {
-        updateMessage(assistantMessageId, (message) => ({
+        updateIntroMessage(assistantMessageId, (message) => ({
           ...message,
           text: message.text || "Agent turn canceled.",
           status: "done",
@@ -7548,7 +7548,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           error instanceof Error && error.message
             ? error.message
             : "Agent chat request failed.";
-        updateMessage(assistantMessageId, (current) =>
+        updateIntroMessage(assistantMessageId, (current) =>
           settleAssistantMessageError(current, message, error),
         );
       }
@@ -8934,6 +8934,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (retired) setWalletWidgets([]);
       return retired;
     };
+
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -9547,18 +9548,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  <ShellActionSurface
-                    variant="icon"
+                  <button
+                    type="button"
                     data-agent-chat-one-profile-trigger
                     aria-label="Open One profile"
                     aria-haspopup="dialog"
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-11 !rounded-none !border-0 !bg-transparent !shadow-none hover:!bg-transparent focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
+                    className="inline-flex size-11 shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none"
                   >
                     <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-                  </ShellActionSurface>
+                  </button>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about

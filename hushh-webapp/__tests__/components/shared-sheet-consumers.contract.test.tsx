@@ -52,7 +52,6 @@ const SHEET_CONSUMERS = [
   "components/profile/profile-avatar-editor.tsx",
   "components/app-ui/settings-ui.tsx",
   "components/agent/puppy-resource-monitor.tsx",
-  "components/agent/agent-connections-drawer.tsx",
 ] as const;
 
 describe("the shared bottom sheet stays shared", () => {
@@ -84,7 +83,6 @@ describe("the shared bottom sheet stays shared", () => {
     expect(optOuts).toEqual([
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
-      "components/agent/agent-connections-drawer.tsx",
     ]);
   });
 

@@ -136,7 +136,13 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
             HushhSessionPrivacyShield.shared.reassertCover()
             if closing { dismissOwned() }
         }
-        controller.presentationController?.delegate = self
+        // UIAlertController owns its presentation delegate. Replacing it
+        // triggers a UIKit assertion when History opens Delete confirmation.
+        // Its authored actions and dismiss completion already retire ownership;
+        // custom sheets still need the adaptive dismissal callback.
+        if !(controller is UIAlertController) {
+            controller.presentationController?.delegate = self
+        }
     }
 
     func choose(_ value: String?) {

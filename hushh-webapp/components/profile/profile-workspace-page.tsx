@@ -37,46 +37,15 @@ import {
   VoiceRowIcon,
   WalletAgentIcon,
 } from "@/components/icons/agents";
-import {
-  ProfilePaneAccountIcon,
-  ProfilePaneWalletIcon,
-  ProfilePaneAppearanceIcon,
-  ProfilePaneDevicesIcon,
-  ProfilePaneConnectorsIcon,
-  ProfilePaneInviteIcon,
-  ProfilePaneHelpIcon,
-  ProfilePaneSecurityIcon,
-  ProfilePaneSignOutIcon,
-} from "@/components/profile/profile-pane-icons";
-import {
-  ProfileInnerPeopleIcon,
-  ProfileInnerReviewIcon,
-} from "@/components/profile/profile-inner-icons";
-import {
-  ProfileSecondaryInboxIcon,
-  ProfileSecondaryLocationIcon,
-  ProfileSecondaryRefreshIcon,
-  ProfileSecondaryVisibilityIcon,
-} from "@/components/profile/profile-secondary-icons";
-import {
-  ProfileAccountDeleteIcon,
-  ProfileAccountMailIcon,
-  ProfileAccountNameIcon,
-  ProfileAccountPhoneIcon,
-  ProfileAccountProviderIcon,
-  ProfileAccountResetIcon,
-  ProfileAccountWalletIcon,
-} from "@/components/profile/profile-your-account-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
 import { ProfileAccountBankIcon } from "./profile-your-account-icons";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
-
-import { NativeProfileMenu } from "./native-profile-menu";
+import { NativeProfilePresentation } from "./native-profile-menu";
+import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
-import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
@@ -210,6 +179,7 @@ import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
+import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -588,6 +558,8 @@ function ProfilePageContent({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
+  const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -743,11 +715,21 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  useEffect(() => {
+    if (activePanel !== "account" || activeDetail) {
+      setNativeAccountException(null); setEditingDisplayName(false);
+    }
+  }, [activePanel, activeDetail, user?.uid]);
+  useEffect(() => {
+    if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
+  }, [editingDisplayName, nativeAccountException]);
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
-  const [nativeDetailReady, setNativeDetailReady] = useState<string | null>(null);
-  useLayoutEffect(() => {
-    if (!nativeMenuOpen || !activePanel) setNativeDetailReady(null);
-  }, [nativeMenuOpen, activePanel, user?.uid]);
+  const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
+  const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
+    const title = typeof entry?.title === "string" ? entry.title : "Profile";
+    setNativeActiveHeading(previous => previous?.owner === nativeDetailOwner && previous.title === title
+      ? previous : { owner: nativeDetailOwner, title });
+  }, [nativeDetailOwner]);
   const preferenceChrome = {
     owner: user?.uid ?? null,
     context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
@@ -3446,11 +3428,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryLocationIcon
-              : LocationAgentIcon
-          }
+          icon={LocationAgentIcon}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3460,7 +3438,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileInnerReviewIcon : ConsentAgentIcon}
+          icon={ConsentAgentIcon}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3470,9 +3448,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon
-          }
+          icon={DiscoverableRowIcon}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3490,11 +3466,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfileSecondaryVisibilityIcon
-              : MarketplaceAgentIcon
-          }
+          icon={MarketplaceAgentIcon}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3530,12 +3502,11 @@ function ProfilePageContent({
         isPanePresentation && accountStyles.paneAccountContent,
       )}
     >
-      {presentation === "native-page" ? <ProfileAvatarEditor /> : null}
+      {presentation === "native-page" ? <ProfileAvatarEditor openOnMount={nativeAccountException === "photo"}
+        onPresentationClose={() => setNativeAccountException(null)} /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={
-            isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon
-          }
+          icon={AccountProfileIcon}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3554,21 +3525,21 @@ function ProfilePageContent({
             )}
             data-testid="profile-account-display-name-editor"
           >
-            <DisplayNameEditor
+            {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
-            />
+            />}
           </div>
         ) : null}
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountPhoneIcon : PhoneRowIcon}
+          icon={PhoneRowIcon}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
@@ -3583,23 +3554,18 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountProviderIcon : undefined}
           iconTone="capability"
           leading={
-            isPanePresentation ? undefined : (
               <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
                 <ProviderIcon providerId={provider.id} email={user.email} />
               </span>
-            )
           }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={
-              isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon
-            }
+            icon={WalletAgentIcon}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3618,7 +3584,7 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountResetIcon : ResetRowIcon}
+          icon={ResetRowIcon}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3627,7 +3593,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountDeleteIcon : DeleteRowIcon}
+          icon={DeleteRowIcon}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3688,6 +3654,7 @@ function ProfilePageContent({
       </>
       )}
       <CommunicationPreferencesSection
+        nativeScene={presentation === "native-page"}
         userId={user?.uid ?? null}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
@@ -3700,11 +3667,7 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={
-            isPanePresentation
-              ? ProfilePaneSecurityIcon
-              : FingerprintProfileIcon
-          }
+          icon={FingerprintProfileIcon}
           iconTone="capability"
           title="Vault methods"
           description="Password, passkey, and unlock method."
@@ -3898,7 +3861,7 @@ function ProfilePageContent({
     >
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -3913,7 +3876,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -3954,7 +3917,7 @@ function ProfilePageContent({
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+            icon={VaultRowIcon}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -3974,9 +3937,7 @@ function ProfilePageContent({
           <>
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={
-                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
-                }
+                icon={VaultRowIcon}
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or password."
@@ -4012,7 +3973,7 @@ function ProfilePageContent({
     >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
+          icon={GmailAgentIcon}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -4020,7 +3981,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryInboxIcon : InboxRowIcon}
+          icon={InboxRowIcon}
           iconTone="capability"
           title="Inbox"
           description={
@@ -4032,7 +3993,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryRefreshIcon : SyncRowIcon}
+          icon={SyncRowIcon}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4466,9 +4427,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={
-                isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon
-              }
+              icon={SignOutProfileIcon}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4525,13 +4484,6 @@ function ProfilePageContent({
   }
 
   const menuGroups = profileMenuGroups(canShowPkmAgentLab);
-  const paneMenuIcons = {
-    account: ProfilePaneAccountIcon, "my-data": ProfilePaneWalletIcon,
-    preferences: ProfilePaneAppearanceIcon, security: ProfilePaneSecurityIcon,
-    devices: ProfilePaneDevicesIcon, connectors: ProfilePaneConnectorsIcon,
-    invite: ProfilePaneInviteIcon, support: ProfilePaneHelpIcon,
-    "sign-out": ProfilePaneSignOutIcon,
-  };
   const menuActions: ProfileMenuActions = {
     hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
     "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),
@@ -4587,7 +4539,7 @@ function ProfilePageContent({
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
-                icon={isPanePresentation && entry.id in paneMenuIcons ? paneMenuIcons[entry.id as keyof typeof paneMenuIcons] : entry.icon} iconTone="capability" title={entry.label} chevron
+                icon={entry.icon} iconTone="capability" title={entry.label} chevron
                 tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}
                 trailing={"localOnly" in entry ? <Badge variant="secondary">Local</Badge> : undefined}
                 testId={entry.id === "privacy" || entry.id === "terms" ? `profile-legal-${entry.id}-row` : undefined}
@@ -4636,6 +4588,7 @@ function ProfilePageContent({
           rootContent={profileRootContent}
           entries={profileStackEntries}
           resetScroll={!isPanePresentation}
+          onActiveEntryChange={presentation === "native-page" ? updateNativeActiveHeading : undefined}
         />
       </SettingsPresentationProvider>
 
@@ -4914,17 +4867,48 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
-  return <>
-    <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
-      surfaceOpen={nativeMenuOpen}
-      name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
-      groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage pane open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
-      owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
-      onReady={() => setNativeDetailReady(nativeDetailOwner)}
-      onClose={() => onNativeMenuClose?.()}
-      onBack={popProfileStack}>{page}</NativeFeaturePage>
-  </>;
+  const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
+    { id: "account-identity", title: "Identity", rows: [
+      { id: "account-photo", label: "Profile photo", enabled: true, artworkId: "account", chevron: true },
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account", trailing: "Edit" },
+      { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: true, artworkId: "account-phone", trailing: phoneNumber ? "Change" : "Add", chevron: true },
+      { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
+      ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
+        detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
+    ] },
+    { id: "account-payments", title: "Payments", rows: [
+      { id: "account-payments-open", label: "Payments and earnings", enabled: true, artworkId: "account-wallet", chevron: true },
+    ] },
+    { id: "account-operations", title: "Account actions", rows: [
+      { id: "account-reset", label: "Reset account", detail: resetRowDescription, enabled: !isResetting, artworkId: "account-reset", chevron: true },
+      { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
+    ] },
+  ] };
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    account={{ active: activePanel === "account" && !activeDetail && !nativeAccountException &&
+      !showDeleteConfirm && !showResetConfirm && !showVaultUnlock,
+      page: nativeAccountPage, rows: new Map([
+        ["account-photo", () => setNativeAccountException("photo")],
+        ["account-name", () => setEditingDisplayName(true)],
+        ["account-phone", () => updateProfileView({ panel: "account", detail: "phone" }, "push")],
+        ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["account-payments-open", () => openVaultBackedPanel("payouts")],
+        ["account-reset", () => { void handleResetClick(); }],
+        ["account-delete", () => { void handleDeleteClick(); }],
+      ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
+        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+          onWebFallback={() => setNativeAccountException("name")}
+          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
+    menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+      name: user.displayName || "Your account", email: user.email, onClose: () => onNativeMenuClose?.(),
+      groups: menuGroups, actions: menuActions }}
+    page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
+      title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
+      owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
+      onClose: () => onNativeMenuClose?.(), onBack: () => popProfilePaneLocation(pathname, searchParams) }}>
+    {page}
+  </NativeProfilePresentation>;
 }
 
 export function ProfilePage({

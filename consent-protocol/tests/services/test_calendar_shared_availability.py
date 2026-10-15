@@ -8,7 +8,6 @@ import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -69,10 +68,6 @@ class Grant:
 
 @pytest.fixture
 def journey(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
-        AsyncMock(return_value="shared"),
-    )
     grant = Grant()
     inventory = copy.deepcopy(HOLIDAY["inventory"])
     state = {"error": None, "new_conflict": False, "requests": [], "mutations": []}

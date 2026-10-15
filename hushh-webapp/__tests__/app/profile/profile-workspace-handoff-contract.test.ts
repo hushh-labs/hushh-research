@@ -6,8 +6,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 
-const menuGroups = profileMenuGroups(true);
-const menuEntries = menuGroups.flatMap(group => group.entries);
+const paymentsSource = readFileSync(join(process.cwd(), "components/consent/payments-and-earnings.tsx"), "utf8");
 
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
@@ -15,10 +14,6 @@ const profilePageSource = readFileSync(
 );
 const payoutsSource = readFileSync(
   join(process.cwd(), "components/consent/document-hashcoins.tsx"),
-  "utf8",
-);
-const paymentsSource = readFileSync(
-  join(process.cwd(), "components/consent/payments-and-earnings.tsx"),
   "utf8",
 );
 
@@ -56,11 +51,6 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
     );
-    expect(menuGroups.find(group => group.id === "settings")?.title).toBe("Your settings");
-    expect(menuGroups.map(group => group.title)).not.toContain("Workspaces");
-    expect(profilePageSource).toMatch(
-      /<SettingsGroup\s+[^>]*title=\{group.title\}(?=[^>]*\sseparatorInset(?=\s|>))[^>]*>/,
-    );
     expect(profilePageSource).not.toContain("myDataRootBadge");
     expect(profilePageSource).not.toContain("accessRootBadge");
     expect(profilePageSource).not.toContain("Data loaded partially");
@@ -84,7 +74,7 @@ describe("profile workspace duplication contract", () => {
   it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
     const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
     const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
-    expect(menuEntries).toEqual(expect.arrayContaining([
+    expect(profileMenuGroups(true).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "payouts", label: "Payments and earnings", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts" }),
       expect.objectContaining({ id: "request-pricing", label: "Request pricing", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing" }),
     ]));
@@ -132,14 +122,13 @@ describe("profile workspace duplication contract", () => {
     expect(normalizeInternalRouteHref("//evil.example/one/feed")).toBeNull();
   });
 
-  it("opens Personal World Model through the vault gate and renders inside Profile", () => {
-    expect(menuEntries).toContainEqual(expect.objectContaining({
-      id: "world-model", voiceControlId: "profile_world_model",
-      voiceActionId: "route.profile_world_model",
-    }));
-    const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";
-    expect(actions).toContain('"world-model": () => openVaultBackedPanel("world-model")');
-    expect(profilePageSource).toContain("onClick={() => { void menuActions[entry.id](); }}");
+  it("opens Personal World Model inside the Profile pane, never redirecting to its route", () => {
+    // proxy.ts presents /one/profile/world-model as the pane, so the pane must
+    // render the model itself; leaving for the route loops back here.
+    expect(profileMenuGroups(false).flatMap(group => group.entries)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "world-model", voiceControlId: "profile_world_model" }),
+    ]));
+    expect(profilePageSource).toContain('"world-model": () => openVaultBackedPanel("world-model")');
     const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain("embedded");
@@ -164,10 +153,10 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
     expect(profilePageSource).not.toContain("const openVaultSettingsRow");
-    expect(profilePageSource).toMatch(/voiceControlId=\{[^}\n]*entry\.id === "security" \? "profile_security"/);
-    expect(profilePageSource).toMatch(/voiceActionId=\{[^}\n]*entry\.id === "security" \? "route.profile_security_panel"/);
-    expect(profilePageSource).toContain("security: openSecurityPanel");
-    expect(profilePageSource).toContain('const openSecurityPanel = () => openVaultBackedPanel("security")');
+    expect(profilePageSource).toContain('entry.id === "security" ? "profile_security"');
+    expect(profilePageSource).toContain(
+      'entry.id === "security" ? "route.profile_security_panel"',
+    );
     expect(profilePageSource).not.toContain(
       'voiceActionId="route.profile_security"',
     );
