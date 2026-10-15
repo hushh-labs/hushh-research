@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 348,
+  "expected_migration_version": 349,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1871,7 +1871,8 @@
       "user_id",
       "activity_date",
       "timezone",
-      "recorded_at"
+      "recorded_at",
+      "dashboard_visited_at"
     ],
     "one_referral_events": [
       "scored_at"
@@ -1906,7 +1907,10 @@
     "one_referral_streak_state": [
       "last_activity_date",
       "current_streak",
-      "longest_streak"
+      "longest_streak",
+      "dashboard_last_activity_date",
+      "dashboard_current_streak",
+      "dashboard_longest_streak"
     ],
     "pkm_answer_deliveries": [
       "request_id",

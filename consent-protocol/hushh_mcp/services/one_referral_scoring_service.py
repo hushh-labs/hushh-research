@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
+from hushh_mcp.operons.referral.joined import JOINED_REFERRAL_PREDICATE
 from hushh_mcp.operons.referral_scoring.points import (
     points_for_qualification,
 )
@@ -392,8 +393,21 @@ class LeaderboardPublishResult:
     generated_at: datetime
 
 
+_LEADERBOARD_COHORT_SQL = f"""
+            SELECT p.user_id,COALESCE(s.total,0) AS total,s.earliest
+            FROM actor_profiles p
+            LEFT JOIN (
+              SELECT user_id,SUM(points) AS total,MIN(created_at) FILTER(WHERE points>0) AS earliest
+              FROM one_referral_score_events WHERE id<=:watermark GROUP BY user_id
+            ) s ON s.user_id=p.user_id
+            WHERE s.total>0 OR EXISTS(SELECT 1 FROM one_referral_relationships r
+              WHERE r.referrer_user_id=p.user_id AND {JOINED_REFERRAL_PREDICATE})
+"""
+
+
 def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublishResult:
     """Publish all coin ranks in one SQL write, retaining pinned pages for a day."""
+    settings = get_active_program_settings()
     with get_db_connection() as connection:
         connection.execute(text("SET LOCAL statement_timeout='10s'"))
         connection.execute(text("SELECT pg_advisory_xact_lock(332,2)"))
@@ -402,19 +416,28 @@ def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublish
         ).scalar()
         latest = connection.execute(
             text("""
-          SELECT snapshot_id,generated_at,entry_count,source_event_id
+          SELECT snapshot_id,generated_at,entry_count,source_event_id,settings_version
             FROM one_referral_leaderboard_snapshots ORDER BY generated_at DESC LIMIT 1
         """)
         ).fetchone()
         if (
             latest
-            and latest.source_event_id >= watermark
+            and latest.source_event_id == watermark
             and (_now() - latest.generated_at).total_seconds() < 60
+            and latest.settings_version == settings.version
+            and not connection.execute(
+                text(f"""WITH cohort AS ({_LEADERBOARD_COHORT_SQL}), ranked AS (
+                  SELECT user_id,total,ROW_NUMBER() OVER(ORDER BY total DESC,earliest,user_id) AS rank FROM cohort
+                ), saved AS (
+                  SELECT user_id,cumulative_points AS total,rank FROM one_referral_leaderboard_snapshot_entries WHERE snapshot_id=:sid
+                ) SELECT EXISTS(SELECT * FROM ranked EXCEPT SELECT * FROM saved)
+                      OR EXISTS(SELECT * FROM saved EXCEPT SELECT * FROM ranked)"""),
+                {"sid": latest.snapshot_id, "watermark": watermark},
+            ).scalar()
         ):
             return LeaderboardPublishResult(
                 str(latest.snapshot_id), latest.entry_count, latest.generated_at
             )
-        settings = get_active_program_settings()
         snapshot = connection.execute(
             text("""
           INSERT INTO one_referral_leaderboard_snapshots(settings_version,entry_count,source_event_id)
@@ -423,12 +446,10 @@ def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublish
             {"version": settings.version, "watermark": watermark},
         ).fetchone()
         inserted = connection.execute(
-            text("""
+            text(f"""
           INSERT INTO one_referral_leaderboard_snapshot_entries(snapshot_id,user_id,cumulative_points,rank)
           SELECT :sid,user_id,total,ROW_NUMBER() OVER(ORDER BY total DESC,earliest,user_id)
-          FROM (SELECT user_id,SUM(coins) AS total,MIN(created_at) FILTER(WHERE coins>0) AS earliest
-                  FROM one_referral_score_events WHERE id<=:watermark
-                 GROUP BY user_id HAVING SUM(coins)>0) ranked
+          FROM ({_LEADERBOARD_COHORT_SQL}) ranked
         """),
             {"sid": snapshot.snapshot_id, "watermark": watermark},
         )

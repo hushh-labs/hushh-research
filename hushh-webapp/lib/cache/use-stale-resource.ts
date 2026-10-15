@@ -24,6 +24,8 @@ type UseStaleResourceOptions<T> = {
   requestScope?: string;
   /** Keep the last safe in-memory value visible while a mutation refreshes it. */
   retainOnInvalidate?: boolean;
+  /** Opt-in memory publication after lifecycle fencing. */
+  cacheTtlMs?: number;
 };
 
 type UseStaleResourceResult<T> = {
@@ -45,8 +47,11 @@ export function useStaleResource<T>({
   refreshKey = "",
   requestScope = "",
   retainOnInvalidate = false,
+  cacheTtlMs,
 }: UseStaleResourceOptions<T>): UseStaleResourceResult<T> {
   const cache = useMemo(() => CacheService.getInstance(), []);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const requestKey = JSON.stringify([cacheKey, requestScope]);
   const loadRef = useRef(load);
   const label = resourceLabel ? `${resourceLabel}:hook` : cacheKey;
@@ -169,7 +174,7 @@ export function useStaleResource<T>({
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
       const isCurrentResource = () =>
-        activeResourceRef.current.cacheKey === cacheKey &&
+        mountedRef.current && activeResourceRef.current.cacheKey === cacheKey &&
         activeResourceRef.current.enabled === enabled &&
         activeResourceRef.current.generation === resourceGeneration;
       if (!enabled || !isCurrentResource()) return null;
@@ -266,6 +271,7 @@ export function useStaleResource<T>({
         if (!isCurrentResource()) {
           return null;
         }
+        if (cacheTtlMs !== undefined) cache.set(cacheKey, next, cacheTtlMs);
         const nextSnapshot = cache.peek<T>(cacheKey);
         dataRef.current = nextSnapshot?.data ?? next;
         setSnapshot(nextSnapshot);
@@ -297,7 +303,7 @@ export function useStaleResource<T>({
         }
       }
     },
-    [cache, cacheKey, enabled, label, resourceGeneration, requestKey],
+    [cache, cacheKey, enabled, label, resourceGeneration, requestKey, cacheTtlMs],
   );
 
   // Keep the latest refresh in a ref so the auto-load effect below can run it

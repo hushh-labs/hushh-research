@@ -113,12 +113,12 @@ def finalize_reward_round(cutoff_at: datetime, program_timezone: str) -> Finaliz
         ranked = connection.execute(
             text(
                 """
-                SELECT user_id, SUM(coins) AS total
+                SELECT user_id, SUM(points) AS total
                   FROM one_referral_score_events
                  WHERE created_at < :cutoff_at
                  GROUP BY user_id
-                HAVING SUM(coins) > 0
-                 ORDER BY total DESC, MIN(created_at) FILTER (WHERE coins>0), user_id ASC
+                HAVING SUM(points) > 0
+                 ORDER BY total DESC, MIN(created_at) FILTER (WHERE points>0), user_id ASC
                  LIMIT :limit
                 """
             ),

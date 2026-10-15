@@ -1,151 +1,199 @@
-# Referral backend audit and implementation
+# Referral dashboard contract and audit
 
-Scope: `ui/referral-dashboard-polish`, FastAPI + PostgreSQL (Cloud SQL), Firebase identity, Next.js/Capacitor service transport. Existing unrelated generated-contract edits are preserved.
+This is the implementation contract for `ui/referral-dashboard-polish`. Source verification does not establish the authenticated account's records, deployed revision, applied shared migrations, or prize delivery.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-    invite[Invitation] --> account[New eligible account]
-    account --> usage[Verified phone and setup plus completed private-agent reply]
-    usage --> qualified[Qualified relationship]
-    qualified --> ledger[Points and coins ledger]
-    qualified --> circle[Inherited referral circle]
-    ledger --> rank[Published individual rank]
-    qualified --> milestone[Earned milestone]
-    milestone --> claim[Owner claim and fulfillment review]
-    attendance[Daily app attendance] --> ledger
+  link[Link opening] --> bind[Authenticated signup and bound attribution]
+  bind --> joined[Distinct joined referral]
+  joined --> progress[Lifetime milestone progress]
+  bind --> qualify[Existing qualification and anti-abuse checks]
+  qualify --> ledger[Configured immutable award ledger]
+  qualify --> entitlement[Recorded entitlement]
+  entitlement --> claim[Owner claim and fulfillment review]
+  ledger --> coins[Lifetime Coins and individual standings]
+  visit[Visible dashboard POST] --> attendance[Kolkata calendar attendance]
 ```
 
-| Feature | Frontend / API | Persistence / owner | Original gap | Implemented behavior |
-| --- | --- | --- | --- | --- |
-| Invitation | referral-service, `/resolve`, `/bind` | referral codes, attributions, relationships / one_referral_service | Binding race; pending attribution discarded on network errors | Atomic, immutable binding; retries retain the opaque attribution; one joined account increments total once |
-| Recent referrals | dashboard and profile panel, `/summary` | relationships, actor identity cache | Generic member label; no pagination or registered total | Real privacy-safe names, date, status and activity step; server counts and pagination |
-| Qualification | setup and identity hooks | vault setup, verified phone, referral policy, usage events | Setup alone qualified; engagement tables have no writer | Completed private-agent reply after setup/attribution, identity eligibility, one settlement |
-| Balances / history | `/points`, `/transactions` | score_events / activity and scoring services | One balance labeled both points and coins; no transaction history | Separate persisted balances, source events, idempotency, owner-only history and reversible ledger entries |
-| Daily streak | `/app-open`, `/engagement` | attendance days, streak_state / activity service | Referral qualification dates were used as daily app activity | Atomic calendar-day attendance, current/longest streak, missed-day reset, configured bonus |
-| Individual rank | `/leaderboard` | snapshot headers/entries / scoring service | No publisher caller; capped at 500; unstable ties and misleading freshness | Bulk publication over all eligible owners, coin ranking, stable ties, viewer rank, pinned-snapshot pagination |
-| Circles | `/circle`, `/circles/leaderboard` | referral-network circles/members / network service | Location teams do not represent inherited referral genealogy | Recursive parent inheritance, cycle protection, valid members and qualified descendants, independent rank |
-| Challenge | `/challenge` | settings, reward rounds / challenge service | Computed window only; no persisted status or server clock | Persisted start/end/timezone/status, server-relative countdown, expiry checked on reads and settlement |
-| Rewards | `/milestones`, `/rewards/claim` | milestone entitlements, fulfillment records / rewards service | UI inferred earned state; no owner claim flow | Persisted earned/claimed/fulfillment states, once-only owner claims, backend next milestone and dynamic catalogue |
-| Scheduled work | OIDC scoring drain | scoring jobs / maintenance service | Backoff ignored; retry overflow; stale leases not fenced | Due-time backoff, bounded retry, lease fencing, fair usage recovery, expiry, publication and ended-round handling |
-| Live refresh | `/stream`, web/native referral stream | PostgreSQL notification doorbells / referral listener | Devices shared a queue; in-flight refresh could lose updates | Per-device queues, owner-scoped events, dataless snapshot broadcast and queued frontend revalidation |
+## Current definitions
 
-## Authoritative policy
-
-Migration 289 supplied qualification 100, flash total 200, three-day bonus 15, milestones at 10/100/500/10,000, and Monday 00:00 Asia/Kolkata cutoff. Weekly prize activation remains an explicit operational decision (`feature_active = false`).
-
-The user selected referral activity **5 → 15 upgrade**: registration awards 5 points, qualifying usage upgrades that by 10 points. Qualification records 100 points and 100 referral coins independently (200 total coins inside a configured flash window, replacing 100). Activity rewards do not create referral coins. Historic ledger `points` represented referral coins; migration preserves those earned values and adds an explicit coins column. Referral coins are not Hashcoins and create no cash-wallet liability.
-
-The original How It Works page's 5/15 values described connections and daily Memory updates; it did not define the new referral activity awards. The selected upgrade policy is now stored centrally alongside the existing product activity rules: daily changed encrypted Memory data earns 15 points, a newly active mutual connection earns 5 per participant once per pair, and a successful private-agent reply earns 10 points. Trusted persistence events award these values; dashboard text reads the same backend configuration. The legacy leaderboard entry field `points` remains a compatibility alias for the coin ranking metric; `/points` returns the separate actual points and coins balances.
-
-Daily app-open/login activity is counted once per server calendar day in the configured program timezone. Three consecutive days earn the configured coin bonus; the displayed streak continues beyond three. A missed day resets the current run, while longest run and earned transactions persist. Dashboard reads never award activity.
-
-Qualification requires verified phone, completed setup, and at least one successful server-persisted private-agent reply after setup and attribution. Login, client telemetry, failed/interrupted replies and arbitrary client balances do not qualify. Current One chat commits a content-free referral usage event in the same SQL statement as its encrypted ADK session revision. A final visible model reply or a successful presentation-tool ending after a visible reply qualifies in the server-bound One namespace, with a preceding user event in the same invocation. Review pauses and thought-only output do not qualify. Legacy completed-message storage retains its database trigger. A bounded maintenance sweep recovers missed synchronous qualification hooks. Historical settled qualifications are preserved.
-
-Referral circles inherit immutable membership from the parent referrer. They use separate referral-network membership, preserving Location Circle access and capacity. The existing competition metric is retained: valid qualified descendant referrals. Inactive registrations contribute zero score; member and qualified-member counts are reported separately. Circle gifts require a configured circle competition and are not inferred from individual rank.
-
-Earned milestones, claims, and fulfillment are separate persisted states. Claiming never means shipped or delivered. The backend determines the next unearned configured milestone.
-
-## Deployment and verification
-
-Apply migrations 347 and 348 after 346 using the existing migration release lane. Migration 348 rewards confirmed `pkm_events.content_write` events emitted by the current atomic Memory save, including the validated mutation plan and confirmation receipt. Upgrade, projection and maintenance events do not qualify. Current and legacy writes share one owner/day key. No production database is modified by local tests. Enable the existing authenticated scoring scheduler for qualification reconciliation, score settlement, snapshot publication and ended-round processing. Weekly gifts and shipping remain disabled until their operational configuration is supplied.
-
-Test results and remaining external prerequisites are recorded at delivery; local verification does not establish deployment or real gift delivery.
-
-Verified on Windows using Python 3.13.16 and disposable PostgreSQL 18, with no production data or external delivery side effects:
-
-| Check | Observed result |
+| Metric | Authority and meaning |
 | --- | --- |
-| All referral backend unit, property, service and authenticated-route suites, including scoring drain | 287 passed after main reconciliation after main reconciliation |
-| Real PostgreSQL lifecycle integration suite, included above | 17 passed |
-| Six referral frontend suites: dashboard, profile panel, service, attribution, stream and route layout | 87 passed after main reconciliation |
-| TypeScript typecheck and ESLint on changed frontend files | Passed |
-| Ruff on changed/new Python files | Passed |
-| Migration release manifest and all three schema contracts | Passed, head 348 aligned |
-| Required Back behavior pack | 452 passed after main reconciliation |
-| Back/Search, catalog, Surface Map, gateway, Siri, route orchestration and validator gate | Passed; 12 validator regression tests passed |
-| Production Next.js build | Passed, 172 pages generated |
-| Documentation verification and `git diff --check` | Passed |
+| Coins | `SUM(points)` in the existing lifetime score ledger, including reversals. Response `points` and `coins` are aliases of one total; never add them. The historical database `coins` column remains unchanged. No cash-wallet balance or weekly subtotal is involved. |
+| Joined referrals | Distinct registered referred identities with a matching bound attribution, excluding self referrals and rejected, revoked or ineligible attribution. An expired qualification window does not undo a registration. Link opens and pending invitations do not count. Summary `joined_count`/`total_count` and reward `joined_referral_count` use the same predicate. |
+| Rank | Lifetime earned Coins, then first positive earned event, then stable user identity. Registered referrers remain eligible at zero Coins. All rank surfaces share on-demand snapshots independent of prize publication. Pinned pages and off-page viewer lookup remain supported. Only approved handles or anonymous labels are public. |
+| Streak | Consecutive authenticated dashboard-visit calendar dates in Asia/Kolkata. POST owns attendance; GET never awards a visit. Owner locking and user/date uniqueness make retries and devices idempotent. Date is sampled after locking. Old app attendance remains separate; unmarked legacy app-open requests return a read-only status. New requests carry an explicit dashboard surface. Past dashboard visits are not fabricated. |
+| Weekly period | Monday 00:00 Asia/Kolkata through following Monday, exclusive. Server boundaries/time anchor the monotonic countdown. Foreground, reconnect and expiry refresh it. `calendar_active`/legacy `active` describe the calendar; `campaign_active` and `weekly_prizes_enabled` describe prizes. |
+| Reward progress | `min(joined_referral_count / threshold, 1)`. Feature the next unreached, unearned threshold without subtracting tiers or waiting for earlier claims. Recorded historical entitlements stay accessible. Qualification, claim, approval and fulfillment remain separate. |
 
-The SQL suite verifies the invitation → join → trusted usage → qualification → score → rank → milestone → claim journey, concurrent binding/claims/attendance, replay safety, timezone rollover, challenge deadlines, deletion/rebuilding of referral networks, late-parent subtree inheritance, retry/lease failures, more than 500 ranked users and owner authorization. Browser components are tested against service fixtures; this is not a live Firebase/model-provider browser session.
+The server ladder is 10 Amazon voucher, 100 wireless earbuds, 500 Apple AirPods and 10,000 iPhone. The approved voucher amount and artwork remain. At exactly 10/100/500 joins, feature threshold 100/500/10,000. At 10,000 joins all progress milestones are reached; this does not promise all rewards are claimable or fulfilled.
 
-## Changed file groups
+## Verified source defects and corrections
 
-- Migration 347 and its registered rollback extend the existing ledger, daily attendance, claims, persisted rounds and referral genealogy. The rollback retains all earned history and additive schema. Exact replay rejects conflicting policy versions.
-- Referral core, policy, scoring and maintenance services enforce product usage, idempotency, bounded retries/leases, due-work fairness, bulk snapshot publication and historical rule selection.
-- Activity, network and challenge services keep their database and business rules below authenticated API routes. Existing web/native proxy transport remains the owner of requests.
-- Dashboard, profile panel, How It Works and service contracts consume persisted names, balances, streaks, ranks and reward state. App-entry and attribution hooks support retries and server time.
-- Focused unit, API, frontend and disposable PostgreSQL tests cover the complete lifecycle and concurrency failures.
+| Surface | Source finding | Correction |
+| --- | --- | --- |
+| Coins | UI used a separate column that omits activity awards and showed lifetime score only in a points subtitle. | Read the existing earned score as Coins, remove subtitle, align history/ranking without rewriting awards. |
+| Referrals | Status buckets omitted registered expired referrals; frontend fell back to qualified count. | Explicit joined cohort independent of pagination/qualification. Actual status remains in Recent Referrals. |
+| Rewards | Qualified-only progress and featured selection waiting on entitlement issuance. v4 inherited Apple Watch under the legacy AirPods key. | Joined progress and next threshold; forward v5 reconciles AirPods while retaining old Apple Watch entitlements. |
+| Ranking | Separate positive coins column and scheduler publication were required. | Lifetime earned score, zero-score registered referrers, on-demand publication and cohort/rank comparison before reuse. |
+| Streak | Global One entry/resume wrote app attendance. Dashboard navigation did not own the write; date preceded the concurrency lock. | Existing hook mounted only on dashboard; success refresh, server-midnight timer, background suppression and lock before date. |
+| Week | Monday/Kolkata already existed, but calendar activity could imply an active prize campaign. | Explicit campaign state and inactive-prize copy; lifetime progress and valid streaks persist. |
+| Circles | Automatic genealogy was presented as membership; separate legacy service scored selected Location Circles. Neither proves accepted referral-team membership. | Preserve histories. Public reads show preview with no teams/rank; selection returns 409. No trusted-circle permission is granted. |
+| Cache | No warm publication; reconnect missed repair reads; refresh failures hid real loaded values. | Lifecycle-fenced owner-keyed memory, logout invalidation, reconnect/trailing refresh and retained values with refresh-failure status. Resources render independently. |
 
-| Paths | Reason |
+How It Works reads active award configuration and calls the amounts Coins. Zero-value and disabled flash promises are omitted. Joined progress itself never creates an award: existing configured registration, qualification, product-event and streak writers retain their idempotent event keys and award amounts.
+
+## Circle League — Win Together
+
+**Proposal only; preview remains inactive.** Preview creates no memberships, participants, prizes, badges, Coins or sharing permissions.
+
+Opt-in teams would hold up to five people including the owner, one active team per person, with explicit acceptance. Shared progress would show individual contributions and non-monetary badges at 5, 10 and 25 joined referrals. Standings would use only referral-linked Coins from approved award rules, separately from joined progress and personal lifetime balances.
+
+Attribution must freeze at the referred person's signup. Later qualification credit follows that attribution; switching teams affects future referrals only. Weekly recognition snapshots may show top circles/contributors without expiring cumulative progress or excluding repeat winners. Personal Coins and rewards stay personal. Team membership grants no PKM, documents, KYC, location or trusted-circle permissions.
+
+Launching requires separate approval and accepted-membership, signup-attribution, contribution and recovery contracts. Genealogy and trusted-circle selection cannot prove those contracts already exist.
+
+## Migration and rollback
+
+Additive migration **349** follows immutable 348. It adds dashboard attendance fields to existing tables and settings v5 from v4, preserving award amounts, campaign activation, old entitlements and every ledger row. In this branch 284/287 concern messaging/Drive; referral policy history is 289/338/347. Filenames do not establish applied environment history.
+
+Release manifest and dev/UAT/production schema contracts select 349. Migration authority recognizes only the exact reviewed v5 successor while preserving earlier SQL checksums. Repeated release replay is verified in isolated PostgreSQL schemas.
+
+Rollback deploys the preceding compatible application revision. Its SQL retains additive columns, attendance, awards, approved catalogue and immutable v5 lineage. It does not reactivate an historical policy or discard earned records; forward replay stays possible. Reverting the approved catalogue requires another versioned policy.
+
+The user authorized committing and pushing this branch and verifying its existing PR checks. Shared migrations, merge, deployment and campaign activation remain separate. Live evidence must bind the account, running image and applied migration history to the inspected responses.
+
+## Verification
+
+Tests use disposable PostgreSQL with isolated random schemas and frontend fixtures. They cover legacy Coins, joined/status/link boundaries, reward tiers with delayed entitlements, retries/concurrency/replay, midnight/Monday/gaps, paginated ranks, owner-only claims, historical rewards, preview permissions, cache races and failures. Fixtures never populate a shared authenticated dashboard.
+
+Exact commands/results and live-access limitations are reported at delivery. Unit, integration and build results do not constitute a real authenticated browser rehearsal.
+
+## Local verification — 15 October 2026
+
+All following records concern isolated local tests or this checkout's generated
+build. No shared account information was inserted, reset or repaired.
+
+| Command / check | Actual result |
 | --- | --- |
-| `consent-protocol/db/migrations/347_one_referral_dashboard_lifecycle.sql`; `db/migrations/rollback/347_one_referral_dashboard_lifecycle.rollback.sql` | Forward and behavioral rollback, durable source triggers, attendance, balances, genealogy, claims and rounds |
-| `consent-protocol/db/release_migration_manifest.json`; `db/contracts/{dev_minimum_schema,prod_core_schema,uat_integrated_schema}.json` | Register release 347 and describe its tables, columns and functions |
-| `consent-protocol/api/routes/one/referrals.py`; `api/routes/referral_scoring_drain.py`; `api/referral_listener.py` | Authenticated contracts, bounded scheduled recovery and device-safe realtime refresh |
-| `consent-protocol/hushh_mcp/operons/referral/policy.py`; `hushh_mcp/services/one_referral_service.py` | Verified qualification, names/counts, immutable binding and selected activity policy |
-| `consent-protocol/hushh_mcp/services/one_referral_activity_service.py`; `one_referral_network_service.py`; `one_referral_challenge_service.py`; `one_referral_maintenance_service.py` | Implement persisted activity/streaks, referral genealogy, challenge timing and bounded recovery |
-| `consent-protocol/hushh_mcp/services/one_referral_scoring_service.py`; `one_referral_program_settings_service.py`; `one_referral_leaderboard_service.py`; `one_referral_rewards_service.py`; `one_referral_weekly_award_service.py` | Central versioned policy, safe jobs/ledger/snapshots, rewards and round finalization |
-| `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Best-effort qualification reconciliation after a persisted completed reply; durable trigger survives callback failure |
-| `hushh-webapp/lib/services/referral-service.ts`; `lib/referral/use-daily-app-activity.ts`; `lib/referral/use-redeem-referral-attribution.ts`; `app/one/one-auth-gate.tsx` | Shared transport contracts, actual app-entry/resume attendance and reliable attribution retry |
-| `hushh-webapp/components/referrals/referral-dashboard-page.tsx`; `referral-journey.tsx`; `components/profile/referrals-panel.tsx` | Backend-driven stats, recent activity, independent circles, clock, catalogue, claim states and policy text |
-| `consent-protocol/tests/test_one_referral_lifecycle_postgres.py`; `test_one_referral_dashboard_routes.py`; `test_one_referral_policy.py`; `test_one_referral_properties.py`; `test_referral_scoring_drain_routes.py`; `tests/services/test_one_referral_*.py`; `consent-protocol/scripts/test-ci.manifest.txt` | Database/concurrency/security regression evidence and existing suite contract updates |
-| `hushh-webapp/__tests__/components/{referral-dashboard-page,referrals-panel}.test.tsx`; `__tests__/services/referral-attribution.test.ts` | Real-data rendering, in-flight refresh, owner switching, claims, attendance and transient attribution failures |
-| `docs/reference/architecture/api-contracts.md`; `docs/reference/one/README.md`; this report | API documentation, audit, policy reconciliation, verification and rollout requirements |
-| `hushh-webapp/contracts/ui-review/back/4932e5190ca14bcc28d95504ecaf86ff7964b0281a03de71a37fcaecb6f35919.json`; `contracts/ui-review/search/c5e5e86727cd651a30a6af2191d04f46e117ae430ee00d7d98fee478d824aadf.json` | Required immutable review records for the current UI source after behavioral verification |
-| `{contracts,consent-protocol/contracts,hushh-webapp/contracts}/kai/one-capability-graph.v1.json` | Required generator refreshed source-digest metadata consistently across the three mirrors; no authored action changes |
+| `.venv/Scripts/python.exe -m pytest` across all `test_one_referral*.py`, service referral tests, scoring-drain routes and `test_migration_authority.py` | 357 passed, including 33 real PostgreSQL lifecycle cases; two existing ADK warnings |
+| `python -m pytest tests/test_developer_api_routes.py -q` with an isolated local registry database | 80 passed; initial missing-database run was resolved with disposable test configuration |
+| `npm exec -- vitest run` dashboard, profile panel, service, attribution, stream and route-layout suites | 95 passed |
+| `npm run verify:cache` | 90 passed |
+| `npm run build:ui-contracts` | 454 Back behavior tests passed; Back/Search and derived contracts generated |
+| `npm run verify:ui-contracts` | All eight checks passed, including 12 validator mutation regressions |
+| `npm run verify:analytics` | 157 passed and Android observability scope verification passed |
+| `npm run typecheck`; ESLint on changed frontend sources; Ruff on changed Python sources/tests | Passed |
+| `npm run build` | Passed; 178 static pages generated |
+| Cache manifest, service boundary and documentation verification | Passed |
+| `python scripts/ops/verify_release_migration_contract.py` | Passed; release and all three schema contracts agree on head 349 |
+| `python scripts/ops/data_model_audit.py --text` | Passed; 287 tables classified, no unclassified tables or legacy-write findings |
+| `git diff --check` | Passed |
 
-Implementation stays on the existing `ui/referral-dashboard-polish` branch. The seven generated files already modified when this task began were preserved. Read-only backend and frontend specialists reviewed independent feature/trust boundaries; implementation and final validation stayed in this checkout.
+The isolated PostgreSQL URL selects loopback port 55432 and random schemas;
+no application/shared database URL is used. The developer-API check creates and
+removes its own random local database. Authenticated route fixtures retain
+negative controls for missing authorization and cross-owner mutation attempts.
+They are not a substitute for real Firebase authentication.
 
-## Operational prerequisites
+### Reproduce the focused checks
 
-The existing OIDC scoring scheduler must be enabled and dispatched against the deployed revision. Set `REFERRAL_SCORING_DRAIN_ENABLED=true` and the existing pins `REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE`, `REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID` and `REFERRAL_SCORING_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL`. Migration 347 must deploy before the new backend/frontend. No production credentials or deployment action are part of this local change. Weekly prize activation, circle competition gifts and actual physical fulfillment remain operationally unconfigured; the UI reports their available state without inventing gifts, deadlines or delivered status.
-
-To run database integration checks, set `REFERRAL_TEST_DATABASE_URL` to disposable PostgreSQL and run `python -m pytest tests/test_one_referral_lifecycle_postgres.py` from `consent-protocol`. Each case creates and cleans its own random schema. These tests use actual PostgreSQL transactions and triggers; Firebase token admission is separately tested with negative controls and verified-owner dependency fixtures. They do not establish live Firebase, model-provider, scheduler or production deployment readiness.
-
-Live browser/physical-device journeys remain separate release evidence. The PostgreSQL suite uses CI's existing `ONE_COMMAND_TEST_DATABASE_URL`; `REFERRAL_TEST_DATABASE_URL` can override it locally. Disposable validation environments and logs remain ignored under `.venv-referral*` and `tmp/referral-validation`.
-
-For repeatable referral checks in PowerShell, from `consent-protocol` with the project's Python 3.13 dependencies and a disposable database configured:
+From `consent-protocol`, point `REFERRAL_TEST_DATABASE_URL` and
+`ONE_COMMAND_TEST_DATABASE_URL` only at disposable local PostgreSQL, then:
 
 ```powershell
-$referralTests = @(Get-ChildItem tests -Filter 'test_one_referral*.py' | ForEach-Object { $_.FullName }) + @(Get-ChildItem tests/services -Filter 'test_one_referral*.py' | ForEach-Object { $_.FullName }) + @('tests/test_referral_scoring_drain_routes.py')
-python -m pytest @referralTests -q
+$referralTests = @(Get-ChildItem tests -Filter 'test_one_referral*.py' | ForEach-Object { $_.FullName }) + @(Get-ChildItem tests/services -Filter 'test_one_referral*.py' | ForEach-Object { $_.FullName }) + @('tests/test_referral_scoring_drain_routes.py', 'tests/test_migration_authority.py')
+.\.venv\Scripts\python.exe -m pytest @referralTests -q --tb=short
 ```
 
 From `hushh-webapp`:
 
 ```powershell
+npm.cmd exec -- vitest run __tests__/components/referral-dashboard-page.test.tsx __tests__/services/referral-stream.test.ts __tests__/services/referral-service.test.ts __tests__/services/referral-attribution.test.ts __tests__/components/referrals-panel.test.tsx __tests__/navigation/referrals-route-layout.test.ts --maxWorkers=2
+npm.cmd run verify:cache
 npm.cmd run typecheck
-npm.cmd exec -- vitest run __tests__/components/referral-dashboard-page.test.tsx __tests__/services/referral-service.test.ts __tests__/services/referral-attribution.test.ts __tests__/components/referrals-panel.test.tsx __tests__/services/referral-stream.test.ts __tests__/navigation/referrals-route-layout.test.ts
+npm.cmd run build:ui-contracts
 npm.cmd run verify:ui-contracts
-npm.cmd run verify:docs
 npm.cmd run build
 ```
 
-From the repository root, run `python scripts/ops/verify_release_migration_contract.py`. Migration rollback is behavioral: deploy the previous application version and apply the registered rollback to retire new policy/trigger behavior, retaining earned awards, claim history and additive tables/columns.
+### Sanitized fixture evidence
 
-## UAT release preparation
+| Persisted / server evidence | Frontend regression evidence |
+| --- | --- |
+| An existing ledger event with `points=50, coins=0` reads as `{points:50,coins:50}` and ranks the only eligible participant at 1 without scheduler publication. The event is unchanged. | The Coins card displays 50 and no Total Points subtitle. |
+| Two registered, bound, in-progress relationships produce `joined_count=2`, `qualified_count=0`, next progress 2 and threshold 10. A link opening alone produces no join. | Referrals displays 2 without a qualification subtitle; Recent Referrals retains both statuses; rewards displays 2/10 and 20%. |
+| Qualifying one of those identities leaves joined count 2; repeated settlement leaves the earned balance unchanged after the once-only configured award. | Reward progress consumes the joined field independently of qualification. |
+| The full 503-person tie/pagination fixture preserves deterministic ranks and the off-page viewer. Account deletion immediately closes a cached rank gap. | Summary rank and viewer-row rendering use that same rank response, including a viewer outside an empty page. |
+| Concurrent visits settle once per Kolkata date; consecutive/missed dates and Sunday/Monday preserve the specified streak behavior. Unmarked old app-open calls do not record a dashboard visit. | Visible midnight, foreground/reconnect, hidden-page suppression, malformed timestamps and bounded retries are covered. |
+| Historical Apple Watch entitlement text remains unchanged under the new AirPods catalogue; claims still require a recorded entitlement. | Earlier rewards remain accessible while the featured threshold advances. |
 
-The user explicitly selected **UAT only**. Current main owns migrations 332–346 and the USD catalogue; lifecycle migration 347 creates program settings version 4 from active version 3, preserving the $25 voucher, wireless earbuds, Apple Watch, iPhone and all existing earned descriptions. Behavioral rollback restores version 3.
+### Remaining live evidence and activation boundaries
 
-The canonical runtime transport now recognizes the four referral scoring scheduler settings. Deployment sync retains only an explicitly activated, fully validated environment/project/audience/service-account configuration, rejecting mixed environments and unrelated keys. Runtime configuration and directory compatibility suites: 18 passed.
+- No authenticated browser tab was attached to this chat, so the real signed-in
+  account and its reported 50/2/rank/circle values were not verified.
+- Existing port 3000 serves `tmp/pr8032`, not this checkout. That independent
+  server and its branch were left untouched. No local backend runtime was
+  configured with application database credentials.
+- No shared migration history, deployed image, live scheduler, native-device
+  journey, prize fulfillment or current Founder Wiki article was verified. The
+  private Founder Wiki refresh/read tool was not exposed in this session.
+- Migrations, backend and frontend require coordinated review/release before
+  live verification. Old response contracts fail visibly instead of guessing
+  joined totals or presenting genealogy as accepted teams.
+- Circle League remains preview-only; accepted referral-team membership,
+  signup-frozen team attribution and badge activation remain approval-dependent
+  future work. Historical genealogy and legacy contribution records remain.
+- No merge, deployment, shared migration or campaign activation was performed.
+  Application rollback retains additive history and policy lineage. Push and
+  exact-head hosted check results are recorded on the existing PR.
 
-The fixed UAT operator is `scripts/ops/configure_referral_uat.py`. Run its `config` phase before the governed deployment so the new revision loads the canonical runtime secret. It validates the UAT database instance and keeps the payload in process memory. After the exact landed-main SHA passes CI, smoke and the governed UAT deployment, run its `scheduler --run` phase. The job calls the authenticated drain every minute with the fixed UAT identity/audience, a 120-second deadline and bounded retries. Require a fresh successful matching scheduler attempt using `scripts/ci/verify-cloud-scheduler-attempt.py`.
+The preserved branch is `ui/referral-dashboard-polish`. No branch was created or
+switched. Existing PR #8045 carries the signed commits and hosted check results.
 
-Canonical UAT reviewer credential and review-mode preflight succeeded. Existing reviewers can prove persisted reads, owner boundaries and same-day attendance, but a full new-user referral needs a newly invited account; shared reviewers must not be reset to manufacture eligibility. A claim requires a genuinely earned entitlement; a two-account journey cannot naturally reach the first ten-referral reward.
+### Changed files
 
-Live-path tracing found that current One chat uses encrypted ADK sessions rather than the legacy message table. The new bounded writer hook is configured in `consent-protocol/api/routes/one/agent_chat.py` and implemented in `consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py`. Its successful session CAS and usage outbox are atomic; failed replies and replayed sources cannot duplicate qualification or awards. The disposable PostgreSQL suite now has 18 passing cases, and the combined SQL/encrypted-session suites have 32 passing cases.
-
-Completed usage requires a visible, nonempty model reply from a server-bound One invocation with a prior user turn. Internal reasoning and whitespace-only responses are negative controls. The final focused referral suite passes 285 tests; encrypted-session/runtime-map tests pass 23. Local governance and web-core pass. The full backend run on Windows reports 11,411 passed, 442 skipped, 86 failures and 31 errors outside the referral files, including Linux-only `resource`, `fcntl`, permission and shell contracts. The canonical Linux CI lane must pass before merge; these checks are not waived or rewritten for Windows.
-
-The active local GitHub login cannot read the mandatory security-alert surface (HTTP 404). The canonical CI workflow has its existing dedicated security-alert credential; that unchanged mandatory check must pass on the PR before merge. No production mutation or manual Cloud Run deployment is authorized.
-
-After syncing main through `edcff65ed`, the lifecycle migration is 347 because upstream owns 339–346. The refreshed source also excludes owner-bound stopped runs from successful usage, preserving the upstream chat checkpoint transaction behavior. All 18 PostgreSQL cases pass after restarting the disposable local database; 290 unit/session/runtime cases pass separately. Back navigation checks pass 453 tests and the canonical generators refreshed the combined source contracts. Cloud deployment and fresh-account browser evidence remain separate gates.
-
-The latest combined-head web-core and integration lanes pass, including TypeScript, ESLint and the Next production build. Full backend lint, mypy (236 source files) and Bandit pass. The updated full backend run reports 11,993 passed, 475 skipped, 92 failed and 33 errors outside referral files on Windows. The refreshed governance lane reaches a Linux-only `os.killpg` test that cannot run on Windows. Those full Linux governance/backend lanes and the unchanged security-alert gate remain mandatory PR checks.
-
-The release vehicle is [PR 8038](https://github.com/hushh-labs/hushh-research/pull/8038), targeting UAT only. Final focused frontend coverage is 88 passing tests; the 18 PostgreSQL cases pass with migration 347. A deployment claim requires the exact landed-main SHA, successful post-merge smoke, governed UAT workflow, runtime provenance and live reviewer results; a passing local test or PR alone is insufficient.
-
-Further runtime tracing found that follow-up suggestions and reactions end a successful answer with a text-free tool response and skip another model call. The shared `turn_completion.successful_answer_completion` predicate now recognizes that existing ADK behavior while rejecting failed precursors, another invocation's answer, review pauses and unrelated tools. The real SQL lifecycle suite covers all three completion shapes, replay and cancellation; its 20 cases and the existing 12 real AG-UI follow-up tests pass together. These checks establish local completion behavior, not UAT deployment or fresh-account acceptance.
-
-Main through `110714a36` is merged, including the current Profile pane and wallet fixture corrections. Combined-source Back coverage passes 454 cases, with fresh Back/Search review receipts. The focused referral, SQL, encrypted-session and real AG-UI suite passes 313 tests. The local core command passes its gitleaks scan and stops on the existing GitHub security-alert read permission (404); the unchanged mandatory remote security scan remains required.
+- `consent-protocol/api/routes/one/referrals.py`
+- `consent-protocol/db/contracts/dev_minimum_schema.json`
+- `consent-protocol/db/contracts/prod_core_schema.json`
+- `consent-protocol/db/contracts/uat_integrated_schema.json`
+- `consent-protocol/db/migration_authority.py`
+- `consent-protocol/db/migrations/349_one_referral_dashboard_truth.sql`
+- `consent-protocol/db/migrations/rollback/349_one_referral_dashboard_truth.rollback.sql`
+- `consent-protocol/db/release_migration_manifest.json`
+- `consent-protocol/hushh_mcp/operons/referral/joined.py`
+- `consent-protocol/hushh_mcp/services/one_referral_activity_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_challenge_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_rewards_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_scoring_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_service.py`
+- `consent-protocol/hushh_mcp/services/one_referral_weekly_award_service.py`
+- `consent-protocol/tests/services/test_one_referral_leaderboard_service.py`
+- `consent-protocol/tests/services/test_one_referral_scoring_service.py`
+- `consent-protocol/tests/services/test_one_referral_service_summary.py`
+- `consent-protocol/tests/test_one_referral_dashboard_routes.py`
+- `consent-protocol/tests/test_one_referral_lifecycle_postgres.py`
+- `contracts/architecture/runtime-topology-index.v1.json`
+- `docs/reference/architecture/api-contracts.md`
+- `docs/reference/one/referral-backend.md`
+- `hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx`
+- `hushh-webapp/__tests__/components/referrals-panel.test.tsx`
+- `hushh-webapp/__tests__/services/referral-attribution.test.ts`
+- `hushh-webapp/__tests__/services/referral-service.test.ts`
+- `hushh-webapp/__tests__/services/referral-stream.test.ts`
+- `hushh-webapp/app/one/one-auth-gate.tsx`
+- `hushh-webapp/cache-coherence-screen-manifest.generated.json`
+- `hushh-webapp/components/profile/referrals-panel.tsx`
+- `hushh-webapp/components/referrals/referral-dashboard-page.tsx`
+- `hushh-webapp/components/referrals/referral-journey.tsx`
+- `hushh-webapp/contracts/ui-review/back/4d20066fe65a6c69a29d5b5ea46ead8ebc75614fb2b44f9c7415da34c5e0a0c7.json`
+- `hushh-webapp/contracts/ui-review/search/e502080ade1d9e7e73e86bd0e8e309c117e22ba28d4dbc782461ac967974fd32.json`
+- `hushh-webapp/lib/cache/use-stale-resource.ts`
+- `hushh-webapp/lib/referral/use-daily-app-activity.ts`
+- `hushh-webapp/lib/referral/use-referral-stream.ts`
+- `hushh-webapp/lib/services/cache-service.ts`
+- `hushh-webapp/lib/services/referral-service.ts`
+- `hushh-webapp/scripts/architecture/audit-cache-coherence.mjs`

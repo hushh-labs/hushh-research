@@ -11,6 +11,8 @@ from sqlalchemy import text
 from db.db_client import get_db_connection
 from hushh_mcp.services.one_referral_program_settings_service import get_active_program_settings
 
+DASHBOARD_TIMEZONE = "Asia/Kolkata"
+
 
 def record_score(
     connection,
@@ -83,11 +85,13 @@ def next_daily_streak(
 
 
 def get_daily_streak(user_id: str, program_timezone: str) -> dict:
-    today = datetime.now(timezone.utc).astimezone(ZoneInfo(program_timezone)).date()
+    today = datetime.now(timezone.utc).astimezone(ZoneInfo(DASHBOARD_TIMEZONE)).date()
     with get_db_connection() as connection:
         row = connection.execute(
             text("""
-            SELECT last_activity_date,current_streak,longest_streak
+            SELECT dashboard_last_activity_date AS last_activity_date,
+                   dashboard_current_streak AS current_streak,
+                   dashboard_longest_streak AS longest_streak
               FROM one_referral_streak_state WHERE user_id=:uid
         """),
             {"uid": user_id},
@@ -106,11 +110,25 @@ def get_daily_streak(user_id: str, program_timezone: str) -> dict:
     }
 
 
-def record_app_open(user_id: str) -> dict:
+def record_app_open(user_id: str, *, dashboard_visit: bool = True) -> dict:
     settings = get_active_program_settings()
-    tz = str(settings.weekly_schedule.get("timezone") or "UTC")
-    now = datetime.now(timezone.utc)
-    today = now.astimezone(ZoneInfo(tz)).date()
+    tz = DASHBOARD_TIMEZONE
+    if not dashboard_visit:
+        # Old clients called this globally. Preserve their response shape, but
+        # never reinterpret their app-open signal as a dashboard visit.
+        now = datetime.now(timezone.utc)
+        today = now.astimezone(ZoneInfo(tz)).date()
+        return {
+            **get_daily_streak(user_id, tz),
+            "recorded": False,
+            "status": "dashboard_visit_required",
+            "server_now": now.isoformat(),
+            "next_day_at": datetime.combine(
+                today + timedelta(days=1), datetime.min.time(), tzinfo=ZoneInfo(tz)
+            ).isoformat(),
+            "activity_date": today.isoformat(),
+            "timezone": tz,
+        }
     with get_db_connection() as connection:
         connection.execute(
             text("""
@@ -120,26 +138,36 @@ def record_app_open(user_id: str) -> dict:
         )
         row = connection.execute(
             text("""
-            SELECT last_activity_date,current_streak,longest_streak
+            SELECT dashboard_last_activity_date AS last_activity_date,
+                   dashboard_current_streak AS current_streak,
+                   dashboard_longest_streak AS longest_streak
             FROM one_referral_streak_state WHERE user_id=:uid FOR UPDATE
         """),
             {"uid": user_id},
         ).fetchone()
+        # Read the server date after acquiring the owner lock, including when
+        # another device held it across midnight.
+        now = datetime.now(timezone.utc)
+        today = now.astimezone(ZoneInfo(tz)).date()
         current, longest = next_daily_streak(
             row.last_activity_date, row.current_streak, row.longest_streak, today
         )
         inserted = connection.execute(
             text("""
-            INSERT INTO one_referral_activity_days(user_id,activity_date,timezone)
-            VALUES(:uid,:day,:tz) ON CONFLICT DO NOTHING RETURNING activity_date
+            INSERT INTO one_referral_activity_days(user_id,activity_date,timezone,dashboard_visited_at)
+            VALUES(:uid,:day,:tz,:now) ON CONFLICT (user_id,activity_date)
+            DO UPDATE SET dashboard_visited_at=EXCLUDED.dashboard_visited_at
+             WHERE one_referral_activity_days.dashboard_visited_at IS NULL
+            RETURNING activity_date
         """),
-            {"uid": user_id, "day": today, "tz": tz},
+            {"uid": user_id, "day": today, "tz": tz, "now": now},
         ).fetchone()
         if inserted and (row.last_activity_date is None or today > row.last_activity_date):
             connection.execute(
                 text("""
-                UPDATE one_referral_streak_state SET last_activity_date=:day,current_streak=:current,
-                longest_streak=:longest,updated_at=:now WHERE user_id=:uid
+                UPDATE one_referral_streak_state SET dashboard_last_activity_date=:day,
+                dashboard_current_streak=:current,dashboard_longest_streak=:longest,
+                updated_at=:now WHERE user_id=:uid
             """),
                 {"day": today, "current": current, "longest": longest, "now": now, "uid": user_id},
             )
@@ -224,7 +252,7 @@ def get_transaction_history(user_id: str, before_id: int | None = None, limit: i
                 "id": r.id,
                 "event_type": r.event_type,
                 "points": r.points,
-                "coins": r.coins,
+                "coins": r.points,
                 "created_at": r.created_at.isoformat(),
             }
             for r in page
@@ -237,9 +265,9 @@ def get_balances(user_id: str) -> dict:
     with get_db_connection() as connection:
         row = connection.execute(
             text("""
-          SELECT COALESCE(SUM(points),0) AS points,COALESCE(SUM(coins),0) AS coins
+          SELECT COALESCE(SUM(points),0) AS points
             FROM one_referral_score_events WHERE user_id=:uid
         """),
             {"uid": user_id},
         ).fetchone()
-    return {"points": int(row.points), "coins": int(row.coins)}
+    return {"points": int(row.points), "coins": int(row.points)}

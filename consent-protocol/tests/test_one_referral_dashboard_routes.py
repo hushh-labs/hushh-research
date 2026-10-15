@@ -122,6 +122,7 @@ def test_policy_reads_active_amounts_without_changing_settings(app, monkeypatch)
             "cutoff_time": "00:00:00",
         },
         feature_active=False,
+        flash_windows=[],
     )
     read = Mock(return_value=settings)
     monkeypatch.setattr(routes, "get_active_program_settings", read)

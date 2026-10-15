@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -38,10 +39,6 @@ from hushh_mcp.services.one_referral_leaderboard_service import (
     get_engagement_status,
     get_individual_leaderboard,
     get_milestone_progress,
-)
-from hushh_mcp.services.one_referral_network_service import (
-    get_network_circle,
-    get_network_leaderboard,
 )
 from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettingsUnavailable,
@@ -163,7 +160,9 @@ class SelectCircleRequest(BaseModel):
 @router.get("/circle")
 def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's current referral-contest team, if any."""
-    return get_network_circle(firebase_uid)
+    # Genealogy is automatic; it does not prove accepted referral-team membership.
+    # Keep its historical records private until the opt-in team policy is approved.
+    return {"circle_id": None, "status": "preview", "competition_active": False}
 
 
 @router.post("/circle")
@@ -171,15 +170,8 @@ def select_referral_circle(
     payload: SelectCircleRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Choose this person's one active referral-contest team.
-
-    Requires the caller already be an accepted member of that Location
-    Circle -- this endpoint grants no membership and changes no capacity.
-    """
-    circle = get_network_circle(firebase_uid)
-    if circle["circle_id"] != payload.circle_id:
-        raise HTTPException(status_code=403, detail={"code": "REFERRAL_CIRCLE_INHERITED"})
-    return circle
+    """The preview cannot create or infer accepted referral-team membership."""
+    raise HTTPException(status_code=409, detail={"code": "REFERRAL_CIRCLE_PREVIEW"})
 
 
 class SetHandleRequest(BaseModel):
@@ -236,12 +228,9 @@ def referral_individual_leaderboard(
     snapshot_id: UUID | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """One page of the latest published cumulative-ranking snapshot.
+    """Cumulative Coins from the shared on-demand snapshot and off-page viewer.
 
-    Points, not raw referral counts, and always from a published snapshot --
-    never a live aggregate the caller could use to probe exact real-time
-    standing. The caller's own row is included even when it falls outside
-    this page.
+    Handles are approved public aliases; account identifiers remain private.
     """
     bounded_limit = max(1, min(limit, 50))
     return get_individual_leaderboard(
@@ -258,8 +247,8 @@ def referral_circle_leaderboard(
     after_rank: int = 0,
     _firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Cumulative RAW qualified-referral count per contest team."""
-    return get_network_leaderboard(limit=max(1, min(limit, 50)), after_rank=max(0, after_rank))
+    """No standings are published before accepted referral teams are available."""
+    return {"teams": [], "next_after_rank": None, "status": "preview", "competition_active": False}
 
 
 @router.get("/policy")
@@ -278,6 +267,7 @@ def referral_program_policy(_firebase_uid: str = Depends(require_firebase_auth))
         "streak_rules": settings.streak_rules,
         "weekly_schedule": settings.weekly_schedule,
         "weekly_prizes_enabled": settings.feature_active,
+        "flash_bonus_enabled": bool(settings.flash_windows),
     }
 
 
@@ -303,9 +293,17 @@ def referral_product_activity(
     return reconcile_product_activity(firebase_uid, str(payload.message_id))
 
 
+class DashboardVisitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    surface: Literal["referral_dashboard"] | None = None
+
+
 @router.post("/app-open")
-def referral_app_open(firebase_uid: str = Depends(require_firebase_auth)):
-    return record_app_open(firebase_uid)
+def referral_app_open(
+    payload: DashboardVisitRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    return record_app_open(firebase_uid, dashboard_visit=bool(payload and payload.surface))
 
 
 @router.get("/transactions")

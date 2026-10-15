@@ -22,7 +22,10 @@ from hushh_mcp.services.one_referral_display_handle_service import (
     ANONYMOUS_PLACEHOLDER,
     get_display_handles,
 )
-from hushh_mcp.services.one_referral_rewards_service import lifetime_qualified_count
+from hushh_mcp.services.one_referral_rewards_service import (
+    lifetime_joined_count,
+    lifetime_qualified_count,
+)
 
 
 def _latest_snapshot(connection) -> tuple[str, datetime] | None:
@@ -53,6 +56,12 @@ def get_individual_leaderboard(
     """One page of the latest snapshot, plus the viewer's own row if it is
     not already on the page -- "the current user's row remains discoverable
     outside the top ten" is a hard requirement, not a nice-to-have."""
+    if snapshot_id is None:
+        # Live standings must also work before the first scheduler publication.
+        # Publication is shared, serialized and reuses an unchanged snapshot.
+        from hushh_mcp.services.one_referral_scoring_service import publish_leaderboard_snapshot
+
+        publish_leaderboard_snapshot()
     with get_db_connection() as connection:
         if snapshot_id:
             selected = connection.execute(
@@ -144,7 +153,8 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
     without a matching entitlement row -- this reads
     one_referral_milestone_entitlements, it does not recompute eligibility."""
     with get_db_connection() as connection:
-        lifetime_count = lifetime_qualified_count(connection, user_id)
+        lifetime_count = lifetime_joined_count(connection, user_id)
+        qualified_count = lifetime_qualified_count(connection, user_id)
         earned_rows = connection.execute(
             text(
                 """
@@ -158,7 +168,6 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
             {"uid": user_id},
         ).fetchall()
 
-    earned_keys = frozenset(row.milestone_key for row in earned_rows)
     earned = [
         {
             "milestone_key": row.milestone_key,
@@ -170,13 +179,14 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
         for row in earned_rows
     ]
 
+    earned_keys = frozenset(row.milestone_key for row in earned_rows)
     next_milestone = None
     for entry in settings_milestones or []:
         if not isinstance(entry, dict):
             continue
         key = entry.get("milestone_key")
         threshold = entry.get("threshold")
-        if key in earned_keys or not isinstance(threshold, int):
+        if key in earned_keys or not isinstance(threshold, int) or threshold <= lifetime_count:
             continue
         if next_milestone is None or threshold < next_milestone["threshold"]:
             next_milestone = {
@@ -187,7 +197,9 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
             }
 
     return {
-        "lifetime_qualified_count": lifetime_count,
+        "joined_referral_count": lifetime_count,
+        "lifetime_qualified_count": qualified_count,
+        "progress_basis": "joined_referrals",
         "earned": earned,
         "next_milestone": next_milestone,
     }

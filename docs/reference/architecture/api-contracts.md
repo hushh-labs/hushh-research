@@ -3560,42 +3560,44 @@ the badge rather than inventing a mutual relationship. No migration is required.
 
 ## Referral dashboard reads
 
-`/one/referrals` uses the existing `/api/one/[...path]` proxy on web and
-`ApiService.apiFetch` direct backend transport on native. Each referral read
-requires a Firebase ID token; the verified UID selects the owner, never a
-client-supplied user identifier.
+`/one/referrals` uses the existing web proxy and native `ApiService` transport.
+Firebase authentication derives the owner; client payloads cannot select one.
 
-- `GET /api/one/referrals/points` returns `{points: number, coins: number}` from the owner's
-  cumulative ledger, independently of published leaderboard snapshots.
-- `GET /api/one/referrals/challenge` returns `active`, `week_started_at`,
-  `cutoff_at`, `timezone`, `round_id`, persisted `status`, and `server_now`. Its weekly window derives from active program
-  settings. Missing settings or an unset schedule returns inactive with null
-  timestamps. A scheduled challenge does not imply weekly prize finalization
-  is enabled.
-- `GET /api/one/referrals/milestones` retains lifetime count, earned entitlements,
-  and next milestone, and adds `available_milestones` from the same active
-  settings version. The dashboard does not substitute a hardcoded catalogue.
+- `GET /api/one/referrals/points` returns equal `{points, coins}` compatibility
+  aliases of lifetime `SUM(points)`. Never add the aliases.
+- `GET /summary` adds canonical `joined_count` and matching `total_count` for
+  distinct registered identities with valid bound attribution. Qualification
+  fields and Recent Referrals retain actual status; invitations do not count.
+- `GET /milestones` returns `joined_referral_count`, separate
+  `lifetime_qualified_count`, `progress_basis: joined_referrals`, persisted
+  `earned`, server-owned `available_milestones`, and next unreached/unearned
+  `next_milestone`. Joined progress does not grant a claim entitlement.
+- `GET /leaderboard` refreshes shared cumulative Coins snapshots independently
+  of weekly prizes, with deterministic ties and off-page viewer lookup.
+  `snapshot_id` pins continuation pages.
+- `POST /app-open` retains its compatibility path but records visible dashboard
+  visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
+  a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning
+  streak, `server_now` and `next_day_at`. `GET /engagement` awards nothing.
+- `GET /challenge` returns Monday/Kolkata start, exclusive cutoff, server time
+  and persisted round metadata. `calendar_active`/legacy `active` are separate
+  from `campaign_active` and `weekly_prizes_enabled`. Reads never enable prizes.
+- `GET /policy` supplies active amounts through compatible `points` keys,
+  streak/schedule rules and flash/prize availability. UI calls amounts Coins.
+- `GET /transactions` returns owner-only cursor history; row `coins` aliases
+  earned `points`, preserving stored historical columns.
+- `POST /activity` reconciles only an existing server-persisted event for its
+  owner. Client award amounts are rejected.
+- `POST /rewards/claim` atomically claims a recorded owner entitlement. Unearned
+  and duplicate claims return 409; approval/fulfillment remain separate.
+- `GET /circle` returns `{circle_id:null,status:preview,competition_active:false}`.
+  Circle leaderboard reads return no teams while accepted referral-team
+  membership is unavailable. `POST /circle` returns 409 `REFERRAL_CIRCLE_PREVIEW`.
+  Genealogy/contribution records and protected-information permissions remain.
 
-Migration 289 versions the milestone catalogue and schedule without modifying
-migration 275 or recomputing past awards. Applying it is separate from source
-verification. Summary reads can mint a referral link and authenticated reads
-can schedule identity synchronization; this dashboard is not a read-only probe
-against an environment where writes are prohibited.
-
-- `GET /api/one/referrals/policy` requires Firebase authentication and returns
-  active settings `version`, `points`, `streak_rules`, `weekly_schedule`,
-  `challenge_duration_days` (null when unscheduled), and `weekly_prizes_enabled`.
-  Rules uses these amounts directly; this read does not activate policy or award rewards.
-
-- `GET /summary?offset=0&limit=50` returns total registered valid referrals, qualified/in-progress/review counts, privacy-safe direct member display names, dates and usage counts. Public individual standings continue to use opt-in aliases.
-- `POST /app-open` records one authenticated calendar day atomically and returns current/longest streak plus `server_now` and `next_day_at`. Reads never award a day.
-- `POST /activity` accepts only `{message_id: UUID}`. It reconciles an existing server-persisted completed-reply event belonging to the verified owner; client reward amounts or owner identifiers are rejected.
-- `GET /transactions?before_id=...&limit=20` returns owner-only point/coin ledger history with a cursor.
-- `POST /rewards/claim` accepts `{milestone_key}` and atomically claims an earned owner entitlement. Unearned and duplicate claims return 409; fulfillment remains a separate staff state.
-- `GET /circle` returns inherited referral genealogy membership and authoritative rank/member/qualified metrics. `POST /circle` permits only acknowledging the current circle; changing it returns 403. Location Circle permissions are independent.
-- `GET /circles/leaderboard?after_rank=0&limit=20` ranks referral networks by valid qualified descendants. Individual `/leaderboard` ranks eligible coins and accepts `snapshot_id` to pin continuation pages.
-
-Migration 339 extends the existing ledger and lifecycle. The selected registration-to-qualification activity policy awards 5 points, then a 10-point upgrade to 15 total activity points. The independent qualification award records 100 points and 100 referral coins (or the configured replacement flash amount); activity points carry zero coins. Referral coins have no cash-wallet conversion. Daily streaks use app attendance. See [the referral audit and deployment contract](../one/referral-backend.md).
+Migration 349 adds dashboard attendance and settings v5 without rewriting
+awards or entitlements. See [the referral contract and audit](../one/referral-backend.md)
+for catalogue, rollback, Circle League preview and deployment boundaries.
 
 ### Document request prices and payouts
 
