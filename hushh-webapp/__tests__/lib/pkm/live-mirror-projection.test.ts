@@ -509,6 +509,32 @@ describe("Live Mirror conflict claims", () => {
     expect(conflictOf(projection, "document_request_payment.amountCents")).toBeUndefined();
   });
 
+  it("keeps each copy's number on every field, so a field's sides can skip one", () => {
+    const { inventory, history } = sync([{ inputs: [payment({ amountCents: 1_200 })], kinds: ["document_request_payment"], now: T1 }]);
+    const [a] = inventory.records;
+    const b = { ...a!, updatedAt: T1, value: { ...a!.value, status: "refunded" } };
+    const c = { ...a!, updatedAt: T2, value: { ...a!.value, amountCents: 3_400 } };
+    // Listed out of order: copies are numbered by when each changed.
+    const projection = build({ history, inventory: { ...inventory, records: [c, b, a!] } });
+    const sides = (predicate: string) => conflictOf(projection, predicate)!.claims.map(claim => `${claim.label}: ${claim.value}`);
+    expect(sides("document_request_payment.status")).toEqual([
+      "Document payment 1, copy 1: paid", "Document payment 1, copy 2: refunded",
+    ]);
+    // Copy 2 repeats copy 1's amount, so the amount's sides are copies 1 and 3.
+    expect(sides("document_request_payment.amountCents")).toEqual([
+      "Document payment 1, copy 1: 1200", "Document payment 1, copy 3: 3400",
+    ]);
+  });
+
+  it("says when an undated record's copies were checked, as the collector leaves earnings undated", () => {
+    const earning: LivingSourceInput = { kind: "document_earning", id: "e1", createdAt: T0, updatedAt: null,
+      value: { stripeMode: "live", status: "succeeded", grossCents: 1_111, createdAt: T0 } };
+    const gross = conflictOf(build(twoCopies(earning, { grossCents: 2_222 })), "document_earning.grossCents")!;
+    expect(gross.claims.map(claim => [claim.value, claim.sourceUpdatedAt])).toEqual([[1_111, null], [2_222, null]]);
+    expect(gross.claims.map(claim => liveMirrorClaimText(claim, gross.predicate, T2).detail))
+      .toEqual(["Checked 1 min ago · Version 1", "Checked 1 min ago · Version 1"]);
+  });
+
   it("numbers a record's copies the same on every field, whatever order the inventory lists them in", () => {
     // A tie on change time is settled by value; otherwise the earlier copy is copy 1.
     for (const updatedAt of [T0, T1]) {

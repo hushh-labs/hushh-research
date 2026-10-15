@@ -289,6 +289,16 @@ describe("Live Mirror name conflict read at turn time (B-R6)", () => {
     else expect(text).not.toContain("verified profile");
   });
 
+  it("says never for a pending profile side that was never verified", () => {
+    // The line words the claim's own provenance, not the source's last check.
+    const text = packet([SOUL, { ...PROFILE, verifiedAt: null }], {
+      sources: withSource("profile", { state: "updating", pendingChanges: 1 }),
+    });
+    expect(text).toContain(
+      '\nName conflict: memory says "SOUL_NAME"; profile (update pending, last verified never) says "PROFILE_NAME" [profile r3]\n',
+    );
+  });
+
   it.each<[string, LiveMirrorSource[]]>([
     ["withheld", withSource("profile", { state: "withheld" })],
     ["not checked yet", withSource("profile", { state: "not_checked", verifiedAt: null })],

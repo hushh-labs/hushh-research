@@ -430,9 +430,10 @@ const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
 };
 
 /**
- * Where the owner corrects or removes a source's values, for "Fix at source"
- * and the preview's section links; null for an unknown kind. Never a mirror
- * write path: the source changes there and both mirrors refresh from it.
+ * Where the owner corrects or removes a source's values, for source rows,
+ * record details and each side's fix link, and the preview's section links;
+ * null for an unknown kind. Never a mirror write path: the source changes
+ * there and both mirrors refresh from it.
  */
 export function liveMirrorSourceRoute(kind: LiveMirrorKind): LiveMirrorSourceRoute | null {
   return Object.hasOwn(SOURCE_ROUTES, kind) ? { ...SOURCE_ROUTES[kind] } : null;
