@@ -264,11 +264,12 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-async function profileFrame(page: import("@playwright/test").Page) {
-  return page.evaluate(() => {
+async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
+  return page.evaluate((safeSidePane) => {
     const reference = document.createElement("div");
-    reference.className = "profile-pane-sheet";
+    reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
+    if (safeSidePane) reference.dataset.appSidePane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     const card = document.createElement("div");
     const stack = document.createElement("div");
@@ -294,8 +295,75 @@ async function profileFrame(page: import("@playwright/test").Page) {
       } };
     reference.remove();
     return result;
-  });
+  }, safeSidePane);
 }
+
+for (const width of [320, 1440]) for (const dark of [false, true])
+  test(`Drive sharing uses Profile detail material and returns safely at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 820 });
+    const shareId = "22222222-2222-4222-8222-222222222222";
+    const now = new Date().toISOString();
+    const share = {
+      shareId, searchJobId: "11111111-1111-4111-8111-111111111111", status: "review_ready", revision: 1,
+      reviewDigest: "a".repeat(64), fileCount: 14, recipientCount: 1,
+      recipients: [{ name: "Fixture recipient", email: "recipient@synthetic.invalid" }], excluded: [],
+      counts: { total: 14, processed: 0, shared: 0, alreadyShared: 0, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 14 },
+      notifications: { settled: 0, pending: 0, unavailable: 0 },
+      canApprove: true, canStop: true, createdAt: now, updatedAt: now,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const writes: string[] = [];
+    await page.route("**/api/connectors/google_drive/sharing/bulk**", route => {
+      if (route.request().method() !== "GET") {
+        writes.push(route.request().url());
+        return route.fulfill({ status: 403, json: {} });
+      }
+      const pathname = new URL(route.request().url()).pathname;
+      return route.fulfill({ json: pathname.endsWith("/files") ? {
+        shareId, files: Array.from({ length: 14 }, (_, index) => ({ position: index + 1,
+          name: `Fixture document ${index + 1}.pdf`, mimeType: "application/pdf", modifiedTime: null, openUrl: null })), nextCursor: null,
+      } : pathname.endsWith(shareId) ? share : { shares: [share] } });
+    });
+    await page.goto("http://localhost/connections-fixture?drive-sharing=1");
+    await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
+    await page.addScriptTag({ content: script });
+    await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    const row = page.getByRole("button", { name: "Review files. 14 files to review. View details" });
+    await row.click();
+    const detail = page.getByRole("dialog", { name: "Drive sharing", exact: true });
+    await expect(detail.getByRole("button", { name: "Share 14 files with 1 person" })).toBeVisible();
+    // Nested translucent panes use the existing safe WebKit side-pane material.
+    const reference = await profileFrame(page, true);
+    await expect.poll(async () => {
+      const box = (await detail.boundingBox())!;
+      return Math.abs(width - box.x - box.width - reference.x);
+    }).toBeLessThan(2);
+    const box = (await detail.boundingBox())!;
+    expect(Math.abs(box.width - reference.width)).toBeLessThan(2);
+    expect(Math.abs(box.height - reference.height)).toBeLessThan(2);
+    expect(await detail.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
+    expect(await detail.getByRole("region", { name: "Drive sharing", exact: true }).evaluate(element => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+    })).toEqual(reference.card);
+    const title = (await detail.getByRole("heading", { name: "Drive sharing" }).boundingBox())!;
+    expect(Math.abs(title.x + title.width / 2 - box.x - box.width / 2)).toBeLessThan(2);
+    expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const overlay = page.locator("[data-slot=sheet-overlay]").last();
+    const historyZ = await page.locator("[data-agent-history-drawer]").evaluate(element => Number(getComputedStyle(element).zIndex));
+    expect(await overlay.evaluate(element => Number(getComputedStyle(element).zIndex))).toBeGreaterThan(historyZ);
+    const approve = detail.getByRole("button", { name: "Share 14 files with 1 person" });
+    const buttonBox = (await approve.boundingBox())!;
+    const labelBox = (await approve.locator(":scope > span").first().boundingBox())!;
+    expect(labelBox.x).toBeGreaterThanOrEqual(buttonBox.x);
+    expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(buttonBox.x + buttonBox.width + 1);
+    await page.screenshot({ path: testInfo.outputPath("drive-sharing-profile.png") });
+    await detail.getByRole("button", { name: "Back to Chats" }).click();
+    await expect(detail).not.toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
+    await expect(row).toBeFocused();
+    expect(writes).toEqual([]);
+  });
 
 for (const width of [320, 390, 1440]) for (const dark of [false, true])
   test(`Chats keeps Profile material through row actions at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
