@@ -297,12 +297,13 @@ jobs:
             # the configs and lockfile that build and run them. components/icons
             # (12 of its 14 files, reached through index barrels) and
             # lib/morphy-ux (13 primitives that import one another) are listed
-            # whole, so a new import inside either stays covered; elsewhere only
-            # the closure's own files are named. Every frontend change
-            # scheduled this lane before; this filter would have scheduled it
-            # for 78 of the 378 merged PRs that touched the frontend from
-            # 2026-10-01 to 2026-10-15, most of them through globals.css,
-            # package.json or playwright.config.ts. Guarded by
+            # whole, so a new import inside either stays covered. Native
+            # adapters now extend the fixture's transitive closure into the
+            # named library families below. Keep unrelated families excluded;
+            # blanket lib/** would also mask the Morphy negative control.
+            # The original narrower filter matched 78/378 frontend PRs from
+            # 2026-10-01 to 2026-10-15; that is not this expanded filter's count.
+            # Guarded by
             # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py,
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
@@ -315,22 +316,64 @@ jobs:
               - 'hushh-webapp/components/agent/agent-message-attachments.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-editor.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-viewer.tsx'
+              - 'hushh-webapp/components/agent/animated-menu-cross-icon.tsx'
+              - 'hushh-webapp/components/app-ui/native-chat-chrome.tsx'
+              - 'hushh-webapp/components/app-ui/native-feature-page.tsx'
+              - 'hushh-webapp/components/app-ui/shell-action-surface.tsx'
               - 'hushh-webapp/components/icons/**'
+              - 'hushh-webapp/components/kai/types/portfolio.ts'
               - 'hushh-webapp/components/ui/button.tsx'
               - 'hushh-webapp/components/ui/card.tsx'
+              - 'hushh-webapp/components/ui/dialog.tsx'
               - 'hushh-webapp/components/ui/input.tsx'
               - 'hushh-webapp/components/ui/sheet.tsx'
               - 'hushh-webapp/hooks/use-mobile.ts'
-              - 'hushh-webapp/lib/agent/agent-chat-transcript-scroll.ts'
-              - 'hushh-webapp/lib/agent/large-text-attachment.ts'
-              - 'hushh-webapp/lib/capacitor/native-control-appearance.ts'
-              - 'hushh-webapp/lib/capacitor/native-navigation.ts'
-              - 'hushh-webapp/lib/capacitor/session-privacy.ts'
+              - 'hushh-webapp/contracts/consent/field-sensitivity.v1.json'
+              - 'hushh-webapp/contracts/kai/kai-action-gateway.vnext.json'
+              - 'hushh-webapp/contracts/pkm/internal-path-keys.v1.json'
+              - 'hushh-webapp/contracts/pkm/reserved-branches.v1.json'
+              - 'hushh-webapp/contracts/pkm/secret-patterns.v1.json'
+              - 'hushh-webapp/lib/agent/**'
+              - 'hushh-webapp/lib/app-env.ts'
+              - 'hushh-webapp/lib/auth/**'
+              - 'hushh-webapp/lib/brand/**'
+              - 'hushh-webapp/lib/cache/**'
+              - 'hushh-webapp/lib/capacitor/**'
+              - 'hushh-webapp/lib/circle-chat/**'
+              - 'hushh-webapp/lib/config.ts'
+              - 'hushh-webapp/lib/connected-systems/**'
+              - 'hushh-webapp/lib/connections/**'
+              - 'hushh-webapp/lib/consent/**'
+              - 'hushh-webapp/lib/contacts/**'
+              - 'hushh-webapp/lib/copy/**'
+              - 'hushh-webapp/lib/feed/**'
+              - 'hushh-webapp/lib/firebase/**'
+              - 'hushh-webapp/lib/generated/**'
+              - 'hushh-webapp/lib/kai/**'
+              - 'hushh-webapp/lib/mail/**'
               - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/motion/**'
+              - 'hushh-webapp/lib/navigation/**'
+              - 'hushh-webapp/lib/notifications/**'
+              - 'hushh-webapp/lib/observability/**'
+              - 'hushh-webapp/lib/onboarding/**'
+              - 'hushh-webapp/lib/one-location/**'
+              - 'hushh-webapp/lib/one-marketplace/**'
+              - 'hushh-webapp/lib/personal-knowledge-model/**'
+              - 'hushh-webapp/lib/pkm/**'
+              - 'hushh-webapp/lib/portfolio-share/**'
+              - 'hushh-webapp/lib/profile/**'
+              - 'hushh-webapp/lib/runtime/**'
+              - 'hushh-webapp/lib/services/**'
+              - 'hushh-webapp/lib/streaming/**'
+              - 'hushh-webapp/lib/testing/**'
               - 'hushh-webapp/lib/theme/accent.ts'
               - 'hushh-webapp/lib/ui/button-variants.ts'
               - 'hushh-webapp/lib/utils.ts'
-              - 'hushh-webapp/lib/utils/clipboard.ts'
+              - 'hushh-webapp/lib/utils/**'
+              - 'hushh-webapp/lib/vault/**'
+              - 'hushh-webapp/lib/wallet/**'
+              - 'hushh-webapp/src/lib/consent/normalizeConsent.ts'
               - 'hushh-webapp/app/globals.css'
               - 'hushh-webapp/tailwind.config.ts'
               - 'hushh-webapp/postcss.config.mjs'
