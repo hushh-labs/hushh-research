@@ -2199,6 +2199,69 @@
     "function_lines": 80,
     "module_lines": 500
   },
+  "byoc_connection_probe_corrective_review_20261015": {
+    "entries": [
+      {
+        "after": 619,
+        "before": 586,
+        "key": "module_size|consent-protocol/db/connection.py||module exceeds the advisory operon budget",
+        "review": "Small process-wide admission mechanism and bounded session teardown stay in the existing dedicated-connection authority; no parallel pool.",
+        "source_sha256": "e26dab7b3d6f4ec2896716ae08d48d3860e12ffc161dda49d62dd528a428f3b3"
+      },
+      {
+        "after": 53,
+        "before": 51,
+        "key": "import_initialization|consent-protocol/db/connection.py|load_dotenv|top-level runtime initialization weakens import safety",
+        "review": "Unchanged load_dotenv call shifted from line51 to53 by imports; no new import-time action.",
+        "source_sha256": "e26dab7b3d6f4ec2896716ae08d48d3860e12ffc161dda49d62dd528a428f3b3"
+      },
+      {
+        "after": 2026,
+        "before": 2020,
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py||module exceeds the advisory operon budget",
+        "review": "Same six-line truthful capacity refusal; no extra provider execution or retry.",
+        "source_sha256": "32574a038eba97440d3c2f858634112ec1c1f16f57bebb9fcd670c2a789e26a2"
+      },
+      {
+        "after": 1113,
+        "before": 1107,
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|GmailLiveReceiptsService|class exceeds the advisory operon budget",
+        "review": "Six-line typed busy refusal belongs beside the existing timeout and owner-lease finally; moving it would split exception authority.",
+        "source_sha256": "32574a038eba97440d3c2f858634112ec1c1f16f57bebb9fcd670c2a789e26a2"
+      },
+      {
+        "after": 1793,
+        "before": 1775,
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipt_live_service.py||module exceeds the advisory operon budget",
+        "review": "Nearest focused regression proves capacity refusal and subsequent owner-lease retry; no duplicate fixture.",
+        "source_sha256": "e95fb486fa7422ff243c52f7e68d9cf47e18d0b13c5240e055be55af9ad91690"
+      },
+      {
+        "after": 1260,
+        "before": 1242,
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "review": "Cohesive helper follows the actual referenced script and verifies all16 environment bindings and source upload inclusion.",
+        "source_sha256": "d67da52774624a4631e4c553b19de2a5db52b60f9ff2445a3af25d2f7153cfc7"
+      },
+      {
+        "after": 97,
+        "before": 95,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe|function exceeds the advisory gene budget",
+        "review": "The existing strict-probe test now reads the referenced script. All execution and refusal assertions remain intact.",
+        "source_sha256": "d67da52774624a4631e4c553b19de2a5db52b60f9ff2445a3af25d2f7153cfc7"
+      },
+      {
+        "after": 1412,
+        "before": 1407,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "review": "Five lines establish explicit owner/phase admission for the existing logging-only regression. Production worker guard and independent private/unknown placement refusal tests stay intact. No duplicate test or fixture.",
+        "source_sha256": "32108b0d690ad09d47290ad946470bab651ff00c41a6abfb67f772f4e0c0092d"
+      }
+    ],
+    "evidence_revision": "b983a5d7eeb29338ac601114b1e117bb74218722",
+    "reviewer": "peer_fixture_review",
+    "scope": "Eight independently reviewed exact-source debt ceilings only. Budgets500/250/80, every unrelated finding, exclusions and scanners unchanged. No claim these existing hotspots meet advisory budgets."
+  },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
   "finding_count": 2590,
   "findings": [
@@ -2866,7 +2929,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "GmailLiveReceiptsService",
-      "value": 1107
+      "value": 1113
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -15016,7 +15079,7 @@
       "limit": null,
       "path": "consent-protocol/db/connection.py",
       "symbol": "load_dotenv",
-      "value": 51
+      "value": 53
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
@@ -16033,7 +16096,7 @@
       "limit": 500,
       "path": "consent-protocol/db/connection.py",
       "symbol": null,
-      "value": 586
+      "value": 619
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16915,7 +16978,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": null,
-      "value": 2020
+      "value": 2026
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18535,7 +18598,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipt_live_service.py",
       "symbol": null,
-      "value": 1775
+      "value": 1793
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20020,7 +20083,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1242
+      "value": 1260
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25250,7 +25313,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1407
+      "value": 1412
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25966,7 +26029,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe",
-      "value": 95
+      "value": 97
     },
     {
       "detail": "function exceeds the advisory gene budget",
