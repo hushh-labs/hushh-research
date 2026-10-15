@@ -374,11 +374,13 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const reference = await profileFrame(page);
     await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const closeBox = (await close.boundingBox())!;
-    expect(closeBox.width).toBeGreaterThanOrEqual(44);
-    expect(closeBox.height).toBeGreaterThanOrEqual(44);
+    // Keep the physical target check while allowing WebKit matrix rounding.
+    expect(closeBox.width + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(closeBox.height + 0.0001).toBeGreaterThanOrEqual(44);
     expect(closeBox.x - (await chats.boundingBox())!.x).toBeCloseTo((width < 640 ? 16 : width < 1024 ? 20 : 24) + 1, 0);
     // Layout width, not WebKit's fractional translated DOMRect rounding.
     expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
+    expect(await close.evaluate(element => (element as HTMLElement).offsetHeight)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
     const title = chats.getByText("A weekend idea", { exact: true });
     const age = chats.locator("time");

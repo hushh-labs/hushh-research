@@ -105,6 +105,10 @@ for (const theme of ["light", "dark"] as const)
         await expect(page.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
         const action = revoked ? "Reconnect Mail" : "Connect Mail";
         const kyc = page.getByRole("tabpanel", { name: "KYC" });
+        // Selection precedes Embla's initial positioning of retained panes.
+        await expect.poll(async () => Math.abs((await box(kyc)).x -
+          (await box(page.locator("[data-swipe-views-root='true']"))).x),
+        ).toBeLessThanOrEqual(1);
         const baseline = await cardGeometry(kyc.getByTestId("mail-connection-status"));
         expect(baseline.buttonHeight).toBeGreaterThanOrEqual(44);
         expect(baseline.buttonCenter).toBeLessThanOrEqual(0.5);

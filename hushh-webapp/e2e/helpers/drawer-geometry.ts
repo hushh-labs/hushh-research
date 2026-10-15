@@ -20,7 +20,7 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
     const nav = document.querySelector("[data-fixture-bottom-bar]")!;
     const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
     const width = panel.offsetWidth;
-    const frames: { elapsed: number; x: number }[] = [];
+    const frames: { elapsed: number; x: number; source: "raf" | "timer" }[] = [];
     const start = performance.now();
     const transitions: { type: string; property: string; elapsed: number }[] = [];
     const observeTransition = (event: TransitionEvent) => {
@@ -33,13 +33,13 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
     let timerId = 0;
     let done = false;
     const finished = new Promise<void>(resolve => {
-      const sample = () => {
+      const sample = (source: "raf" | "timer" = "timer") => {
         if (done) return;
         const elapsed = performance.now() - start;
-        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
+        frames.push({ elapsed, x: panel.getBoundingClientRect().x, source });
         if (elapsed >= (action === "open" ? 360 : 260)) { done = true; resolve(); }
       };
-      const onFrame = () => { sample(); if (!done) frameId = requestAnimationFrame(onFrame); };
+      const onFrame = () => { sample("raf"); if (!done) frameId = requestAnimationFrame(onFrame); };
       frameId = requestAnimationFrame(onFrame);
       timerId = window.setInterval(sample, 8);
     });
@@ -52,6 +52,9 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
       }
       await finished;
       return { frames, transitions, width, restingX: panel.offsetLeft, before,
+        rendering: { visibility: document.visibilityState, timeline: document.timeline.currentTime,
+          animations: panel.getAnimations().map(animation => ({ pending: animation.pending,
+            currentTime: animation.currentTime, startTime: animation.startTime })) },
         after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
         shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
     } finally {

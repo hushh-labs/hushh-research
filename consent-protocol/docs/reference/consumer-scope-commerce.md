@@ -40,7 +40,19 @@ retaining latency, intermediate-motion and unchanged-Chat checks. Chromium and
 WebKit reject a forced zero-duration transition. This is geometry continuity
 proof, not compositor FPS. A repeat local positive run under shared-host load
 failed the unchanged latency/motion assertions; no passing final replay is
-claimed. A new exact-source core and full CI remain required.
+claimed. Candidate `8b5e6ea3cea2` then passed the canonical core in 1,111 seconds,
+including 19,255 protocol unit cases and 1,154 serial database cases. Its
+[full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38669698592)
+failed the WebKit History motion contract, blocking promotion. A focused
+diagnostic found the panel open in a visible document but its animation still
+pending with no start time. An isolated WebKit document also delayed rendering;
+these observations do not establish a production CSS defect. Connections now
+uses one worker and records RAF/timer and pending-animation diagnostics without
+changing its onset, duration or geometry requirements. The Mail fixture waits
+for initial pane arrival before measuring its unchanged centering contract;
+44px checks retain strict layout dimensions and the existing numeric precision
+allowance. All four affected geometry cases pass across Chromium and WebKit.
+Serialization still requires exact-source CI verification; no release is claimed.
 
 The existing Chrome process and shared tabs are preserved. Before an interrupted
 turn, a task-owned background page proved the primary's ordinary Firebase owner,
@@ -59,7 +71,7 @@ route, callback and asynchronous owner-retirement controls passed 77 focused
 frontend and 19 Node cases. The actual private request passed the guard but returned
 HTTP 400 at model admission. No encrypted fixture or paid purchase was submitted.
 
-Registry-bound Azure inspection at `2026-10-15T00:57:08Z` found the primary's
+Registry-bound Azure inspection at `2026-10-15T02:26:43Z` found the primary's
 provisioned pod had no OpenAI deployment, model environment or account-scoped
 OpenAI User role. Its selected subscription ending `052f9` is Free Trial, and the
 inspected default-model quota is zero. The counterpart's `one-chat` deployment,
@@ -75,12 +87,14 @@ quota, then a bounded model/role/environment recovery under the existing owner
 JIT and handoff authority. No billing upgrade, quota request, cross-owner model
 substitution or destructive setup replay has been performed.
 
-At `2026-10-14T23:23:44Z`, source-bound database and provider reads confirmed
+At `2026-10-15T02:34:46Z`, source-bound database and provider reads confirmed
 both reviewers' document/answer payout accounts have submitted details, an
 eligible USD bank and enabled payouts. These are distinct from information-access
 accounts and use automatic scheduling. The primary information-access account
 still requires individual name, bank and terms; the counterpart is eligible with
-manual scheduling. A completed document-bank setup must not be reported as scope
+manual scheduling. Funding remains $10.50 per reviewer and platform capital $15;
+provider/ledger agreement, balanced liabilities, settled backing and fee
+conservation pass. A completed document-bank setup must not be reported as scope
 payout eligibility or adopted across settlement authorities.
 
 Full CI at `9275686586fc` passed protocol, MCP, web-core, all three web unit
@@ -95,15 +109,19 @@ still fails the intermediate-frame guard. Latency, final geometry, unchanged
 Chat position and revocation assertions remain intact. Candidate `69d1f729fbd5`
 passed core; successful exact-source full CI remains required before Dev promotion.
 
-New main `493a66762d61` was fetched and assessed separately from this frozen
-payment release. Its 340 additional commits expose a migration identity collision:
+New main `1df8063040b4` was fetched and assessed separately from this frozen
+payment release. The integration exposes a migration identity collision:
 historical `335_pwm_provider_budget` is byte-identical to incoming
 `340_pwm_provider_budget`, while incoming Drive SQL reuses 335. An uncommitted
 trial merge was aborted; the existing branch and all ten protected workspace
 hashes remain unchanged. Future normal integration requires explicit execution
-and rollback mapping, preservation of head 348 and the 57 manual Dev entries,
+and rollback mapping, preservation of head 348 and the 60 manual Dev entries,
 plus review of changed placement and retained-revision capacity policies. No
-combined-release qualification is claimed.
+combined-release qualification is claimed. The complete read-only Dev ledger
+observation at `2026-10-15T01:32:47Z` contains 60 applied parked manual entries,
+with no accepted IDs 335–348 or baseline markers. Preserve all 60 entries;
+the earlier 57-entry count is historical. Source archival and replay qualification
+remain required before adopting main's canonical 335/340 identities.
 
 Reviewer roles below refer to the canonical environment-wired subjects. A
 Firebase identity read on 2026-10-14 corrected reversed email labels in the
