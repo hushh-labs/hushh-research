@@ -1649,6 +1649,7 @@ class AgentChatService:
                 from hushh_mcp.services.one_referral_activity_service import (
                     reconcile_product_activity,
                 )
+
                 await asyncio.to_thread(reconcile_product_activity, user_id, message_id)
             except Exception:
                 # The transactional reply event remains available to the maintenance sweep.
