@@ -816,7 +816,7 @@ final class NativeVaultLayoutProbe {
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
                             "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
-                            "bottomProgress", "appScrollTop", "appScrollRange",
+                            "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
@@ -924,6 +924,11 @@ final class NativeVaultLayoutProbe {
         bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
         appScrollTop: scrollRoot?.scrollTop,
         appScrollRange: scrollRoot ? scrollRoot.scrollHeight - scrollRoot.clientHeight : undefined,
+        appScrollHeight: scrollRoot?.scrollHeight,
+        appScrollClientHeight: scrollRoot?.clientHeight,
+        appScrollRootCount: document.querySelectorAll('[data-app-scroll-root="true"]').length,
+        windowScrollRange: document.scrollingElement ? document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight : undefined,
+        oneRosterPresent: Boolean(document.querySelector('[data-testid="one-agents-section"]')),
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
         cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),

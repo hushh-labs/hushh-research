@@ -2529,7 +2529,7 @@ final class AppUITests: XCTestCase {
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused", "bottomProgress", "appScrollTop", "appScrollRange"] {
+            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused", "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent"] {
                 if let value = packet[key], value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
                     // Keep finite subpixel evidence: rounding hid geometry
                     // rejected at the strict native containment boundary.
