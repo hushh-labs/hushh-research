@@ -533,16 +533,31 @@ def _account_identifier(value):
     return "".join(digits[-4:]) if len(digits) >= 4 else None
 
 
+_NAME_CONNECTORS = frozenset({"and", "or", "of", "the"})
+
+
 def _holder_name(value):
-    return " ".join(re.sub(r"[\W_]+", " ", value or "").casefold().split()) or None
+    words = re.sub(r"[\W_]+", " ", value or "").casefold().split()
+    return frozenset(words) - _NAME_CONNECTORS or None
+
+
+def _holders_agree(holders):
+    """One listing can name the others. A holder is named by a listing when
+    its words are a subset of it (a joint listing, a middle name) or share two
+    words with it (an initial beside a joint listing). A name sharing at most
+    one word with every listing is a different holder."""
+    return any(
+        all(holder <= listing or len(holder & listing) >= 2 for holder in holders)
+        for listing in holders
+    )
 
 
 def _account_mismatch(selected_facts):
     """Read the extracted account facts deterministically; never guess which is right.
 
     Members with no account fact are left to the model checker. The facts
-    contract carries no owner identity, joint holders or aliases, so a holder
-    name that differs across account records is reported, not reconciled.
+    contract carries no owner identity or aliases, so a holder name that no
+    listing names is reported, not reconciled.
     """
     accounts = [facts for facts in selected_facts if _fact_value(facts, "account")]
     identifiers = {
@@ -557,7 +572,7 @@ def _account_mismatch(selected_facts):
         for facts in (selected_facts if accounts else [])
         if (holder := _holder_name(_fact_value(facts, "subject")))
     }
-    if len(holders) > 1:
+    if len(holders) > 1 and not _holders_agree(holders):
         return HOLDER_MISMATCH
     return None
 

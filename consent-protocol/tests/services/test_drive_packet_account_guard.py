@@ -184,8 +184,31 @@ async def test_members_naming_different_holders_cannot_build_ready():
                 "second", account=None, holder="Hiring notes", kind="Meeting notes", month=10
             ),
         ],
+        # A joint account: one statement lists both holders, the other one of them.
+        [
+            statement("sep", account="Account ending 1122", holder="Jane Example"),
+            statement(
+                "oct",
+                account="Account ending 1122",
+                holder="Jane Example and John Example",
+                month=10,
+            ),
+            statement("nov", account="Account ending 1122", holder="JOHN EXAMPLE", month=11),
+        ],
+        # A middle initial on one statement, and a cover letter naming both holders.
+        [
+            statement("sep", account="Account ending 1122", holder="Jane Q. Example"),
+            statement("oct", account="Account ending 1122", holder="Jane Example", month=10),
+            statement("letter", account=None, holder="Jane and John Example", kind="Letter"),
+        ],
     ],
-    ids=["same_account_two_masks", "one_unknown_account", "notes_without_accounts"],
+    ids=[
+        "same_account_two_masks",
+        "one_unknown_account",
+        "notes_without_accounts",
+        "joint_holders_listed_once",
+        "middle_initial_and_joint_letter",
+    ],
 )
 async def test_consistent_or_unknown_accounts_stay_ready(members):
     packet, _ = await build(members)
