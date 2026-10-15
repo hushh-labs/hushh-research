@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   user: { uid: "owner-a" },
   key: "key-a",
@@ -78,8 +78,17 @@ import {
 } from "@/components/profile/world-model-provider";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
 function Probe() {
-  const { refresh, reload, mounted, preferences, failed } =
-    useWorldModelResearch();
+  const {
+    refresh,
+    reload,
+    mounted,
+    preferences,
+    failed,
+    progress,
+    live,
+    lastActivityAt,
+    retryAt,
+  } = useWorldModelResearch();
   const switches = preferences
     ? preferences.enabled
       ? "enrolled"
@@ -104,6 +113,16 @@ function Probe() {
       <span>{mounted ? "mounted" : "outside"}</span>
       <span>{switches}</span>
       <span>{failed ? "failed" : "not failed"}</span>
+      <span>{live ? "live" : "idle"}</span>
+      <span>
+        {progress
+          ? `progress ${progress.stage} ${progress.searches_used}`
+          : "no progress"}
+      </span>
+      <span>
+        {lastActivityAt === null ? "no activity" : `activity ${lastActivityAt}`}
+      </span>
+      <span>{retryAt === null ? "no retry" : `retry at ${retryAt}`}</span>
     </>
   );
 }
@@ -113,6 +132,14 @@ const pending = {
   restart_required: false,
 } as const;
 const decisions = { confirmed: ["Saved."], rejected: ["Declined."] };
+/**
+ * Lets every pending promise run and React paint, without the library's
+ * own waiting helpers, which hang while setTimeout is faked.
+ */
+const settle = () =>
+  act(async () => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
 beforeEach(() => {
   vi.clearAllMocks();
   mock.user = { uid: "owner-a" };
@@ -124,6 +151,10 @@ beforeEach(() => {
   mock.observe.mockResolvedValue(undefined);
   mock.load.mockResolvedValue({});
   mock.ownerDecisions.mockReturnValue(decisions);
+});
+afterEach(() => {
+  vi.useRealTimers();
+  delete (document as { hidden?: boolean }).hidden;
 });
 describe("PWM owner and request isolation", () => {
   it("consumes refresh before another account or vault token takes over", async () => {
@@ -242,6 +273,121 @@ describe("PWM owner and request isolation", () => {
     expect(screen.getByText("failed")).toBeInTheDocument();
     expect(mock.preferences).toHaveBeenCalledTimes(1);
   });
+  it("publishes live progress, and clears it when research ends", async () => {
+    let finish!: () => void;
+    mock.observe.mockImplementation(async ({ onProgress, onResult }) => {
+      onResult(pending);
+      onProgress({ stage: "coverage", searches_used: 7 });
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      onResult({ status: "saved", pkm_written: false });
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("progress coverage 7")).toBeInTheDocument();
+    expect(screen.getByText("live")).toBeInTheDocument();
+    await act(async () => finish());
+    expect(screen.getByText("no progress")).toBeInTheDocument();
+    expect(screen.getByText("idle")).toBeInTheDocument();
+  });
+  it("marks research failed when the watch ends while it is still pending, so the page offers Try again", async () => {
+    mock.observe.mockImplementation(async ({ onResult }) => {
+      onResult(pending);
+      // The hour-long watch ran out: the service's own closing result.
+      onResult({ status: "paused", pkm_written: false, restart_required: true });
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("idle")).toBeInTheDocument();
+    // Try again restarts the watch with a fresh budget.
+    mock.observe.mockImplementation(async ({ onResult }) =>
+      onResult({ status: "saved", pkm_written: false }),
+    );
+    fireEvent.click(screen.getByText("Reload"));
+    expect(await screen.findByText("not failed")).toBeInTheDocument();
+    expect(mock.observe).toHaveBeenCalledTimes(2);
+  });
+  it("retries on its own when research is unavailable for a while, pane or no pane", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
+    const started = Date.now();
+    mock.observe.mockImplementationOnce(async ({ onResult }) =>
+      onResult({
+        status: "unavailable",
+        pkm_written: false,
+        reason: "provider_unavailable",
+        retry_after_s: 900,
+      }),
+    );
+    mock.observe.mockImplementation(async ({ onResult }) =>
+      onResult({ status: "saved", pkm_written: false }),
+    );
+    // Only the app-level provider is mounted: no page, no pane.
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    await settle();
+    expect(screen.getByText(`retry at ${started + 900_000}`)).toBeInTheDocument();
+    expect(screen.getByText("not failed")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(899_000);
+    });
+    expect(mock.observe).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    await settle();
+    expect(mock.observe).toHaveBeenCalledTimes(2);
+    // A fresh start, not a read of the run that ended.
+    expect(mock.observe.mock.calls[1][0].refresh).not.toBe(true);
+    // Any other result clears the wait.
+    expect(screen.getByText("no retry")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900_000);
+    });
+    expect(mock.observe).toHaveBeenCalledTimes(2);
+  });
+  it("counts running research fresh when the owner returns after a hidden spell", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
+    const started = Date.now();
+    let hidden = false;
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+    mock.observe.mockImplementation(async ({ onResult }) => {
+      onResult(pending);
+      await new Promise(() => {});
+    });
+    render(
+      <WorldModelProvider>
+        <Probe />
+      </WorldModelProvider>,
+    );
+    expect(await screen.findByText(`activity ${started}`)).toBeInTheDocument();
+    hidden = true;
+    await act(async () => {
+      vi.setSystemTime(started + 6 * 60_000);
+    });
+    hidden = false;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    // Nothing new arrived, yet the page must not announce a six-minute stall.
+    expect(screen.getByText(`activity ${Date.now()}`)).toBeInTheDocument();
+    expect(Date.now()).toBeGreaterThanOrEqual(started + 6 * 60_000);
+  });
   it("tells a page when no provider is mounted", () => {
     render(<Probe />);
     expect(screen.getByText("outside")).toBeInTheDocument();
@@ -299,12 +445,12 @@ describe("PWM owner and request isolation", () => {
       />,
     );
     fireEvent.change(
-      screen.getByLabelText("Public source links, one per line"),
+      screen.getByLabelText("Page links, one per line"),
       { target: { value: "https://example.test/alice" } },
     );
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(
-      screen.getByRole("button", { name: "Prepare details to review" }),
+      screen.getByRole("button", { name: "Read these pages" }),
     );
     await screen.findByText("new-draft");
     await act(async () => finish({ status: "offered", draft_id: "old-draft" }));

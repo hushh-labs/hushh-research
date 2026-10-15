@@ -31,6 +31,7 @@ from hushh_mcp.services.world_model_preferences import (
     enroll_default,
     preferences,
 )
+from hushh_mcp.services.world_model_progress import derive_progress
 
 NAMESPACE = "one.personal_world_model.v1"
 # A finished model is prepared again once its latest run is this old.
@@ -145,6 +146,38 @@ async def offer(
 class WorldModelJobs(ProfileResearchJobs):
     log_event = "one.pwm_"
     search_slots = MAX_SEARCHES
+    #: Owners whose last-seen checkpoint revision this process remembers.
+    activity_capacity = 1024
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # user_id -> (revision, when this process first saw it). The store does
+        # not return a write time; this is the best per-process stand-in.
+        self.activity: dict[str, tuple[int, float]] = {}
+
+    def activity_at(self, user_id, state):
+        revision = state.get("revision")
+        seen = self.activity.get(user_id)
+        if seen is None or seen[0] != revision:
+            if len(self.activity) >= self.activity_capacity:
+                self.activity.pop(next(iter(self.activity)))
+            seen = self.activity[user_id] = (revision, self.clock())
+        return seen[1]
+
+    async def status(self, user_id, consent_token):
+        result = await super().status(user_id, consent_token)
+        if result["status"] not in {"pending", "paused"}:
+            self.activity.pop(user_id, None)
+            return result
+        # Progress is additive and derived from the sealed checkpoint only;
+        # the key that opens it is the same request-bound key as the status.
+        state = await self.store.get(user_id)
+        if state is None:
+            return result
+        progress = derive_progress(
+            state, now=self.clock(), revision_at=self.activity_at(user_id, state)
+        )
+        return {**result, "progress": progress}
 
     def committed(self):
         from hushh_mcp.services.world_model_notifications import world_model_notification_worker

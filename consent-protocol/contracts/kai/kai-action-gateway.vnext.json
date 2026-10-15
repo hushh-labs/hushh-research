@@ -16456,7 +16456,7 @@
     {
       "action_id": "profile.world_model.research",
       "surface_id": "profile_world_model",
-      "label": "Use public sources",
+      "label": "Research public pages",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -16531,7 +16531,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.research",
-            "label": "Use public sources",
+            "label": "Research public pages",
             "failure_behavior": "stop"
           }
         ],
@@ -17062,7 +17062,7 @@
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17258,7 +17258,7 @@
     {
       "action_id": "profile.world_model.reject",
       "surface_id": "profile_world_model",
-      "label": "Reject invitation",
+      "label": "Decline invitation",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -17331,7 +17331,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.reject",
-            "label": "Reject invitation",
+            "label": "Decline invitation",
             "failure_behavior": "stop"
           }
         ],
