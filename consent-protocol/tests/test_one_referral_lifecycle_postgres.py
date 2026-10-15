@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 
+from db.migration_authority import _replay_sql, build_manifest_entries
 from hushh_mcp.services import one_referral_activity_service as activity
 from hushh_mcp.services import one_referral_challenge_service as challenge
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard
@@ -48,9 +49,11 @@ def db(monkeypatch):
               CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT);
               CREATE TABLE one_location_circle_members(circle_id UUID,user_id TEXT,status TEXT);
               CREATE TABLE pkm_data(user_id TEXT PRIMARY KEY,encrypted_data_ciphertext TEXT);
+              CREATE TABLE pkm_events(id BIGSERIAL PRIMARY KEY,user_id TEXT NOT NULL,domain TEXT NOT NULL,
+                operation_type TEXT NOT NULL,metadata JSONB NOT NULL DEFAULT '{}');
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
             """)
-            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347):
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348):
                 path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
                 conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
 
@@ -482,6 +485,44 @@ def test_product_rewards_follow_trusted_writes(db):
     _actor(db, "alice")
     _actor(db, "bob")
     with db.begin() as conn:
+        # Current atomic Memory saves emit confirmed content_write events;
+        # projections, upgrades and unconfirmed writes must not earn points.
+        for operation, provenance in (
+            (
+                "decision_projection",
+                '{"mutation_plan_id":"plan","confirmation_receipt_id":"receipt"}',
+            ),
+            ("content_write", '{"upgrade_claim":{"claim_id":"upgrade"}}'),
+            ("content_write", '{"mutation_plan_id":"plan","confirmation_receipt_id":" "}'),
+            ("content_write", "{}"),
+        ):
+            conn.execute(
+                text("""
+              INSERT INTO pkm_events(user_id,domain,operation_type,metadata)
+              VALUES('alice','financial',:operation,jsonb_build_object('provenance',CAST(:provenance AS JSONB)))
+            """),
+                {"operation": operation, "provenance": provenance},
+            )
+        assert (
+            conn.execute(
+                text(
+                    "SELECT COALESCE(SUM(points),0) FROM one_referral_score_events WHERE user_id='alice'"
+                )
+            ).scalar_one()
+            == 0
+        )
+        for domain in ("financial", "personal"):
+            conn.execute(
+                text("""
+              INSERT INTO pkm_events(user_id,domain,operation_type,metadata)
+              VALUES('alice',:domain,'content_write',
+                '{"provenance":{"mutation_plan_id":"plan","confirmation_receipt_id":"receipt"}}')
+            """),
+                {"domain": domain},
+            )
+    assert scoring.get_cumulative_score("alice") == 15
+    with db.begin() as conn:
+        # Legacy compatibility shares the same once-per-owner/day key.
         conn.execute(text("INSERT INTO pkm_data VALUES('alice','ciphertext')"))
         conn.execute(text("UPDATE pkm_data SET encrypted_data_ciphertext='new_ciphertext'"))
         conn.execute(text("INSERT INTO connections(user_a_id,user_b_id) VALUES('alice','bob')"))
@@ -490,6 +531,64 @@ def test_product_rewards_follow_trusted_writes(db):
     assert scoring.get_cumulative_score("alice") == 20
     assert scoring.get_cumulative_score("bob") == 5
     assert all(row["coins"] == 0 for row in activity.get_transaction_history("alice")["entries"])
+
+
+def test_reviewed_policy_history_replays_after_lifecycle_activation(db):
+    """A repeated release preserves v4, historical policies and earned awards."""
+    _actor(db, "alice")
+    with db.begin() as conn:
+        activity.record_score(
+            conn,
+            user_id="alice",
+            event_type="agent_usage",
+            points=10,
+            coins=0,
+            version=4,
+            key="earned-before-replay",
+        )
+    entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        (
+            "289_one_referral_program_settings_v2.sql",
+            "338_one_referral_usd_catalogue.sql",
+            "347_one_referral_dashboard_lifecycle.sql",
+            "348_one_referral_confirmed_memory_reward.sql",
+        ),
+    )
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        before = conn.exec_driver_sql(
+            "SELECT * FROM one_referral_program_settings ORDER BY version"
+        ).all()
+        for _ in range(2):
+            for entry in entries:
+                conn.connection.cursor().execute(_replay_sql(entry))
+        assert (
+            conn.exec_driver_sql(
+                "SELECT * FROM one_referral_program_settings ORDER BY version"
+            ).all()
+            == before
+        )
+    assert scoring.get_cumulative_score("alice") == 10
+
+
+@pytest.mark.parametrize(
+    "migration", ("289_one_referral_program_settings_v2.sql", "338_one_referral_usd_catalogue.sql")
+)
+@pytest.mark.parametrize(
+    "drift",
+    (
+        "UPDATE one_referral_program_settings SET points='{}' WHERE version=4",
+        "UPDATE one_referral_program_settings SET activated_at=activated_at+INTERVAL '1 second' WHERE version=4",
+        "UPDATE one_referral_program_settings SET version=5 WHERE version=4",
+    ),
+)
+def test_policy_replay_rejects_unreviewed_successor(db, migration, drift):
+    entry = build_manifest_entries(ROOT / "db/migrations", (migration,))[0]
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(drift)
+        with pytest.raises(Exception, match="reviewed|lineage|does not match"):
+            conn.connection.cursor().execute(_replay_sql(entry))
+        conn.exec_driver_sql("ROLLBACK")
 
 
 def test_job_backoff_stale_lease_and_terminal_retry(db):

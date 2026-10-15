@@ -312,7 +312,8 @@
     "344_hosted_memory_scoped_source_envelope.sql",
     "345_live_memory_source_journal.sql",
     "346_one_location_recipient_feed_clear.sql",
-    "347_one_referral_dashboard_lifecycle.sql"
+    "347_one_referral_dashboard_lifecycle.sql",
+    "348_one_referral_confirmed_memory_reward.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -662,6 +663,7 @@
     "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql",
     "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql",
     "346_one_location_recipient_feed_clear.sql": "rollback/346_one_location_recipient_feed_clear.rollback.sql",
-    "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql"
+    "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql",
+    "348_one_referral_confirmed_memory_reward.sql": "rollback/348_one_referral_confirmed_memory_reward.rollback.sql"
   }
 }

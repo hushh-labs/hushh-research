@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 347,
+  "expected_migration_version": 348,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -87,7 +87,8 @@
     "erase_live_memory_source_journal_on_root_delete",
     "one_referral_bind_network",
     "one_referral_record_completed_reply",
-    "one_referral_rebuild_network"
+    "one_referral_rebuild_network",
+    "one_referral_record_confirmed_memory_reward"
   ],
   "required_tables": {
     "account_deletion_tombstones": [

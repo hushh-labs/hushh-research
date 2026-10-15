@@ -49,7 +49,7 @@ Earned milestones, claims, and fulfillment are separate persisted states. Claimi
 
 ## Deployment and verification
 
-Apply migration 347 after 346 using the existing migration release lane. No production database is modified by local tests. Enable the existing authenticated scoring scheduler for qualification reconciliation, score settlement, snapshot publication and ended-round processing. Weekly gifts and shipping remain disabled until their operational configuration is supplied.
+Apply migrations 347 and 348 after 346 using the existing migration release lane. Migration 348 rewards confirmed `pkm_events.content_write` events emitted by the current atomic Memory save, including the validated mutation plan and confirmation receipt. Upgrade, projection and maintenance events do not qualify. Current and legacy writes share one owner/day key. No production database is modified by local tests. Enable the existing authenticated scoring scheduler for qualification reconciliation, score settlement, snapshot publication and ended-round processing. Weekly gifts and shipping remain disabled until their operational configuration is supplied.
 
 Test results and remaining external prerequisites are recorded at delivery; local verification does not establish deployment or real gift delivery.
 
@@ -62,7 +62,7 @@ Verified on Windows using Python 3.13.16 and disposable PostgreSQL 18, with no p
 | Six referral frontend suites: dashboard, profile panel, service, attribution, stream and route layout | 87 passed after main reconciliation |
 | TypeScript typecheck and ESLint on changed frontend files | Passed |
 | Ruff on changed/new Python files | Passed |
-| Migration release manifest and all three schema contracts | Passed, head 347 aligned |
+| Migration release manifest and all three schema contracts | Passed, head 348 aligned |
 | Required Back behavior pack | 452 passed after main reconciliation |
 | Back/Search, catalog, Surface Map, gateway, Siri, route orchestration and validator gate | Passed; 12 validator regression tests passed |
 | Production Next.js build | Passed, 172 pages generated |

@@ -324,10 +324,13 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
                     assert not replay_errors
 
 
-def test_referral_replay_rejects_changed_published_source():
+@pytest.mark.parametrize(
+    "filename", ("289_one_referral_program_settings_v2.sql", "338_one_referral_usd_catalogue.sql")
+)
+def test_referral_replay_rejects_changed_published_source(filename):
     entry = build_manifest_entries(
         Path(__file__).resolve().parents[1] / "db/migrations",
-        ("289_one_referral_program_settings_v2.sql",),
+        (filename,),
     )[0]
     with pytest.raises(MigrationAuthorityError, match="checksum changed"):
         _replay_sql(replace(entry, sql=entry.sql + "\n-- changed"))
