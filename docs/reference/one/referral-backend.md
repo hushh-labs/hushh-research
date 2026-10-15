@@ -80,7 +80,7 @@ The SQL suite verifies the invitation → join → trusted usage → qualificati
 
 | Paths | Reason |
 | --- | --- |
-| `consent-protocol/db/migrations/339_one_referral_dashboard_lifecycle.sql`; `db/migrations/rollback/339_one_referral_dashboard_lifecycle.rollback.sql` | Forward and behavioral rollback, durable source triggers, attendance, balances, genealogy, claims and rounds |
+| `consent-protocol/db/migrations/346_one_referral_dashboard_lifecycle.sql`; `db/migrations/rollback/346_one_referral_dashboard_lifecycle.rollback.sql` | Forward and behavioral rollback, durable source triggers, attendance, balances, genealogy, claims and rounds |
 | `consent-protocol/db/release_migration_manifest.json`; `db/contracts/{dev_minimum_schema,prod_core_schema,uat_integrated_schema}.json` | Register release 346 and describe its tables, columns and functions |
 | `consent-protocol/api/routes/one/referrals.py`; `api/routes/referral_scoring_drain.py`; `api/referral_listener.py` | Authenticated contracts, bounded scheduled recovery and device-safe realtime refresh |
 | `consent-protocol/hushh_mcp/operons/referral/policy.py`; `hushh_mcp/services/one_referral_service.py` | Verified qualification, names/counts, immutable binding and selected activity policy |
@@ -141,3 +141,5 @@ Completed usage requires a visible, nonempty model reply from a server-bound One
 The active local GitHub login cannot read the mandatory security-alert surface (HTTP 404). The canonical CI workflow has its existing dedicated security-alert credential; that unchanged mandatory check must pass on the PR before merge. No production mutation or manual Cloud Run deployment is authorized.
 
 After syncing main through `edcff65ed`, the lifecycle migration is 346 because upstream owns 339–345. The refreshed source also excludes owner-bound stopped runs from successful usage, preserving the upstream chat checkpoint transaction behavior. All 18 PostgreSQL cases pass after restarting the disposable local database; 290 unit/session/runtime cases pass separately. Back navigation checks pass 453 tests and the canonical generators refreshed the combined source contracts. Cloud deployment and fresh-account browser evidence remain separate gates.
+
+The latest combined-head web-core and integration lanes pass, including TypeScript, ESLint and the Next production build. Full backend lint, mypy (236 source files) and Bandit pass. The updated full backend run reports 11,993 passed, 475 skipped, 92 failed and 33 errors outside referral files on Windows. The refreshed governance lane reaches a Linux-only `os.killpg` test that cannot run on Windows. Those full Linux governance/backend lanes and the unchanged security-alert gate remain mandatory PR checks.
