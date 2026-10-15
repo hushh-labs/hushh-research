@@ -5,6 +5,82 @@ import WebKit
 
 final class NativeSupportTests: XCTestCase {
     @MainActor
+    func testOrdinarySheetRetirementWaitsForOpeningAndOwnedPopupCompletion() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = windowScene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        var cleared = false, finished = false
+        var popupCompletion: (() -> Void)?
+        let sheet = NativeProfileOwnedSheet(makeHost: { UIViewController() }, canPresent: { !cleared },
+            canDismiss: { true }, hasPending: { false }, appearance: { nil }, cancel: {}, clear: { cleared = true },
+            dismissPopups: { popupCompletion = $0 })
+        let shown = expectation(description: "Opening finishes without admitting a retired form")
+        XCTAssertTrue(sheet.present(from: parent) { accepted in XCTAssertFalse(accepted); shown.fulfill() })
+        let first = expectation(description: "Actual sheet disappearance")
+        let joined = expectation(description: "Joined retirement")
+        sheet.retire { XCTAssertNil(parent.presentedViewController); finished = true; first.fulfill() }
+        sheet.retire { XCTAssertNil(parent.presentedViewController); joined.fulfill() }
+        XCTAssertTrue(cleared)
+        XCTAssertTrue(sheet.coversPresentation)
+        await fulfillment(of: [shown], timeout: 3)
+        XCTAssertFalse(finished, "A disappearing trigger is not popup retirement proof")
+        try XCTUnwrap(popupCompletion)()
+        await fulfillment(of: [first, joined], timeout: 3)
+        XCTAssertFalse(sheet.coversPresentation)
+    }
+
+    @MainActor
+    func testWritingStyleRequiresAcknowledgedEditsAndScrubsBeforeMenuRetirement() async throws {
+        let object: [String: Any] = ["documentId": "public-style-document", "ownerEpoch": "public-style-owner", "ownerGeneration": 1,
+            "revision": 1, "family": "profile", "scene": "writing-style", "updateSequence": 1, "privacyGeneration": 0,
+            "draftRevision": 0, "acknowledgedEditRevision": 0, "draft": ["tone": "warm"],
+            "choices": ["tone": [["value": "warm", "label": "Warm"], ["value": "direct", "label": "Direct"]],
+                        "length": [["value": "short", "label": "Short"]], "language": [["value": "en", "label": "English"]]],
+            "canSave": true, "busy": false, "unavailable": false, "suggested": false, "error": NSNull(),
+            "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#808080"]
+        let state = try JSONDecoder().decode(NativeProfileStyleProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(state.valid)
+        XCTAssertFalse(state.validValue(.text("invented"), field: "tone"))
+        XCTAssertFalse(state.validValue(.flag(true), field: "vaultKey"))
+        let model = NativeProfileStyleModel(state)
+        var changes = 0
+        model.edit = { field, value, _, _ in changes += 1; return field == "tone" && value == .text("direct") }
+        model.change("tone", .text("direct"))
+        XCTAssertEqual(changes, 1)
+        XCTAssertFalse(model.canSave)
+        var updated = object
+        updated["updateSequence"] = 2; updated["draftRevision"] = 1; updated["acknowledgedEditRevision"] = 1
+        updated["draft"] = ["tone": "direct"]
+        let next = try JSONDecoder().decode(NativeProfileStyleProjection.self, from: JSONSerialization.data(withJSONObject: updated))
+        XCTAssertTrue(model.update(next))
+        XCTAssertTrue(model.canSave)
+        var action: NativeProfileNameAction?
+        model.choose = { action = $0; return true }
+        model.action("save")
+        let intent = try XCTUnwrap(action)
+        XCTAssertTrue(model.confirm(intent)); XCTAssertFalse(model.confirm(intent))
+        XCTAssertTrue(model.settle(intent, saved: true)); XCTAssertTrue(model.saved)
+        XCTAssertTrue(model.canEdit, "Explicit Save stays in the existing Settings editor")
+        let menu = NativeDrawerMenuControl(type: .system)
+        model.register(menu)
+        let interaction = UIContextMenuInteraction(delegate: menu)
+        let config = UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: nil)
+        menu.contextMenuInteraction(interaction, willDisplayMenuFor: config, animator: nil)
+        var disappeared = false
+        let ended = expectation(description: "Owned menu completed disappearance")
+        model.clear()
+        model.dismissMenus { disappeared = true; ended.fulfill() }
+        XCTAssertTrue(model.draft.isEmpty); XCTAssertTrue(model.projection.draft.isEmpty)
+        XCTAssertFalse(disappeared)
+        menu.contextMenuInteraction(interaction, willEndFor: config, animator: nil)
+        await fulfillment(of: [ended], timeout: 3)
+        XCTAssertTrue(disappeared)
+        XCTAssertFalse(model.canEdit); XCTAssertNil(model.edit); XCTAssertNil(model.choose)
+    }
+    @MainActor
     func testOrdinaryNameSheetReleasesGestureLockAndWaitsForUIKitRetirement() async throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native ordinary scene requires iOS 26") }
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)

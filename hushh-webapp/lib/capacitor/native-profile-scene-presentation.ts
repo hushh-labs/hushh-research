@@ -12,7 +12,7 @@ export type NativeProfileScenePort<P, E, A> = {
   source: HushhNativeDrawersPlugin;
   apply: (state: P) => Promise<NativeProfileSceneReceipt>;
   confirm: (action: A) => Promise<{ valid: boolean }>;
-  settle: (action: A) => Promise<{ valid: boolean }>;
+  settle: (action: A, saved?: boolean) => Promise<{ valid: boolean }>;
   retire: (identity: NativeProfileSceneIdentity) => Promise<NativeProfileSceneReceipt>;
   edits: (callback: (event: E) => void) => Promise<PluginListenerHandle>;
   choices: (callback: (event: A) => void) => Promise<PluginListenerHandle>;
@@ -132,7 +132,7 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
         if (await this.retire() && this.ownerIsCurrent()) current.actions.saved(result.value);
         return;
       }
-      if (!(await acknowledged(this.port.settle(event))).valid) { await this.fail(); return; }
+      if (!(await acknowledged(this.port.settle(event, result.kind === "saved"))).valid) { await this.fail(); return; }
       if (result.kind === "saved" && this.ownerIsCurrent()) current.actions.saved(result.value);
     } catch { await this.fail(); }
   }

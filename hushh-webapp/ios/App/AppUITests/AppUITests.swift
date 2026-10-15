@@ -3677,6 +3677,78 @@ final class AppUITests: XCTestCase {
         return frame
     }
 
+    func testLocalSessionNativeWritingStyleSheetKeepsDraftAndOwnedMenus() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else { throw XCTSkip("Opt-in ordinary preferences continuity") }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PROFILE_STYLE_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate(); dismissRehearsalChatKeyboard(app); returnToRehearsalChat(app)
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_STYLE_CHAT_UNAVAILABLE"); return }
+        let initialDraft = editor.value as? String
+        let opener = app.buttons["Open Profile"].firstMatch
+        let root = app.buttons["native-profile-row-preferences"].firstMatch
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        let back = app.buttons["Back in Profile"].firstMatch
+        let cancel = app.buttons["native-style-close"].firstMatch
+        let field = app.textViews["native-style-preferred_name"].firstMatch
+        let tone = app.buttons["native-style-tone"].firstMatch
+        defer {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            if back.exists && back.isHittable { back.tap() }
+            if close.exists && close.isHittable { close.tap() }
+        }
+        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_STYLE_OPENER_UNAVAILABLE"); return }
+        opener.tap()
+        for _ in 0..<3 {
+            if root.exists && root.isHittable { break }
+            guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_PARENT_UNAVAILABLE"); return }; back.tap()
+        }
+        guard waitForAdmittedControl(root) else { XCTFail("PROFILE_STYLE_PREFERENCES_UNAVAILABLE"); return }; root.tap()
+        let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Writing style")).firstMatch
+        for _ in 0..<4 { if row.exists && row.isHittable { break }; web.swipeUp() }
+        var originalName: String?
+        for cycle in 0..<10 {
+            guard waitForAdmittedControl(row) else { XCTFail("PROFILE_STYLE_ROW_UNAVAILABLE"); return }; row.tap()
+            guard waitForAdmittedControl(field), waitForAdmittedControl(cancel), waitForAdmittedControl(tone) else {
+                XCTFail("PROFILE_STYLE_NATIVE_SCENE_UNAVAILABLE"); return
+            }
+            if cycle == 0 { originalName = field.value as? String }
+            XCTAssertTrue((field.value as? String) == originalName, "The transient preference replica must preserve its authoritative draft")
+            XCTAssertFalse(back.isHittable, "The complete native sheet must isolate the Profile header")
+            if cycle == 0 || cycle == 9 {
+                let originalTone = try XCTUnwrap(tone.value as? String)
+                tone.tap()
+                let direct = app.buttons["Direct"].firstMatch
+                guard waitForAdmittedControl(direct) else { XCTFail("PROFILE_STYLE_MENU_UNAVAILABLE"); return }; direct.tap()
+                let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in tone.value as? String == "Direct" }, object: app)
+                guard XCTWaiter.wait(for: [applied], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_CHOICE_NOT_APPLIED"); return }
+                tone.tap()
+                let restore = app.buttons[originalTone].firstMatch
+                guard waitForAdmittedControl(restore) else { XCTFail("PROFILE_STYLE_RESTORE_UNAVAILABLE"); return }; restore.tap()
+                let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in tone.value as? String == originalTone }, object: app)
+                guard XCTWaiter.wait(for: [restored], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_RESTORE_NOT_APPLIED"); return }
+                field.tap(); field.typeText(" A")
+                XCTAssertTrue((field.value as? String) != originalName, "The native preference editor accepts keyboard input")
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+                let nameRestored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in field.value as? String == originalName }, object: app)
+                guard XCTWaiter.wait(for: [nameRestored], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_TEXT_RESTORE_NOT_APPLIED"); return }
+            }
+            cancel.tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !field.exists && row.isHittable }, object: app)
+            guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else { XCTFail("PROFILE_STYLE_DISMISSAL_BLOCKED_TOUCH"); return }
+            XCTAssertEqual(hosts.count, 1)
+            XCTAssertFalse(web.textViews["Style note"].exists, "The complete native scene cannot expose a DOM editor duplicate")
+        }
+        guard waitForAdmittedControl(back) else { XCTFail("PROFILE_STYLE_BACK_UNAVAILABLE"); return }; back.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PROFILE_STYLE_CLOSE_UNAVAILABLE"); return }; close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_STYLE_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertTrue((editor.value as? String) == initialDraft, "Preference editing must preserve the Chat draft")
+        print("PROFILE_STYLE_SCENE_CONTINUITY cycles=10 restored=true single_host=true")
+    }
+
     func testLocalSessionNativeProfileNameSheetKeepsTheAccountAndDraft() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in private ordinary Profile scene continuity")

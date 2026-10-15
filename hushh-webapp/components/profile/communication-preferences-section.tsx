@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { CommunicationPreferencesGroup } from "@/components/profile/communication-preferences-group";
+import { NativeWritingStyleEditor } from "@/components/profile/native-writing-style-editor";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { LockedRowIcon } from "@/components/icons/agents";
 import {
@@ -35,6 +35,7 @@ export type CommunicationPreferencesProps = {
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   onRequestUnlock: () => void;
+  nativeScene?: boolean;
 };
 export type CommunicationSaveOutcome = "saved" | "failed" | "stale" | "busy" | "refused";
 
@@ -140,6 +141,7 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
   const changeField = <K extends keyof OwnerStyleSettings>(key: K, value: OwnerStyleSettings[K]) => {
     const next = { ...draftRef.current };
     if (value === undefined || value === "") delete next[key];
+    else if (key === "owner_style_note" && typeof value === "string") next.owner_style_note = value.replace(/[\r\n]+/g, " ");
     else next[key] = value;
     changeDraft(next);
   };
@@ -200,15 +202,6 @@ export function CommunicationPreferencesSection(props: CommunicationPreferencesP
   }
 
   return (
-    <CommunicationPreferencesGroup
-      value={model.draft}
-      onChange={model.changeDraft}
-      dirty={model.dirty}
-      saving={model.saving}
-      loading={model.loading}
-      unavailable={model.unavailable}
-      suggested={model.suggested}
-      onSave={() => { void model.save(); }}
-    />
+    <NativeWritingStyleEditor model={model} eligible={props.nativeScene === true} />
   );
 }

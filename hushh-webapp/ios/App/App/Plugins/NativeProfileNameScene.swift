@@ -235,81 +235,44 @@ private struct NativeProfileNameContent: View {
 /// One complete UIKit sheet above retained native navigation and the existing
 /// WebView. UIKit owns its keyboard, scrolling, scrim and dismissal.
 @MainActor
-final class NativeProfileNameScene: NSObject, UIAdaptivePresentationControllerDelegate {
+final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     let model: NativeProfileNameModel
-    private var host: UIViewController?
-    private var presenting = false
-    private var retiring = false
-    private var completions = [() -> Void]()
-    var coverage: (() -> Void)?
-    var coversPresentation: Bool {
-        // An interactive dismissal is visually finished before React has
-        // consumed Cancel. Keep underlying actions isolated through that ack.
-        host?.presentingViewController != nil || presenting || retiring || model.pending != nil
-    }
+    var identity: NativeDrawerIdentity { model.projection.identity }
+    var sceneName: String { "account-name" }
+    func receipt(_ phase: String) -> [String: Any] { model.projection.receipt(phase: phase) }
+    private lazy var sheet: NativeProfileOwnedSheet = {
+        let model = model
+        return NativeProfileOwnedSheet(makeHost: { [weak model] in
+            guard #available(iOS 26.0, *), let model else { return nil }
+            return UIHostingController(rootView: NativeProfileNameContent(model: model))
+        }, canPresent: { [weak model] in model?.retired == false },
+           canDismiss: { [weak model] in model?.canEdit == true },
+           hasPending: { [weak model] in model?.pending != nil },
+           appearance: { [weak model] in
+               guard let model else { return nil }
+               return HushhNativeControlAppearance(appearance: model.projection.appearance,
+                   accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex)
+           }, cancel: { [weak model] in model?.action("cancel") },
+           clear: { [weak model] in model?.clear() })
+    }()
+    var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
+    var coversPresentation: Bool { sheet.coversPresentation }
     init(_ projection: NativeProfileNameProjection) { model = NativeProfileNameModel(projection) }
 
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool {
-        guard #available(iOS 26.0, *), host == nil, parent.presentedViewController == nil,
-              parent.view.window != nil, !model.retired else { return false }
-        let controller = UIHostingController(rootView: NativeProfileNameContent(model: model))
-        applyAppearance(controller)
-        controller.modalPresentationStyle = .pageSheet
-        controller.sheetPresentationController?.detents = [.medium(), .large()]
-        controller.sheetPresentationController?.prefersGrabberVisible = true
-        controller.sheetPresentationController?.prefersScrollingExpandsWhenScrolledToEdge = true
-        controller.presentationController?.delegate = self
-        host = controller
-        presenting = true
-        coverage?()
-        parent.present(controller, animated: true) { [weak self] in
-            guard let self else { return }
-            self.presenting = false
-            if self.retiring { completion(false); self.dismiss() }
-            else { completion(true) }
-        }
-        return true
+        sheet.present(from: parent, completion: completion)
     }
     func update(_ projection: NativeProfileNameProjection) -> Bool {
-        guard !retiring, model.update(projection) else { return false }
-        if let host { applyAppearance(host) }
+        guard model.update(projection) else { return false }
+        sheet.refresh()
         return true
     }
     func settle(_ action: NativeProfileNameAction) -> Bool {
         guard model.settle(action) else { return false }
-        if let host { applyAppearance(host) }
+        sheet.refresh()
         return true
     }
-    private func applyAppearance(_ host: UIViewController) {
-        guard let appearance = HushhNativeControlAppearance(appearance: model.projection.appearance,
-            accentHex: model.projection.accentHex, foregroundHex: model.projection.foregroundHex) else { return }
-        host.overrideUserInterfaceStyle = appearance.style
-        host.view.tintColor = appearance.accent
-        host.isModalInPresentation = !model.canEdit
-    }
-    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool { model.canEdit }
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        model.action("cancel")
-        coverage?()
-    }
     func retire(completion: @escaping () -> Void) {
-        completions.append(completion)
-        guard !retiring else { return }
-        retiring = true
-        model.clear()
-        coverage?()
-        if !presenting { dismiss() }
-    }
-    private func dismiss() {
-        let finished = { [self] in
-            host = nil
-            retiring = false
-            coverage?()
-            let callbacks = completions
-            completions.removeAll()
-            callbacks.forEach { $0() }
-        }
-        guard let host, host.presentingViewController != nil else { finished(); return }
-        host.dismiss(animated: UIApplication.shared.applicationState == .active, completion: finished)
+        sheet.retire(completion: completion)
     }
 }

@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
+import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
  * process-local replicas of the existing feature owner, not another store. */
@@ -60,12 +61,16 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean }>;
   applyProfileNameScene?: NativeProfileNameScenePort["applyProfileNameScene"];
   confirmProfileNameAction?: NativeProfileNameScenePort["confirmProfileNameAction"];
   settleProfileNameAction?: NativeProfileNameScenePort["settleProfileNameAction"];
   retireProfileNameScene?: NativeProfileNameScenePort["retireProfileNameScene"];
-  addListener: NativeProfileNameScenePort["addListener"] & {
+  applyProfileStyleScene?: NativeProfileStyleScenePort["applyProfileStyleScene"];
+  confirmProfileStyleAction?: NativeProfileStyleScenePort["confirmProfileStyleAction"];
+  settleProfileStyleAction?: NativeProfileStyleScenePort["settleProfileStyleAction"];
+  retireProfileStyleScene?: NativeProfileStyleScenePort["retireProfileStyleScene"];
+  addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
     (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;

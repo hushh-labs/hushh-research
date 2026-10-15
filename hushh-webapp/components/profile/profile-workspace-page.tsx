@@ -3619,6 +3619,7 @@ function ProfilePageContent({
         />
       </SettingsGroup>
       <CommunicationPreferencesSection
+        nativeScene={presentation === "native-page"}
         userId={user?.uid ?? null}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}

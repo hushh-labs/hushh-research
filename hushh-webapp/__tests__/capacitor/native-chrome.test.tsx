@@ -30,6 +30,8 @@ import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
 import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
+import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
+import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
 
 function publicNameScene(): NativeProfileNameProjection {
   return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
@@ -39,6 +41,59 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("admits only closed Writing Style values and consumes a current acknowledged Save once", async () => {
+    const state: NativeProfileStyleProjection = { ...publicNameScene(), scene: "writing-style", draft: { tone: "warm" },
+      choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
+    expect(validNativeProfileStyleProjection(state)).toBe(true);
+    expect(validNativeProfileStyleProjection({ ...state, vaultKey: "synthetic-not-a-key" } as never)).toBe(false);
+    expect(validNativeProfileStyleProjection({ ...state, draft: { tone: "invented" } } as never)).toBe(false);
+    expect(validNativeProfileStyleProjection({ ...state, draft: { credentials: "synthetic" } } as never)).toBe(false);
+    const fence = new NativeProfileStyleFence(state);
+    expect(fence.update(state)).toBe(true);
+    const event = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, editRevision: 1,
+      field: "tone" as const, value: "direct" as const, composing: false };
+    expect(fence.consumeEdit({ ...event, value: "invented" } as never)).toBe(false);
+    expect(fence.consumeEdit({ ...event, ownerEpoch: "old-owner" })).toBe(false);
+    expect(fence.consumeEdit(event)).toBe(true);
+    const action = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, draft: { tone: "direct" } })).toBe(true);
+    const confirm = vi.fn(async () => ({ valid: true }));
+    expect(await fence.consumeAction(action, confirm, () => true)).toBe(true);
+    expect(await fence.consumeAction(action, confirm, () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    fence.retire();
+    expect(fence.consumeEdit({ ...event, editRevision: 2 })).toBe(false);
+  });
+
+  it("keeps a Writing Style sheet after confirmed Save and never repeats its operation", async () => {
+    const state: NativeProfileStyleProjection = { ...publicNameScene(), scene: "writing-style", draft: { tone: "warm" },
+      choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
+    const listeners = new Map<string, (event: never) => void>();
+    const settle = vi.fn(async () => ({ valid: true }));
+    const retire = vi.fn(async () => ({ ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, phase: "retired" as const }));
+    const source = { getCapabilities: async () => ({ generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: async (key: string, listener: (event: never) => void) => { listeners.set(key, listener); return { remove: async () => { listeners.delete(key); } }; } };
+    const phases: string[] = [];
+    const presentation = new NativeProfileScenePresentation(state, { source: source as never,
+      apply: async next => ({ ...fenceIdentity(next), scene: "writing-style", updateSequence: next.updateSequence, privacyGeneration: next.privacyGeneration, phase: "active" }),
+      confirm: async () => ({ valid: true }), settle, retire,
+      edits: callback => source.addListener("edit", callback), choices: callback => source.addListener("action", callback),
+    }, new NativeProfileStyleFence(state), validNativeProfileStyleProjection, () => true, phase => phases.push(phase), false);
+    const commit = vi.fn(async () => ({ kind: "saved" as const, value: undefined }));
+    const actions = { edit: vi.fn(), commit, saved: vi.fn(), cancel: vi.fn() };
+    expect(await presentation.listen()).toBe(true);
+    expect(presentation.publish(state, actions)).toBe(true);
+    await waitFor(() => expect(phases).toEqual(["active"]));
+    const event = { ...fenceIdentity(state), scene: "writing-style", updateSequence: 1, privacyGeneration: 0, editRevision: 0, sequence: 1, action: "save" };
+    listeners.get("action")?.(event as never);
+    await waitFor(() => expect(settle).toHaveBeenCalledWith(event, true));
+    listeners.get("action")?.(event as never);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(retire).not.toHaveBeenCalled();
+    await presentation.retire();
+    expect(retire).toHaveBeenCalledTimes(1);
+  });
   it("skips an intermediate React edit echo without retiring the retained native editor", async () => {
     const state = publicNameScene();
     const listeners = new Map<string, (value: unknown) => void>();
@@ -173,7 +228,7 @@ describe("ordinary private Profile form contract", () => {
   });
 });
 
-function fenceIdentity(state: NativeProfileNameProjection) {
+function fenceIdentity(state: Pick<NativeProfileNameProjection, "documentId" | "ownerEpoch" | "ownerGeneration" | "revision">) {
   return { documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration,
     revision: state.revision, family: "profile" as const, scene: "account-name" as const };
 }

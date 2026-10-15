@@ -13,6 +13,22 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Writing Style implementation candidate — 2026-10-14
+
+The complete private Writing Style sheet is implemented behind the iPhone
+qualification capability. It uses the existing React draft and encrypted
+Settings writer; native code owns its fields, finite dropdown menus, keyboard,
+scrolling and dismissal. Save stays in the editor, and closing retains the
+unsaved React draft. Other platforms and unsupported wrappers keep the existing
+inline form. Field icons are generated from the same Phosphor row exports as web.
+
+Name and Writing Style now share the UIKit sheet lifetime and one active/retiring
+form registry. Retirement clears private replicas immediately and waits for owned
+menu and sheet completion. Focused JS tests pass 202/202, typecheck and scoped lint
+pass. The new shared Swift helper and Writing Style scene still require compiled
+native and exact-installed-candidate evidence; the earlier Name receipt below
+does not qualify this new source. No account or preference was saved in this pass.
+
 ### First ordinary native Profile form — 2026-10-14
 
 Product source `88623a6d6c` is installed and normally launched on the physical
@@ -40,9 +56,9 @@ renderer for that editor lifetime rather than retrying native on privacy resume.
 Back/Search review receipts remain stale, the broader behavioral gate is not
 green, and no core/CI/push/deployment acceptance is claimed at this head.
 
-### Current physical Profile gate — 2026-10-14
+### Preceding physical Profile gate — 2026-10-14
 
-Product source `cd09a3779d` is installed on the iPhone as UAT-backed Debug
+Product source `cd09a3779d` was installed on the iPhone as UAT-backed Debug
 1.4.0 (69), with native-shell qualification enabled. Executable SHA-256:
 `8a80b6172db382324a75f448ff1b2ac596c75c2f3c30b346f2d9d5ef4c9bdf11`.
 Sealed-resource manifest SHA-256:
@@ -70,7 +86,7 @@ operation authority.
 | Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
 | Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
 | Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Physical native lifecycle3/3 and actual ten-cycle edit/cancel journey pass at `88623a6d6c`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android/older wrappers retain the existing form |
-| Communication | `CommunicationPreferencesSection`; existing encrypted `saveOwnerStyleSettings` writer | Native ordinary settings scene not implemented; retain unlocked load, proposed-versus-saved state and explicit Save |
+| Communication | Shared React controller and encrypted `saveOwnerStyleSettings` writer; qualification-only complete native sheet | Implemented source; native build/device qualification pending. Preserve unlocked load, proposed-versus-saved state, explicit Save and web/Android fallbacks |
 | Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
 | Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
 | Profile photo | `ProfileAvatarEditor` and existing camera/library/remove owners | Complete owned native action-menu adoption not qualified; no new camera or persistence owner |

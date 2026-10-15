@@ -751,6 +751,7 @@ struct NativeDrawerContent: View {
 /// completion. Menu actions carry the exact projection, never ambient rows.
 @MainActor final class NativeDrawerMenuControl: UIButton {
     private(set) var menuVisible = false
+    var visibilityChanged: (() -> Void)?
     private var completions = [() -> Void]()
     private var pendingChoice: (() -> Void)?
     func afterDismissal(_ choice: @escaping () -> Void) {
@@ -766,6 +767,7 @@ struct NativeDrawerContent: View {
         willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         menuVisible = true
+        visibilityChanged?()
     }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
         willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
@@ -776,6 +778,7 @@ struct NativeDrawerContent: View {
             let retired = completions; completions.removeAll()
             for completion in retired { completion() }
             if retired.isEmpty { choice?() }
+            visibilityChanged?()
         }
         if let animator { animator.addCompletion(finish) } else { finish() }
     }
