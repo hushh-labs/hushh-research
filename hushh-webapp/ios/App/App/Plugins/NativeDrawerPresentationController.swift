@@ -557,14 +557,16 @@ struct NativeDrawerContent: View {
             profileContent(model.projection.sections)
                 .navigationTitle(model.projection.title)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar { profileClose }
                 .navigationDestination(for: String.self) { id in
                     if let page = model.page(id) {
                         profileContent(page.sections)
                             .navigationTitle(page.title)
                             .navigationBarTitleDisplayMode(.inline)
+                            .toolbar { profileClose }
                     }
                 }
-        }.toolbar { profileClose }
+        }
             .tint(Color(uiColor: HushhNativeControlAppearance.color(model.projection.accentHex) ?? .label))
             .allowsHitTesting(model.interactionEnabled)
             .accessibilityHidden(!model.interactionEnabled)

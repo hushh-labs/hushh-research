@@ -830,7 +830,7 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testNativeProfileAccountStackRetainsItsHostAndRejectsStalePopBindings() async {
+    func testNativeProfileAccountStackRetainsItsHostAndRejectsStalePopBindings() async throws {
         var root = privateDrawerState(backEnabled: true)
         root.surfaceOpen = true; root.profileStack = []
         var account = privateDrawerState(update: 2, backEnabled: true)
@@ -849,11 +849,34 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
         let controller = NativeDrawerPresentationController(root)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            controller.retire()
+            window.isHidden = true; window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
         controller.activateInitialPresentation()
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
         await fulfillment(of: [admitted], timeout: 2)
+        func navigation(in parent: UIViewController) -> UINavigationController? {
+            if let navigation = parent as? UINavigationController { return navigation }
+            return parent.children.lazy.compactMap { navigation(in: $0) }.first
+        }
+        func requireClose() async {
+            // Mount the real SwiftUI stack. Model/host-presence assertions did
+            // not catch a toolbar attached outside the navigation content.
+            await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                navigation(in: controller)?.navigationBar.topItem?.rightBarButtonItems?.isEmpty == false
+            }, object: nil)], timeout: 3)
+        }
+        await requireClose()
         let host = controller.host
         controller.update(account)
+        await requireClose()
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
         XCTAssertEqual(controller.model.navigationPath, ["account"])
@@ -875,6 +898,7 @@ final class NativeSupportTests: XCTestCase {
         var returned = privateDrawerState(update: 4, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
+        await requireClose()
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
         account = privateDrawerState(update: 5, backEnabled: true)
