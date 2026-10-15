@@ -324,8 +324,9 @@ describe("named buttons from the founder report", () => {
     const welcome = screen.getByRole("button", { name: "Create your One", exact: true });
     expect(rippleHosts(welcome)).toHaveLength(1);
     fireEvent.click(welcome);
-    fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
-    const cta = screen.getByRole("button", { name: "Start with One", exact: true });
+    expect(rippleHosts(screen.getByRole("button", { name: "Skip", exact: true }))).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Screen 4 of 4:/ }));
+    const cta = screen.getByRole("button", { name: "Get started", exact: true });
     expect(rippleHosts(cta)).toHaveLength(1);
     expect(cta.className).not.toMatch(/press-scale|scale-/);
   });

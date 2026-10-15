@@ -814,11 +814,13 @@ for (const width of [320, 390, 1440]) {
     expect(revokeBounds.x + revokeBounds.width).toBeLessThanOrEqual(width);
     await detail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(detail).toBeHidden();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    const historyRecipient = history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true })
+      .getByText("Sample recipient", { exact: true });
+    await expect(historyRecipient).toBeVisible();
     // Terminal settle must remove fractional interpolation so the Sharing
     // pane remains fully inside the viewport; live drag keeps its own transform.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
-    const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
+    const recipientBounds = (await historyRecipient.boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
     expect(recipientBounds.x + recipientBounds.width).toBeLessThanOrEqual(width);
     await page.locator('[data-app-scroll-root="true"]').evaluate((el) => { el.scrollTop = 0; });

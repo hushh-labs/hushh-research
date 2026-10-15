@@ -321,7 +321,7 @@ it.each(["current", "owner", "vault", "unmount"])(
       const [path, options] = mocks.apiFetch.mock.calls[0];
       expect(path).toBe("/api/one/world-model/claims");
       expect(options.method).toBe("POST");
-      expect(JSON.parse(options.body)).toEqual({ token: "a".repeat(43), consent: true });
+      expect(JSON.parse(options.body)).toEqual({ token: "a".repeat(43), consent: true, research_consent: false });
       expect(options.headers.Authorization).toBe("Bearer fixture-token");
       expect(options.isEffectCurrent()).toBe(true);
     } else expect(mocks.apiFetch).not.toHaveBeenCalled();

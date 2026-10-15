@@ -29,3 +29,8 @@ export function useSearchParams() { return new URLSearchParams(); }
 export class ApiService {
   static apiFetch(path: string, init?: RequestInit) { return globalThis.fetch(path, init); }
 }
+
+/** Identity is synthetic; the fixture never initializes or signs in to Firebase. */
+export class AuthService {
+  static getCurrentUser() { return { uid: "synthetic-calendar-owner" }; }
+}
