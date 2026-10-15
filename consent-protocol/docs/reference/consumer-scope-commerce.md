@@ -109,6 +109,16 @@ node; the independently reviewed skill diff changes one freshness comment only,
 and retains its pending-review classification. These corrections preserve the
 checks. Final integrated core and hosted CI remain required before Dev promotion.
 
+Fresh main `40b717f69040` is composed on the preserved branch with its owner-review
+World Model changes. The integration forwards bounded job inputs, admits private
+placement before default enrollment, retains invitation request-time authority and
+blocks implicit reviewer background writes while preserving explicit actions.
+All 175 semantic retirements and eight workflow predecessor references remain.
+The final focused packs pass 71 backend, 106 frontend and 461 Back cases;
+TypeScript and generated UI parity pass. Independent source/AST review qualifies
+exactly ten inherited or composed size measurements under unchanged architecture
+budgets. This is source qualification, not Dev or financial acceptance.
+
 Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and was
 pushed on the existing branch. Its
 [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38660426398)

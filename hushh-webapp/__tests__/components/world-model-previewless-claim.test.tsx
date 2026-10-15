@@ -148,7 +148,10 @@ it.each([
     fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
     await waitFor(() =>
       expect(mock.claim).toHaveBeenCalledWith(
-        { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+        expect.objectContaining({
+          vaultKey: "vault-key", vaultOwnerToken: "owner-token",
+          isCurrent: expect.any(Function), signal: expect.any(AbortSignal),
+        }),
         token,
         check,
       ),

@@ -12,6 +12,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   WorldModelResearchService,
   type PwmPreferences,
@@ -144,6 +145,10 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => undefined);
     };
+    if (shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh) {
+      readPreferences();
+      return () => controller.abort();
+    }
     void (async () => {
       // Past decisions only refine research; an unreadable memory never blocks it.
       let ownerDecisions: PwmOwnerDecisions | undefined;

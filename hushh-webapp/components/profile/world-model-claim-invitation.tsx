@@ -43,7 +43,7 @@ export function WorldModelClaimInvitation({
   // Research is on by default, so the choice only exists for a recipient who
   // turned it off; anyone else claims without a research request.
   const offerResearch = preferences?.enabled === false;
-  const { busy, message, setMessage, guard, run } = useWorldModelOwnerAction({
+  const { busy, message, setMessage, guard, run, lifetime } = useWorldModelOwnerAction({
     ownerId,
     vaultKey,
     vaultOwnerToken,
@@ -152,7 +152,7 @@ export function WorldModelClaimInvitation({
                   void run(async () => {
                     const capture = guard();
                     await WorldModelInvitationsService.claim(
-                      session,
+                      { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
                       claimToken,
                       // Only a shown, checked box is a research request.
                       offerResearch && researchConsent,
@@ -181,7 +181,7 @@ export function WorldModelClaimInvitation({
                   void run(async () => {
                     const capture = guard();
                     await WorldModelInvitationsService.reject(
-                      session,
+                      { ...session, isCurrent: capture.isCurrent, signal: lifetime.current.signal },
                       claimToken,
                     );
                     await capture.assertCurrent();

@@ -270,6 +270,9 @@ def owner_client(monkeypatch, jobs):
         "user_id": "owner",
         "token": "fixture",
     }
+    app.dependency_overrides[routes.hub_content_chat_owner] = app.dependency_overrides[
+        require_vault_owner_chat_key
+    ]
     return TestClient(app), routes
 
 
