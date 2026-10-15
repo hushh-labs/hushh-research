@@ -89,7 +89,7 @@ export function OnboardingShell({
         <div className="pb-[calc(var(--bottom-chrome-stack-height,var(--app-screen-footer-pad))+0.75rem)] pt-7 sm:pt-8">
           <button
             type="button"
-            disabled={!canContinue || saving}
+            aria-disabled={!canContinue || saving}
             onClick={onContinue}
             className={cn(
               "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-[17px] font-semibold text-primary-foreground shadow-[0_12px_32px_rgba(0,113,227,0.22)] transition-opacity dark:shadow-none",

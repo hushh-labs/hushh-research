@@ -368,8 +368,28 @@ export default function RiaOnboardingPage() {
     moveToStep(steps[currentStepIndex - 1]?.id ?? steps[0]?.id ?? "welcome");
   }
 
+  function focusFirstInvalidField() {
+    let target: HTMLElement | null = null;
+
+    if (currentStep.id === "license_number") {
+      target = document.getElementById("ria-license-number");
+    } else if (currentStep.id === "license_details") {
+      target = document.getElementById("ria-advisor-name");
+    } else if (currentStep.id === "services") {
+      target = draft.servicesOffered.length === 0
+        ? document.querySelector<HTMLElement>('[data-ria-service-option="first"]')
+        : document.querySelector<HTMLElement>('[data-ria-fee-option="first"]');
+    }
+
+    target?.focus({ preventScroll: true });
+  }
+
   function handleContinue() {
-    if (!canContinue || saving) return;
+    if (saving) return;
+    if (!canContinue) {
+      focusFirstInvalidField();
+      return;
+    }
     if (currentStep.id === "review") {
       void handleSubmit();
       return;

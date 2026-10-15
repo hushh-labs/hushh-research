@@ -172,6 +172,7 @@ export function OnboardingStepServices({
               <button
                 key={label}
                 type="button"
+                data-ria-service-option={label === AVAILABLE_SERVICES[0]?.label ? "first" : undefined}
                 aria-pressed={selected}
                 onClick={() => toggleService(label)}
                 className={cn(
@@ -213,6 +214,7 @@ export function OnboardingStepServices({
               <button
                 key={fee}
                 type="button"
+                data-ria-fee-option={fee === FEE_OPTIONS[0] ? "first" : undefined}
                 aria-pressed={selected}
                 onClick={() => toggleFee(fee)}
                 className={cn(
