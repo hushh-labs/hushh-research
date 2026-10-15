@@ -773,7 +773,7 @@ test.describe("One centered header: phone regression", () => {
   test("centers One on the phone screen and keeps the controls aligned and reachable", async ({
     page,
   }) => {
-    for (const width of [320, 360, 393, 430, 640, 767]) {
+    for (const width of [320, 332, 360, 393, 430, 640, 767]) {
       for (const canPickOneModel of [false, true]) {
         const safeTop = width === 393 ? 64 : width === 360 ? 0 : 32;
         const variant = {
@@ -819,7 +819,7 @@ test.describe("One centered header: phone regression", () => {
           1,
         );
         expect(Math.abs(name.x + name.width / 2 - width / 2)).toBeLessThan(1);
-        expect(name.y).toBeGreaterThanOrEqual(avatar.y + avatar.height + 2);
+        expect(name.y).toBeCloseTo(avatar.y + Math.max(avatar.height * 0.9, avatar.height / 2 + 22), 0);
         await expect(page.getByTestId("agent-name")).toBeVisible();
         expect(
           await page
@@ -827,11 +827,13 @@ test.describe("One centered header: phone regression", () => {
             .evaluate((el) => el.scrollWidth <= el.clientWidth),
         ).toBe(true);
         const oneTarget = await box(page, "one-profile-button");
-        expect(oneTarget.width).toBe(52);
-        expect(oneTarget.height).toBe(52);
+        const size = Math.min(64, Math.max(52, width - 268));
+        // WebKit rounds percentage children to 1/64px at the fluid boundary.
+        expect(oneTarget.width).toBeCloseTo(size, 1);
+        expect(oneTarget.height).toBeCloseTo(size, 1);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBe(52);
-        expect(artwork.height).toBe(52);
+        expect(artwork.width).toBeCloseTo(size, 1);
+        expect(artwork.height).toBeCloseTo(size, 1);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -839,7 +841,7 @@ test.describe("One centered header: phone regression", () => {
           ),
         ).toBe(true);
         const header = await box(page, "agent-header");
-        expect(header.height).toBe(94 + safeTop);
+        expect(header.height).toBe(size + 36 + safeTop);
         expect(name.y + name.height).toBeLessThanOrEqual(
           header.y + header.height - 8,
         );
@@ -854,6 +856,11 @@ test.describe("One centered header: phone regression", () => {
           expect(picker.height).toBeGreaterThanOrEqual(44);
           expect(picker.x + picker.width).toBeLessThanOrEqual(width);
         }
+        await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
+        const longName = await box(page, "agent-name");
+        expect(longName.x).toBeGreaterThanOrEqual(0);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(width);
+        expect(longName.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
       }
     }
   });
@@ -878,8 +885,8 @@ test.describe("One centered header: phone regression", () => {
       await openFixture(page, variant, width);
       const after = await Promise.all(ids.map((id) => box(page, id)));
       expect(after).toEqual(before);
-      expect(after[2].width).toBe(88);
-      expect(after[3].width).toBe(88);
+      expect(after[2].width).toBe(104);
+      expect(after[3].width).toBe(104);
       await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
       const activeHeader = await box(page, "agent-header");
       const subtitle = await box(page, "agent-subtitle");
