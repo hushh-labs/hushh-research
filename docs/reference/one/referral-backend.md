@@ -103,7 +103,7 @@ The existing OIDC scoring scheduler must be enabled and dispatched against the d
 
 To run database integration checks, set `REFERRAL_TEST_DATABASE_URL` to disposable PostgreSQL and run `python -m pytest tests/test_one_referral_lifecycle_postgres.py` from `consent-protocol`. Each case creates and cleans its own random schema. These tests use actual PostgreSQL transactions and triggers; Firebase token admission is separately tested with negative controls and verified-owner dependency fixtures. They do not establish live Firebase, model-provider, scheduler or production deployment readiness.
 
-Live browser/physical-device journeys remain separate release evidence. CI must supply `REFERRAL_TEST_DATABASE_URL` to execute the new PostgreSQL suite rather than skip it. Disposable validation environments and logs remain ignored under `.venv-referral*` and `tmp/referral-validation`.
+Live browser/physical-device journeys remain separate release evidence. The PostgreSQL suite uses CI's existing `ONE_COMMAND_TEST_DATABASE_URL`; `REFERRAL_TEST_DATABASE_URL` can override it locally. Disposable validation environments and logs remain ignored under `.venv-referral*` and `tmp/referral-validation`.
 
 For repeatable referral checks in PowerShell, from `consent-protocol` with the project's Python 3.13 dependencies and a disposable database configured:
 

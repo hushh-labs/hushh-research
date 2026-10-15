@@ -51,7 +51,7 @@ def test_profile_and_nws_old_qr_is_rejected_and_new_scans_start_at_zero(cards_db
 @pytest.fixture
 def referral_db(cards_db, monkeypatch):  # noqa: F811
     db, _ = cards_db
-    db.apply_migrations(["165_one_referral_program.sql"])
+    db.apply_migrations(["165_one_referral_program.sql", "273_one_referral_display_handles.sql"])
 
     @contextmanager
     def connection():

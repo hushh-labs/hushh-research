@@ -1,7 +1,7 @@
 """Real PostgreSQL referral transactions, concurrency and authority boundaries.
 
-Set REFERRAL_TEST_DATABASE_URL to a disposable PostgreSQL database. Each test
-owns a random isolated schema; no production credentials or schema are used.
+Use CI's ONE_COMMAND_TEST_DATABASE_URL or set REFERRAL_TEST_DATABASE_URL to a
+disposable PostgreSQL database. Each test owns a random isolated schema.
 """
 
 import importlib
@@ -31,9 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def db(monkeypatch):
-    url = os.getenv("REFERRAL_TEST_DATABASE_URL")
+    url = os.getenv("REFERRAL_TEST_DATABASE_URL") or os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
     if not url:
-        pytest.skip("REFERRAL_TEST_DATABASE_URL is required for disposable PostgreSQL verification")
+        pytest.skip("A disposable referral or canonical CI PostgreSQL URL is required")
     schema = "referral_test_" + uuid4().hex
     admin = create_engine(url)
     with admin.begin() as conn:
