@@ -33,8 +33,8 @@ from db.query_telemetry import record_query
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
-from hushh_mcp.one_adk.output_privacy import public_text
 from hushh_mcp.one_adk.queued_input import current_run, registry
+from hushh_mcp.one_adk.turn_completion import successful_answer_completion
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -311,15 +311,8 @@ class EncryptedAdkSessionService(BaseSessionService):
         qualifies = (
             self._referral_usage_app_name is not None
             and session.app_name == self._referral_usage_app_name
-            and event.author != "user"
-            and not event.partial
-            and not event.interrupted
-            and not event.error_code
             and bool(event.id and event.invocation_id)
-            and event.content is not None
-            and event.content.role == "model"
-            and bool(public_text(event))
-            and event.is_final_response()
+            and successful_answer_completion(event, session.events)
             and any(
                 prior.author == "user"
                 and prior.invocation_id == event.invocation_id

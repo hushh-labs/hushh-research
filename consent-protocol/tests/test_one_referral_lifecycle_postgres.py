@@ -133,11 +133,14 @@ def _settle():
 
 
 @pytest.mark.asyncio
-async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db, monkeypatch):
+@pytest.mark.parametrize("sidecar", [None, "suggest_follow_ups", "react_to_message"])
+async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(
+    db, monkeypatch, sidecar
+):
     import time
     from types import SimpleNamespace
 
-    from google.adk.events import Event
+    from google.adk.events import Event, EventActions
     from google.genai import types
 
     from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
@@ -175,6 +178,17 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
         content=types.Content(role="model", parts=[types.Part(text="synthetic failed reply")]),
     )
     await service.append_event(session, failed)
+    await service.append_event(
+        session,
+        Event(
+            author="user",
+            invocation_id="cancelled-turn",
+            timestamp=time.time(),
+            content=types.Content(
+                role="user", parts=[types.Part(text="synthetic cancelled prompt")]
+            ),
+        ),
+    )
     async with run_scope("bob", session.id, "cancelled-run", accepting=True) as run:
         try:
             registry.request_stop("bob", session.id)
@@ -182,13 +196,31 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
                 session,
                 Event(
                     author="one",
-                    invocation_id="turn",
+                    invocation_id="cancelled-turn",
                     timestamp=time.time(),
                     content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
                 ),
             )
         finally:
             settle(run)
+    await service.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="turn",
+            timestamp=time.time(),
+            long_running_tool_ids={"review"},
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(text="synthetic review awaiting approval"),
+                    types.Part(
+                        function_call=types.FunctionCall(id="review", name="review", args={})
+                    ),
+                ],
+            ),
+        ),
+    )
     for part in [
         types.Part(text="synthetic private reasoning", thought=True),
         types.Part(text=" \n\t"),
@@ -202,6 +234,45 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
                 content=types.Content(role="model", parts=[part]),
             ),
         )
+    if sidecar:
+        # A shown presentation tool alone cannot promote failed/thought-only
+        # output to a successful reply, nor borrow an answer from another turn.
+        await service.append_event(
+            session,
+            Event(
+                author="one",
+                invocation_id="other-turn",
+                timestamp=time.time(),
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(text="synthetic answer from another turn"),
+                        types.Part(function_call=types.FunctionCall(name=sidecar, args={})),
+                    ],
+                ),
+            ),
+        )
+
+        def sidecar_result(*, error_code=None, name=sidecar):
+            return Event(
+                author="one",
+                invocation_id="turn",
+                timestamp=time.time(),
+                error_code=error_code,
+                actions=EventActions(skip_summarization=True),
+                content=types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=name, response={"status": "shown"}
+                            )
+                        )
+                    ],
+                ),
+            )
+
+        await service.append_event(session, sidecar_result())
     with db.connect() as conn:
         assert (
             conn.execute(
@@ -209,13 +280,32 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
             ).scalar()
             == 0
         )
+    answer_parts = [types.Part(text="synthetic private reply")]
+    if sidecar:
+        answer_parts.append(types.Part(function_call=types.FunctionCall(name=sidecar, args={})))
     reply = Event(
         author="one",
         invocation_id="turn",
         timestamp=time.time(),
-        content=types.Content(role="model", parts=[types.Part(text="synthetic private reply")]),
+        content=types.Content(role="model", parts=answer_parts),
     )
     await service.append_event(session, reply)
+    if sidecar:
+        assert not reply.is_final_response()
+        await service.append_event(session, sidecar_result(error_code="TOOL_FAILED"))
+        await service.append_event(session, sidecar_result(name="ordinary_tool"))
+        with db.connect() as conn:
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) FROM one_referral_events WHERE event_type='product_usage'"
+                    )
+                ).scalar()
+                == 0
+            )
+        reply = sidecar_result()
+        assert reply.is_final_response()
+        await service.append_event(session, reply)
     await service.append_event(session, reply)  # persisted source replay stays once-only
     await service.append_event(
         session,
