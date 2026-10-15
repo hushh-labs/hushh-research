@@ -4162,7 +4162,7 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-The existing branch integrates main through `d8133e4d05` without rewriting
+The existing branch integrates main through `dec7043e3308` without rewriting
 shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
 core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
 predates the owner-approved identifier extension and latest main composition;
@@ -4182,6 +4182,17 @@ the route fixtures now include the admitted owner-only receipt endpoint. Focused
 repairs pass. Latest-main composition also restores Calendar's read-only auth
 import and carries current owner capabilities into invitation reconnects; it
 does not introduce another OAuth or payment authority.
+The `76ff725903` core run passed 20,406 protocol cases and stopped on one stale
+generated specialist matrix. Regeneration adds the two actual Calendar invitation
+tools to both owned copies. Source qualification also preserves main's closed-set
+Live Memory telemetry through the existing single validator; 111 focused checks
+and typechecking pass. The final core and hosted CI remain required.
+
+At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
+$10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled
+backing and conserved fees. A separate headless private-interface check confirms
+Stripe sign-in and connection-check controls are enabled. Its cosmetic catalog
+is not owner OAuth evidence; authenticated Stripe account reads remain unproven.
 
 Both reviewers accepted a scope-free social connection. Their existing encrypted
 synthetic fixtures expose independently discovered, exact nonwildcard role leaves.

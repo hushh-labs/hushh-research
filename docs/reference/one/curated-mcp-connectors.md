@@ -308,9 +308,10 @@ still apply to each read. No check grants payment authority, and the cosmetic
 catalog card's disconnected projection does not override this owner-bound status.
 
 As verified against [Stripe's MCP documentation](https://docs.stripe.com/mcp) on
-2026-10-07, OAuth is supported for interactive access; independent application
-access uses Agent-tag API keys. Stripe stops accepting ordinary full-access or
-untagged restricted keys for MCP on 2026-10-31. Hussh's initial owner connector
+2026-10-15, OAuth is supported for interactive access; independent application
+access uses Agent-tag API keys. Stripe requires migration by November 30, 2026;
+starting in December, MCP rejects full-access and untagged restricted keys.
+Hussh's initial owner connector
 uses OAuth. The publishable and secret test SDK keys configure payment services;
 they do not complete owner OAuth or prove its selected Sandbox.
 
