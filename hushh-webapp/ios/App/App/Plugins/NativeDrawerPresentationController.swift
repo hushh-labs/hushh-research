@@ -34,6 +34,7 @@ final class NativeDrawerModel: ObservableObject {
     @Published private(set) var navigationPath: [String] = []
     @Published private var backPending = false
     var navigationTransitioning = false
+    var awaitingBackAcknowledgement: Bool { backPending }
     var allowsPageInteraction: Bool { !backPending && !navigationTransitioning }
     weak var profileNavigationController: NativeProfileNavigationController?
     private var navigationPages = [String: NativeProfilePage]()
@@ -868,8 +869,11 @@ struct NativeDrawerContent: View {
                 }
             }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
         }.background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .allowsHitTesting(model.allowsPageInteraction)
-            .accessibilityHidden(!model.allowsPageInteraction)
+            // UIKit owns transition gating and restores it in didShow.
+            // Only this published route-acknowledgement state belongs here;
+            // sampling UIKit's transient flag can leave SwiftUI permanently inert.
+            .allowsHitTesting(!model.awaitingBackAcknowledgement)
+            .accessibilityHidden(model.awaitingBackAcknowledgement)
             .accessibilityIdentifier("native-profile-menu-scroll")
     }
     private func profileInitials(_ name: String) -> String {
