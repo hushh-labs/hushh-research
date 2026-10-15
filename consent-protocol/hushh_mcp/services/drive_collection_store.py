@@ -8,10 +8,11 @@ Collection processing never grants a buyer permission or publishes a listing.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import secrets
 from dataclasses import asdict
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
@@ -24,13 +25,14 @@ from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     DRIVE_POLICY,
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
     LIVE_POLICY_HASH,
-    LIVE_SUPPORTED_TYPES,
     DriveReadError,
 )
 
 COLLECTION_DISCLOSURE = "live-drive-collection-v1"
 COLLECTION_LEASE_SECONDS = 120
+UNSUPPORTED_RECHECK_LIMIT = 128
 
 
 class DriveCollectionStore(DriveLivePreferences):
@@ -180,7 +182,8 @@ class DriveCollectionStore(DriveLivePreferences):
                 UPDATE connected_documents SET processing_enabled=:enabled,
                   collection_revision=:revision,processing_revision=processing_revision+1,
                   lease_id=NULL,lease_expires_at=NULL,attempt_count=0,next_attempt_at=clock_timestamp(),
-                  status=CASE WHEN active_version IS NOT NULL THEN 'ready' ELSE 'queued' END,
+                  status=CASE WHEN status='unsupported' THEN 'unsupported'
+                    WHEN active_version IS NOT NULL THEN 'ready' ELSE 'queued' END,
                   updated_at=clock_timestamp()
                 WHERE user_id=:user AND connection_generation=:generation AND source_profile='live'
                   AND last_error_code IS DISTINCT FROM 'source_unavailable'
@@ -492,7 +495,7 @@ class DriveCollectionStore(DriveLivePreferences):
         """One source-registration path for discovery and bounded request candidates."""
         invalidated, document_ids = [], []
         for metadata in files:
-            supported = metadata.mime_type in LIVE_SUPPORTED_TYPES
+            supported = metadata.mime_type in LIVE_EXTRACTABLE_ORIGINAL_TYPES
             fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
             old = self._row(
                 connection,
@@ -598,6 +601,94 @@ class DriveCollectionStore(DriveLivePreferences):
             )
         return document_ids, invalidated
 
+    def _recheck_unsupported_locked(self, connection, *, job, checkpoint):
+        """Resume a bounded parser-policy sweep during ordinary discovery pages."""
+        from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
+
+        policy = hashlib.sha256(
+            json.dumps(
+                [EXTRACTION_PROFILE, sorted(LIVE_EXTRACTABLE_ORIGINAL_TYPES)],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        previous = checkpoint.get("unsupported_recheck")
+        current = (
+            previous if isinstance(previous, dict) and previous.get("policy") == policy else {}
+        )
+        if current.get("complete") is True:
+            return []
+        after = current.get("after")
+        # Checkpoint data is authenticated, yet still validate its shape before
+        # using it as a SQL value after a future code or schema upgrade.
+        try:
+            after = str(UUID(after)) if after is not None else None
+        except (TypeError, ValueError, AttributeError):
+            after = None
+        rows = list(
+            connection.execute(
+                text("""
+                SELECT document_id,user_id,connection_generation,source_version,
+                  processing_revision,metadata_envelope,active_version
+                FROM connected_documents
+                WHERE user_id=:user AND connection_generation=:generation
+                  AND source_profile='live' AND processing_enabled
+                  AND processing_disclosure_version=:disclosure
+                  AND collection_revision=:revision
+                  AND status='unsupported' AND last_error_code='unsupported_format'
+                  AND (CAST(:after AS uuid) IS NULL OR document_id>CAST(:after AS uuid))
+                ORDER BY document_id LIMIT :limit
+            """),
+                {
+                    "user": job["user_id"],
+                    "generation": job["connection_generation"],
+                    "disclosure": COLLECTION_DISCLOSURE,
+                    "revision": job["revision"],
+                    "after": after,
+                    "limit": UNSUPPORTED_RECHECK_LIMIT,
+                },
+            ).mappings()
+        )
+        invalidated = []
+        for row in rows:
+            try:
+                metadata = self.cipher.open(dict(row))
+            except DriveReadError:
+                # An unreadable retired envelope cannot stall all discovery.
+                continue
+            if metadata.get("mime_type") not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+                continue
+            changed = self._row(
+                connection,
+                """UPDATE connected_documents SET status='queued',last_error_code=NULL,
+                  active_version=NULL,processing_revision=processing_revision+1,
+                  lease_id=NULL,lease_expires_at=NULL,attempt_count=0,
+                  next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+                WHERE document_id=:id AND user_id=:user AND connection_generation=:generation
+                  AND source_profile='live' AND processing_enabled
+                  AND processing_disclosure_version=:disclosure
+                  AND collection_revision=:revision AND source_version=:version
+                  AND processing_revision=:processing_revision
+                  AND status='unsupported' AND last_error_code='unsupported_format'
+                RETURNING document_id""",
+                {
+                    "id": row["document_id"],
+                    "user": job["user_id"],
+                    "generation": job["connection_generation"],
+                    "disclosure": COLLECTION_DISCLOSURE,
+                    "revision": job["revision"],
+                    "version": row["source_version"],
+                    "processing_revision": row["processing_revision"],
+                },
+            )
+            if changed and row["active_version"] is not None:
+                invalidated.append(row["document_id"])
+        checkpoint["unsupported_recheck"] = {
+            "policy": policy,
+            "after": str(rows[-1]["document_id"]) if rows else after,
+            "complete": len(rows) < UNSUPPORTED_RECHECK_LIMIT,
+        }
+        return invalidated
+
     async def candidate_authority(self, *, user_id):
         def operation(connection):
             active = self.live_active(connection, user_id=user_id)
@@ -692,6 +783,9 @@ class DriveCollectionStore(DriveLivePreferences):
                 revision=row["revision"],
                 files=files,
                 epoch=epoch,
+            )
+            invalidated.extend(
+                self._recheck_unsupported_locked(connection, job=job, checkpoint=checkpoint)
             )
             for file_id in removed:
                 old = self._row(

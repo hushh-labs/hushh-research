@@ -25,7 +25,7 @@ from hushh_mcp.services.drive_document_store import (
 )
 from hushh_mcp.services.drive_document_targets import document_targets
 from hushh_mcp.services.google_drive_adapter import (
-    LIVE_SUPPORTED_TYPES,
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
     DriveMetadata,
     DriveReadError,
 )
@@ -102,7 +102,7 @@ class DriveIngestionStore(DriveDocumentStore):
             except DriveReadError:
                 # The normal claim path reports corrupt metadata as a failure.
                 continue
-            if metadata.get("mime_type") not in LIVE_SUPPORTED_TYPES:
+            if metadata.get("mime_type") not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
                 unsupported.append((str(row["document_id"]), row["source_version"]))
         if unsupported:
             connection.execute(

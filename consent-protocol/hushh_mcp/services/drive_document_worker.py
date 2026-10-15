@@ -238,7 +238,7 @@ class DriveDocumentWorker:
                     group.create_task(semantics())
         except TimeoutError:
             counts["deadline"] += 1
-        if counts["queued"] or counts["ready"]:
+        if counts["queued"] or counts["ready"] or counts["unsupported"]:
             from hushh_mcp.services.drive_work_wake import wake_drive_work
 
             await wake_drive_work("documents")

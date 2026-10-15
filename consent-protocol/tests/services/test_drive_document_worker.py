@@ -92,6 +92,23 @@ async def test_unsupported_live_file_does_not_block_next_file_for_same_owner(mon
     assert result["outcomes"] == {"unsupported": 1, "ready": 1, "not_ready": 1}
 
 
+async def test_unsupported_only_batch_self_wakes_but_stops_at_budget(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "unsupported"}))
+    worker = DriveDocumentWorker(service)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    wake = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+
+    result = await worker.run(max_jobs=3)
+
+    assert result["outcomes"] == {"unsupported": 3}
+    assert service.run_one.await_count == 3
+    wake.assert_awaited_once_with("documents")
+
+
 async def test_reserved_upgrade_slot_prefers_upgrade_for_selected_owner(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
