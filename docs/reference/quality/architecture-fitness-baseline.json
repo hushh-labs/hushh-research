@@ -2199,6 +2199,19 @@
     "function_lines": 80,
     "module_lines": 500
   },
+  "byoc_cloudbuild_options_review_20261015": {
+    "entries": [
+      {
+        "after": 558,
+        "before": 537,
+        "key": "module_size|consent-protocol/tests/test_cloudbuild_step_arg_limit.py||module exceeds the advisory operon budget",
+        "review": "Independently reviewed exact-source extension of the existing deployment schema boundary suite: six authored templates reject misplaced user substitutions; two-key negative control reproduces the live Cloud Build refusal. All existing argument/env/headroom limits remain unchanged. Actual installed gcloud parser accepts the corrected six templates and rejects the exact frozen predecessor. Budgets 500/250/80, scanners, exclusions and unrelated findings unchanged.",
+        "source_sha256": "fedf5a3beb972a35b6cff34579598c6f47490b4da1c1a3532a58b4ae93e68b21"
+      }
+    ],
+    "evidence_revision": "15d83d5baba41e74fca92d7f569ce314feea0bf5",
+    "reviewer": "peer_fixture_review"
+  },
   "byoc_connection_probe_corrective_review_20261015": {
     "entries": [
       {
@@ -26317,7 +26330,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
       "symbol": null,
-      "value": 537
+      "value": 558
     },
     {
       "detail": "module exceeds the advisory operon budget",
