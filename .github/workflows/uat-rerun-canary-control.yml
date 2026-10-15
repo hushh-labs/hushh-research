@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: uat-rerun-canary-${{ inputs.run_id }}
+  cancel-in-progress: false
+
 jobs:
   rerun:
     name: Rerun only the authenticated canary wait job
