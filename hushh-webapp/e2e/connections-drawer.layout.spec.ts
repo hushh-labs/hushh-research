@@ -1627,14 +1627,20 @@ async function presencePixels(artwork: Locator) {
     context.drawImage(canvas, 0, 0, 32, 32);
     const pixels = context.getImageData(0, 0, 32, 32).data;
     const { width, height } = canvas;
-    const source = canvas.getContext("2d")!;
     let hash = 0, opaque = 0;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
       if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
     }
     return { hash, opaque, cornerAlpha: [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
-      .map(([x, y]) => source.getImageData(x!, y!, 1, 1).data[3]) };
+      .map(([x, y]) => {
+        // Copy each exact source pixel to the CPU probe. Reading the Rive
+        // drawing context directly changes its readback policy and emits a
+        // browser warning; a 1:1 copy preserves the transparency assertion.
+        context.clearRect(0, 0, 1, 1);
+        context.drawImage(canvas, x!, y!, 1, 1, 0, 0, 1, 1);
+        return context.getImageData(0, 0, 1, 1).data[3];
+      }) };
   });
 }
 
@@ -1741,6 +1747,81 @@ test.describe("One profile artwork and animated presence", () => {
   // The npm pack runs these independent cases on one worker so unrelated
   // fixture builds cannot make the native runtime skip its brief idle blink.
   test.use({ deviceScaleFactor: 3 });
+  for (const density of [1, 2, 3]) {
+    test.describe(`${density}x artwork surfaces`, () => {
+      test.use({ deviceScaleFactor: density, hasTouch: true });
+      test("keeps hover, press and tap clear and resizes the same native canvas", async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("console", message => {
+          if (["warning", "error"].includes(message.type())) errors.push(message.text());
+        });
+        await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto("http://localhost/connections-fixture?one-profile=1");
+        await page.addScriptTag({ content: script });
+        await page.bringToFront();
+        // The modal correctly hides the underlying trigger from the a11y
+        // tree; retain its DOM locator for material checks while it is open.
+        const trigger = page.getByTestId("one-presence-header");
+        await expect(trigger).toHaveAccessibleName("Open One profile");
+        const clearSurface = async () => {
+          await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(trigger).toHaveCSS("border-radius", "0px");
+          await expect(trigger.locator(".morphy-ripple-host, md-ripple")).toHaveCount(0);
+          await expect(trigger).toHaveCSS("touch-action", "manipulation");
+          await expect(trigger).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+        };
+        await trigger.hover();
+        await clearSurface();
+        await page.keyboard.press("Tab");
+        await trigger.focus();
+        await clearSurface();
+        await expect(trigger).toHaveCSS("outline-width", "1px");
+        await expect(trigger).toHaveCSS("outline-style", "solid");
+        const bounds = (await trigger.boundingBox())!;
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        await page.mouse.down();
+        await clearSurface();
+        await expect(trigger).toHaveCSS("outline-style", "none");
+        await page.mouse.up();
+        const panel = page.getByRole("dialog", { name: "One", exact: true });
+        await expect(panel).toBeVisible();
+        await page.getByRole("button", { name: "Close One profile", exact: true }).click();
+        await expect(panel).toBeHidden();
+        // Use the browser's real touch path, including its synthesized click.
+        await trigger.tap();
+        await expect(panel).toBeVisible();
+        await expect(page.getByRole("dialog", { name: "One", exact: true })).toHaveCount(1);
+        await clearSurface();
+        await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: false, thinking: true }));
+        const artwork = panel.locator('[data-one-presence-state="working"]');
+        await expectPresencePlayback(artwork.locator('[data-one-presence-artwork="working"]'));
+        await expect(artwork.locator("canvas")).toHaveCount(1);
+        const original = await artwork.locator("canvas").elementHandle();
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          for (const size of [128, 192, 256, 192]) {
+            await artwork.evaluate((node, size) => {
+              (node.parentElement as HTMLElement).style.setProperty("--one-presence-size", `${size}px`);
+            }, size);
+            await expect(artwork).toHaveCSS("width", `${size}px`);
+            await expect(artwork).toHaveCSS("height", `${size}px`);
+            await expect(artwork).toHaveCSS("transform", "none");
+            await expectPresencePlayback(artwork);
+            const canvas = artwork.locator("canvas");
+            expect(await canvas.evaluate((node, original) => node === original, original)).toBe(true);
+            expect(await canvas.evaluate((node: HTMLCanvasElement) => ({ width: node.width, height: node.height }))).toEqual({ width: 128, height: 128 });
+            await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
+            expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
+          }
+          await expectPresenceMotion(artwork.locator("canvas"));
+          await page.screenshot({ path: test.info().outputPath(`resized-${width}px-${density}x.png`) });
+        }
+        expect(errors).toEqual([]);
+      });
+    });
+  }
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
     let release!: () => void;
     const waiting = new Promise<void>(resolve => { release = resolve; });
@@ -1873,6 +1954,9 @@ test.describe("One profile artwork and animated presence", () => {
     await trigger.hover();
     await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(trigger).toHaveCSS("border-radius", "0px");
+    // A transparent button can still paint Material Web's shadow-DOM hover
+    // pseudo-element. This artwork control must not mount that layer at all.
+    await expect(trigger.locator(".morphy-ripple-host, md-ripple")).toHaveCount(0);
     // Tailwind composes shadow-none with zero-alpha ring/shadow slots.
     await expect(trigger).toHaveCSS("box-shadow", /^(?:none|rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
     await trigger.click();
@@ -2025,7 +2109,7 @@ test.describe("One profile artwork and animated presence", () => {
       await awaitProductFont(page);
       const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
       const headerAvatar = trigger.locator("[data-one-presence-state]");
-      const headerSize = viewport.width < 768 ? 44 : 72;
+      const headerSize = viewport.width < 768 ? 52 : 88;
       for (const artwork of [headerAvatar, headerAvatar.locator("img"), headerAvatar.locator("canvas")]) {
         // The loading canvas and animated poster can be visibility:hidden;
         // their geometry must still match the owning avatar.

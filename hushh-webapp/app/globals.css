@@ -9321,6 +9321,22 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 
 /* Equal outer tracks center One with the controls on wide screens.
    The phone override below keeps the primary controls on one compact row. */
+.agent-chat-header [data-agent-chat-one-profile-trigger] {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:is(:hover, :focus, :active) {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:focus-visible:not(:active) {
+  outline: 1px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
 .agent-chat-header[data-one-centered-header="true"] {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
@@ -9349,8 +9365,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   text-align: center;
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-  width: 72px;
-  height: 72px;
+  width: 88px;
+  height: 88px;
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
   max-width: 100%;
@@ -9362,8 +9378,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 @media (min-width: 768px) {
   .agent-chat-header[data-one-centered-header="true"] {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    grid-template-rows: 120px;
-    height: calc(136px + var(--agent-chat-header-safe-top));
+    grid-template-rows: 128px;
+    height: calc(144px + var(--agent-chat-header-safe-top));
     padding-top: calc(8px + var(--agent-chat-header-safe-top));
   }
   .agent-chat-header[data-one-centered-header="true"] > :first-child {
@@ -9414,11 +9430,13 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 @media (max-width: 767px) {
   .agent-chat-header[data-one-centered-header="true"] {
     --one-phone-control-gap: clamp(0px, calc((100vw - 360px) / 4), 8px);
-    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
-    grid-template-rows: 44px;
+    grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+    grid-template-rows: 52px;
     gap: 0;
-    height: calc(86px + var(--agent-chat-header-safe-top));
-    padding: calc(8px + var(--agent-chat-header-safe-top)) clamp(6px, calc(5vw - 10px), 16px) 34px;
+    height: calc(94px + var(--agent-chat-header-safe-top));
+    /* At 320px, reserve 132px for the trailing 44px touch controls beside
+       the centered 52px artwork. Wider phones keep their existing gutter. */
+    padding: calc(8px + var(--agent-chat-header-safe-top)) min(clamp(6px, calc(5vw - 10px), 16px), calc((100vw - 316px) / 2)) 34px;
   }
   .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control {
     grid-column: 1;
@@ -9433,8 +9451,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     grid-column: 2;
     grid-row: 1;
     position: relative;
-    width: 44px;
-    height: 44px;
+    width: 52px;
+    height: 52px;
     flex-direction: row;
     justify-content: center;
     gap: 0;
@@ -9443,17 +9461,12 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     transform: none;
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-    width: 44px;
-    height: 44px;
+    width: 52px;
+    height: 52px;
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
-    width: 44px !important;
-    height: 44px !important;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
-    width: 44px !important;
-    height: 44px !important;
+    width: 52px;
+    height: 52px;
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
     position: absolute;
