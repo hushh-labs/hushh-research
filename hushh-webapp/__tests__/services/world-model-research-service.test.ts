@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => vi.fn());
+const streamFetch = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({
+  nativeStreamFetch: streamFetch,
+}));
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: api,
   ApiError: class extends Error {
@@ -19,6 +23,7 @@ import { ApiError } from "@/lib/services/api-client";
 import {
   WorldModelResearchService,
   pwmResultSchema,
+  type PwmProgress,
 } from "@/lib/services/world-model-research-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 vi.mock("@/lib/share/app-origin", () => ({
@@ -29,9 +34,41 @@ const session = {
   vaultKey: "synthetic-key",
   vaultOwnerToken: "synthetic-token",
 };
+const progress = (searches: number): PwmProgress => ({
+  stage: "coverage",
+  searches_used: searches,
+  searches_total: 32,
+  model_calls_used: searches * 2,
+  model_calls_total: 128,
+  topics_checked: ["career"],
+  sources_found: searches,
+  recent_sources: [{ title: "Public page", url: "https://example.test/p" }],
+  identity_state: "owner_linked",
+  candidates: 1,
+  started_at: "2026-10-15T00:00:00Z",
+  last_activity_at: "2026-10-15T00:01:00Z",
+  slice: 1,
+});
+const frame = (event: string, data: unknown) =>
+  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+/** A live response whose frames arrive in the given pieces. */
+const eventStream = (...pieces: string[]) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const piece of pieces)
+          controller.enqueue(new TextEncoder().encode(piece));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
 describe("PWM service authority and request recovery", () => {
   beforeEach(() => {
     api.mockReset();
+    streamFetch.mockReset();
+    // Without a live connection the driver reads, as it always did.
+    streamFetch.mockRejectedValue(new Error("no stream"));
     vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
@@ -192,6 +229,32 @@ describe("PWM service authority and request recovery", () => {
       }).success,
     ).toBe(false);
   });
+  it("delivers an unavailable result with a reason and retry window, then stops", async () => {
+    api.mockResolvedValueOnce({
+      status: "unavailable",
+      pkm_written: false,
+      reason: "provider_unavailable",
+      retry_after_s: 900,
+    });
+    const onResult = vi.fn();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: new AbortController().signal,
+      onResult,
+    });
+    await vi.runAllTimersAsync();
+    await run;
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith({
+      status: "unavailable",
+      pkm_written: false,
+      reason: "provider_unavailable",
+      retry_after_s: 900,
+    });
+    // Terminal for this run: the one ensure, no re-POST, no further reads.
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api.mock.calls[0][1].method).toBe("POST");
+  });
   it("does not mistake an older draft for a failed preparation", async () => {
     api
       .mockRejectedValueOnce(new Error("request lost"))
@@ -273,6 +336,8 @@ describe("PWM research driver never storms the server", () => {
     rows.slice(1).map((row, index) => row.at - rows[index].at);
   beforeEach(() => {
     api.mockReset();
+    streamFetch.mockReset();
+    streamFetch.mockRejectedValue(new Error("no stream"));
     calls = [];
     vi.useFakeTimers();
   });
@@ -386,5 +451,180 @@ describe("PWM research driver never storms the server", () => {
     expect(Math.min(...gaps(posts("tab-b")))).toBeGreaterThanOrEqual(60_000);
     second.abort();
     await expect(runs[1]).rejects.toThrow();
+  });
+});
+
+describe("PWM live progress", () => {
+  const pending = {
+    status: "pending",
+    pkm_written: false,
+    restart_required: false,
+  };
+  beforeEach(() => {
+    api.mockReset();
+    streamFetch.mockReset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (navigator as { locks?: unknown }).locks;
+  });
+
+  it("parses stream frames into progress, then the result, and refuses a failed open", async () => {
+    const saved = { status: "saved", pkm_written: false };
+    const frames =
+      frame("progress", progress(3)) +
+      frame("ping", {}) +
+      frame("progress", progress(4)) +
+      frame("result", saved);
+    // Frames split mid-line, as a network delivers them.
+    streamFetch.mockResolvedValueOnce(
+      eventStream(frames.slice(0, 40), frames.slice(40, 300), frames.slice(300)),
+    );
+    const onProgress = vi.fn();
+    const onResult = vi.fn();
+    await WorldModelResearchService.stream({
+      ...session,
+      signal: new AbortController().signal,
+      onProgress,
+      onResult,
+    });
+    const [path, init] = streamFetch.mock.calls[0];
+    expect(path).toBe("/api/one/world-model/jobs/stream");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer synthetic-token",
+      Accept: "text/event-stream",
+      "X-Hussh-Chat-Key": "synthetic",
+    });
+    expect(onProgress.mock.calls.map(([value]) => value.searches_used)).toEqual(
+      [3, 4],
+    );
+    expect(onResult).toHaveBeenCalledWith(saved);
+    streamFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "down" }), { status: 503 }),
+    );
+    await expect(
+      WorldModelResearchService.stream({
+        ...session,
+        signal: new AbortController().signal,
+        onProgress,
+        onResult,
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("drives running research over the stream, then polls after two failed streams", async () => {
+    api.mockResolvedValue(pending);
+    let opened = 0;
+    streamFetch.mockImplementation(async () => {
+      opened += 1;
+      // Three streams the server closes at its time limit, each with the
+      // live status as its last frame, then a broken link.
+      if (opened > 3) throw new Error("connection lost");
+      return eventStream(
+        frame("progress", progress(opened)) + frame("result", pending),
+      );
+    });
+    const onProgress = vi.fn();
+    const controller = new AbortController();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: controller.signal,
+      onResult: vi.fn(),
+      onProgress,
+    });
+    run.catch(() => undefined);
+    // A stream that ends with the live status reopens at once; the first
+    // broken one is followed by a read a second later.
+    await vi.advanceTimersByTimeAsync(500);
+    // While the stream carries progress, nothing is polled.
+    expect(api.mock.calls.map(([path]) => path)).toEqual([
+      "/api/one/world-model/ensure",
+    ]);
+    expect(onProgress.mock.calls.map(([value]) => value.searches_used)).toEqual(
+      [1, 2, 3],
+    );
+    expect(opened).toBe(4);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(opened).toBe(5);
+    const reads = api.mock.calls.filter(([, init]) => init.method === "GET");
+    expect(reads.length).toBeGreaterThanOrEqual(10);
+    controller.abort();
+    await expect(run).rejects.toThrow();
+  });
+
+  it("treats a stream that closed without a result as failed: a read after each, polling after two", async () => {
+    api.mockResolvedValue(pending);
+    const log: string[] = [];
+    api.mockImplementation(async (path: string, init: RequestInit) => {
+      log.push(`${init.method} ${path.replace("/api/one/world-model/", "")}`);
+      return pending;
+    });
+    // An intermediary that drops idle responses: a clean close, no frames.
+    streamFetch.mockImplementation(async () => {
+      log.push("stream");
+      return eventStream("");
+    });
+    const onInterrupted = vi.fn();
+    const controller = new AbortController();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal: controller.signal,
+      onResult: vi.fn(),
+      onInterrupted,
+    });
+    run.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    // Old loop: a fresh stream every second and never a read.
+    expect(log.slice(0, 5)).toEqual([
+      "POST ensure",
+      "stream",
+      "GET jobs",
+      "stream",
+      "GET jobs",
+    ]);
+    expect(log.filter((entry) => entry === "stream")).toHaveLength(2);
+    expect(onInterrupted).toHaveBeenCalledTimes(2);
+    expect(log.filter((entry) => entry === "GET jobs").length).toBeGreaterThanOrEqual(5);
+    controller.abort();
+    await expect(run).rejects.toThrow();
+  });
+
+  it("a reading tab polls every 15 s and surfaces the polled progress", async () => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: {
+        // Another tab holds the owner's lock for good.
+        request: async (
+          _name: string,
+          _options: unknown,
+          callback: (lock: unknown) => Promise<unknown>,
+        ) => callback(null),
+      },
+    });
+    const at: number[] = [];
+    api.mockImplementation(async () => {
+      at.push(Date.now());
+      return { ...pending, progress: progress(at.length) };
+    });
+    const onProgress = vi.fn();
+    const controller = new AbortController();
+    const run = WorldModelResearchService.observe({
+      ...session,
+      ownerId: "owner-1",
+      signal: controller.signal,
+      onResult: vi.fn(),
+      onProgress,
+    });
+    run.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(streamFetch).not.toHaveBeenCalled();
+    expect(api.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+    expect(at.length).toBeGreaterThanOrEqual(4);
+    expect(Math.min(...at.slice(1).map((t, i) => t - at[i]))).toBe(15_000);
+    expect(onProgress).toHaveBeenCalledTimes(at.length);
+    expect(onProgress.mock.calls.at(-1)?.[0].searches_used).toBe(at.length);
+    controller.abort();
+    await expect(run).rejects.toThrow();
   });
 });

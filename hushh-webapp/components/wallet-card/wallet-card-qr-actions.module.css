@@ -1,14 +1,14 @@
 .layout {
   display: grid;
-  grid-template-columns: minmax(64px, 1fr) minmax(124px, 1.5fr);
+  grid-template-columns: clamp(48px, 18%, 80px) minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: var(--settings-row-py) 4px;
-  padding-inline-end: clamp(16px, 4%, 32px);
+  gap: clamp(12px, 3vw, 24px);
+  padding: var(--settings-row-py) clamp(12px, 3%, 24px);
 }
-.qr { min-width: 0; width: 100%; max-width: 220px; }
-.actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; max-width: 244px; justify-self: end; }
+.qr { min-width: 0; width: 100%; max-width: 96px; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; width: 100%; max-width: 440px; justify-self: end; }
+.actions > a { grid-column: 1 / -1; justify-content: center; }
 .actions > button {
   width: 100%;
   min-height: 44px;
@@ -19,4 +19,9 @@
   font-size: 13px;
   font-weight: var(--type-button-label-weight);
   line-height: 1.3;
+}
+@media (max-width: 480px) {
+  .layout { gap: 8px; padding-inline: 4px; }
+  .actions > button { flex-direction: column; gap: 4px; padding: 8px 4px; }
+  .actions > button > svg { margin: 0; }
 }

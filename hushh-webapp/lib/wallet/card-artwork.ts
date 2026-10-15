@@ -4,17 +4,21 @@ import { isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 /** Owner-only encrypted branch. Never include artwork in sharing/agent projections. */
 export type WalletCardArtwork =
   | { source: "neutral"; version: 1 }
-  | { source: "catalog"; version: 1; assetId: string; catalogVersion: string; issuerId: string; productId: string; variantId: string; image: string; digest: string; allowOverlay: boolean; evidence: "owner_selected" | "provider_exact" }
+  | { source: "catalog"; version: 1; assetId: string; catalogVersion: string; issuerId: string; productId: string; variantId: string; image: string; digest: string; allowOverlay: boolean; evidence: "owner_selected" | "provider_exact"; providerId?: string; artworkVersion?: string }
   | { source: "photo"; version: 1; image: string; digest: string; sanitizerVersion: 1 };
 export interface WalletArtworkVariant {
   assetId: string; issuerId: string; productId: string; variantId: string;
   label: string; image: string; digest: string; allowOverlay: boolean;
+  issuerName?: string; productName?: string; variantName?: string; country?: string;
+  providerId?: string; artworkVersion?: string; width?: number; height?: number;
 }
+export type WalletArtworkReference = Pick<Extract<WalletCardArtwork, { source: "catalog" }>, "assetId" | "issuerId" | "productId" | "variantId" | "digest" | "catalogVersion">;
 export interface WalletArtworkResolution {
   catalogVersion: string;
   match: "exact" | "ambiguous" | "issuer_only" | "unknown";
   provider: "configured" | "unconfigured" | "unavailable";
   issuerId: string | null;
+  identification?: "network" | "issuer" | "product_family" | "product" | "variant";
   variants: WalletArtworkVariant[];
   metadata?: { issuerName?: string; country?: string; productFamily?: string; cardType?: "credit" | "debit" | "prepaid"; tier?: string };
 }
@@ -63,6 +67,6 @@ export function readWalletArtwork(value: unknown): WalletCardArtwork | undefined
   if (row.version !== 1) return undefined;
   if (row.source === "neutral") return { source: "neutral", version: 1 };
   if (row.source === "photo" && row.sanitizerVersion === 1 && typeof row.image === "string" && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(row.image) && row.image.length <= MAX_CARD_ARTWORK_BYTES * 1.4 && typeof row.digest === "string" && /^[a-f0-9]{64}$/.test(row.digest)) return { source: "photo", version: 1, sanitizerVersion: 1, image: row.image, digest: row.digest };
-  if (row.source === "catalog" && ["assetId", "catalogVersion", "issuerId", "productId", "variantId"].every(key => typeof row[key] === "string" && /^[a-zA-Z0-9._-]{1,100}$/.test(row[key] as string)) && typeof row.image === "string" && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(row.image) && row.image.length <= MAX_CARD_ARTWORK_BYTES * 1.4 && typeof row.digest === "string" && /^[a-f0-9]{64}$/.test(row.digest) && typeof row.allowOverlay === "boolean") return { source: "catalog", version: 1, assetId: row.assetId as string, catalogVersion: row.catalogVersion as string, issuerId: row.issuerId as string, productId: row.productId as string, variantId: row.variantId as string, image: row.image, digest: row.digest, allowOverlay: row.allowOverlay, evidence: row.evidence === "provider_exact" ? "provider_exact" : "owner_selected" };
+  if (row.source === "catalog" && ["assetId", "catalogVersion", "issuerId", "productId", "variantId"].every(key => typeof row[key] === "string" && /^[a-zA-Z0-9._-]{1,100}$/.test(row[key] as string)) && typeof row.image === "string" && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(row.image) && row.image.length <= MAX_CARD_ARTWORK_BYTES * 1.4 && typeof row.digest === "string" && /^[a-f0-9]{64}$/.test(row.digest) && typeof row.allowOverlay === "boolean") return { source: "catalog", version: 1, assetId: row.assetId as string, catalogVersion: row.catalogVersion as string, issuerId: row.issuerId as string, productId: row.productId as string, variantId: row.variantId as string, image: row.image, digest: row.digest, allowOverlay: row.allowOverlay, evidence: row.evidence === "provider_exact" ? "provider_exact" : "owner_selected", ...(typeof row.providerId === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(row.providerId) ? { providerId: row.providerId } : {}), ...(typeof row.artworkVersion === "string" && /^[A-Za-z0-9._-]{1,100}$/.test(row.artworkVersion) ? { artworkVersion: row.artworkVersion } : {}) };
   return undefined;
 }

@@ -350,12 +350,13 @@ def _referral_policy_fingerprint_sql(version: int) -> str:
 
 
 def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
-    """Accept the pinned v3/v4 successors without rewriting policy rows.
+    """Accept the pinned v3/v4/v5 successors without rewriting policy rows.
 
     The published 289 body requires v2 to remain active forever. A later
-    versioned policy retires v2. Replay recognizes only the reviewed v3 catalogue
-    and migration 347's v4 lifecycle policy, after verifying the entire lineage
-    and every authored v2 value. Unknown successor versions fail closed.
+    versioned policy retires v2. Replay recognizes only the reviewed v3 catalogue,
+    migration 347's v4 lifecycle policy and migration 349's v5 catalogue, after
+    verifying the entire lineage and every authored v2 value. Unknown successors
+    fail closed.
     Keep it out of ledger/observe mode and pin the original file's checksum.
     """
     checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
@@ -436,7 +437,7 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
         successor_count := successor_count + 1;
       END LOOP;
       IF successor_count NOT IN (1, 2, 3) OR previous_retirement IS NOT NULL THEN
-        RAISE EXCEPTION 'migration 289: retired version 2 requires reviewed version 3, 4 or 5 successors';
+        RAISE EXCEPTION 'migration 289: retired version 2 requires reviewed version 3, 4 or 5 successors ending in one active policy';
       END IF;
       SELECT ({_referral_policy_fingerprint_sql(3)}) INTO successor_policy_hash;
       IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}' THEN

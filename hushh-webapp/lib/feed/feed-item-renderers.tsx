@@ -718,11 +718,11 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label:
           outcome === "ready" || outcome === "partial"
             ? "Your Personal World Model is ready to review"
-            : "Personal World Model needs your attention",
+            : "Your Personal World Model needs a quick check",
         description:
           outcome === "attention"
             ? "Open your model to check the next step."
-            : "Review the findings and what belongs to you.",
+            : "Confirm the details that are yours.",
         href: validDraft
           ? `${ROUTES.PROFILE_WORLD_MODEL}?draft_id=${encodeURIComponent(draftId)}`
           : ROUTES.PROFILE_WORLD_MODEL,

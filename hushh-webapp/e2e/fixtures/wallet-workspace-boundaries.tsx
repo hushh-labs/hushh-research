@@ -259,6 +259,11 @@ export const ApiService = {
     // responses are synthetic. No live profile, visitor, or payment is touched.
     const hasSharingHistory = scenario().sharingHistory;
     const received = requestPath.includes("direction=received");
+    if (requestPath.startsWith("/api/one/wallet/card-access/history")) {
+      // A delayed transport proves preloading and tab retention, not a fast mock.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      record(`history-loaded:${received ? "received" : "outgoing"}`);
+    }
     const history: CardSharingHistory = {
       items: hasSharingHistory ? [{ ...sharedCardHistory, id: received ? "fixture-received-grant" : sharedCardHistory.id, senderName: received ? "Example Sender" : sharedCardHistory.senderName, status: !received && sharedCardRevoked ? "revoked" : "active", revokedAt: !received && sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
       recipientCount: hasSharingHistory ? 1 : 0,

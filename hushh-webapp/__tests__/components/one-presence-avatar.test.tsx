@@ -27,7 +27,9 @@ let media: EventTarget & { matches: boolean };
 type ViewportCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
 const viewportCallbacks = new Set<ViewportCallback>();
 const enterViewport: ViewportCallback = entries => viewportCallbacks.forEach(callback => callback(entries));
+const originalDecode = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
 beforeEach(() => {
+  Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, writable: true, value: vi.fn().mockResolvedValue(undefined) });
   vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
   vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1254);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
@@ -45,7 +47,11 @@ beforeEach(() => {
   });
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  if (originalDecode) Object.defineProperty(HTMLImageElement.prototype, "decode", originalDecode);
+  else Reflect.deleteProperty(HTMLImageElement.prototype, "decode");
+});
 
 async function loadVisibleAvatar(view: ReturnType<typeof render>) {
   act(() => enterViewport([{ isIntersecting: true }]));
@@ -116,9 +122,11 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
   });
 
-  it("retains the outgoing runtime until replacement playback is ready, and ignores superseded loads", async () => {
+  it("retains the outgoing runtime until replacement artwork is ready, and ignores superseded loads", async () => {
     const view = render(<OnePresenceAvatar state="thinking" />);
     const old = await loadVisibleAvatar(view);
+    // Both replacement portraits are unavailable, so native paint owns readiness.
+    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(false);
     view.rerender(<OnePresenceAvatar state="answering" />);
     act(() => enterViewport([{ isIntersecting: true }]));
     await waitFor(() => expect(runtime.instances).toHaveLength(2));
@@ -145,6 +153,31 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     view.unmount();
     expect(replacement.cleanup).toHaveBeenCalledOnce();
     expect(lifecycle.listeners.size).toBe(0);
+  });
+
+  it("shows the current activity's decoded portrait while its animation is still loading", async () => {
+    const view = render(<OnePresenceAvatar state="connected" />);
+    const old = await loadVisibleAvatar(view);
+    let releaseDecode!: () => void;
+    vi.mocked(HTMLImageElement.prototype.decode).mockImplementationOnce(() => new Promise<void>(resolve => { releaseDecode = resolve; }));
+    view.rerender(<OnePresenceAvatar state="thinking" />);
+    act(() => enterViewport([{ isIntersecting: true }]));
+    await waitFor(() => expect(runtime.instances).toHaveLength(2));
+    const pending = runtime.instances[1];
+    // complete/naturalWidth alone do not prove an async image can be drawn.
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("connected");
+    expect(old.cleanup).not.toHaveBeenCalled();
+    await act(async () => releaseDecode());
+    // No Rive onLoad: a slow animation must not hide the activity's ready portrait.
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("thinking"));
+    expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
+    expect(view.container.querySelector("img")?.style.visibility).toBe("visible");
+    expect(pending.play).not.toHaveBeenCalled();
+    expect(old.cleanup).toHaveBeenCalledOnce();
+    view.rerender(<OnePresenceAvatar state="connected" />);
+    await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("connected"));
+    act(() => pending.options.onLoad());
+    expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("connected");
   });
 
   it("waits for a delayed reduced-motion poster before removing painted outgoing artwork", async () => {
@@ -216,16 +249,16 @@ describe("OnePresenceAvatar playback lifecycle", () => {
   });
 
   it("freezes painted playback when backgrounded before its HD fallback loads", async () => {
+    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(false);
     const view = render(<OnePresenceAvatar state="thinking" />);
     const old = await loadVisibleAvatar(view);
-    vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(false);
     act(() => { lifecycle.state = "background"; lifecycle.listeners.forEach(listener => listener()); });
     expect(old.stopRendering).toHaveBeenCalled();
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("visible");
     expect(view.container.querySelector("img")?.style.visibility).toBe("hidden");
     act(() => { lifecycle.state = "active"; lifecycle.listeners.forEach(listener => listener()); });
     vi.mocked(Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete")!.get!).mockReturnValue(true);
-    act(() => view.container.querySelector("img")!.dispatchEvent(new Event("load")));
+    await act(async () => view.container.querySelector("img")!.dispatchEvent(new Event("load")));
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("visible");
     expect(view.container.querySelector("img")?.style.visibility).toBe("hidden");
     act(() => { lifecycle.state = "background"; lifecycle.listeners.forEach(listener => listener()); });

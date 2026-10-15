@@ -49,6 +49,13 @@
 
 .form > :last-child button { font-family: var(--font-app-body); font-size: 13px; }
 
+.actions { margin-inline: auto; max-width: 32rem; }
+.actions > div:first-child { display: flex; align-items: center; justify-content: center; }
+.actions [data-action-priority] { flex: 1; min-width: 0; max-width: 244px; }
+.actions [data-action-priority="secondary"] { order: 1; }
+.actions [data-action-priority="primary"] { order: 2; }
+.actions button { min-width: 0; padding-inline: 12px; }
+
 
 .field input { background-color: var(--app-card-surface-default-solid); }
 
@@ -56,7 +63,7 @@
 .scanArtwork { display:flex; flex-direction:column; align-items:center; width:100%; max-width:280px; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
 .scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
 .scanArtwork:disabled { opacity:.55; cursor:default; }
-.scanReference { display:block; width:100%; height:auto; }
+.scanReference { display:block; width:100%; height:auto; max-height:260px; object-fit:contain; }
 
 @layer base {
   .scanActions .scanAction { font-size: 13px !important; }

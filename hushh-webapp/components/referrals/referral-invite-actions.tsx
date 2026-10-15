@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { ShellActionSurface, SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowRightIcon, GiftIcon, MoreHorizontal } from "@/components/icons";
+import { ArrowRightIcon, MoreHorizontal } from "@/components/icons";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -65,18 +65,17 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
           <ShellActionSurface
             ref={triggerRef}
             variant="pill"
-            className="referral-share-toggle !h-11"
+            className="referral-share-toggle"
             contentClassName="referral-share-content"
             aria-label={open ? "Close share options" : "Invite & earn $"}
             aria-expanded={open}
             rippleEffect="fill"
           >
-            <span className="referral-share-gift" aria-hidden="true">
-              <GiftIcon size={18} />
+            <span className="referral-share-label">
+              Invite &amp; earn <span className="referral-share-currency">$</span>
             </span>
-            <span className="referral-share-label">Invite &amp; earn $</span>
             <span className="referral-share-arrow-surface" aria-hidden="true">
-              <ArrowRightIcon className="referral-share-arrow size-4" weight="bold" />
+              <ArrowRightIcon size={16} weight="bold" />
             </span>
           </ShellActionSurface>
         </CollapsibleTrigger>
@@ -100,7 +99,6 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
               <Image src="/referrals/whatsapp-ios.jpg" alt="" width={30} height={30} className="referral-bubble-logo" unoptimized />
               <MaterialRipple variant="blue" effect="fill" />
             </a>
-            <span className="referral-bubble-label">WhatsApp</span>
           </div>
           <div className="referral-invite-bubble">
             <a
@@ -113,11 +111,11 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
               <Image src="/referrals/messages-ios.jpg" alt="" width={30} height={30} className="referral-bubble-logo" unoptimized />
               <MaterialRipple variant="blue" effect="fill" />
             </a>
-            <span className="referral-bubble-label">SMS</span>
           </div>
           <div className="referral-invite-bubble">
             <ShellActionSurface
               className="referral-bubble-action !h-11 !w-11"
+              contentClassName="referral-bubble-more-icon"
               onClick={() => { onShare(); close(); }}
               aria-label="More share options"
               title="More"
@@ -125,7 +123,6 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
             >
               <MoreHorizontal className="size-6" weight="bold" aria-hidden="true" />
             </ShellActionSurface>
-            <span className="referral-bubble-label">More</span>
           </div>
         </CollapsibleContent>
       </Collapsible>

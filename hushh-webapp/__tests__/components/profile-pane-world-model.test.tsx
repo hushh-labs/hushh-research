@@ -120,7 +120,9 @@ describe("Profile pane: Personal World Model", () => {
     const active = activeScreen();
     expect(active?.dataset.profileStackScreen).toBe("panel:world-model");
     expect(active).toContainElement(status);
-    expect(status).toHaveAttribute("role", "status");
+    const row = status.closest("[data-testid='pwm-status-row']");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("status")).toHaveTextContent("This only takes a moment.");
     expect(within(active!).queryByText("Your account")).toBeNull();
     // The pane never sends the owner to the route proxy.ts redirects back here.
     expect(nav.router.replace).not.toHaveBeenCalled();
@@ -135,12 +137,15 @@ describe("Profile pane: Personal World Model", () => {
     });
     const observe = vi
       .spyOn(WorldModelResearchService, "observe")
-      .mockImplementation(async ({ onResult }) => {
+      .mockImplementation(({ onResult }) => {
         onResult({
           status: "pending",
           pkm_written: false,
           restart_required: false,
         });
+        // The real service keeps watching while research runs; resolving
+        // here would read as an exhausted watch, not a live one.
+        return new Promise<void>(() => {});
       });
     vi.spyOn(WorldModelResearchService, "preferences").mockResolvedValue({
       enabled: true,
@@ -164,6 +169,55 @@ describe("Profile pane: Personal World Model", () => {
     // One reader prepares the model; the pane never starts its own.
     expect(observe).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Checking your model…")).toBeNull();
+    // Never idle: the row says what is happening even before progress arrives.
+    const row = status.closest("[data-testid='pwm-status-row']") as HTMLElement;
+    expect(within(row).getByRole("status").textContent).not.toBe("");
+    expect(within(activeScreen()!).getByTestId("pwm-progress-row")).toBeInTheDocument();
+  });
+
+  it("builds every card the way the Payouts pane does", async () => {
+    vi.spyOn(WorldModelDecisionService, "load").mockResolvedValue({
+      claims: {},
+      saved: [],
+      decidedKeys: new Set(),
+    });
+    vi.spyOn(WorldModelResearchService, "observe").mockImplementation(
+      async ({ onResult }) => {
+        onResult({ status: "pending", pkm_written: false, restart_required: false });
+      },
+    );
+    vi.spyOn(WorldModelResearchService, "preferences").mockResolvedValue({
+      enabled: true,
+      email_enabled: true,
+      consent_version: "pwm-native-v1",
+    });
+    render(
+      <>
+        <WorldModelProvider>
+          <main />
+        </WorldModelProvider>
+        <ProfilePage
+          presentation="pane"
+          paneLocation={{ panel: "world-model", detail: null }}
+        />
+      </>,
+    );
+    await screen.findByText("Preparing your model");
+    await screen.findByText("Research and email");
+    const page = activeScreen()!.querySelector<HTMLElement>("[data-pwm-page]")!;
+    const groups = within(page).getAllByTestId("settings-group");
+    expect(groups.length).toBeGreaterThanOrEqual(3);
+    for (const group of groups) {
+      // Compact density like Payouts, and only settings rows inside: no
+      // hand-padded text blocks or lists of their own.
+      expect(group).toHaveAttribute("data-settings-density", "compact");
+      expect(group.querySelector(".px-4.py-3, .px-4.pb-3, ul.divide-y")).toBeNull();
+      for (const row of group.querySelectorAll("[data-testid$='-row']"))
+        expect(row).toHaveAttribute("data-settings-density", "compact");
+    }
+    // Notes outside the cards use the pane's note style.
+    for (const note of page.querySelectorAll(".profile-account-note"))
+      expect(note).toHaveAttribute("data-ui-role", "helper-text");
   });
 
   it("opens the model inside the pane from the Profile row", async () => {

@@ -168,7 +168,14 @@ class WorldModelReport(ProfileReport[ProfileSourceRef]):
         return self
 
     def validate_receipts(self, assessment: IdentityAssessment, attempts: dict, refs: set[str]):
-        if self.identity != assessment.identity:
+        # The final report may restate the reason and name the next step; the
+        # decision itself (state, candidate, supporting evidence) must not move.
+        final, assessed = self.identity, assessment.identity
+        if (
+            final.state != assessed.state
+            or final.selected_candidate_id != assessed.selected_candidate_id
+            or set(final.supporting_anchor_ids) != set(assessed.supporting_anchor_ids)
+        ):
             raise ValueError("Final report changed the assessed identity")
         findings = {section.kind for section in self.sections}
         candidate_id = assessment.identity.selected_candidate_id

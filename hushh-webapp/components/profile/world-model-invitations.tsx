@@ -122,8 +122,8 @@ export function WorldModelInvitations({
     <SettingsGroup>
       <div className="space-y-3 px-4 py-3">
         <HelperText>
-          Prepare a short public professional preview, review it, then share a
-          contact-bound invitation. Their full model stays under their control.
+          Prepare a short preview from one public professional page, then send
+          an invitation to their email or phone. They control their own model.
         </HelperText>
         <label className="block space-y-1 text-xs">
           <span className="font-semibold">Their name</span>
@@ -139,9 +139,9 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          <span className="font-semibold">Public professional profile URL</span>
+          <span className="font-semibold">Public profile link</span>
           <Input
-            aria-label="Public professional profile URL"
+            aria-label="Public profile link"
             disabled={busy}
             value={sourceUrl}
             onChange={(e) => {
@@ -165,7 +165,7 @@ export function WorldModelInvitations({
             checked={permission}
             onCheckedChange={(v) => setPermission(v === true)}
           />
-          I can use this public professional source for their invitation.
+          This page is public and I’m allowed to use it.
         </label>
         <Button
           size="compact"
@@ -310,7 +310,7 @@ export function WorldModelInvitations({
               >
                 <span>
                   Invitation {index + 1} ·{" "}
-                  {row.state === "claimed" ? "Claimed" : "Awaiting claim"}
+                  {row.state === "claimed" ? "Claimed" : "Not claimed yet"}
                 </span>
                 <Button
                   size="compact"

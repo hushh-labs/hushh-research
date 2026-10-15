@@ -701,6 +701,7 @@ tests/test_direct_message_feed_projection_postgres.py
 tests/services/test_wallet_card_access_service.py
 tests/services/test_wallet_card_network.py
 tests/services/test_wallet_artwork_catalog.py
+tests/services/test_wallet_artwork_providers.py
 tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
@@ -781,6 +782,8 @@ tests/test_pkm_answer_catalog.py
 tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
+tests/test_world_model_story.py
+tests/test_world_model_contracts.py
 
 tests/test_world_model_invitations.py
 

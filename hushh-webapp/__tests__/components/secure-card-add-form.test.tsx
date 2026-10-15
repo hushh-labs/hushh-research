@@ -3,8 +3,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
-const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn() }));
-vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork } }));
+const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn() }));
+vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display, bankArtwork: networkApi.banks } }));
 // Exercise the real region dropdown with a bounded, representative catalog.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
   { value: "US", label: "United States" }, { value: "IN", label: "India" },
@@ -38,6 +38,10 @@ beforeEach(() => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:owned-test-photo") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] });
+    networkApi.preview.mockResolvedValue("data:image/png;base64,c3ludGhldGlj");
+    networkApi.display.mockResolvedValue(true);
+    networkApi.banks.mockResolvedValue({ catalogVersion: "test", banks: [], variants: [], nextOffset: null });
+    networkApi.select.mockReset();
     scan.read.mockReset();
     scan.pick.mockReset();
     scan.native.mockReturnValue(false);
@@ -45,6 +49,55 @@ beforeEach(() => {
     networkApi.supported.mockReset();
     networkApi.supported.mockResolvedValue(["visa", "mastercard", "amex", "discover", "rupay", "other"]);
     networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
+});
+
+it("keeps Add available during an exact-design download and ignores a stale token result", async () => {
+  const finishes: ((value: unknown) => void)[] = [];
+  networkApi.select.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
+  const variant = { assetId: "owned-blue", issuerId: "owned", productId: "test", variantId: "blue", label: "Owned blue", image: "/not-dispatched-by-this-mock", digest: "a".repeat(64), allowOverlay: false };
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "exact", issuerId: "owned", variants: [variant] });
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  let token = "original-consent";
+  const getContext = () => ({ userId: "owner", vaultOwnerToken: token });
+  const view = render(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />); fillRequired();
+  await waitFor(() => expect(networkApi.select).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("heading", { name: "Choose your card design" })).toBeNull();
+  expect(screen.queryByText("Select the design that matches your card.")).toBeNull();
+  expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
+  token = "renewed-consent"; view.rerender(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />);
+  await waitFor(() => expect(networkApi.artwork).toHaveBeenCalledTimes(2));
+  expect(networkApi.select).toHaveBeenCalledOnce();
+  await act(async () => { finishes[0]!({ source: "catalog", assetId: "owned-blue" }); });
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", "neutral");
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  submit();
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ artwork: undefined })));
+});
+
+it("rechecks open picker and selected imagery without replacing the owner choice or restoring a foreign preview", async () => {
+  vi.stubGlobal("IntersectionObserver", undefined);
+  try {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const variant = { assetId: "owned-blue", issuerId: "owned", productId: "test", variantId: "blue", label: "Owned blue", image: "/not-dispatched-by-this-mock", digest: "a".repeat(64), allowOverlay: false };
+  const selected = { ...variant, source: "catalog", version: 1, catalogVersion: "owned-1", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected" };
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "exact", issuerId: "owned", variants: [variant] });
+  networkApi.select.mockResolvedValue(selected);
+  let owner = "owner";
+  const getContext = () => ({ userId: owner, vaultOwnerToken: "consent" });
+  const view = render(<SecureCardAddForm onSubmit={vi.fn()} getNetworkContext={getContext} />); fillRequired();
+  await waitFor(() => expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(2));
+  const finishes: ((approved: boolean) => void)[] = [];
+  networkApi.display.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
+  fireEvent.focus(window);
+  await waitFor(() => expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(0));
+  expect(screen.getByRole("button", { name: "Owned blue" })).toHaveAttribute("aria-pressed", "true");
+  owner = "other-owner";
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", provider: "unconfigured", match: "unknown", issuerId: null, variants: [] });
+  view.rerender(<SecureCardAddForm onSubmit={vi.fn()} getNetworkContext={getContext} />);
+  await act(async () => { finishes.forEach(finish => finish(true)); });
+  expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(0);
+  } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 });
 
 
@@ -198,4 +251,41 @@ it("explains an incompatible manual network length and recovers after correction
   expect(await screen.findByText("You selected this network. This does not verify the card or its issuer.")).toBeInTheDocument();
   submit();
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "amex", pan: "378282246310005" })));
+});
+
+const bankVariants = ["Blue", "Gold"].map((label, index) => ({ assetId: label.toLowerCase(), issuerId: "bank", productId: label.toLowerCase(), variantId: "v1", label, digest: String(index + 1).repeat(64), image: `/api/one/wallet/card-access/artwork/assets/${String(index + 1).repeat(64)}`, allowOverlay: false }));
+function enableBankFixture() {
+  const bank = { bankKey: "a".repeat(32), issuerId: "bank", name: "Owned Test Bank", country: "US", designCount: 2 };
+  networkApi.banks.mockImplementation(async (_ctx, input) => ({ catalogVersion: "test", banks: [bank], variants: input.bankKey ? bankVariants : [], nextOffset: null }));
+  networkApi.select.mockImplementation(async (_ctx, variant) => ({ ...variant, source: "catalog", version: 1, catalogVersion: "test", evidence: "owner_selected", image: "data:image/png;base64,c3ludGhldGlj" }));
+}
+async function chooseBank() {
+  const select = await screen.findByLabelText("Bank (optional)"); fireEvent.keyDown(select, { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Owned Test Bank · US" }));
+}
+it("fences a bank suggestion after a suffix-only PAN edit and lets the owner clear the bank", async () => {
+  enableBankFixture(); let first!: (v: typeof bankVariants[number]) => void;
+  const suggestion = vi.fn().mockReturnValueOnce(new Promise(resolve => { first = resolve; })).mockResolvedValue(bankVariants[1]);
+  render(<SecureCardAddForm onSubmit={vi.fn()} suggestBankDesign={suggestion} />); fillRequired(); await chooseBank();
+  await waitFor(() => expect(suggestion).toHaveBeenCalledOnce());
+  fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242420000004242" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Gold", exact: true })).toHaveAttribute("aria-pressed", "true"));
+  await act(async () => first(bankVariants[0]));
+  expect(screen.getByRole("button", { name: "Gold", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
+  fireEvent.keyDown(screen.getByLabelText("Bank (optional)"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Choose your bank", exact: true }));
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", "neutral");
+});
+it.each([false, true])("revalidates a bank choice after inactive Add without replacing changed bytes (%s)", async changed => {
+  enableBankFixture(); const save = vi.fn().mockResolvedValue(undefined), suggestion = vi.fn().mockResolvedValue(bankVariants[1]);
+  const view = render(<SecureCardAddForm onSubmit={save} suggestBankDesign={suggestion} />); fillRequired(); await chooseBank();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Gold", exact: true })).toHaveAttribute("aria-pressed", "true"));
+  fireEvent.click(screen.getByRole("button", { name: "Blue", exact: true })); await waitFor(() => expect(screen.getByRole("button", { name: "Blue", exact: true })).toHaveAttribute("aria-pressed", "true"));
+  view.rerender(<SecureCardAddForm active={false} onSubmit={save} suggestBankDesign={suggestion} />);
+  if (changed) networkApi.banks.mockImplementation(async (_ctx, input) => ({ catalogVersion: "test-2", banks: [{ bankKey: "a".repeat(32), issuerId: "bank", name: "Owned Test Bank", country: "US", designCount: 2 }], variants: input.bankKey ? bankVariants.map(row => ({ ...row, digest: "f".repeat(64) })) : [], nextOffset: null }));
+  view.rerender(<SecureCardAddForm active onSubmit={save} suggestBankDesign={suggestion} />);
+  if (changed) await screen.findByText("Bank design unavailable. You can still add your card.");
+  await waitFor(() => expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", changed ? "neutral" : "catalog"));
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled()); submit(); await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ artwork: changed ? { source: "neutral", version: 1 } : expect.objectContaining({ assetId: "blue", evidence: "owner_selected" }) })));
 });

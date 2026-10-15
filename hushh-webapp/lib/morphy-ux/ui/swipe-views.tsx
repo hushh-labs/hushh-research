@@ -114,6 +114,12 @@ export function measureFillViewportMinHeight(
  */
 const ARRIVED_TOLERANCE_PX = 3;
 
+// Embla spring parameters, not milliseconds. Tab presses use a nearly
+// critically damped snap: the default drag spring overshoots a middle pane
+// and can take over 500ms to return. Finger-driven snaps keep their defaults.
+const TAB_SELECTION_DURATION = 2;
+const TAB_SELECTION_FRICTION = 0.34;
+
 export function clampSwipePosition(
   position: number,
   optionCount: number,
@@ -483,11 +489,13 @@ export function SwipeViews({
   // re-run on every selection change (re-subscribing its observer each time),
   // but still needs the CURRENT selection whenever it does fire.
   const activeValueRef = useRef(activeValue);
+  const activeIndexRef = useRef(activeIndex);
   const optionsRef = useRef(options);
   useEffect(() => {
     activeValueRef.current = activeValue;
+    activeIndexRef.current = activeIndex;
     optionsRef.current = options;
-  }, [activeValue, options]);
+  }, [activeValue, activeIndex, options]);
 
   /**
    * The viewport height, in `heightMode="active"`, follows the SELECTED pane.
@@ -785,6 +793,8 @@ export function SwipeViews({
       }
       isAnimatingRef.current = true;
       scrollToIndexSafely(api, index);
+      api.internalEngine?.().scrollBody?.useDuration(TAB_SELECTION_DURATION)
+        .useFriction(TAB_SELECTION_FRICTION);
       syncTabIndicator(true);
     },
     [releaseHeightFloor, syncTabIndicator, tabSetId],
@@ -795,13 +805,35 @@ export function SwipeViews({
   useEffect(() => {
     if (!emblaApi) return;
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
-    const visualIdx = resolveVisualIndex(emblaApi, options.length);
+    const engine = emblaApi.internalEngine?.();
+    const width = engine?.slideRects?.[0]?.width;
+    const pendingTarget = engine?.target?.get?.();
+    // Compare the destination, not the pane currently passing the viewport.
+    // A swipe's selection echo must not restart its release physics, and a
+    // tap on a passing pane must retarget an interrupted flight.
+    const alreadyTargeted =
+      typeof width === "number" && width > 0 &&
+      typeof pendingTarget === "number" && Number.isFinite(pendingTarget)
+        ? Math.abs(pendingTarget + targetIdx * width) <= 1
+        : targetIdx === resolveVisualIndex(emblaApi, options.length);
 
-    if (targetIdx !== -1 && targetIdx !== visualIdx) {
+    if (targetIdx !== -1 && !alreadyTargeted) {
       scrollToSelection(emblaApi, targetIdx);
-    } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
-      setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
-      releaseHeightFloor();
+    } else {
+      const rendered = engine?.offsetLocation?.get?.();
+      // A delayed route echo can follow the last rendered frame. Recover the
+      // height without waiting for another scroll event, but keep indicator
+      // ownership until settle and never release while the leaving pane shows.
+      if (targetIdx !== -1 && typeof width === "number" && width > 0 &&
+          typeof rendered === "number" && Number.isFinite(rendered) &&
+          Math.abs(rendered + targetIdx * width) <= ARRIVED_TOLERANCE_PX) {
+        syncTabIndicator();
+        releaseHeightFloor();
+      }
+      if (!isDraggingRef.current && !isAnimatingRef.current && !hasMovedSincePointerDownRef.current) {
+        setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+        releaseHeightFloor();
+      }
     }
     lastReportedValueRef.current = activeValue;
   }, [
@@ -810,6 +842,7 @@ export function SwipeViews({
     options,
     releaseHeightFloor,
     scrollToSelection,
+    syncTabIndicator,
     tabSetId,
   ]);
 
@@ -831,6 +864,7 @@ export function SwipeViews({
     if (!emblaApi) return;
     const currentIdx = resolveVisualIndex(emblaApi, options.length);
     alignSettledSwipePosition(emblaApi, currentIdx);
+    emblaApi.internalEngine?.().scrollBody?.useBaseDuration().useBaseFriction();
     // Embla continues its snap after the finger lifts. Keep the tab indicator
     // bound to the same compositor progress through that settle phase instead
     // of letting it jump back to the route-selected index mid-pane motion.
@@ -996,7 +1030,8 @@ export function SwipeViews({
       clampRenderedSwipeBounds(emblaApi, options.length);
       const position = syncTabIndicator();
       if (typeof position !== "number") return;
-      if (Math.abs(position - activeIndex) > 0.001) {
+      const selectedIndex = activeIndexRef.current;
+      if (Math.abs(position - selectedIndex) > 0.001) {
         hasMovedSincePointerDownRef.current = true;
       }
       // Release the height floor the moment the outgoing pane's trailing edge
@@ -1011,7 +1046,7 @@ export function SwipeViews({
       const slideWidth =
         emblaApi.internalEngine?.().slideRects?.[0]?.width ?? 0;
       const offsetPx =
-        Math.abs(position - activeIndex) * (slideWidth > 0 ? slideWidth : 0);
+        Math.abs(position - selectedIndex) * (slideWidth > 0 ? slideWidth : 0);
       if (slideWidth > 0 && offsetPx <= ARRIVED_TOLERANCE_PX) {
         releaseHeightFloor();
       }
@@ -1035,7 +1070,7 @@ export function SwipeViews({
       syncTabIndicator(false);
     };
 
-    syncTabIndicator(false);
+    syncTabIndicator();
     emblaApi.on("scroll", onScroll);
     emblaApi.on("pointerDown", onPointerDown);
     emblaApi.on("pointerUp", onPointerUp);
@@ -1049,7 +1084,6 @@ export function SwipeViews({
       hasMovedSincePointerDownRef.current = false;
     };
   }, [
-    activeIndex,
     emblaApi,
     options.length,
     releaseHeightFloor,
