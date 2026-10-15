@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 350,
+  "expected_migration_version": 351,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -88,7 +88,8 @@
     "one_referral_bind_network",
     "one_referral_record_completed_reply",
     "one_referral_rebuild_network",
-    "one_referral_record_confirmed_memory_reward"
+    "one_referral_record_confirmed_memory_reward",
+    "guard_wallet_card_request"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2682,6 +2683,19 @@
       "source_commit_id",
       "source_projection",
       "source_projection_revision"
+    ],
+    "wallet_card_requests": [
+      "id",
+      "requester_user_id",
+      "target_user_id",
+      "client_request_id",
+      "message_id",
+      "status",
+      "created_at",
+      "expires_at",
+      "resolved_at",
+      "payment_grant_id",
+      "profile_grant_id"
     ],
     "wallet_card_share_requests": [
       "owner_user_id",

@@ -1,6 +1,12 @@
 import { ApiService } from "@/lib/services/api-service";
 import type { CardShareContext } from "./wallet-card-share-service";
 import type { WalletCardPublicProfile } from "./wallet-card-service";
+import { readCardRequest } from "@/lib/wallet/card-request";
+
+export type WalletAccessContext = Omit<CardShareContext, "vaultKey">;
+export class CardRequestStateError extends Error {
+  constructor(readonly code: string) { super("Card request is unavailable."); }
+}
 
 export type CardSharingActivity = { event: string; at: string; actor: "owner" | "recipient"; outcome: string };
 export type CardSharingHistoryItem = CardAccessGrant & {
@@ -42,10 +48,15 @@ async function request<T>(idToken: string, path: string, method = "GET", body?: 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (response.status === 503) throw new CardAccessUnavailableError();
-  if (!response.ok) throw new Error("Card access is unavailable. Please try again.");
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    const code = error?.detail?.code;
+    if (["WALLET_CARD_REQUEST_PENDING", "WALLET_CARD_REQUEST_CLOSED", "WALLET_CARD_REQUEST_NOT_FOUND"].includes(code)) throw new CardRequestStateError(code);
+    throw new Error("Card access is unavailable. Please try again.");
+  }
   return response.json() as Promise<T>;
 }
-async function ownerRequest<T>(context: CardShareContext, path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
+async function ownerRequest<T>(context: WalletAccessContext, path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   if (!context.isCurrent()) throw new Error("Wallet changed.");
   const token = await context.getIdToken();
   if (!context.isCurrent()) throw new Error("Wallet changed.");
@@ -54,6 +65,12 @@ async function ownerRequest<T>(context: CardShareContext, path: string, method =
   return result;
 }
 export const WalletCardAccessService = {
+  createRequest: async (context: WalletAccessContext, personRef: string, requestId: string) =>
+    readCardRequest(await ownerRequest(context, "/requests", "POST", { personRef, requestId })),
+  getRequest: async (context: WalletAccessContext, requestId: string, signal?: AbortSignal) =>
+    readCardRequest(await ownerRequest(context, `/requests/${encodeURIComponent(requestId)}`, "GET", undefined, signal)),
+  decideRequest: async (context: WalletAccessContext, requestId: string, action: "decline" | "cancel") =>
+    readCardRequest(await ownerRequest(context, `/requests/${encodeURIComponent(requestId)}/${action}`, "POST")),
   subscribe: (userId: string, listener: () => void) => {
     const set = listeners.get(userId) ?? new Set<() => void>();
     set.add(listener); listeners.set(userId, set);
@@ -69,8 +86,8 @@ export const WalletCardAccessService = {
   reserve: (idToken: string, vaultOwnerToken: string, requestId: string) => request<{ cardId: string | null; enabled: boolean }>(idToken, "/registrations", "POST", { requestId }, vaultOwnerToken),
   state: (context: CardShareContext, cardId: string, signal?: AbortSignal, cursor?: string) => ownerRequest<CardAccessState>(context, `/cards/${encodeURIComponent(cardId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, "GET", undefined, signal),
   recipients: (context: CardShareContext, query: string, signal?: AbortSignal) => ownerRequest<{ items: CardAccessRecipient[]; hasMore: boolean }>(context, `/connections?query=${encodeURIComponent(query)}`, "GET", undefined, signal),
-  share: async (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15 | 60 | 120, requestId: string, encryptedCards?: Record<string, string>) => {
-    const result = await ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes, ...(encryptedCards ? { encryptedCards } : {}) });
+  share: async (context: CardShareContext, cardId: string, recipientPersonRefs: string[], durationMinutes: 5 | 10 | 15 | 60 | 120, requestId: string, encryptedCards?: Record<string, string>, cardRequestId?: string) => {
+    const result = await ownerRequest<{ grants: CardAccessGrant[] }>(context, `/cards/${encodeURIComponent(cardId)}/grants`, "POST", { requestId, recipientPersonRefs, durationMinutes, ...(encryptedCards ? { encryptedCards } : {}), ...(cardRequestId ? { cardRequestId } : {}) });
     changed(context.userId); return result;
   },
   revoke: async (context: CardShareContext, grantId: string) => {

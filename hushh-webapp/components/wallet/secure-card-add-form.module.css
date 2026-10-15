@@ -52,12 +52,16 @@
 
 .form > :last-child button { font-family: var(--font-app-body); font-size: 13px; }
 
-.actions { margin-inline: auto; max-width: 32rem; }
-.actions > div:first-child { display: flex; align-items: center; justify-content: center; }
+.actions { margin-inline: auto; }
+.actions > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .actions [data-action-priority] { flex: 1; min-width: 0; max-width: 244px; }
 .actions [data-action-priority="secondary"] { order: 1; }
 .actions [data-action-priority="primary"] { order: 2; }
 .actions button { min-width: 0; padding-inline: 12px; }
+@container wallet-form (min-width: 460px) {
+  .actions { padding-inline: 24px; }
+  .actions > div:first-child { gap: 32px; }
+}
 
 
 .field input { background-color: var(--app-card-surface-default-solid); }
