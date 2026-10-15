@@ -6,7 +6,7 @@
  * the owner's vault key. They never enter a chat message or a Server Action.
  */
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   ProfilePaneAccountIcon,
@@ -31,7 +31,8 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 
-import { type WalletCardArtwork } from "@/lib/wallet/card-artwork";
+import { type WalletCardArtwork, type WalletArtworkVariant } from "@/lib/wallet/card-artwork";
+import { WalletBankDesignPicker } from "./wallet-bank-design-picker";
 import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
 import { WalletCardFace } from "./wallet-card-face";
 import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
@@ -71,14 +72,19 @@ export interface SecureCardAddFormProps {
   initialNickname?: string;
   /** Decrypted by the host from the owner's Secrets; never passed in a URL. */
   initialPan?: string;
+  /** Owner host performs usage allocation privately; the picker never gets PAN. */
+  suggestBankDesign?: (pan: string, variants: readonly WalletArtworkVariant[], signal: AbortSignal) => Promise<WalletArtworkVariant | null>;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan, suggestBankDesign }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
-  const [pan, setPan] = useState(initialPan ?? "");
+  const [pan, setPanValue] = useState(initialPan ?? "");
+  const [bankDraftRevision, setBankDraftRevision] = useState(0);
+  const setPan = (value: string) => { setPanValue(value); setBankDraftRevision(revision => revision + 1); };
+  const [bankSelection, setBankSelection] = useState<string | null>(null);
   const [network, setNetwork] = useState<CardBrand | "">("");
   const draftId = useRef(walletOperationId());
   const edited = useRef({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
@@ -125,6 +131,14 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
   const brand = currentReply?.result?.network ?? "other";
+  // An unchanged owner/draft keeps its confirmed network during token renewal.
+  // This is presentation continuity, never authority to skip save validation.
+  const bankNetwork = currentReply?.result?.network ?? (networkReply?.key === lookupKey ? networkReply.result?.network : undefined) ?? "other";
+  const bankContextKey = `${ownerKey}:${bankNetwork}:${issuingRegion}`;
+  const bankMode = bankSelection === bankContextKey;
+  useLayoutEffect(() => {
+    if (bankSelection && bankSelection !== bankContextKey) { setBankSelection(null); setArtwork(undefined); }
+  }, [bankSelection, bankContextKey]);
   const networkLengthMismatch = length >= 13 && length <= 19 && !isCardPanLengthValid(length, network || brand);
   const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
     ? "Network identification is unavailable. Your card will use a neutral Card label."
@@ -326,7 +340,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
           </div>
         </details>
       </fieldset>
-      {artworkEnabled ? <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} /> : null}
+      {artworkEnabled ? <>
+        <WalletBankDesignPicker key={bankContextKey} context={context} network={bankNetwork} country={issuingRegion || undefined} active={draftVisible && !submitting && !scanning && Boolean(currentReply?.result || (networkReply?.key === lookupKey && networkReply.result))} draftRevision={bankDraftRevision} onChange={setArtwork} onModeChange={enabled => setBankSelection(enabled ? bankContextKey : null)} suggest={suggestBankDesign ? (variants, signal) => suggestBankDesign(digits, variants, signal) : undefined} hasPhoto={Boolean(scanReading?.sanitized || scanReading?.candidate)} />
+        <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} />
+      </> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}

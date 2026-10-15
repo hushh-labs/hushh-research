@@ -116,6 +116,7 @@ interface Variant {
   stackedPhoneCss?: boolean;
   workingSubtitle?: string;
   safeTop?: number;
+  preferredName?: string;
 }
 
 const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true };
@@ -141,7 +142,7 @@ function escapeHtml(value: string): string {
 function decide(mode: Mode, variant: Variant, width = 1024) {
   const scope = {
     isPuppySurface: mode === "puppy",
-    oneDisplayName: "One",
+    chatOnboarding: { preferredName: variant.preferredName ?? null },
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
     hasInlineModelPicker: width >= 640,
@@ -524,13 +525,18 @@ test.describe("Agent Chat: which agent is answering", () => {
     page,
   }) => {
     await openFixture(page, SHIPPED, 1024);
+    await expect(page.getByTestId("agent-name")).toHaveText("One");
+
+    const named = { ...SHIPPED, preferredName: "Roopmann" };
+    await openFixture(page, named, 1024);
+    await expect(page.getByTestId("agent-name")).toHaveText("Roopmann");
 
     const oneOption = segment("one");
     const puppyOption = segment("puppy");
     // The names come from the shipped ternary, not from this file, so a rename
     // travels here instead of turning the spec red for the wrong reason.
-    const oneName = decide("one", SHIPPED).name;
-    const puppyName = decide("puppy", SHIPPED).name;
+    const oneName = decide("one", named).name;
+    const puppyName = decide("puppy", named).name;
     expect(puppyName).not.toBe(oneName);
 
     await expect(page.getByTestId("agent-name")).toHaveText(oneName);

@@ -1052,6 +1052,11 @@ export function WalletWorkspace() {
                 backRoute={ROUTES.ONE_WALLET}
                 showIntroduction={false}
                 getNetworkContext={vaultContext}
+                suggestBankDesign={async (pan, variants, signal) => {
+                  const context = vaultContext();
+                  if (!context) throw new Error("Unlock your vault to choose a design.");
+                  return WalletService.suggestBankArtwork({ ...context, pan, variants, signal });
+                }}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
@@ -1170,7 +1175,6 @@ export function WalletWorkspace() {
             allowVaultCreation={false}
           />
         ) : null}
-        <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
       </AppPageContentRegion>
       <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
     </AppPageShell>

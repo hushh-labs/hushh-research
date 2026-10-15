@@ -107,6 +107,8 @@ class ArtworkAsset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     asset_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
     issuer_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    # Explicit cosmetic bank-design browsing, never physical-product evidence.
+    bank_design: bool = False
     product_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
     family: str = Field(min_length=1, max_length=100)
     variant_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
@@ -187,9 +189,11 @@ def load_catalog(
         if path is not None
         else os.getenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", "").strip()
     )
-    if not configured:
-        return ArtworkCatalog(version="empty-1", assets=[]), None
-    path = Path(configured).resolve()
+    path = (
+        Path(configured)
+        if configured
+        else Path(__file__).parents[1] / "resources" / "wallet-artwork" / "catalog.json"
+    ).resolve()
     if missing_ok and not path.exists():
         return ArtworkCatalog(version="empty-1", assets=[]), path.parent / "assets"
     if path.stat().st_size > 4_000_000:
@@ -226,6 +230,27 @@ def approved_assets(catalog: ArtworkCatalog) -> list[ArtworkAsset]:
         )
         and all(prefix.isdigit() and len(prefix) in (6, 8) for prefix in asset.iin_prefixes)
     ]
+
+
+def artwork_variant(asset: ArtworkAsset) -> dict:
+    return {
+        "assetId": asset.asset_id,
+        "issuerId": asset.issuer_id,
+        "productId": asset.product_id,
+        "variantId": asset.variant_id,
+        "label": asset.label,
+        "digest": asset.digest,
+        "allowOverlay": asset.allow_overlay,
+        "image": f"/api/one/wallet/card-access/artwork/assets/{asset.digest}",
+        "issuerName": asset.issuer_name,
+        "productName": asset.product_name or asset.family,
+        "variantName": asset.variant_name or asset.label,
+        "country": asset.country,
+        "providerId": asset.provider_id,
+        "artworkVersion": asset.artwork_version,
+        "width": asset.width,
+        "height": asset.height,
+    }
 
 
 def resolve_artwork(
@@ -293,7 +318,8 @@ def resolve_artwork(
     exact = [
         asset
         for asset in candidates
-        if match
+        if not asset.bank_design
+        and match
         and match.product_verified
         and match.variant_verified
         and match.product_id == asset.product_id
@@ -342,27 +368,7 @@ def resolve_artwork(
         else "issuer"
         if candidates or match
         else "network",
-        "variants": [
-            {
-                "assetId": asset.asset_id,
-                "issuerId": asset.issuer_id,
-                "productId": asset.product_id,
-                "variantId": asset.variant_id,
-                "label": asset.label,
-                "digest": asset.digest,
-                "allowOverlay": asset.allow_overlay,
-                "image": f"/api/one/wallet/card-access/artwork/assets/{asset.digest}",
-                "issuerName": asset.issuer_name,
-                "productName": asset.product_name or asset.family,
-                "variantName": asset.variant_name or asset.label,
-                "country": asset.country,
-                "providerId": asset.provider_id,
-                "artworkVersion": asset.artwork_version,
-                "width": asset.width,
-                "height": asset.height,
-            }
-            for asset in variants[:30]
-        ],
+        "variants": [artwork_variant(asset) for asset in variants[:30]],
     }
 
 

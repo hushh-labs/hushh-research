@@ -30,9 +30,9 @@ function Fixture() {
   useEffect(() => { void WalletService.listCardPresentations(context).then(rows => { if (rows.length) { setCards(rows); setTab("cards"); } }).catch(() => setError("Read failed")); }, []);
   return <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
     <header className="flex items-center justify-between"><button className="min-h-11 px-3" onClick={() => { if (!unwindBackLayer("/one/wallet")) setTab("cards"); }}>Back</button><h1 className="text-lg font-semibold">Wallet</h1><button className="min-h-11 px-3" onClick={() => { advanceVaultSessionEpoch(); setCards([]); setLocked(true); }}>Lock Wallet</button></header>
-    {locked ? <p>Wallet locked</p> : tab === "add" ? <SecureCardAddForm showIntroduction={false} scanInToolbar getNetworkContext={() => context} onSubmit={async card => {
-      const saved = await WalletService.addCard({ ...context, card, surface: "web", source: "one_wallet_add" });
-      setCards([{ summary: saved.summary, cardholderName: saved.cardholderName, artwork: saved.artwork }]); setTab("cards");
+    {locked ? <p>Wallet locked</p> : tab === "add" ? <SecureCardAddForm showIntroduction={false} scanInToolbar getNetworkContext={() => context} suggestBankDesign={(pan, variants, signal) => WalletService.suggestBankArtwork({ ...context, pan, variants, signal })} onSubmit={async card => {
+      await WalletService.addCard({ ...context, card, surface: "web", source: "one_wallet_add" });
+      setCards(await WalletService.listCardPresentations(context)); setTab("cards");
     }} /> : <section aria-label="Cards">{cards.map(row => <div key={row.summary.cardId} data-card-id={row.summary.cardId}><WalletCardFace {...row} /><p className="text-sm">Added to Wallet</p><WalletCardDesignEditor card={row.summary} name={row.cardholderName} getContext={() => ({ ...context, isCurrent: () => !locked })} onSaved={artwork => setCards(previous => previous.map(card => card.summary.cardId === row.summary.cardId ? { ...card, artwork } : card))} /></div>)}<button className="min-h-11 px-3" onClick={() => setTab("add")}>Add another card</button></section>}
     {error ? <p role="alert">{error}</p> : null}
   </main>;

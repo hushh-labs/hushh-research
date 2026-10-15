@@ -158,6 +158,23 @@ async def test_authenticated_feed_sanitizes_and_publishes_atomically_without_dis
 
 
 @pytest.mark.asyncio
+async def test_bank_browse_refuses_incomplete_provider_state(licensed_feed):
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    grant, path, _ = licensed_feed
+    await synchronize_artwork(
+        providers.configured_artwork_providers()[grant.provider_id], path, apply=True
+    )
+    catalog = load_catalog()[0]
+    catalog.assets[0] = catalog.assets[0].model_copy(update={"bank_design": True})
+    assert len(bank_designs("visa", catalog=catalog)["banks"]) == 1
+    catalog.provider_states[grant.provider_id] = catalog.provider_states[
+        grant.provider_id
+    ].model_copy(update={"complete": False})
+    assert bank_designs("visa", catalog=catalog)["banks"] == []
+
+
+@pytest.mark.asyncio
 async def test_dry_run_creates_no_catalog_or_asset_files_and_retries_are_idempotent(licensed_feed):
     grant, path, state = licensed_feed
     provider = providers.configured_artwork_providers()[grant.provider_id]

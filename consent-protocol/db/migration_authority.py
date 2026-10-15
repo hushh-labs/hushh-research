@@ -462,6 +462,52 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
     return sql
 
 
+_REFERRAL_CATALOGUE_V3_REPLAY_CHECKSUM = (
+    "8dc499738dc5d0e7d5b1d2e7d664c66381b885bf90e9563371f8259ac304fb98"
+)
+
+
+def _replay_referral_catalogue_v3_sql(entry: MigrationManifestEntryV2) -> str:
+    """Accept the reviewed version 4 successor of the USD catalogue (v3).
+
+    The published 338 body requires v3 to remain the active settings
+    forever. Migration 347 retires it for version 4. Replay still verifies
+    every authored v3 value; when v3 is retired it additionally requires the
+    reviewed lineage: exactly one later version, version 4, activated when v3
+    was retired and still active. Migration 347 verifies v4's own contents on
+    the same replay. Keep this out of ledger/observe mode and pin the
+    original file's checksum.
+    """
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != _REFERRAL_CATALOGUE_V3_REPLAY_CHECKSUM or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Referral catalogue v3 replay source checksum changed")
+    old = (
+        "    IF current_row.activated_at IS NULL OR current_row.retired_at IS NOT NULL\n"
+        "       OR (to_jsonb(current_row) - ARRAY['version','created_at','activated_at','retired_at']) IS DISTINCT FROM expected THEN\n"
+        "      RAISE EXCEPTION 'migration 322: existing v3 does not match the active USD catalogue';\n"
+        "    END IF;\n"
+    )
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral catalogue v3 replay source shape changed")
+    new = (
+        "    IF current_row.activated_at IS NULL\n"
+        "       OR (to_jsonb(current_row) - ARRAY['version','created_at','activated_at','retired_at']) IS DISTINCT FROM expected THEN\n"
+        "      RAISE EXCEPTION 'migration 322: existing v3 does not match the reviewed USD catalogue';\n"
+        "    END IF;\n"
+        "    IF current_row.retired_at IS NOT NULL THEN\n"
+        "      -- Reviewed lineage only: version 4 (migration 347) retired version 3.\n"
+        "      IF (SELECT COUNT(*) FROM one_referral_program_settings WHERE version > 3) <> 1\n"
+        "         OR NOT EXISTS (\n"
+        "           SELECT 1 FROM one_referral_program_settings s\n"
+        "            WHERE s.version = 4 AND s.retired_at IS NULL\n"
+        "              AND s.activated_at IS NOT DISTINCT FROM current_row.retired_at) THEN\n"
+        "        RAISE EXCEPTION 'migration 322: retired v3 requires the reviewed version 4 successor to be the active settings';\n"
+        "      END IF;\n"
+        "    END IF;\n"
+    )
+    return entry.sql.replace(old, new, 1)
+
+
 def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
     # 298 and 304 re-add an exact Connect event CHECK on replay, which rejects
     # rows of event types added later and locks the table on every deploy.
@@ -507,6 +553,8 @@ END $$;"""
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
         return _replay_referral_policy_v2_sql(entry)
+    if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
+        return _replay_referral_catalogue_v3_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
     pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))

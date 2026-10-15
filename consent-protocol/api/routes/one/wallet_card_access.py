@@ -167,6 +167,14 @@ class ArtworkSelection(BaseModel):
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class BankDesignBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    network: str = Field(min_length=1, max_length=32)
+    country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    bankKey: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    offset: StrictInt = Field(default=0, ge=0, le=10000)
+
+
 class ArtworkValidationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selections: list[ArtworkSelection] = Field(min_length=1, max_length=24)
@@ -221,6 +229,18 @@ async def artwork_lookup(body: ArtworkLookupBody, owner: str = Depends(owner_ide
             body.iin_prefix[:6], body.pan_length, body.selected_network
         )["network"]
         return await run_in_threadpool(resolve_artwork, body.iin_prefix, body.pan_length, network)
+    except ValueError:
+        raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
+
+
+@router.post("/artwork/banks")
+async def artwork_banks(body: BankDesignBody, owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    try:
+        return await run_in_threadpool(
+            bank_designs, body.network, body.country, body.bankKey, body.offset
+        )
     except ValueError:
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
 

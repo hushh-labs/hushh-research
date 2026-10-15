@@ -69,7 +69,7 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
               { id: "agents", title: "Agent usage", description: "Each completed private-agent reply", amount: policy.points.agent_usage_points ?? 0, unit: "points", icon: MessageCircle },
             ].map(({ id, title, description, amount, unit, icon: Icon }) => (
               <article key={id} className={styles.rewardRow} data-earning={id}>
-                <span className={styles.earningIcon} aria-hidden="true"><Icon /></span>
+                <span className={styles.earningIcon} aria-hidden="true"><Icon weight="regular" /></span>
                 <div className={styles.earningCopy}>
                   <h4>{title}</h4>
                   <p>{description}</p>

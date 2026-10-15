@@ -225,6 +225,49 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute(adapted_sql)
             cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
             assert cursor.fetchall() == with_v4
+            # Migration 338 pinned the same "v3 stays active" assumption and
+            # failed the replay right after 289 was fixed (UAT run 38739715393).
+            catalogue_entry = build_manifest_entries(
+                Path(__file__).resolve().parents[1] / "db/migrations",
+                ("338_one_referral_usd_catalogue.sql",),
+            )[0]
+            adapted_catalogue_sql = _replay_sql(catalogue_entry)
+            assert catalogue_entry.sql != adapted_catalogue_sql
+            with pytest.raises(psycopg2.Error, match="does not match the active USD catalogue"):
+                cursor.execute(catalogue_entry.sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(adapted_catalogue_sql)
+            cursor.execute(adapted_catalogue_sql)
+            cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
+            assert cursor.fetchall() == with_v4
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"
+            )
+            with pytest.raises(psycopg2.Error, match="reviewed version 4 successor"):
+                cursor.execute(adapted_catalogue_sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 4"
+            )
+            for mutation, restoration, message in [
+                (
+                    "UPDATE one_referral_program_settings SET milestones = '[]'::jsonb WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET milestones = %s::jsonb WHERE version = 3",
+                    "reviewed USD catalogue",
+                ),
+                (
+                    "UPDATE one_referral_program_settings SET retired_at = retired_at + INTERVAL '1 second' WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET retired_at = (SELECT activated_at FROM one_referral_program_settings WHERE version = 4) WHERE version = 3",
+                    "reviewed version 4 successor",
+                ),
+            ]:
+                cursor.execute(mutation)
+                with pytest.raises(psycopg2.Error, match=message):
+                    cursor.execute(adapted_catalogue_sql)
+                cursor.execute("ROLLBACK")
+                cursor.execute(
+                    restoration, (json.dumps(with_v4[2][3]),) if "%s" in restoration else None
+                )
             # A lineage that ends without an active policy is still refused.
             cursor.execute(
                 "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"
@@ -399,6 +442,23 @@ def test_referral_replay_admits_the_reviewed_version_4_lineage():
     ):
         assert patch in lifecycle_sql
         assert patch in adapted_sql
+
+
+def test_referral_catalogue_replay_admits_the_reviewed_version_4_lineage():
+    # UAT 2026-10-15 run 38739715393: 338 raised "existing v3 does not match
+    # the active USD catalogue" because migration 347 had retired version 3.
+    entry = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("338_one_referral_usd_catalogue.sql",),
+    )[0]
+    adapted_sql = _replay_sql(entry)
+    assert adapted_sql != entry.sql
+    assert "retired v3 requires the reviewed version 4 successor" in adapted_sql
+    assert "existing v3 does not match the active USD catalogue" not in adapted_sql
+    # Every authored v3 value is still verified; only the "still active" pin moved.
+    assert "IS DISTINCT FROM expected THEN" in adapted_sql
+    with pytest.raises(MigrationAuthorityError, match="checksum changed"):
+        _replay_sql(replace(entry, sql=entry.sql + "\n-- changed"))
 
 
 def test_referral_replay_rejects_changed_published_source():

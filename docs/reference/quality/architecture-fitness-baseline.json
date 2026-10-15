@@ -16285,7 +16285,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 1002
+      "value": 1050
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19615,7 +19615,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
-      "value": 1203
+      "value": 1263
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20596,7 +20596,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-tab-transition.contract.test.tsx",
       "symbol": null,
-      "value": 660
+      "value": 675
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20695,7 +20695,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/swipe-views.test.tsx",
       "symbol": null,
-      "value": 938
+      "value": 1010
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21343,7 +21343,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11106
+      "value": 11262
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22540,7 +22540,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1178
+      "value": 1182
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22558,7 +22558,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 902
+      "value": 908
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22594,7 +22594,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2258
+      "value": 2321
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22675,7 +22675,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1298
+      "value": 1344
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23008,7 +23008,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/morphy-ux/ui/swipe-views.tsx",
       "symbol": null,
-      "value": 1147
+      "value": 1182
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25628,7 +25628,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": "test_referral_v2_replay_accepts_only_an_intact_later_lineage",
-      "value": 241
+      "value": 284
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26434,7 +26434,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
-      "value": 624
+      "value": 673
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26731,7 +26731,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx",
       "symbol": null,
-      "value": 509
+      "value": 510
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -49930,6 +49930,148 @@
     ],
     "incoming_revision": "f39f14ab006d70ec49a058157195a3106d0d138f",
     "retained_parent_revision": "6a325eb5e3420f900252711a1e6f2c29d5f34f3c"
+  },
+  "scope_commerce_mainfba_composition_20261015": {
+    "boundary": "Exactly13 independently reviewed rank-zero size observations. Prior findings/history preserved; scanner, exclusions and500/250/80budgets unchanged. New growth still rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 284,
+        "key": "function_size|consent-protocol/tests/test_migration_authority.py|test_referral_v2_replay_accepts_only_an_intact_later_lineage|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 241,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d35f0bf3a7ac3bf4044a032e2ff2c4598c1d2491",
+        "source_sha256": "96551f6c175b12155a7ad2bc128f50b6e3d4041228039e8a331cbf4ee0bcb798"
+      },
+      {
+        "accepted_ceiling": 11262,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 11106,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "49b5a3e0188f1f13c64caf73d5a46f538f58e0b9",
+        "source_sha256": "e620f6126011c0fd71b2574c7f3815aa188d2fff03323ff02091b05c5644a972"
+      },
+      {
+        "accepted_ceiling": 2321,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2258,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "e6863e8aca23d77f21ad21853ed834292283a6d9",
+        "source_sha256": "2f0c466100f3bebd8da84ccd56e3de598e85f5560f2ea107d778e65f35a50a84"
+      },
+      {
+        "accepted_ceiling": 1344,
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1298,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "971e13ba165d1f9b95809f2985526e054d5e8303",
+        "source_sha256": "32a7a052775bb77a5986710b4646359e31a888470abe083274463481076279cc"
+      },
+      {
+        "accepted_ceiling": 1263,
+        "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1203,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d35f0bf3a7ac3bf4044a032e2ff2c4598c1d2491",
+        "source_sha256": "96551f6c175b12155a7ad2bc128f50b6e3d4041228039e8a331cbf4ee0bcb798"
+      },
+      {
+        "accepted_ceiling": 1182,
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1178,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "client_context",
+        "source_git_blob": "222d5b1ea3cf1fc21e737f3cf8f16f698217ce13",
+        "source_sha256": "9279e63b00bff1f40a16c043ae7f1b9918577a2281db8061f37d1893b1f56a9b"
+      },
+      {
+        "accepted_ceiling": 1182,
+        "key": "module_size|hushh-webapp/lib/morphy-ux/ui/swipe-views.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1147,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "main_frontend_reconciliation",
+        "source_git_blob": "081fa4026aaa8092cd108c6392d90ed57cf63907",
+        "source_sha256": "75f8d6d725a824218005f11e6bb70c4f9853fe79bd6fceedf9cfdc100744de92"
+      },
+      {
+        "accepted_ceiling": 1050,
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1002,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "6a422fb15a0254a1d644b8a91ec7d0515b391e46",
+        "source_sha256": "0d87f25edbb48970161d02f30016e5890d2de0bbdd3c74364bcdf1fc40a147c4"
+      },
+      {
+        "accepted_ceiling": 1010,
+        "key": "module_size|hushh-webapp/__tests__/components/swipe-views.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 938,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "efcf8b7c32ee3e645911a1cc45d06c9a45cd8050",
+        "source_sha256": "3f5f5f426038b4a1c81990e49f359ae257965a901b246781c90bb1957a127b43"
+      },
+      {
+        "accepted_ceiling": 908,
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 902,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "0f0f9fd929403515598b842ea4d90a68f8614d39",
+        "source_sha256": "4da4c412816b708fc9f8266e025b7e66037163174c914499941ac4c4a1283110"
+      },
+      {
+        "accepted_ceiling": 675,
+        "key": "module_size|hushh-webapp/__tests__/components/one-location-tab-transition.contract.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 660,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "dfd94281f76c85d6e1d67e7e0a39f822b80ed18e",
+        "source_sha256": "f1c7ca5c05beabb641649f21cb33aab59e36062ba170ff793425227c9ac9c7e9"
+      },
+      {
+        "accepted_ceiling": 673,
+        "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 624,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "client_context",
+        "source_git_blob": "ffc3dbe0619bc9f7c08803679dca7c3ffa5ac4f6",
+        "source_sha256": "189358d82d78fde4ca35c31ecc6b288f754cd989ddfa5255505a0a19b7a483c5"
+      },
+      {
+        "accepted_ceiling": 510,
+        "key": "module_size|hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 509,
+        "review": "Exact reviewed concurrent-main composition debt. Existing owner, Back, artwork approval and unresolved receipt boundaries retained. Epoch retirement releases only local waits and fences late UI work; pinned SQL replay preserves all authored values. Both parents substantive tests retained. No deployment or financial acceptance inferred.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "c09e4973d7ba0699f8e27f649dbf631bfc8fe7b3",
+        "source_sha256": "7f8ac34077e1b65ba463a062e94b823fb3e9460a48ea5c374dda52dc0b0718fc"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "fba6be0af4fa5c6d2459b1a601fb36b2b5205054",
+    "prior_baseline_sha256": "b2e5223b6081bf692b0f1913e13bad6ccfb4f41df05c6100d0db61bb478b4386",
+    "retained_parent_revision": "046c1fbcb55002e72dbbef45aebe6790ec24e9ec",
+    "reviewed_report_sha256": "52d03231631bac6d2fd0d212ae8a7b4cd5c00c7e75a12194161f3462fe040031",
+    "reviewed_source_revision": "513296780b3796f4428e54fcb69a9ce7327fb8a0",
+    "verification": "160frontend,27queue/transcript,156backend and expanded49PostgreSQL migration cases pass. Typecheck and462Back cases pass; removing actual retirement callback fails unknown-append contract. Latest canonical core/CI and deployed acceptance remain required."
   },
   "scope_commerce_native_prebuilt_correction_20261014": {
     "qualification_sha256": "684ff797df30ce6ddeda97ae44f19c116c57b9a9caa8d562eec987f364ef2826",

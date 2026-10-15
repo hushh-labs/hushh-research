@@ -4064,3 +4064,39 @@ broken-code controls reject removal of stream placement admission, progress
 retirement and suppressed-session listener cleanup, then restore canonical bytes.
 A read-only provider observation at `2026-10-15T14:00:41Z` again confirms the
 same funded amounts, balanced liabilities, sufficient backing and fee conservation.
+
+
+### Concurrent-main integration, 2026-10-15
+
+Commit `046c1fbcb550` completed the local core stages across the documented
+CSS-only correction and was pushed once. GitHub reported a conflict with the
+subsequent main `fba6be0af4fa`, so no hosted CI or Dev release is inferred.
+The normal same-branch merge preserves unrelated work, published SQL and the
+commercial ledger. Incoming bank designs remain public cosmetic choices;
+credential-bearing request fields are rejected and physical exact matching
+excludes cosmetic bank designs. Its catalog endpoint is classified Support.
+
+The composition retains both bank-design revalidation and existing card-scan,
+Back and owner-retirement controls. Wallet has one outer dock host. Swipe
+selection retains explicit retargeting while a route echo does not restart the
+current animation. Chat-session retirement releases only its old local delivery
+wait, clears session UI and prevents late offers, retries and stops from writing
+into a different session. Unknown sealed appends remain unresolved and are never
+resent automatically. The existing session epoch owns synchronous retirement;
+owner-scoped composer setters are refreshed with their owner context.
+
+Focused verification passes 160 wallet/swipe/chat cases, 27 queue/transcript
+cases and 156 backend cases. The expanded 49-case migration suite directly
+rejects altered v3 values and broken v3/v4 timestamps while preserving exact
+successful replay. Generated contracts, the reviewed architecture ratchet and
+canonical core/hosted CI are required on the finished merge before release.
+Shared Chrome admission remains disabled in this task's debugger launchers;
+no other clients or browser security settings are changed.
+
+
+Canonical contract generation on the composed main base passes, including all
+462 Back cases. Independent reviews qualify exactly 13 size ceilings, preserving
+all 2,707 existing findings and historical evidence with no detector or budget
+change. The actual retirement callback-removal negative control fails the
+unknown-append case and restores the verification checkout. Hosted CI and
+financial acceptance remain unverified until their own receipts pass.
