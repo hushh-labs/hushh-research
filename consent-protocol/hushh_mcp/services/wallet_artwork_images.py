@@ -22,6 +22,9 @@ _PASSIVE_JPEG_INFO = {
     "progressive",
     "progression",
 }
+# Pillow exposes these decoder defaults even for a static, metadata-free WebP.
+# Animation is independently rejected through n_frames; EXIF/XMP/ICC stay banned.
+_PASSIVE_WEBP_INFO = {"loop", "background"}
 
 
 def inspect_artwork_image(data: bytes, mime: str, *, clean: bool = True) -> tuple[int, int]:
@@ -39,7 +42,11 @@ def inspect_artwork_image(data: bytes, mime: str, *, clean: bool = True) -> tupl
                 or width * height > MAX_PIXELS
                 or not 1.45 <= ratio <= 1.75
                 or getattr(image, "n_frames", 1) != 1
-                or (clean and set(image.info) - _PASSIVE_JPEG_INFO)
+                or (
+                    clean
+                    and set(image.info)
+                    - (_PASSIVE_WEBP_INFO if image.format == "WEBP" else _PASSIVE_JPEG_INFO)
+                )
             ):
                 raise ValueError("artwork_image_invalid")
             image.verify()
