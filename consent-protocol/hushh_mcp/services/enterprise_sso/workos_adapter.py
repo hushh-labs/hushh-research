@@ -81,9 +81,15 @@ class WorkOSConfig:
 
 @dataclass(frozen=True)
 class SsoProfile:
+    """What we keep from the IdP's profile: who they are (id, email, organization) and what to call
+    them. Groups, roles, raw attributes and the WorkOS access token are deliberately not read."""
+
     id: str
     organization_id: str | None
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
+    name: str | None = None  # a full name, for IdPs that send no first/last split
 
 
 @dataclass(frozen=True)
@@ -230,6 +236,9 @@ class WorkOSSdkAdapter:
             id=str(profile.id),
             organization_id=getattr(profile, "organization_id", None),
             email=str(profile.email or ""),
+            first_name=str(getattr(profile, "first_name", None) or "").strip() or None,
+            last_name=str(getattr(profile, "last_name", None) or "").strip() or None,
+            name=str(getattr(profile, "name", None) or "").strip() or None,
         )
 
 
