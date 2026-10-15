@@ -748,6 +748,12 @@ function ProfilePageContent({
   const activeDetail = activePanel ? profileRouteState.detail : null;
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
   const [nativeDetailReady, setNativeDetailReady] = useState<string | null>(null);
+  const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
+  const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
+    const title = typeof entry?.title === "string" ? entry.title : "Profile";
+    setNativeActiveHeading(previous => previous?.owner === nativeDetailOwner && previous.title === title
+      ? previous : { owner: nativeDetailOwner, title });
+  }, [nativeDetailOwner]);
   useLayoutEffect(() => {
     if (!nativeMenuOpen || !activePanel) setNativeDetailReady(null);
   }, [nativeMenuOpen, activePanel, user?.uid]);
@@ -4517,6 +4523,7 @@ function ProfilePageContent({
           rootContent={profileRootContent}
           entries={profileStackEntries}
           resetScroll={!isPanePresentation}
+          onActiveEntryChange={presentation === "native-page" ? updateNativeActiveHeading : undefined}
         />
       </SettingsPresentationProvider>
 
@@ -4793,7 +4800,7 @@ function ProfilePageContent({
       surfaceOpen={nativeMenuOpen}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
       groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage pane contentInset="profile" bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
+    <NativeFeaturePage pane contentInset="profile" bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}
       onClose={() => onNativeMenuClose?.()}

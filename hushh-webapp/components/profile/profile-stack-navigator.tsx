@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -48,10 +48,12 @@ export function ProfileStackNavigator({
   rootContent,
   entries,
   resetScroll = true,
+  onActiveEntryChange,
 }: {
   rootContent: ReactNode;
   entries: ProfileStackEntry[];
   resetScroll?: boolean;
+  onActiveEntryChange?: (entry: Pick<ProfileStackEntry, "key" | "title"> | null) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
@@ -84,8 +86,9 @@ export function ProfileStackNavigator({
     }
     const enter = (index: number) => {
       entryFrameRef.current = requestAnimationFrame(() => {
+        if (generationRef.current !== generation) return;
         entryFrameRef.current = null;
-        if (generationRef.current === generation) setActiveIndex(index);
+        setActiveIndex(index);
       });
     };
     if (pruneTimerRef.current !== null) {
@@ -137,6 +140,13 @@ export function ProfileStackNavigator({
   const activeKey = activeIndex === 0
     ? "root"
     : renderedEntries[activeIndex - 1]?.key || "root";
+  const activeEntry = activeIndex > 0 ? renderedEntries[activeIndex - 1] : undefined;
+  const activeTitle = entries.find(entry => entry.key === activeEntry?.key)?.title ?? activeEntry?.title;
+  // Displayed metadata follows this committed body, not the requested route.
+  // Route/Back authority still updates immediately in its existing owner.
+  useLayoutEffect(() => {
+    onActiveEntryChange?.(activeKey === "root" ? null : { key: activeKey, title: activeTitle });
+  }, [activeKey, activeTitle, onActiveEntryChange]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

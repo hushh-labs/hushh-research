@@ -726,7 +726,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "fullAccentTrigger": !contentBacked && self?.chatControlsAdmitted == true,
                           "retainedControls": self?.chatControlsAdmitted == true,
                           "backReplacement": self?.backAdmitted == true,
-                          "profileBackReplacement": !contentBacked && self?.chatControlsAdmitted == true,
+                          "profileBackReplacement": families.contains("profile-back"),
                           "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&

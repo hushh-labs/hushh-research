@@ -131,8 +131,7 @@ async function measure(
   });
 }
 
-test.describe("Profile pane custom close layout", () => {
-  test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
+async function withNativeFeatureFixture(run: (fixture: { css: string; modules: string; script: string }) => Promise<void>) {
     const { build } = await import("vite");
     const { Scanner } = await import("@tailwindcss/oxide");
     const { compile } = await import("tailwindcss");
@@ -181,6 +180,13 @@ test.describe("Profile pane custom close layout", () => {
       const css = stripAppFontFaces(optimize(compiler.build([...candidates]), { minify: true }).code);
       const script = fs.readFileSync(path.join(output, "fixture.js"), "utf8");
       const modules = fs.existsSync(path.join(output, "fixture.css")) ? fs.readFileSync(path.join(output, "fixture.css"), "utf8") : "";
+      await run({ css, modules, script });
+    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+}
+
+test.describe("Profile pane custom close layout", () => {
+  test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
+    await withNativeFeatureFixture(async ({ css, modules, script }) => {
       for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         await page.setViewportSize(viewport);
         await page.setContent(`<style>${css}:root { --agent-chat-header-height:116px; --app-bottom-content-clearance:149px; --page-inline-gutter-standard:24px; }</style><div id="root"></div>`);
@@ -304,7 +310,55 @@ test.describe("Profile pane custom close layout", () => {
         await brokenRule.evaluate(node => node.remove());
         await expect.poll(material).toEqual(settled);
       }
-    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+    });
+  });
+
+  test("keeps the native Profile heading coherent with its active nested body", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await withNativeFeatureFixture(async ({ css, modules, script }) => {
+      // Real navigator, normal clicks and optimized product CSS. Contrast the
+      // screen heights and retain nonzero return scroll; do not delay effects
+      // or fake animation frames to manufacture the original hard cut.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.setContent(`<style>${modules}${css}</style><div id="root" data-pane="true" data-stack="true"></div>`);
+      await page.addScriptTag({ content: script });
+      const stack = page.locator('[data-profile-stack="true"]');
+      const scroll = page.locator('[data-native-feature-scroll-root="true"]');
+      await expect(stack).toBeVisible();
+      await scroll.evaluate(node => { node.scrollTop = 180; });
+      expect(await scroll.evaluate(node => node.scrollTop)).toBe(180);
+      await page.evaluate(() => {
+        const samples: { body: string; title: string }[] = [];
+        (window as unknown as { profileSamples: typeof samples }).profileSamples = samples;
+        const pane = document.querySelector('.native-feature-page')!;
+        function record() {
+          const active = pane.querySelector<HTMLElement>('[data-profile-stack-active="true"]');
+          if (active) samples.push({ body: active.dataset.profileStackScreen!,
+            title: pane.querySelector('[data-slot="dialog-title"]')?.textContent ?? "" });
+        }
+        // This observes committed public DOM metadata only. No geometry read
+        // may manufacture a transition or infer a product action.
+        new MutationObserver(record).observe(pane, { childList: true, characterData: true,
+          subtree: true, attributes: true, attributeFilter: ["data-profile-stack-active"] });
+        record();
+      });
+      await page.getByRole("button", { name: "Open Voice", exact: true }).click();
+      await expect(page.locator('[data-profile-stack-screen="voice"][data-profile-stack-active="true"]')).toBeVisible();
+      await expect.poll(() => scroll.evaluate(node => node.scrollTop)).toBe(0);
+      await expect(page.locator('.native-feature-page-header [data-slot="dialog-title"]')).toHaveText("Voice");
+      await page.getByRole("button", { name: "Back in Profile", exact: true }).click();
+      await expect(page.locator('[data-profile-stack-screen="preferences"][data-profile-stack-active="true"]')).toBeVisible();
+      await expect.poll(() => scroll.evaluate(node => node.scrollTop),
+        { message: "Nested Back must preserve the pre-layout outgoing scroll position" }).toBe(180);
+      await expect(page.locator('.native-feature-page-header [data-slot="dialog-title"]')).toHaveText("Preferences");
+      const samples = await page.evaluate(() => (window as unknown as {
+        profileSamples: { body: string; title: string }[];
+      }).profileSamples);
+      expect(samples.some(sample => sample.body === "voice")).toBe(true);
+      expect(samples.some(sample => sample.body === "preferences")).toBe(true);
+      expect(samples.filter(sample => sample.title !== (sample.body === "voice" ? "Voice" : "Preferences")),
+        "A nested request cannot reveal its new heading over the previous active body").toEqual([]);
+    });
   });
 
   test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {

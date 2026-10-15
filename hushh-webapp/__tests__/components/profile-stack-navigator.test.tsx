@@ -49,6 +49,19 @@ describe("ProfileStackNavigator", () => {
     act(() => vi.advanceTimersByTime(200));
     expect(screen.queryByText("Details")).toBeNull();
     expect(screen.getByText("Method controls").closest("[data-profile-stack-screen]")).toHaveAttribute("data-profile-stack-active", "true");
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry, detail]} />);
+    const staleActivation = [...frames.values()][0];
+    expect(staleActivation).toBeDefined();
+    const deeper = { key: "deeper", title: "More", content: <div>More controls</div> };
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry, detail, deeper]} />);
+    const newestFrame = [...frames.keys()].at(-1)!;
+    expect(frames.has(newestFrame)).toBe(true);
+    // A callback already dispatched by the host can survive cancellation.
+    // It must not clear the newer pending handle before unmount cleans it up.
+    act(() => staleActivation(0));
+    view.unmount();
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(newestFrame);
+    expect(frames.has(newestFrame)).toBe(false);
   });
 
   it("keeps shared stack screens live when their content updates", () => {
@@ -171,21 +184,26 @@ describe("ProfileStackNavigator", () => {
     const appRoot = mountScrollRoot("data-app-scroll-root");
     const stalePane = mountScrollRoot("data-profile-pane-scroll-root");
     const nativeRoot = mountScrollRoot("data-native-feature-scroll-root");
-    const view = render(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[]} resetScroll={false} />,
+    const activeEntry = vi.fn();
+    const view = render(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[]} resetScroll={false} onActiveEntryChange={activeEntry} />,
       { container: nativeRoot.root });
+    activeEntry.mockClear();
     nativeRoot.scrollTo.mockClear();
     nativeRoot.root.scrollTop = 72;
-    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false}
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false} onActiveEntryChange={activeEntry}
       entries={[{ key: "preferences", title: "Preferences", content: <div>Public controls</div> }]} />);
     // The outgoing pane owns scroll until the entry frame. Mounting the new
     // screen must not reset it or save a corrupted zero return position.
     expect(nativeRoot.root.scrollTop).toBe(72);
     expect(nativeRoot.scrollTo).not.toHaveBeenCalled();
-    act(() => { [...frames.values()].forEach(callback => callback(0)); frames.clear(); });
+    expect(activeEntry).not.toHaveBeenCalled();
+    act(() => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback(0)); });
+    expect(activeEntry).toHaveBeenLastCalledWith({ key: "preferences", title: "Preferences" });
     expect(nativeRoot.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
     nativeRoot.root.scrollTop = 24;
     nativeRoot.scrollTo.mockClear();
-    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false} entries={[]} />);
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} resetScroll={false} entries={[]} onActiveEntryChange={activeEntry} />);
+    expect(activeEntry).toHaveBeenLastCalledWith(null);
     expect(nativeRoot.root.scrollTop).toBe(72);
     expect(appRoot.scrollTo).not.toHaveBeenCalled();
     expect(stalePane.scrollTo).not.toHaveBeenCalled();
