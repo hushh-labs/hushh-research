@@ -409,7 +409,23 @@ def test_erasure_memory_binding_uses_separate_proof_and_exact_envelope(minted, m
     ]
 
 
-@pytest.mark.parametrize("tamper", [None, "attempt", "unconfirmed", "negative", "extra"])
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        None,
+        "legacy",
+        "provider_pending",
+        "provider_unknown",
+        "attempt",
+        "unconfirmed",
+        "negative",
+        "extra",
+        "partial_provider",
+        "boolean_provider",
+        "excess_provider",
+        "inconsistent_provider",
+    ],
+)
 def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(minted, tamper):
     from api.routes.one.pod_migration import erasure_proof_audience
 
@@ -422,18 +438,27 @@ def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(min
     )
     reply = {"status": "erased", "erased": True, **payload, "deleted": 6}
     reply.update(alreadyAbsent=3, records=3)
+    if tamper != "legacy":
+        reply.update(providerRevoked=2, providerUnconfirmed=0, providerUnavailable=0)
     reply.update(
         {
             None: {},
+            "legacy": {},
+            "provider_pending": {"providerRevoked": 0, "providerUnconfirmed": 2},
+            "provider_unknown": {"providerRevoked": 0, "providerUnavailable": 1},
             "attempt": {"attemptId": "foreign"},
             "unconfirmed": {"erased": False},
             "negative": {"deleted": -1},
             "extra": {"owner": "leaked"},
+            "partial_provider": {"providerUnavailable": None},
+            "boolean_provider": {"providerRevoked": True},
+            "excess_provider": {"providerUnconfirmed": 127},
+            "inconsistent_provider": {"providerUnavailable": 1},
         }[tamper]
     )
     session = _Recorder(body=reply)
     pod = "https://ca-hussh-one-pod.happyfield.eastus2.azurecontainerapps.io"
-    if tamper is None:
+    if tamper in (None, "legacy", "provider_pending", "provider_unknown"):
         acknowledged = transport.crypto_erase_for_erasure(
             pod_url=pod, payload=payload, session=session
         )

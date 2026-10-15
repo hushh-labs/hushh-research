@@ -476,7 +476,7 @@ def plan_digest(plan: dict[str, Any]) -> str:
     identity = sorted(
         (str(r.get("type", "")), str(r.get("id", "")))
         for r in (plan.get("resources") or [])
-        if isinstance(r, dict)
+        if isinstance(r, dict) and r.get("legacyOnly") is not True
     )
     return hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:16]
 
@@ -484,7 +484,9 @@ def plan_digest(plan: dict[str, Any]) -> str:
 def resource_ids(plan: dict[str, Any]) -> list[str]:
     """Every resource identifier the plan would create, in a stable order."""
     return sorted(
-        str(r["id"]) for r in (plan.get("resources") or []) if isinstance(r, dict) and r.get("id")
+        str(r["id"])
+        for r in (plan.get("resources") or [])
+        if isinstance(r, dict) and r.get("id") and r.get("legacyOnly") is not True
     )
 
 
@@ -580,12 +582,17 @@ class HushhFederatedSubstrate:
             or not item["type"].strip()
             or not isinstance(item.get("id"), str)
             or not item["id"].strip()
+            or ("legacyOnly" in item and type(item["legacyOnly"]) is not bool)
             for item in resources
         ):
             return SubstrateReceipt(
                 False, tenant_ref, detail="bootstrap resource inventory invalid"
             )
-        planned_resources = [{"type": item["type"], "id": item["id"]} for item in resources]
+        planned_resources = [
+            {"type": item["type"], "id": item["id"]}
+            for item in resources
+            if item.get("legacyOnly") is not True
+        ]
         bindings = plan.get("iam", [])
         if not isinstance(bindings, list) or any(
             not isinstance(item, dict)

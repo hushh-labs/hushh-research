@@ -169,7 +169,14 @@ def remaining(monkeypatch):
 def _pod(arm: FakeArm, calls: list, *, erased: bool = True):
     def crypto_erase_for_erasure(*, pod_url: str, payload: dict) -> dict:
         calls.append({"url": pod_url, "payload": payload, "writes_before": len(arm.writes())})
-        counts = {"deleted": 6, "alreadyAbsent": 3, "records": 3}
+        counts = {
+            "deleted": 6,
+            "alreadyAbsent": 3,
+            "records": 3,
+            "providerRevoked": 2,
+            "providerUnconfirmed": 0,
+            "providerUnavailable": 0,
+        }
         return {"status": "erased", "erased": erased, **payload, **counts}
 
     return crypto_erase_for_erasure
@@ -209,6 +216,9 @@ async def test_erasure_reaches_the_backend_through_the_capability_and_retains_th
     (checkpoint,) = registry.checkpoints
     assert checkpoint == {"agentErased": receipt["agentErased"], "resume": {"setupNonce": nonce}}
     assert receipt["agentErased"]["erased"] is True and receipt["resourceGroup"] == _group()
+    assert receipt["agentErased"]["providerRevoked"] == 2
+    assert receipt["agentErased"]["providerUnconfirmed"] == 0
+    assert receipt["agentErased"]["providerUnavailable"] == 0
     assert f"/subscriptions/{_SUB}/resourceGroups/{_group()}" in receipt["remainingResources"]
     assert receipt["keyVault"]["earliestPurgeIfDeletedToday"]
     assert receipt["nextStep"].startswith(f"Delete the resource group {_group()}")

@@ -218,6 +218,26 @@ def reconcile_memory_for_erasure(
 
 
 _ERASE_COUNTS = ("deleted", "alreadyAbsent", "records")
+_PROVIDER_ERASE_COUNTS = ("providerRevoked", "providerUnconfirmed", "providerUnavailable")
+
+
+def _valid_erase_counts(result: dict[str, Any]) -> tuple[str, ...] | None:
+    """Legacy replies omit provider outcomes; omission never proves revocation."""
+    if not all(
+        type(result.get(key)) is int and 0 <= result[key] <= 999_999_999 for key in _ERASE_COUNTS
+    ):
+        return None
+    present = set(result) & set(_PROVIDER_ERASE_COUNTS)
+    if not present:
+        return _ERASE_COUNTS
+    if present != set(_PROVIDER_ERASE_COUNTS) or not all(
+        type(result.get(key)) is int and 0 <= result[key] <= 128 for key in _PROVIDER_ERASE_COUNTS
+    ):
+        return None
+    revoked, pending, unavailable = (result[key] for key in _PROVIDER_ERASE_COUNTS)
+    if unavailable > 1 or revoked + pending > 128 or (unavailable and (revoked or pending)):
+        return None
+    return (*_ERASE_COUNTS, *_PROVIDER_ERASE_COUNTS)
 
 
 def crypto_erase_for_erasure(
@@ -240,12 +260,12 @@ def crypto_erase_for_erasure(
         minter=token_minter,
         proof_audience=erasure_proof_audience(payload, purpose="crypto-erase"),
     )
-    counts = {key: result.get(key) for key in _ERASE_COUNTS}
-    if {key: value for key, value in result.items() if key not in _ERASE_COUNTS} != {
+    counts = _valid_erase_counts(result)
+    if counts is None or {key: value for key, value in result.items() if key not in counts} != {
         "status": "erased",
         "erased": True,
         **payload,
-    } or not all(type(value) is int and value >= 0 for value in counts.values()):
+    }:
         raise PodMigrationTransportError(
             "POD_RESPONSE_INVALID", "crypto-erase acknowledgement mismatch"
         )

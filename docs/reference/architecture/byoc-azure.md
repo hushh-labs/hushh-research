@@ -382,6 +382,15 @@ reaches each one through a typed capability in
   preflight proves that the checkpoint and the receipt can be retained before the
   agent erases anything. The account stays refused while those resources exist. The
   person deletes the resource group; Hussh no longer can.
+- **Provider outcomes (local candidate).** Dev-only migration 960 accepts and
+  retains the pod's exact provider-revocation counters alongside its original
+  receipt. The preflight tests that response against the installed validator
+  before key destruction; old schemas refuse. Unknown or unconfirmed provider
+  outcomes remain incomplete. The 960 rollback serializes against erasure
+  admission and refuses active Azure reservations or retained new outcomes.
+  Full resource deletion under fresh owner authorization still needs its own
+  durable inventory, worker drain and final absence receipts; this correction
+  does not supply them. Never delete an entire group containing unrelated work.
 - **Residual window.** Suppose the database becomes unavailable after the
   preflight, and stays down past the last revocation, so the receipt cannot be
   stored. A retry then cannot finish, because Hussh's removal grant is already gone.

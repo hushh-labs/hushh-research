@@ -113,6 +113,38 @@ def test_the_plan_digest_tracks_resources_not_prose():
     )
 
 
+def test_rendered_plan_excludes_uncreated_legacy_resources_but_keeps_historical_receipts():
+    spec = PodSpec(
+        hushh_id="HA1ABC234DEF", phone_e164_hash="hash", pod_pubkey="pub", billing_space_id="sp_1"
+    )
+    ensurer = HushhFederatedSubstrate(project="user-proj", dry_run=True)
+    plan = ensurer._render_plan(spec)
+    legacy = [
+        {"type": item["type"], "id": item["id"]}
+        for item in plan["resources"]
+        if item.get("legacyOnly") is True
+    ]
+    assert len(legacy) == 2
+    receipt = asyncio.run(ensurer.ensure(spec))
+    assert not receipt.applied
+    current = [
+        {"type": item["type"], "id": item["id"]}
+        for item in plan["resources"]
+        if item.get("legacyOnly") is not True
+    ]
+    assert receipt.planned_resources == current
+    assert all(item["id"] not in receipt.resource_ids for item in legacy)
+    without_legacy = {
+        **plan,
+        "resources": [item for item in plan["resources"] if item.get("legacyOnly") is not True],
+    }
+    assert plan_digest(plan) == plan_digest(without_legacy)
+    historical = SubstrateReceipt(
+        False, "user-proj/us-central1", planned_resources=[*current, *legacy]
+    ).as_record()
+    assert historical["plannedResources"] == [*current, *legacy]
+
+
 # -- resolution ------------------------------------------------------------------------
 
 

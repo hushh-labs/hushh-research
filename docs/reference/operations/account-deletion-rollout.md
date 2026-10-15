@@ -17,6 +17,26 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
+## Owner-cloud erasure boundary
+
+Account deletion also requires its owner's cloud inventory to settle. Preserve
+the reserved attempt, exact resource incarnations and original setup evidence;
+stop writers and reconcile uncertain provider operations before deleting their
+dependencies. An accepted cloud DELETE or destroyed key is not resource-absence
+evidence. Retention and protected provider objects remain explicit outcomes.
+
+The local Azure correction uses dev-only migration 960 to retain the producer's
+provider-revocation counters. Its read-only preflight invokes the installed
+checkpoint validator before the pod destroys keys. Rolling 960 back locks the
+registry against new reservations and refuses existing Azure reservations or
+new retained outcomes. Other erasure schema rollback requires its own fenced,
+drained release procedure; an application rollback does not recover deleted keys.
+
+Current Azure erasure revokes access but does not delete all subscription
+resources. Full teardown needs fresh owner authorization, qualified inventory
+and final absence receipts through the existing erasure operation. Until those
+exist, account deletion stays pending. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
+
 ## Forward rollout authority gate
 
 The release owner must complete this sequence for each environment:

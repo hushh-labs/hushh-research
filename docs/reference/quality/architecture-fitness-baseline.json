@@ -3454,7 +3454,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": "HushhFederatedSubstrate",
-      "value": 263
+      "value": 268
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7846,7 +7846,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": "ensure",
-      "value": 220
+      "value": 225
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17539,7 +17539,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/byoc_substrate.py",
       "symbol": null,
-      "value": 827
+      "value": 834
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19942,7 +19942,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_substrate.py",
       "symbol": null,
-      "value": 527
+      "value": 559
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -52263,5 +52263,39 @@
         "source_sha256": "24f5b4ca24f175ae4d58518ef3d24b5241187cef77f0612dd93731f750ff939d"
       }
     ]
+  },
+  "owner_lifecycle_cleanup_review_20261015": {
+    "entries": [
+      {
+        "after": 268,
+        "before": 263,
+        "key": "class_size|consent-protocol/hushh_mcp/services/byoc_substrate.py|HushhFederatedSubstrate|class exceeds the advisory operon budget",
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "189d3983b73ffd64a8de68dfe75180ec2755f4028042cb8071653e1f9f851f21"
+      },
+      {
+        "after": 225,
+        "before": 220,
+        "key": "function_size|consent-protocol/hushh_mcp/services/byoc_substrate.py|ensure|function exceeds the advisory gene budget",
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "189d3983b73ffd64a8de68dfe75180ec2755f4028042cb8071653e1f9f851f21"
+      },
+      {
+        "after": 834,
+        "before": 827,
+        "key": "module_size|consent-protocol/hushh_mcp/services/byoc_substrate.py||module exceeds the advisory operon budget",
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "189d3983b73ffd64a8de68dfe75180ec2755f4028042cb8071653e1f9f851f21"
+      },
+      {
+        "after": 559,
+        "before": 527,
+        "key": "module_size|consent-protocol/tests/test_byoc_substrate.py||module exceeds the advisory operon budget",
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "ffb0a4f9d0cef720e699cc6532e1a0bdf9f85b5edca7a62b9c0ff28c0f2b9681"
+      }
+    ],
+    "evidence_revision": "48e6323266fabbc79ba7bb2d47e9f44b22d20960",
+    "review": "Independent owner_lifecycle_cleanup_review: exact existing inventory growth and historical-receipt regression coverage. Registry preflight stays within reviewed ceilings. No budget or unrelated ceiling changes; complete Azure teardown remains unimplemented."
   }
 }

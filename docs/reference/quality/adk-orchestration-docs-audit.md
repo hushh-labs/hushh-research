@@ -44,6 +44,21 @@ predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
 
+**Lifecycle correction — local, not deployed:** 197 focused cases pass, including
+real PostgreSQL refusal on an old erasure schema before key destruction and
+retention of exact provider outcomes. New GCP inventories exclude uncreated
+legacy mail resources while historical receipts keep their obligations. Dev-only
+migration 960 must be admitted before using the new Azure erasure response.
+Complete Azure resource deletion, failed-setup reconciliation and operator-project
+mail-topic cleanup still require implementation. Account deletion remains refused
+while resources are unresolved; provider retention is not immediate physical erasure.
+
+**Browser correction — local, disabled:** 22 UI cases and headless checks of the
+actual component with optimized CSS at 390/820/1440 px pass, including mouse/touch;
+owner-only viewport changes fence old coordinates and wait for a fresh painted
+frame. GCP's native worker identity and Azure's execution/private bridge remain
+unqualified. No new cloud readiness or owner installation is claimed.
+
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |
 | Provider-aware AI | Placement-aware Shared Gemini, owner GCP Vertex and Azure identity defaults; sealed private Azure keys use strict hosts, public DNS pinning and no proxies/redirects. Working connections survive failed validation; returning to a default requires a verified receipt. One AI step follows Hosting | Source checks pass; live custom-key/default responses require the new release |
