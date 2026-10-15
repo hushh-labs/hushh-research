@@ -39,6 +39,10 @@ import {
 import { recordLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { LIVE_MIRROR_STALE_GRACE_MS } from "@/lib/pkm/live-mirror-contract";
 import {
+  emitLiveMemorySourceTelemetry,
+  type LiveMemorySourceCheck,
+} from "@/lib/pkm/live-mirror-telemetry";
+import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
@@ -95,7 +99,11 @@ function nextJournalCursor(previous: string, head: string | null, reset: boolean
   return reset || BigInt(head) > BigInt(previous) ? head : previous;
 }
 
-class ConsentSourceCapacityError extends Error {}
+/** A source refused at one of its declared bounds, as opposed to one that
+ * could not be read. Both leave the source unavailable; only consent and
+ * requester payments get a capacity backoff window. */
+class SourceCapacityError extends Error {}
+class ConsentSourceCapacityError extends SourceCapacityError {}
 
 function canReuseVerifiedScan(params: {
   userId: string;
@@ -165,6 +173,14 @@ function isRetryDeferred(userId: string, epoch: number, kind: RetriedKind, now: 
   const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retry.failures - 1));
   const elapsed = now - retry.lastFailureAt;
   return elapsed >= 0 && elapsed < delay;
+}
+
+/** Consecutive failed reads recorded for a source before this attempt. The
+ * profile keeps no retry state, so it has no count. */
+function priorSourceRetries(userId: string, epoch: number, kind: SourceKind): number | null {
+  if (kind === "profile") return null;
+  const owner = sourceRetries.get(userId);
+  return owner?.epoch === epoch ? owner.kinds.get(kind)?.failures ?? 0 : 0;
 }
 
 /** A verified source clears its delay. Consecutive failures double it, from
@@ -342,7 +358,7 @@ async function collectDocumentEarnings(vaultOwnerToken: string): Promise<LivingS
         }
         if (entries.length > MAX_DOCUMENT_EARNINGS ||
             (entries.length === MAX_DOCUMENT_EARNINGS && response.nextCursor !== null))
-          throw new Error("Document earnings inventory exceeds its safe bound");
+          throw new SourceCapacityError("Document earnings inventory exceeds its safe bound");
         if (response.nextCursor === null) break;
         seenCursors.add(response.nextCursor);
         cursor = response.nextCursor;
@@ -405,7 +421,7 @@ async function collectPayoutActivity(vaultOwnerToken: string): Promise<LivingSou
         scannedRows += page.items.length;
         if (scannedRows > MAX_PAYOUT_ACTIVITY_RECORDS ||
             (scannedRows === MAX_PAYOUT_ACTIVITY_RECORDS && page.nextCursor !== null))
-          throw new Error("Payout activity inventory exceeds its safe bound");
+          throw new SourceCapacityError("Payout activity inventory exceeds its safe bound");
         for (const item of page.items) {
           const sourceKey = `${mode}:${item.id}`;
           if (seenItems.has(sourceKey) || item.test !== (mode === "test"))
@@ -484,8 +500,10 @@ async function collectConnectorStatuses(vaultOwnerToken: string): Promise<Living
       sourceRead: true,
     });
     const rows = overview.connectors;
-    if (!Array.isArray(rows) || rows.length > MAX_CONNECTOR_CATALOG_ROWS)
+    if (!Array.isArray(rows))
       throw new Error("Connector catalog completeness unverified");
+    if (rows.length > MAX_CONNECTOR_CATALOG_ROWS)
+      throw new SourceCapacityError("Connector catalog exceeds its safe bound");
     const ids = new Set<string>();
     const entries: LivingSourceInput[] = [];
     for (const row of rows) {
@@ -542,10 +560,11 @@ async function collectConnections(params: {
         audience: "all",
         sourceRead: true,
       });
+      if (Number.isSafeInteger(response.totalCount) && response.totalCount > MAX_CONNECTION_RECORDS)
+        throw new SourceCapacityError("Connection inventory exceeds its safe bound");
       if (
         response.page !== page || response.audience !== "all" ||
         !Number.isSafeInteger(response.totalCount) || response.totalCount < 0 ||
-        response.totalCount > MAX_CONNECTION_RECORDS ||
         (expectedCount !== null && response.totalCount !== expectedCount) ||
         !Array.isArray(response.items) ||
         response.items.length > CONNECTION_PAGE_LIMIT ||
@@ -618,6 +637,12 @@ export async function syncLivingSources(params: {
   let verifiedKinds: SourceKind[] = [];
   let scanFailures: { kind: RetriedKind; counted: boolean }[] = [];
   let previouslyUnavailable = new Set<string>();
+  // Telemetry inputs: which kinds this build checked, how each ended and the
+  // backlog each cleared or left waiting. Exact numbers stay in this closure.
+  let cappedKinds = new Set<RetriedKind>();
+  let profileFailed = false;
+  let sourceLagMs: Partial<Record<SourceKind, number | null>> = {};
+  let sourcePendingCount: Partial<Record<SourceKind, number | null>> = {};
   let earningsScanned = false;
   let payoutActivityScanned = false;
   let documentRequestPaymentsScanned = false;
@@ -662,6 +687,8 @@ export async function syncLivingSources(params: {
     consentOverflowed = false;
     documentRequestPaymentOverflowed = false;
     documentRequestPaymentOverflowCleared = false;
+    cappedKinds = new Set();
+    profileFailed = false;
     const inputs: LivingSourceInput[] = [];
     const successful: string[] = [];
     const unavailable: string[] = [];
@@ -712,6 +739,7 @@ export async function syncLivingSources(params: {
       successful.push("profile");
     } catch {
       unavailable.push("profile");
+      profileFailed = true;
     }
     const overflow = lastConsentOverflow.get(params.userId);
     const overflowAge = overflow ? Date.parse(readStartedAt) - Date.parse(overflow.at) : Infinity;
@@ -809,6 +837,7 @@ export async function syncLivingSources(params: {
       consentVerifiedAt = new Date().toISOString();
     } catch (error) {
       consentOverflowed = error instanceof ConsentSourceCapacityError;
+      if (consentOverflowed) cappedKinds.add("consent");
       scanFailed("consent");
     }
     const connectionPlan = planScan("connection", CONNECTION_FRESHNESS_MS);
@@ -819,7 +848,8 @@ export async function syncLivingSources(params: {
         successful.push("connection");
         connectionsScanned = true;
         connectionVerifiedAt = new Date().toISOString();
-      } catch {
+      } catch (error) {
+        if (error instanceof SourceCapacityError) cappedKinds.add("connection");
         scanFailed("connection");
       }
     }
@@ -831,7 +861,8 @@ export async function syncLivingSources(params: {
         successful.push("curated_oauth_connector");
         curatedConnectorsScanned = true;
         curatedConnectorsVerifiedAt = new Date().toISOString();
-      } catch {
+      } catch (error) {
+        if (error instanceof SourceCapacityError) cappedKinds.add("curated_oauth_connector");
         scanFailed("curated_oauth_connector");
       }
     }
@@ -843,7 +874,8 @@ export async function syncLivingSources(params: {
         successful.push("document_earning");
         earningsScanned = true;
         earningsVerifiedAt = new Date().toISOString();
-      } catch {
+      } catch (error) {
+        if (error instanceof SourceCapacityError) cappedKinds.add("document_earning");
         scanFailed("document_earning");
       }
     }
@@ -855,7 +887,8 @@ export async function syncLivingSources(params: {
         successful.push("payout_activity");
         payoutActivityScanned = true;
         payoutActivityVerifiedAt = new Date().toISOString();
-      } catch {
+      } catch (error) {
+        if (error instanceof SourceCapacityError) cappedKinds.add("payout_activity");
         scanFailed("payout_activity");
       }
     }
@@ -879,6 +912,7 @@ export async function syncLivingSources(params: {
       } catch (error) {
         documentRequestPaymentOverflowed = error instanceof DocumentRequestPaymentSourceCapacityError;
         documentRequestPaymentOverflowCleared = !documentRequestPaymentOverflowed;
+        if (documentRequestPaymentOverflowed) cappedKinds.add("document_request_payment");
         scanFailed("document_request_payment");
       }
     }
@@ -907,6 +941,7 @@ export async function syncLivingSources(params: {
         failed.push({ kind, counted: !immediate(kind) });
       }
       if (!unavailable.includes(kind)) unavailable.push(kind);
+      cappedKinds.add(kind);
       if (kind === "connection") connectionsScanned = false;
       if (kind === "document_earning") earningsScanned = false;
       if (kind === "payout_activity") payoutActivityScanned = false;
@@ -1054,6 +1089,17 @@ export async function syncLivingSources(params: {
         verifiedKinds,
         storedSnapshotAt,
       );
+      // The backlog each kind carried into this build, and the lag of the
+      // oldest change a verified kind cleared. A kind without a hint has no
+      // backlog and nothing to measure.
+      sourceLagMs = {};
+      sourcePendingCount = {};
+      for (const kind of LIVING_SOURCE_KINDS) {
+        const entry = pending.kinds[kind];
+        sourcePendingCount[kind] = entry ? entry.count : 0;
+        if (entry && verifiedKinds.includes(kind))
+          sourceLagMs[kind] = sourceHealth.kinds[kind]?.lastLagMs ?? null;
+      }
       const journalCursors = connectorHead === null && eventsHead === null
         ? privateData.journal_cursors
         : {
@@ -1141,6 +1187,24 @@ export async function syncLivingSources(params: {
   // A failed scan is never reused as current. A later wake rescans it, after
   // its retry delay unless a new hint or owner event arrives first.
   for (const failure of scanFailures) SCAN_CACHES[failure.kind].delete(params.userId);
+  // One check per kind this build read: how it ended, the backlog it cleared
+  // or left waiting, and the failed reads before it. A kind reused from its
+  // window or still waiting out its delay was not read and is not reported.
+  const sourceChecks: LiveMemorySourceCheck[] = [];
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const outcome = verifiedKinds.includes(kind) ? "verified"
+      : kind === "profile" ? (profileFailed ? "unavailable" : null)
+      : !scanFailures.some((failure) => failure.kind === kind) ? null
+      : cappedKinds.has(kind) ? "capped" : "unavailable";
+    if (!outcome) continue;
+    sourceChecks.push({
+      kind,
+      outcome,
+      lagMs: sourceLagMs[kind] ?? null,
+      pendingCount: sourcePendingCount[kind] ?? null,
+      retryCount: priorSourceRetries(params.userId, epoch, kind),
+    });
+  }
   recordSourceRetries({
     userId: params.userId,
     epoch,
@@ -1157,6 +1221,9 @@ export async function syncLivingSources(params: {
     recordLivingSourceSessionVerification(
       params.userId, epoch, verifiedKinds.filter((kind) => !changedKinds.has(kind)), storedSnapshotAt,
     );
+  // The store succeeded, so the checks are real. Buckets leave; numbers do not.
+  // A quiet wake that wrote nothing and only re-read the profile reports nothing.
+  emitLiveMemorySourceTelemetry(sourceChecks, { stored: storedChange });
   const recordsChanged = changedKinds.size > 0;
   if (incompleteKinds.length)
     throw new LivingSourcesIncompleteError(incompleteKinds, recordsChanged);

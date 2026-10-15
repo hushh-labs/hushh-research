@@ -11,7 +11,14 @@ const m = vi.hoisted(() => ({
   connectorHead: vi.fn(),
   sourceChanges: vi.fn(),
   save: vi.fn(),
+  track: vi.fn(),
   epoch: 0,
+}));
+// Only the sink is replaced; the bucket helpers stay real so the events here
+// carry the bands the fleet will see.
+vi.mock("@/lib/observability/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/observability/client")>()),
+  trackEvent: m.track,
 }));
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: { refreshIdentityForSession: m.identity },
@@ -1234,4 +1241,143 @@ it("retains records on an ABA mutation even when both page scans omit the same I
   m.fence.mockResolvedValueOnce("before").mockResolvedValueOnce("after");
   await expect(syncLivingSources({ ...params, forceConsent: true })).rejects.toThrow("incomplete");
   expect(inventory().records.find((r) => r.id === "live")).toEqual(prior);
+});
+
+const sourceChecks = () => m.track.mock.calls.map(([name, payload]) => ({ name, ...payload }));
+const checkSummaries = () =>
+  sourceChecks().map((check) => `${check.kind}:${check.outcome}:${check.retry_bucket}`);
+
+it("reports one bucketed check per source it read, once per build, and nothing on a quiet wake", async () => {
+  vi.useFakeTimers();
+  // A vault epoch of its own: retry state left by earlier tests cannot leak in.
+  m.epoch = 1019;
+  try {
+    const T0 = Date.parse("2026-10-19T00:00:00.000Z");
+    vi.setSystemTime(T0);
+    // Two consent changes committed 42 seconds ago are still waiting.
+    m.sourceChanges.mockResolvedValue(
+      exactHints("1", { consent: 2 }, new Date(T0 - 42_000).toISOString()));
+    m.list.mockResolvedValue({ ...emptyConsent(), items: [entry("grant-1")] });
+    await syncLivingSources(params);
+    // The first build reads every kind once.
+    expect(sourceChecks()).toHaveLength(7);
+    expect(new Set(sourceChecks().map((check) => check.kind)).size).toBe(7);
+    expect(sourceChecks().find((check) => check.kind === "consent")).toEqual({
+      name: "live_memory_source_verified", kind: "consent", outcome: "verified",
+      lag_bucket: "lt_1m", pending_bucket: "2_5", retry_bucket: "0",
+    });
+    expect(sourceChecks().find((check) => check.kind === "profile")).toEqual({
+      name: "live_memory_source_verified", kind: "profile", outcome: "verified",
+      lag_bucket: "unknown", pending_bucket: "0", retry_bucket: "unknown",
+    });
+    // Negative control: the sink sees bands and nothing else. The record id
+    // "grant-1", its value "attr.travel.visits", the counterpart, the owner,
+    // the commit time and the exact lag never leave the sync.
+    for (const check of sourceChecks())
+      expect(Object.keys(check).sort()).toEqual(
+        ["kind", "lag_bucket", "name", "outcome", "pending_bucket", "retry_bucket"]);
+    expect(JSON.stringify(m.track.mock.calls))
+      .not.toMatch(/grant-1|must-not-persist|attr\.|peer|owner|Owner|2026-|42000|fixture/);
+
+    // A quiet wake a minute later reuses every scan and only re-reads the
+    // profile. It wrote nothing and verified nothing new, so it reports nothing.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 60_000);
+    m.sourceChanges.mockResolvedValue(quietEvents("1"));
+    expect(await syncLivingSources(params)).toEqual({ stored: false, recordsChanged: false });
+    expect(m.track).not.toHaveBeenCalled();
+
+    // A hinted source that cannot be read reports its backlog as waiting.
+    // The reused kinds stay silent; the profile rides along with the write.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 120_000);
+    m.sourceChanges.mockResolvedValue(
+      exactHints("2", { consent: 1 }, new Date(T0 + 100_000).toISOString()));
+    m.list.mockRejectedValueOnce(new Error("consent offline"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(sourceChecks().map((check) => check.kind)).toEqual(["profile", "consent"]);
+    expect(sourceChecks().find((check) => check.kind === "consent")).toMatchObject({
+      outcome: "unavailable", lag_bucket: "unknown", pending_bucket: "1", retry_bucket: "0",
+    });
+
+    // When it recovers, the lag of that waiting change is measured: six minutes.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 100_000 + 6 * 60_000);
+    m.sourceChanges.mockResolvedValue(quietEvents("2"));
+    m.list.mockResolvedValue(emptyConsent());
+    await syncLivingSources(params);
+    expect(sourceChecks()).toHaveLength(7);
+    expect(sourceChecks().find((check) => check.kind === "consent")).toMatchObject({
+      outcome: "verified", lag_bucket: "5m_15m", pending_bucket: "1",
+    });
+
+    // A coordinator conflict runs the build twice; each kind is still reported once.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 100_000 + 12 * 60_000);
+    m.save.mockImplementationOnce(async (p) => {
+      await p.build({ currentDomainData: stored });
+      const retried = await p.build({ currentDomainData: stored });
+      await p.beforeEffect();
+      stored = retried.domainData;
+      return { success: true };
+    });
+    await syncLivingSources(params);
+    expect(m.identity).toHaveBeenCalledTimes(6);
+    expect(sourceChecks()).toHaveLength(7);
+    expect(new Set(sourceChecks().map((check) => check.kind)).size).toBe(7);
+
+    // A build that never stores reports nothing.
+    m.track.mockClear();
+    m.identity.mockImplementationOnce(async () => {
+      m.epoch++;
+      return profile("Owner");
+    });
+    await expect(syncLivingSources(params)).rejects.toThrow("Vault session changed");
+    expect(m.track).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reports a failed read with its retry band, a bound as capped, and a waiting source not at all", async () => {
+  vi.useFakeTimers();
+  m.epoch = 2020;
+  try {
+    const T0 = Date.parse("2026-10-20T00:00:00.000Z");
+    vi.setSystemTime(T0);
+    await syncLivingSources(params);
+    // Past the five-minute window every source is read again; earnings is offline.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 5 * 60_000 + 1_000);
+    m.earnings.mockRejectedValue(new Error("offline"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(checkSummaries()).toContain("document_earning:unavailable:0");
+    // Thirty seconds on, it is still inside its 60-second delay and every
+    // other source is fresh: nothing is read, nothing is written, nothing is reported.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 5 * 60_000 + 31_000);
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(m.track).not.toHaveBeenCalled();
+    // After the delay it is tried again, with one failure behind it. The
+    // write is unchanged, so the profile stays quiet.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 5 * 60_000 + 62_000);
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(checkSummaries()).toEqual(["document_earning:unavailable:1"]);
+    // Recovery reports how many failed reads it took.
+    m.track.mockClear();
+    vi.setSystemTime(T0 + 5 * 60_000 + 183_000);
+    m.earnings.mockImplementation(async (_token, _cursor, mode) => earningsPage(mode));
+    await syncLivingSources(params);
+    expect(checkSummaries()).toEqual(["profile:verified:unknown", "document_earning:verified:2_5"]);
+    // A source refused at its bound is capped, not unavailable.
+    m.track.mockClear();
+    m.paymentSnapshot.mockRejectedValue(new DocumentRequestPaymentSourceCapacityError("over cap"));
+    await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
+      .rejects.toThrow("incomplete");
+    expect(checkSummaries()).toContain("document_request_payment:capped:0");
+    expect(JSON.stringify(m.track.mock.calls)).not.toMatch(/over cap|offline/);
+  } finally {
+    vi.useRealTimers();
+  }
 });
