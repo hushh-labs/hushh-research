@@ -18,11 +18,29 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Profile return, scroll ownership and privacy recovery — 2026-10-15
 
+Release admission: ordinary Release, TestFlight and App Store builds do not set
+`HUSHH_NATIVE_SHELL_QUALIFICATION`; the non-Debug policy returns false without
+that compilation condition. Launch arguments cannot enable it in Release.
+The standard native tab bar remains independent. This isolates the experimental
+custom presentation, not shared React/navigation changes; those still require
+exact-head verification before landing. The latest integration includes main
+through `21359dae22`, preserving the compact shared header and native draft ports
+while retaining upstream conversation-epoch guards, Calendar continuation and
+the shared Live Memory preview.
+
+The core Feed scroll rehearsal passes on the signed simulator at `45de35508d`:
+three down/reverse cycles, paired displacement, unchanged WebView, keyboard
+clearance and draft continuity. It uses ordinary XCTest scrolling; the earlier
+press/drag rehearsal did not reliably reverse actual content. No product motion
+threshold changed. Core smoke repetition is separate from ten-cycle physical
+qualification and Release frame-pacing acceptance. This predates the latest
+main integration and does not qualify its installed product.
+
 | Family | Current renderer/owner | Evidence and limit |
 |---|---|---|
 | Account navigation | Retained UIKit stack with SwiftUI bodies; React operations | Existing physical Account proof below remains bounded; no whole-Profile conversion claimed. |
 | Other Profile details | Existing React body in the owned native content pane | Committed outgoing body/title are retained, inert and owner/vault-bound until native return admission. Nine-destination functional batches passed on iPhone at `bd9f375821` and simulator at `a23712046f`. |
-| Bottom navigation and dock scroll | Retained native pair; existing shared frontend scroll owner | Capability-negotiated ordered progress, bounded latest-wins delivery and acknowledged pinned fallback. Physical native pair/keyboard regressions passed at `af209c47da`. Actual Feed movement and paired displacement passed at `c9939989bd`, but reversal failed: integrated scroll acceptance remains open. |
+| Bottom navigation and dock scroll | Retained native pair; existing shared frontend scroll owner | Capability-negotiated ordered progress, bounded latest-wins delivery and acknowledged pinned fallback. Physical native pair/keyboard regressions passed at `af209c47da`; bounded simulator journey passes at `45de35508d`. Latest combined-head physical acceptance remains open. |
 | Privacy recovery | Existing native validation and presentation owners | Navigation now requests fresh permitted admission after release, including completion readback without a listener event. The regression failed without that completion path; 198 nearest navigation/chrome tests pass. This is not UIKit transition acceptance. |
 | Rich/protected forms, pagers and unqualified selectors | Existing React feature owners | Retained exceptions, not native conversion. Older wrappers, web, Android and unqualified iPad keep their established paths. |
 

@@ -135,15 +135,15 @@ describe("WalletWorkspace at scale", () => {
     const workspace = render(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A", email: "owner-a@example.test" } }, shareUrl: null }); });
-    expect(await screen.findByText("Saved owner A")).toBeVisible();
-    expect(screen.getByText("owner-a@example.test")).toBeVisible();
+    for (const label of await screen.findAllByText("Saved owner A")) expect(label).toBeVisible();
+    for (const label of screen.getAllByText("owner-a@example.test")) expect(label).toBeVisible();
 
     authMock.user = { uid: "owner_b", displayName: "Public owner B" };
     workspace.rerender(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Saved owner A")).toBeNull();
     expect(screen.queryByText("owner-a@example.test")).toBeNull();
-    expect(screen.getByText("Public owner B")).toBeVisible();
+    for (const label of screen.getAllByText("Public owner B")) expect(label).toBeVisible();
 
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
     workspace.rerender(<WalletWorkspace />);

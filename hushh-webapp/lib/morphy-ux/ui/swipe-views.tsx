@@ -327,7 +327,6 @@ function isSelectionTargeted(
   index: number,
   optionsLength: number,
 ): boolean {
-  if (resolveVisualIndex(api, optionsLength) !== index) return false;
   const engine = api.internalEngine?.();
   const width = engine?.slideRects?.[0]?.width;
   const target = engine?.target?.get?.();
@@ -335,7 +334,7 @@ function isSelectionTargeted(
       typeof target === "number" && Number.isFinite(target)) {
     return Math.abs(target + index * width) <= 1;
   }
-  return api.selectedScrollSnap() === index;
+  return resolveVisualIndex(api, optionsLength) === index;
 }
 
 /** Embla's selection changes before the outgoing pane has finished moving. */
@@ -528,11 +527,9 @@ export function SwipeViews({
   // re-run on every selection change (re-subscribing its observer each time),
   // but still needs the CURRENT selection whenever it does fire.
   const activeValueRef = useRef(activeValue);
-  const activeIndexRef = useRef(activeIndex);
   const optionsRef = useRef(options);
   useEffect(() => {
     activeValueRef.current = activeValue;
-    activeIndexRef.current = activeIndex;
     optionsRef.current = options;
   }, [activeValue, activeIndex, options]);
 
