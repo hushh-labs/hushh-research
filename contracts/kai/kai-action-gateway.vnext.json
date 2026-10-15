@@ -2625,6 +2625,140 @@
       }
     },
     {
+      "action_id": "calendar.invitation.review",
+      "surface_id": "one_calendar",
+      "label": "Review Calendar invitations",
+      "aliases": [
+        "show my pending invitations",
+        "accept tomorrow’s client meeting",
+        "decline my 3 PM invitation",
+        "I cannot attend ask the organizer to choose another time"
+      ],
+      "search_keywords": [
+        "calendar invitations",
+        "RSVP",
+        "accept invitation",
+        "decline invitation",
+        "offer another time"
+      ],
+      "meaning": "Continues the owner’s invitation request inside the existing One Chat conversation. It can show pending invitations or prepare accept, decline, and alternate-time reviews. This handoff changes no RSVP and sends no Mail; the shared Calendar review requires an explicit browser confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/",
+          "/one",
+          "/one/calendar"
+        ],
+        "screens": [
+          "chat",
+          "one_agents",
+          "calendar"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Keep the existing One Chat conversation; do not open Calendar for an invitation action."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "continue_calendar_in_chat"
+      },
+      "control_ids": [
+        "calendar_invitation_accept",
+        "calendar_invitation_decline",
+        "calendar_invitation_offer"
+      ],
+      "state_exposure": [
+        "calendar_connection_state",
+        "vault_ready"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.invitation.review",
+        "required_inputs": [
+          {
+            "name": "request",
+            "prompt": "What would you like to do with the invitation?",
+            "required": true,
+            "slot": "request",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "request": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Continue invitation review in One Chat",
+            "failure_behavior": "stop",
+            "service": "frontend.calendar.invitation.review"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_connect",
       "surface_id": "one_connect",
       "label": "Open Connect",

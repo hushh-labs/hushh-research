@@ -173,6 +173,7 @@ class BankDesignBody(BaseModel):
     country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
     bankKey: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     offset: StrictInt = Field(default=0, ge=0, le=10000)
+    automatic: bool = Field(default=False, strict=True)
 
 
 class ArtworkValidationBody(BaseModel):
@@ -239,7 +240,12 @@ async def artwork_banks(body: BankDesignBody, owner: str = Depends(owner_identit
 
     try:
         return await run_in_threadpool(
-            bank_designs, body.network, body.country, body.bankKey, body.offset
+            bank_designs,
+            body.network,
+            body.country,
+            body.bankKey,
+            body.offset,
+            automatic=body.automatic,
         )
     except ValueError:
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None

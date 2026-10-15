@@ -4162,7 +4162,7 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-The existing branch integrates main through `2aa7bd9fb1` without rewriting
+The existing branch integrates main through `d8133e4d05` without rewriting
 shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
 core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
 predates the owner-approved identifier extension and latest main composition;
@@ -4175,6 +4175,13 @@ Two observed Drive regressions and timestamp withholding extend the nearest core
 tests; duplicate mocked semantic permutations were consolidated. These tests do
 not certify model accuracy: independent faulty-Ready evals must still expose
 unsupported account/date/completeness claims and fail the deploy gate.
+The first combined core run found eight failures: four shared Memory prompt
+caps, One's composed prompt cap, the implemented private-consent fixture and two
+exact-route inventories. Instructions were shortened without raising caps, and
+the route fixtures now include the admitted owner-only receipt endpoint. Focused
+repairs pass. Latest-main composition also restores Calendar's read-only auth
+import and carries current owner capabilities into invitation reconnects; it
+does not introduce another OAuth or payment authority.
 
 Both reviewers accepted a scope-free social connection. Their existing encrypted
 synthetic fixtures expose independently discovered, exact nonwildcard role leaves.
@@ -4197,8 +4204,13 @@ Tariffs and payment do not set either permission. Paid approval freezes the
 permission; access remains unavailable until activation. Private agents use the
 existing signed owner feed for current consent, discovery and submission receipts,
 with fresh nonce-bound checks before model processing and no shared-database
-fallback in an unqualified pod. These are source and focused-test results, not
-Dev deployment or two-reviewer acceptance.
+fallback in an unqualified pod. Consent-tagged original and derived invocations
+are excluded from ordinary durable pod memory before either local storage or
+provider memory receives them; unknown lineage in a tainted conversation is also
+withheld. Grant-aware conversation recovery remains authoritative. The nearest
+existing regression passes and fails under the prior unfiltered implementation.
+Previously retained memory records remain unqualified. These are source and
+focused-test results, not Dev deployment or two-reviewer acceptance.
 
 The packet covers employee legal name, SSN, birthday, phone and home address,
 following [Gusto’s employee onboarding checklist](https://support.gusto.com/article/210728164125837/add-new-employees-to-gusto).

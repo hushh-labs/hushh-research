@@ -3136,7 +3136,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "GoogleCalendarService",
-      "value": 1457
+      "value": 1488
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5926,7 +5926,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": "_one_roster_tools",
-      "value": 148
+      "value": 150
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16294,7 +16294,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": null,
-      "value": 961
+      "value": 1134
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16474,7 +16474,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
       "symbol": null,
-      "value": 1139
+      "value": 1141
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17194,7 +17194,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": null,
-      "value": 1638
+      "value": 1669
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18130,7 +18130,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/agents/test_calendar_agent_tools.py",
       "symbol": null,
-      "value": 690
+      "value": 780
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19660,7 +19660,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_external_read_boundary.py",
       "symbol": null,
-      "value": 1539
+      "value": 1562
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20425,7 +20425,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
       "symbol": null,
-      "value": 1676
+      "value": 1715
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20461,7 +20461,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1268
+      "value": 1273
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20479,7 +20479,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-request-button.test.tsx",
       "symbol": null,
-      "value": 552
+      "value": 580
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20614,7 +20614,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/person-profile-page.test.tsx",
       "symbol": null,
-      "value": 1744
+      "value": 1800
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21343,7 +21343,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11362
+      "value": 11366
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21397,7 +21397,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2890
+      "value": 2895
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21532,7 +21532,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 838
+      "value": 840
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21631,7 +21631,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1152
+      "value": 1153
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23377,7 +23377,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2597
+      "value": 2607
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24701,7 +24701,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/direct-chat.layout.spec.ts",
       "symbol": null,
-      "value": 622
+      "value": 644
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25106,7 +25106,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "DrivePacketStore",
-      "value": 978
+      "value": 1061
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25268,7 +25268,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
       "symbol": "run",
-      "value": 154
+      "value": 157
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25295,7 +25295,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "operation",
-      "value": 114
+      "value": 123
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25304,7 +25304,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "operation",
-      "value": 100
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25313,7 +25313,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "list_packets",
-      "value": 109
+      "value": 136
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25448,7 +25448,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": null,
-      "value": 1040
+      "value": 1148
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25475,7 +25475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1880
+      "value": 2118
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25858,7 +25858,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "CalendarScheduleService",
-      "value": 795
+      "value": 929
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25867,7 +25867,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 368
+      "value": 383
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25903,7 +25903,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "confirm",
-      "value": 100
+      "value": 132
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25912,7 +25912,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "review",
-      "value": 108
+      "value": 141
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26263,7 +26263,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": null,
-      "value": 959
+      "value": 1093
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26344,7 +26344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
       "symbol": null,
-      "value": 1181
+      "value": 1184
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26434,7 +26434,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
-      "value": 673
+      "value": 731
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26841,6 +26841,78 @@
       "path": ".codex/skills/reviewer-app-testing/tests/reviewer-read-only-guard.test.mjs",
       "symbol": null,
       "value": 509
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|calendar_invitations|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
+      "symbol": "calendar_invitations",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|open_calendar_invitation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
+      "symbol": "open_calendar_invitation",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/calendar_invitations.py|invitation_snapshot|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/calendar_invitations.py",
+      "symbol": "invitation_snapshot",
+      "value": 148
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|list_events|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+      "symbol": "list_events",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/agents/test_calendar_agent_tools.py|test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/agents/test_calendar_agent_tools.py",
+      "symbol": "test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound",
+      "value": 88
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/calendar.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/calendar.py",
+      "symbol": null,
+      "value": 538
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+      "symbol": null,
+      "value": 506
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/wallet-service.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/wallet-service.test.ts",
+      "symbol": null,
+      "value": 526
     }
   ],
   "inspected_files": 6625,
@@ -50149,6 +50221,288 @@
     "incoming_main": "2aa7bd9fb1ec18ba0c0e7e18e039535d0676da01",
     "review": "Parent source review with independent backend/client boundary review and architecture readback. Eleven retained size observations for owner-context metadata plumbing, file timestamp withholding and two observed Drive regression inputs. Model judgments remain authored; no incoming host semantic overrides. Preserve all2712 occurrences and duplicate operation rank1=100; budgets500/250/80, scanner, exclusions and prior history unchanged. Focused378backend/eval,55frontend, TypeScript and UIcontracts pass; real model accuracy and deployed acceptance remain unverified.",
     "source_parent": "c777802db8"
+  },
+  "scope_commerce_main_invitations_throughput_composition_20261015": {
+    "entries": [
+      {
+        "after": 929,
+        "before": 795,
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "0092c6efa2d78fd7f419e9b241335569d8f7fac732c704eba6ab554f820c791c"
+      },
+      {
+        "after": 1061,
+        "before": 978,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "2317f59ccb68a63b51480bc9df1879d2d677cdf04f33299da5f285e3acc58886"
+      },
+      {
+        "after": 383,
+        "before": 368,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "5cd2879748bd93d8941bde29d3f5ffcdcfba8d268056b30c86cd7824b34cf1dd"
+      },
+      {
+        "after": 1488,
+        "before": 1457,
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|GoogleCalendarService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "69f8910d21146f85c71f2940309a203987634ecbd02c21e50198c93af7ed953d"
+      },
+      {
+        "after": 83,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|calendar_invitations|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "ed2bd5a85a696051a23bcd64932e60369c142825dfcf5841f8c69b8ff83e3cf8"
+      },
+      {
+        "after": 84,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|open_calendar_invitation|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "ed2bd5a85a696051a23bcd64932e60369c142825dfcf5841f8c69b8ff83e3cf8"
+      },
+      {
+        "after": 150,
+        "before": 148,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_one_roster_tools|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "38c27a6f429c71c2fd4a7a0225be7646708a183db3de8848163a5f1c7dfe8c2e"
+      },
+      {
+        "after": 148,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_invitations.py|invitation_snapshot|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "b350274f96c24aadac533f976fb6c16daab3be209c9ca48ce6c72e618d6943aa"
+      },
+      {
+        "after": 132,
+        "before": 100,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|confirm|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "0092c6efa2d78fd7f419e9b241335569d8f7fac732c704eba6ab554f820c791c"
+      },
+      {
+        "after": 141,
+        "before": 108,
+        "key": "function_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|review|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "0092c6efa2d78fd7f419e9b241335569d8f7fac732c704eba6ab554f820c791c"
+      },
+      {
+        "after": 157,
+        "before": 154,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "36e3593828f53bd7ec4343b0af8f04b81b758c5644685b493385ee0ce03a3b3d"
+      },
+      {
+        "after": 136,
+        "before": 109,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|list_packets|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "2317f59ccb68a63b51480bc9df1879d2d677cdf04f33299da5f285e3acc58886"
+      },
+      {
+        "after": 123,
+        "before": 114,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "2317f59ccb68a63b51480bc9df1879d2d677cdf04f33299da5f285e3acc58886"
+      },
+      {
+        "after": 114,
+        "before": 100,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "rank": 1,
+        "source_sha256": "2317f59ccb68a63b51480bc9df1879d2d677cdf04f33299da5f285e3acc58886"
+      },
+      {
+        "after": 83,
+        "before": null,
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|list_events|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "69f8910d21146f85c71f2940309a203987634ecbd02c21e50198c93af7ed953d"
+      },
+      {
+        "after": 88,
+        "before": null,
+        "key": "function_size|consent-protocol/tests/agents/test_calendar_agent_tools.py|test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "5dfa599a22d95de40006f42452583796f998775ac09db756f839c060231d9ce4"
+      },
+      {
+        "after": 1134,
+        "before": 961,
+        "key": "module_size|consent-protocol/hushh_mcp/agents/calendar/tools.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "ed2bd5a85a696051a23bcd64932e60369c142825dfcf5841f8c69b8ff83e3cf8"
+      },
+      {
+        "after": 1141,
+        "before": 1139,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/text_runtime.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "171af6dee6b01935ac17b021b31f4c4530149ab17829c909c2503b86965a20db"
+      },
+      {
+        "after": 538,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/calendar.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "d6613b1d1b75fc053087f15c4c3a06eabde16c9a56a73ebef7f767a7be26aee4"
+      },
+      {
+        "after": 1093,
+        "before": 959,
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "0092c6efa2d78fd7f419e9b241335569d8f7fac732c704eba6ab554f820c791c"
+      },
+      {
+        "after": 1148,
+        "before": 1040,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "2317f59ccb68a63b51480bc9df1879d2d677cdf04f33299da5f285e3acc58886"
+      },
+      {
+        "after": 506,
+        "before": null,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "5cd2879748bd93d8941bde29d3f5ffcdcfba8d268056b30c86cd7824b34cf1dd"
+      },
+      {
+        "after": 1669,
+        "before": 1638,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_calendar_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "69f8910d21146f85c71f2940309a203987634ecbd02c21e50198c93af7ed953d"
+      },
+      {
+        "after": 780,
+        "before": 690,
+        "key": "module_size|consent-protocol/tests/agents/test_calendar_agent_tools.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "5dfa599a22d95de40006f42452583796f998775ac09db756f839c060231d9ce4"
+      },
+      {
+        "after": 2118,
+        "before": 1880,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "b97a4e8c1dbba039e41efbcebffdf29632298464831677cc107d9ef1b356ce09"
+      },
+      {
+        "after": 1562,
+        "before": 1539,
+        "key": "module_size|consent-protocol/tests/test_one_external_read_boundary.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "4caaa81ae3fe07d4f46a38d721636e498b7fc0266a1f18d630f1c7458450560f"
+      },
+      {
+        "after": 1184,
+        "before": 1181,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "9df22841a36d6edbabb0db6ca3c758f11abb0805bc5c163b1637ddd2778a1b89"
+      },
+      {
+        "after": 1715,
+        "before": 1676,
+        "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "2e450e375c67c591c6e42a737f6b4443f060870a38109b2fcc2f6e49696194ef"
+      },
+      {
+        "after": 1273,
+        "before": 1268,
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "193ec77be7a8e219034d561eae77dcb694492969367dd4a1e03879a2fa77290a"
+      },
+      {
+        "after": 580,
+        "before": 552,
+        "key": "module_size|hushh-webapp/__tests__/components/document-request-button.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "238a52df88ab33ecc811005939d657dbfa10ef3a58cb29d51de76ccf15caa38a"
+      },
+      {
+        "after": 1800,
+        "before": 1744,
+        "key": "module_size|hushh-webapp/__tests__/components/person-profile-page.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "d6e4b522dc62f5c34428f5836964c1d121ebab5243efe805d105776e54ecf8f3"
+      },
+      {
+        "after": 526,
+        "before": null,
+        "key": "module_size|hushh-webapp/__tests__/services/wallet-service.test.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "736b126f08c8f28b807d9fd6d16335a0a2bb2c8e31af7c7869856dd59b08950b"
+      },
+      {
+        "after": 11366,
+        "before": 11362,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "fa403127501cae8b02660b49df2bf85415b1c897cf680224acd49cecbf0d3484"
+      },
+      {
+        "after": 2895,
+        "before": 2890,
+        "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "7878d00434dab62ad8edf2b3a0c5d126589277e60ce8bc3c26be5e116159112b"
+      },
+      {
+        "after": 840,
+        "before": 838,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "b8e9e0d28f10455f355aee700e72a100f050c8ef70684c5d2f29e982aadb5d28"
+      },
+      {
+        "after": 1153,
+        "before": 1152,
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "a2045386101113f0368e35dba5473eb284a60ad5d2a4fffd766735b01bf6eac9"
+      },
+      {
+        "after": 644,
+        "before": 622,
+        "key": "module_size|hushh-webapp/e2e/direct-chat.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "21e25a0f4c87deec7bd4f4c3764c6ba5136a17912c94cd13640efe5918570890"
+      },
+      {
+        "after": 2607,
+        "before": 2597,
+        "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "9a87f3ebd7e64f7e577707b1cbbac40718972cd7e337e7996fd8059ed6055dc1"
+      },
+      {
+        "after": 731,
+        "before": 673,
+        "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "fa69f5a08ed8b8026af442c3f9d37def44dffe123025102cc0bfbd62fb5377c8"
+      }
+    ],
+    "incoming_main": "d8133e4d05ee98074f4a424ac96297ebefb32a9f",
+    "proposal_sha256": "ba0136b16fd456fcd87e0e12365153c28bdfa9a12635196402558724f236223f",
+    "review": "Independently verified39size-only occurrences:31replacements and8new source observations;16exact incoming and23bounded compositions. Preserve all2712prior rows/non-value fields/history, scanner and500/250/80budgets. Calendar invitation reads reuse the exact injected Calendar authority through its service-owned facade; no new agent-service dependency exemption. Drive worker keeps placement checks including per-owner enqueue under lock. Duplicate operation ranks114/100 become123/114: list_packets operation grows to123, unchanged finalize operation114 moves to rank1. These qualify retained source debt, not runtime or deployed acceptance.",
+    "reviewer": "architecture_review",
+    "source_parent": "624a4ded46"
   },
   "scope_commerce_maindb4_composition_20261015": {
     "boundary": "Exactly18 reviewed rank-zero observations. Prior findings/history, scanner, exclusions and500/250/80budgets retained. New growth still rejected.",

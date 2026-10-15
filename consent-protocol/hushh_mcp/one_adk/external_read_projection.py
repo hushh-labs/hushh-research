@@ -24,6 +24,7 @@ from hushh_mcp.one_adk.receipt_client_tools import (
 
 _EPHEMERAL = frozenset(
     {
+        "hussh:pending_directive:calendar_invitations",
         STATE_EXECUTION_SURFACE,
         STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
@@ -43,7 +44,9 @@ _EPHEMERAL = frozenset(
         "hussh:pending_directive:gmail_information_request_reply",
     }
 )
-_PRIVATE_DRAFT_TOOLS = frozenset({"open_gmail_email_draft", "open_gmail_information_request_reply"})
+_PRIVATE_DRAFT_TOOLS = frozenset(
+    {"open_calendar_invitation", "open_gmail_email_draft", "open_gmail_information_request_reply"}
+)
 
 
 def redacted_read_receipt(response: Any) -> dict[str, Any]:

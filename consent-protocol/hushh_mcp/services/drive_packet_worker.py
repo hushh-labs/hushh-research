@@ -11,7 +11,7 @@ import contextlib
 import json
 import logging
 import time
-from collections import Counter
+from collections import Counter, deque
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_document_targets import document_targets
@@ -26,7 +26,7 @@ from hushh_mcp.services.drive_packet_intelligence import (
 )
 from hushh_mcp.services.drive_packet_store import DrivePacketStore, safe_packet_failure_code
 from hushh_mcp.services.drive_work_wake import wake_drive_work
-from hushh_mcp.services.drive_worker_limits import facts_owner_leases
+from hushh_mcp.services.drive_worker_limits import facts_owner_leases, packet_slots
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import ModeResolver, admit_hub_content
@@ -442,50 +442,65 @@ class DrivePacketWorker:
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
-                owners = await self.facts_store.due_owners(limit=max(1, (max_jobs + 1) // 2))
-                # Every owner first gets one facts job and one packet job, as
-                # before. Leftover budget adds facts jobs per owner, up to the
-                # durable per-owner facts cap. Packet builds stay one per owner.
-                plan = [(user_id, packet) for user_id in owners for packet in (False, True)]
-                plan += [
-                    (user_id, False) for _ in range(1, facts_owner_leases()) for user_id in owners
-                ]
-                plan = plan[:max_jobs]
-                facts_jobs = Counter(user_id for user_id, packet in plan if not packet)
+                # Least recently served first. Each of max_jobs slots runs one
+                # job; a candidate with nothing due costs a claim, not the slot.
+                owners = await self.facts_store.due_owners(limit=max_jobs)
+                # Packet builds stay one per owner and use at most packet_slots()
+                # slots. A packet slot that finds no build due runs facts.
+                packets = deque(owners)
+                # Facts go round-robin: every owner's first job before any
+                # owner's second, up to the durable per-owner cap. The claim
+                # keeps running jobs on distinct documents across instances.
+                facts = deque(user_id for _ in range(facts_owner_leases()) for user_id in owners)
+                drained, enqueued, locks = set(), set(), {}
 
                 async def one(job, **kwargs):
                     try:
-                        counts[await job(**kwargs)] += 1
+                        outcome = await job(**kwargs)
                     except Exception:  # noqa: BLE001 - one owner cannot cancel other durable lanes
-                        counts["unavailable"] += 1
+                        outcome = "unavailable"
+                    counts[outcome] += 1
+                    return outcome
 
-                async def owner_facts(user_id, jobs):
-                    # One enqueue per owner per sweep; the parallel jobs only claim.
-                    try:
-                        await admit_hub_content(
-                            user_id,
-                            "drive_packet_facts_enqueue",
-                            resolve_mode=self._placement_resolver,
-                        )
-                        await self.facts_store.enqueue(
-                            user_id=user_id, policy_version=self.policy()
-                        )
-                    except Exception:  # noqa: BLE001 - reported like a failed facts job
-                        counts["unavailable"] += jobs
-                        return
-                    await asyncio.gather(
-                        *(
-                            one(self.run_facts_one, user_id=user_id, enqueue=False)
-                            for _ in range(jobs)
-                        )
-                    )
+                async def slot(packet):
+                    while packet and packets:
+                        if await one(self.run_packet_one, user_id=packets.popleft()) != "idle":
+                            return
+                    while facts:
+                        user_id = facts.popleft()
+                        if user_id in drained:
+                            continue
+                        # One enqueue per owner per sweep; the parallel jobs only claim.
+                        async with locks.setdefault(user_id, asyncio.Lock()):
+                            if user_id not in enqueued:
+                                enqueued.add(user_id)
+                                try:
+                                    await admit_hub_content(
+                                        user_id,
+                                        "drive_packet_facts_enqueue",
+                                        resolve_mode=self._placement_resolver,
+                                    )
+                                    await self.facts_store.enqueue(
+                                        user_id=user_id, policy_version=self.policy()
+                                    )
+                                except Exception:  # noqa: BLE001 - reported like a failed facts job
+                                    drained.add(user_id)
+                                    counts["unavailable"] += 1
+                                    return
+                        if user_id in drained:
+                            continue
+                        outcome = await one(self.run_facts_one, user_id=user_id, enqueue=False)
+                        if outcome in {"idle", "unavailable"}:
+                            # Nothing claimable now, or the store failed: skip
+                            # this owner's remaining candidates in this sweep.
+                            drained.add(user_id)
+                        if outcome != "idle":
+                            return
 
+                builds = min(packet_slots(), max_jobs // 2)
                 async with asyncio.TaskGroup() as group:
-                    for user_id in owners:
-                        if facts_jobs[user_id]:
-                            group.create_task(owner_facts(user_id, facts_jobs[user_id]))
-                        if (user_id, True) in plan:
-                            group.create_task(one(self.run_packet_one, user_id=user_id))
+                    for index in range(max_jobs):
+                        group.create_task(slot(index < builds))
         except TimeoutError:
             counts["deadline"] += 1
         return dict(counts)

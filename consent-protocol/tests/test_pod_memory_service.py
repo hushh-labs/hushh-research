@@ -352,13 +352,21 @@ async def test_private_chat_memory_maps_only_verified_owner_and_commits_new_even
     from google.adk.events import Event
     from google.adk.sessions import Session
 
+    from hushh_mcp.one_adk.consent_redaction import consent_invocations_state_key
     from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
 
     original = Session(
         id="synthetic-chat",
         app_name="one",
         user_id="firebase-owner",
-        events=[Event(id="prior", author="user"), Event(id="new", author="model")],
+        state={consent_invocations_state_key("b" * 32): ["shared-original", "shared-derived"]},
+        events=[
+            Event(id="prior", author="user"),
+            Event(id="new", author="model", invocation_id="ordinary"),
+            Event(id="shared", author="model", invocation_id="shared-original"),
+            Event(id="derived", author="model", invocation_id="shared-derived"),
+            Event(id="unknown-lineage", author="model"),
+        ],
     )
     service = SimpleNamespace(add_session_to_memory=AsyncMock(), search_memory=AsyncMock())
     context = SimpleNamespace(
@@ -373,7 +381,10 @@ async def test_private_chat_memory_maps_only_verified_owner_and_commits_new_even
     stored = service.add_session_to_memory.call_args.args[0]
     assert stored.user_id == "ha1_owner"
     assert [event.id for event in stored.events] == ["new"]
-    assert original.user_id == "firebase-owner" and len(original.events) == 2
+    assert original.user_id == "firebase-owner" and len(original.events) == 5
+    original.events = [event for event in original.events if event.id == "shared"]
+    await memory.commit(SimpleNamespace(thread_id="synthetic-chat"))
+    service.add_session_to_memory.assert_awaited_once()
     with pytest.raises(PermissionError):
         await memory.search_memory(app_name="one", user_id="foreign-owner", query="synthetic")
     service.search_memory.assert_not_awaited()

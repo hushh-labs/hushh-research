@@ -9,6 +9,7 @@ import { LocationPublisherBridge } from "@/components/location/location-publishe
 import { LocationUpdatesStepBridge } from "@/components/location/location-updates-step-bridge";
 import { RequestReviewStepBridge } from "@/components/connections/request-review-step-bridge";
 import { VoiceSessionProvider } from "@/components/one-voice/voice-session-provider";
+import { CalendarVoiceChatBridge } from "@/components/calendar/calendar-voice-chat-bridge";
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
@@ -37,6 +38,7 @@ export function AgentOwnerGate({ children }: { children: ReactNode }) {
       {commands ? <LocationCommandDeviceBridge /> : null}
       <VoiceSessionProvider enabled={live}>
         <OneVoiceMailDraftBridge />
+        <CalendarVoiceChatBridge />
         {live ? (
           <>
             <LocationPublisherBridge />

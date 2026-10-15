@@ -6,8 +6,8 @@ message text or change agent decisions.
 
 | Activity | State | Static fallback | Animation in header and profile |
 | --- | --- | --- | --- |
-| Email draft generation in the editor | `working` | `drafting-hd.png` | `hd/working.riv` |
-| One preparing an answer or running a local action | `thinking` | `thinking-hd.png` | `hd/thinking.riv` |
+| Foreground tool/task execution or email draft generation | `working` | `drafting-hd.png` | `hd/working.riv` |
+| One waiting for a response | `thinking` | `thinking-hd.png` | `hd/thinking.riv` |
 | Response tokens arriving or voice speaking | `answering` | `answering-hd.png` | `hd/answering.riv` |
 | No foreground work | `connected` | Original `profile-hd.png` | `hd/connected.riv` |
 
@@ -18,6 +18,11 @@ on the current turn's first nonempty response delta, or voice playback. Loading,
 provisional progress messages and a restored partial answer remain thinking.
 New and reattached turns reset the output marker. Background memory persistence
 does not keep the artwork busy.
+
+Working takes priority while a visible server tool, governed local action or
+specialist task executes. Server tool activity is bounded by the current turn,
+so a failed or finished stream cannot leave a stale working pose. Confirmation
+cards and waiting for Google authorization do not themselves count as execution.
 
 The active `hd/*.riv` exports animate the four 1254px portraits with newly
 authored, restrained Rive-native lift and tilt loops, quantized to 24 FPS over 72 frames.

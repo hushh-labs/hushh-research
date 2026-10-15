@@ -15,7 +15,7 @@ from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
-from hushh_mcp.services.drive_worker_limits import extraction_owner_slots
+from hushh_mcp.services.drive_worker_limits import extraction_owner_slots, semantic_slots
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 # Lower bound on concurrent extraction jobs across all owners in one sweep.
@@ -133,13 +133,16 @@ class DriveDocumentWorker:
         if self.packet_worker is not None:
             deadline_seconds = min(deadline_seconds, 160)
         counts: Counter = Counter()
-        semantic_budget = (
-            max(2, max_jobs // 3) if self.packet_worker is not None and max_jobs >= 4 else 0
-        )
+        # Extraction and discovery keep the split of max_jobs they always had.
+        reserved = max(2, max_jobs // 3) if self.packet_worker is not None and max_jobs >= 4 else 0
         discovery_budget = (
-            min(2, max_jobs - semantic_budget - 1) if self.collection_sync is not None else 0
+            min(2, max_jobs - reserved - 1) if self.collection_sync is not None else 0
         )
-        document_budget = max_jobs - semantic_budget - discovery_budget
+        document_budget = max_jobs - reserved - discovery_budget
+        # Facts and packet jobs wait on the model and hold this process's one
+        # database connection only for short transactions, so they run in their
+        # own bounded slots instead of the third of max_jobs reserved above.
+        semantic_budget = min(max_jobs, max(2, semantic_slots())) if reserved else 0
 
         async def documents():
             # Local slots per owner; the durable cap across instances is

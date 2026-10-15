@@ -6,6 +6,7 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -571,9 +572,9 @@ export function CalendarAgentPage({
     </div>
   ) : null;
 
-  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff) => {
+  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff) => {
     trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-    if (!prompt && !calendarSlot) {
+    if (!prompt && !calendarSlot && !calendarInvitation) {
       navigateToAgentChat();
       return;
     }
@@ -583,6 +584,7 @@ export function CalendarAgentPage({
       reason: "user_requested",
       transcript: prompt,
       calendarSlot,
+      calendarInvitation,
       createdAtMs,
     });
     navigateToAgentChat();
@@ -645,7 +647,7 @@ export function CalendarAgentPage({
     return <>
       <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onChat={(prompt, slot) => openChat(slot ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot)}
+        onChat={(prompt, slot, invitation) => openChat(slot || invitation ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}

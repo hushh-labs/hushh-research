@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   user: null as { uid: string; getIdToken: () => Promise<string> } | null,
   authLoading: false,
   isVaultUnlocked: true,
+  packets: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -70,6 +72,11 @@ vi.mock("@/lib/services/person-profile-service", () => ({
     getInformationRequest: mocks.getInformationRequest,
     getRequestHistory: mocks.getRequestHistory,
   },
+}));
+
+// A connection's listed packets; buying is covered by the packet tests.
+vi.mock("@/lib/services/drive-packet-service", () => ({
+  DrivePacketService: { packets: mocks.packets },
 }));
 
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
@@ -202,6 +209,7 @@ beforeEach(() => {
 });
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
@@ -1741,4 +1749,52 @@ describe("Request scope during profile authority refresh", () => {
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+describe("PersonProfilePage packets a connection has listed", () => {
+  // Synthetic: one listed packet, as a buyer's list receives it.
+  const listed = { packetId: "00000001-3333-4333-8333-333333333333", version: 2, listingRevision: 1,
+    title: "Example Bank statements", description: "Monthly statements for one synthetic account.", state: "ready",
+    coverageSummary: "January to June 2026", gaps: [], documentCount: 3, verifiedAt: null, freshness: "current",
+    assessmentScore: 95, importance: 100, suggestedPriceCents: 1234, priceCents: 1234, listingEnabled: true,
+    canRequest: true, canList: false };
+
+  beforeEach(() => {
+    mocks.getPublic.mockResolvedValue({ personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null });
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
+    mocks.pathname = "/people/actual-public-ref";
+    mocks.native = false;
+    mocks.platform = "web";
+    mocks.user = { uid: "viewer-1", getIdToken: async () => "id-token" };
+    mocks.authLoading = false;
+    mocks.isVaultUnlocked = true;
+    mocks.search = "";
+    mocks.vaultKey = "vault-key";
+    mocks.vaultOwnerToken = "owner-token";
+    publishValidatedAuthSessionOwner("viewer-1");
+    mocks.packets.mockReset().mockImplementation(async (_token: string, guard: () => void) => {
+      guard();
+      return { packets: [listed], nextCursor: null };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    publishValidatedAuthSessionOwner(null);
+  });
+
+  it("shows them as history rows, not a card in a card, and the page names who approves", async () => {
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    const list = await screen.findByRole("region", { name: "Available document packets" });
+    const row = await within(list).findByRole("button", { name: /^Example Bank statements/ });
+    expect(row).toHaveTextContent("3 documents · January to June 2026");
+    expect(row).toHaveTextContent("$12.34");
+    expect(mocks.packets).toHaveBeenCalledWith("owner-token", expect.any(Function), "actual-public-ref", undefined);
+    expect(list.parentElement?.closest("section")).toBeNull();
+    fireEvent.click(row);
+    expect(await screen.findByText("You pay after Actual Person approves.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy for $12.34" })).toBeInTheDocument();
+  });
 });

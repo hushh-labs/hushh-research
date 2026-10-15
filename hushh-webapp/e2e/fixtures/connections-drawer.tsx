@@ -225,7 +225,7 @@ function Fixture() {
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
   const [oneProfileOpen, setOneProfileOpen] = useState(false);
-  const [onePresenceWork, setOnePresenceWork] = useState({ drafting: false, answering: false, thinking: false });
+  const [onePresenceWork, setOnePresenceWork] = useState({ working: false, drafting: false, answering: false, thinking: false });
   Object.assign(window, { __setOnePresenceWork: setOnePresenceWork });
   const onePresenceState = resolveOnePresenceState(onePresenceWork);
   const oneProfileTrigger = useRef<HTMLButtonElement>(null);

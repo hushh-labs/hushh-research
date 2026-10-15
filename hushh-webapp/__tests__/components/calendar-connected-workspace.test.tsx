@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 
 const mocks = vi.hoisted(() => ({
+  invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
   reviewAttendance: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
+    invitations: mocks.invitations,
     today: mocks.today,
     availability: mocks.availability,
     reviewAttendance: mocks.reviewAttendance,
@@ -321,6 +323,7 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
+    mocks.invitations.mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true });
     mocks.today.mockImplementation(async ({ date, timeZone }) => dailyResponse([], date, timeZone));
     mocks.availability.mockImplementation(async ({ date, durationMinutes }) => freeResponse(date, durationMinutes));
   });
@@ -344,7 +347,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
 
-  it("supports keyboard main-tab changes and honest coming-soon panels", async () => {
+  it("supports keyboard main-tab changes and invitation filters", async () => {
     render(workspace());
     await waitFor(() => expect(mocks.today).toHaveBeenCalledOnce());
     const schedule = screen.getByRole("tab", { name: "Schedule", exact: true });
@@ -354,7 +357,7 @@ describe("CalendarConnectedWorkspace", () => {
     const invitations = screen.getByRole("tab", { name: "Invitations", exact: true });
     expect(invitations).toHaveFocus();
     expect(invitations).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Invitation filters" })).toBeInTheDocument();
     fireEvent.keyDown(invitations, { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();

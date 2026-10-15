@@ -511,6 +511,7 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
     const picker = await screen.findByRole("dialog", { name: "New chat" });
+    expect(picker).toHaveAttribute("aria-modal", "true");
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith({
       idToken: "test-token", page: 1, limit: 50, query: "",
     });
@@ -811,6 +812,10 @@ describe("DirectMessagesPage", () => {
     fireEvent.change(emojiSearch, { target: { value: "" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
     expect(composer).toHaveValue("😀");
+    fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
+    fireEvent.change(screen.getByPlaceholderText("Search emoji"), { target: { value: "cat" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Use 🐱" })[0]!);
+    expect(composer).toHaveValue("😀🐱");
     expect(screen.queryByRole("button", { name: "Talk to One" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });

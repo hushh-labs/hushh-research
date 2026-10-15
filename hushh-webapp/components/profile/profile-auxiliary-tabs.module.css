@@ -105,7 +105,10 @@
   stroke: var(--ios-account-accent);
 }
 
-:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button) {
+/* The pill is for trailing actions (Connect, Manage). A switch is a <button
+   role="switch"> too, and this unlayered rule beats its utilities: the pale
+   fill hid the green On track and the 88px width left the knob on the left. */
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button:not([role="switch"]):not([role="checkbox"]):not([role="radio"])) {
   width: 88px;
   min-width: 88px;
   min-height: 44px;
@@ -330,7 +333,7 @@
     --settings-row-gap: 8px;
   }
 
-  :global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button) {
+  :global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button:not([role="switch"]):not([role="checkbox"]):not([role="radio"])) {
     min-width: 61px;
     padding-inline: 7px;
   }

@@ -1635,6 +1635,49 @@ describe("supported connector catalog", () => {
       expect(toggle).toHaveAttribute("aria-checked", "true");
     });
 
+    /** The caption under "Background Drive access", read from the row itself. */
+    const backgroundCaption = () =>
+      screen
+        .getByText("Background Drive access", { selector: '[data-slot="settings-row-title"]' })
+        .closest("[data-row-layout]")
+        ?.querySelector('[data-slot="settings-row-description"]')?.textContent;
+
+    it("says Saving… in the row while a change is in flight, then shows the saved state", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      let finish!: (enabled: boolean) => void;
+      state.setLiveBackground.mockReturnValueOnce(new Promise<boolean>((resolve) => { finish = resolve; }));
+      await openDrive();
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      expect(backgroundCaption()).toBe("Agent One works while you’re away.");
+      fireEvent.click(toggle);
+      await waitFor(() => expect(backgroundCaption()).toBe("Saving…"));
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await act(async () => finish(false));
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+      expect(backgroundCaption()).toBe("Paused while you’re away.");
+    });
+
+    it.each([
+      { was: "on", saved: true, text: "Couldn’t turn off. Try again." },
+      { was: "off", saved: false, text: "Couldn’t turn on. Try again." },
+    ])("leaves the switch $was and says so in the row when the change fails", async ({ saved, text }) => {
+      state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockResolvedValue(saved);
+      state.setLiveBackground.mockRejectedValueOnce(new Error("synthetic failure"));
+      await openDrive();
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      fireEvent.click(toggle);
+      await waitFor(() => expect(backgroundCaption()).toBe(text));
+      expect(toggle).toHaveAttribute("aria-checked", String(saved));
+      expect(toggle).toBeEnabled();
+      // Trying again and succeeding replaces the failure with the saved state.
+      fireEvent.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", String(!saved)));
+      expect(backgroundCaption()).toBe(saved ? "Paused while you’re away." : "Agent One works while you’re away.");
+    });
+
     it("shows an unknown state and offers retry when the current setting cannot be read", async () => {
       state.overview.mockResolvedValue(liveDrive());
       state.liveBackground.mockRejectedValue(new Error("synthetic failure"));

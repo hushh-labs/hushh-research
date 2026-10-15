@@ -58,6 +58,7 @@ GET /api/one/world-model/jobs/stream
 POST /api/one/world-model/ensure
 DELETE,GET,POST /api/one/world-model/source-reviews
 POST /api/one/world-model/source-reviews/complete
+POST /api/one/calendar/invitations
 POST /api/one/calendar/schedule/today
 POST /api/one/calendar/schedule/availability
 POST /api/one/calendar/attendance/review

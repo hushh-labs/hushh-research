@@ -2258,6 +2258,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.invitation.review",
           "onboarding.claim_one",
           "wallet.add",
           "wallet.list",
@@ -3098,6 +3099,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.invitation.review",
           "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
@@ -3153,6 +3155,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.invitation.review",
           "calendar.read"
         ],
         "delegate_agent_ids": [],
@@ -6896,21 +6899,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
-    "action_gateway": "a88976c43b736a46785bd9a6b41043d705fe6dadd47eca38370c8045cd4a8df4",
-    "agent_registry": "96e4940b853d9022f9f47890c57d4c5e17600c4611c3f569dfa07243c7137aa6",
+    "action_gateway": "9eddb4f49e497d88c86c264399f26fba954c8056586ffae45725cad62330d231",
+    "agent_registry": "2fba71595b29b91b67d211f52e4d068ff05d3382ca0f271f8a14a1ade98af0f8",
     "cache_manifest": "be354e7b5102d313f74743c591d4fe7cffd8f4790a9f44c2d7c563088472a554",
     "data_plane": "afcc1ae04000ceb12ecaf50016caa4a50a40c44c2e7b7c0d20725bdfeebf7c6e",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "20ad713f9837a519765e0ce8b4c4a8c360fc86b51c4320bbdcd7262d8a820848",
-    "route_layout": "d61e641f0302eff9f6dc07313a8b434815d5eb35280d6bad0e4195ffb1e81128",
-    "surface_map": "17771f14de94fcde9bb8865f5e71cbdab5d99143ecafe69423e59734b3a3b8be",
+    "route_index": "79e8df13931c88ff7afc61b57f589b46901aeca9d5511cca088b29a08756c50f",
+    "route_layout": "4df3884b128c351d6e95be7f2ad45de2301a8fb0b889f771c1e2b8fae2540386",
+    "surface_map": "a9e4b7cc46c1815619f97245f34db5336ed1654e74258b06a76851d9c56262e6",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 262,
+    "actions": 263,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,

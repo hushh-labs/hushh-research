@@ -4493,7 +4493,7 @@ export class PersonalKnowledgeModelService {
     scopePath: "summary" | "secrets";
     explanation: string;
     confirmation: PkmUserConfirmation;
-    applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    applyMutation: (base: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
     mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const domain = "wallet";
@@ -4573,7 +4573,7 @@ export class PersonalKnowledgeModelService {
       force: true,
     });
     const initialBase = walletBase(existing.data, existing.snapshot);
-    let built = await build(params.applyMutation(structuredClone(initialBase)), existing.snapshot, initialBase);
+    let built = await build(await params.applyMutation(structuredClone(initialBase)), existing.snapshot, initialBase);
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
       send: () => {
@@ -4592,7 +4592,7 @@ export class PersonalKnowledgeModelService {
           force: true,
         });
         const freshBase = walletBase(fresh.data, fresh.snapshot);
-        built = await build(params.applyMutation(structuredClone(freshBase)), fresh.snapshot, freshBase);
+        built = await build(await params.applyMutation(structuredClone(freshBase)), fresh.snapshot, freshBase);
       },
       pause: (ms) => this.pause(ms),
       now: () => Date.now(),

@@ -6,7 +6,7 @@
  * the owner's vault key. They never enter a chat message or a Server Action.
  */
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   ProfilePaneAccountIcon,
@@ -31,11 +31,7 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 
-import { type WalletCardArtwork, type WalletArtworkVariant } from "@/lib/wallet/card-artwork";
-import { WalletBankDesignPicker } from "./wallet-bank-design-picker";
-import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
 import { WalletCardFace } from "./wallet-card-face";
-import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
 import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -63,7 +59,7 @@ export interface SecureCardAddFormProps {
   showIntroduction?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
-  /** Private design changes are owned by the Wallet page, not chat writers. */
+  /** Legacy host flag; approved network illustrations are assigned on save. */
   artworkEnabled?: boolean;
   scanInToolbar?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
@@ -72,24 +68,18 @@ export interface SecureCardAddFormProps {
   initialNickname?: string;
   /** Decrypted by the host from the owner's Secrets; never passed in a URL. */
   initialPan?: string;
-  /** Owner host performs usage allocation privately; the picker never gets PAN. */
-  suggestBankDesign?: (pan: string, variants: readonly WalletArtworkVariant[], signal: AbortSignal) => Promise<WalletArtworkVariant | null>;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan, suggestBankDesign }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
-  const [pan, setPanValue] = useState(initialPan ?? "");
-  const [bankDraftRevision, setBankDraftRevision] = useState(0);
-  const setPan = (value: string) => { setPanValue(value); setBankDraftRevision(revision => revision + 1); };
-  const [bankSelection, setBankSelection] = useState<string | null>(null);
+  const [pan, setPan] = useState(initialPan ?? "");
   const [network, setNetwork] = useState<CardBrand | "">("");
   const draftId = useRef(walletOperationId());
   const edited = useRef({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
   const [scanReading, setScanReading] = useState<CardScanDraft | null>(null);
-  const [artwork, setArtwork] = useState<WalletCardArtwork | undefined>();
   const [expiry, setExpiry] = useState("");
   const [issuingRegion, setIssuingRegion] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
@@ -100,7 +90,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     return true;
   });
   const [additionalOpen, setAdditionalOpen] = useState(false);
-  useEffect(() => { if (!active) { setScanReading(null); setArtwork(undefined); } }, [active]);
+  useEffect(() => { if (!active) { setScanReading(null); } }, [active]);
   useEffect(() => {
     if (errors.length) errorsRef.current?.focus();
   }, [errors]);
@@ -115,11 +105,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const ownerKey = `${epoch}:${context?.userId ?? ""}`;
   const previousOwner = useRef(ownerKey);
   const draftVisible = active && previousOwner.current === ownerKey;
-  const artworkVisible = useWalletArtworkVisibility(context, artwork?.source === "catalog" ? artwork : undefined, draftVisible);
   useEffect(() => {
     if (previousOwner.current === ownerKey) return;
     previousOwner.current = ownerKey;
-    setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null); setArtwork(undefined);
+    setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null);
     setIssuingRegion(""); setErrors([]); setAdditionalOpen(false);
     edited.current = { pan: false, cardholderName: false, expiry: false }; draftId.current = walletOperationId();
   }, [ownerKey]);
@@ -131,14 +120,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
   const brand = currentReply?.result?.network ?? "other";
-  // An unchanged owner/draft keeps its confirmed network during token renewal.
-  // This is presentation continuity, never authority to skip save validation.
-  const bankNetwork = currentReply?.result?.network ?? (networkReply?.key === lookupKey ? networkReply.result?.network : undefined) ?? "other";
-  const bankContextKey = `${ownerKey}:${bankNetwork}:${issuingRegion}`;
-  const bankMode = bankSelection === bankContextKey;
-  useLayoutEffect(() => {
-    if (bankSelection && bankSelection !== bankContextKey) { setBankSelection(null); setArtwork(undefined); }
-  }, [bankSelection, bankContextKey]);
   const networkLengthMismatch = length >= 13 && length <= 19 && !isCardPanLengthValid(length, network || brand);
   const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
     ? "Network identification is unavailable. Your card will use a neutral Card label."
@@ -192,7 +173,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       pan,
       brand: network || undefined,
       draftId: draftId.current,
-      artwork,
       expiryMonth: Number(match?.[1] ?? 0),
       expiryYear: match ? (rawYear < 100 ? 2000 + rawYear : rawYear) : 0,
       issuingRegion: issuingRegion || undefined,
@@ -212,7 +192,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       setPan("");
       draftId.current = walletOperationId();
       edited.current = { pan: false, expiry: false, cardholderName: false };
-      setScanReading(null); setArtwork(undefined);
+      setScanReading(null);
       setCardholderName("");
       setExpiry("");
       setNetwork("");
@@ -228,7 +208,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   };
 
   const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar} onBusyChange={setScanning} onRead={(draft) => {
-        setScanReading(draft); setArtwork(undefined);
+        setScanReading(draft);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(draft.fields.expiry);
         if (draft.fields.cardholderName && (!edited.current.cardholderName || !cardholderName.trim())) setCardholderName(draft.fields.cardholderName);
@@ -253,7 +233,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       {!scanInToolbar ? scanner : null}
       {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
       {draftVisible && (scanReading || digits.length >= 13) ? <div className="mx-auto w-full max-w-[26.5rem]">
-        <WalletCardFace artwork={artworkVisible ? artwork : undefined} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
+        <WalletCardFace cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
       </div> : null}
       <fieldset disabled={submitting || scanning || !draftVisible} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
@@ -264,7 +244,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               id={`${id}-number`}
               dir="ltr"
               value={draftVisible ? pan : ""}
-              onChange={(event) => { edited.current.pan = true; setArtwork(undefined); setPan(event.target.value.replace(/\D/g, "").slice(0, 19)); }}
+              onChange={(event) => { edited.current.pan = true; setPan(event.target.value.replace(/\D/g, "").slice(0, 19)); }}
               inputMode="numeric"
               autoComplete="off"
               placeholder="XXXX XXXX XXXX XXXX"
@@ -340,10 +320,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
           </div>
         </details>
       </fieldset>
-      {artworkEnabled ? <>
-        <WalletBankDesignPicker key={bankContextKey} context={context} network={bankNetwork} country={issuingRegion || undefined} active={draftVisible && !submitting && !scanning && Boolean(currentReply?.result || (networkReply?.key === lookupKey && networkReply.result))} draftRevision={bankDraftRevision} onChange={setArtwork} onModeChange={enabled => setBankSelection(enabled ? bankContextKey : null)} suggest={suggestBankDesign ? (variants, signal) => suggestBankDesign(digits, variants, signal) : undefined} hasPhoto={Boolean(scanReading?.sanitized || scanReading?.candidate)} />
-        <WalletCardArtworkPicker compact context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} showSimpleDesign={false} />
-      </> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}

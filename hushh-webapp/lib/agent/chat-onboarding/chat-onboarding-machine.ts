@@ -350,8 +350,11 @@ export function reduceChatOnboarding(
         questions: { name: "skipped", focus: "skipped", tone: "skipped" },
       }, today);
       const next = pushTurn(
-        { ...state, progress, step: "done", draft: { name: null, tone: null } },
-        { role: "user", text: "Something else", anchor },
+        pushTurn(
+          { ...state, progress, step: "done", draft: { name: null, tone: null } },
+          { role: "user", text: "Something else", anchor },
+        ),
+        { role: "assistant", text: "Okay. What would you like help with?", anchor },
       );
       return { state: next, effects: [{ type: "persist_progress", progress }, { type: "focus_composer" }] };
     }

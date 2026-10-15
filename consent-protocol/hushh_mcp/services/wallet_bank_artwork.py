@@ -19,8 +19,9 @@ def bank_designs(
     offset: int = 0,
     *,
     catalog: ArtworkCatalog | None = None,
+    automatic: bool = False,
 ) -> dict:
-    if network not in NETWORK_ORDER or offset < 0 or offset > 10000:
+    if network not in NETWORK_ORDER or offset < 0 or offset > 10000 or (automatic and bank_key):
         raise ValueError("invalid_bank_request")
     catalog = catalog or load_catalog()[0]
     groups = {}
@@ -58,12 +59,20 @@ def bank_designs(
     banks.sort(key=lambda row: (row["name"].casefold(), row["country"], row["bankKey"]))
     if bank_key and bank_key not in groups:
         raise ValueError("bank_unavailable")
-    assets = sorted(groups[bank_key]["assets"], key=lambda row: row.asset_id) if bank_key else []
+    assets = sorted(
+        [asset for group in groups.values() for asset in group["assets"]]
+        if automatic and network != "other"
+        else groups[bank_key]["assets"]
+        if bank_key
+        else [],
+        key=lambda row: row.asset_id,
+    )
     return {
         "catalogVersion": catalog.version,
-        "selectionBasis": "owner_selected_bank",
-        "requiresConfirmation": True,
-        "banks": banks,
+        "selectionBasis": "network_illustration" if automatic else "owner_selected_bank",
+        "requiresConfirmation": not automatic,
+        **({"network": network} if automatic else {}),
+        "banks": [] if automatic else banks,
         "bankKey": bank_key,
         "variants": [artwork_variant(asset) for asset in assets[offset : offset + 24]],
         "nextOffset": offset + 24 if len(assets) > offset + 24 else None,

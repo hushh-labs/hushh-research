@@ -40,6 +40,13 @@ const answered: Message[] = [
 ];
 
 describe("smart follow-ups", () => {
+  it.each(["Other", "Others", "Something else"])("keeps %s on the ordinary follow-up path", (choice) => {
+    const select = vi.fn();
+    render(<AgentFollowUpSuggestions suggestions={[choice]} onSelect={select} />);
+    fireEvent.click(screen.getByRole("button", { name: choice }));
+    expect(select).toHaveBeenCalledExactlyOnceWith(choice);
+  });
+
   it("does not accept a starter while disabled and resumes after the owner enables it", () => {
     const select = vi.fn();
     const props = {

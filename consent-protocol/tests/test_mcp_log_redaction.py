@@ -210,6 +210,32 @@ def test_sensitive_log_record_factory_redacts_third_party_logs() -> None:
     assert f"token={REDACTED}" in rendered
 
 
+def test_drive_share_message_in_a_request_url_is_redacted() -> None:
+    # Drive takes an optional share note as the emailMessage query parameter,
+    # and httpx logs every request URL at INFO.
+    install_sensitive_log_filter()
+    record = logging.getLogRecordFactory()(
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        "HTTP Request: POST %s",
+        (
+            httpx.URL(
+                "https://www.googleapis.com/drive/v3/files/synthetic-file/permissions"
+                "?supportsAllDrives=true&sendNotificationEmail=true"
+                "&emailMessage=Synthetic+private+note+about+a+tax+return"
+            ),
+        ),
+        None,
+    )
+
+    rendered = record.getMessage()
+
+    assert "Synthetic" not in rendered and "tax" not in rendered
+    assert f"emailMessage={REDACTED}" in rendered
+
+
 def test_sensitive_log_record_factory_redacts_httpx_url_args() -> None:
     install_sensitive_log_filter()
     record = logging.getLogRecordFactory()(

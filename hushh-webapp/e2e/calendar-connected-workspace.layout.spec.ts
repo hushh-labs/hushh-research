@@ -145,9 +145,13 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
       contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), `public/one-calendar/providers/${provider}.png`)),
     }));
   }
+  await page.route("https://calendar-fixture.test/fonts/Inter/InterVariable.woff2", route => route.fulfill({ contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")) }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
   await page.route("https://calendar-fixture.test/calendar-connected-fixture**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected Calendar QA</title><style>${css}</style><style>:root{--app-bottom-content-clearance:164px}body{margin:0}</style></head><body><div id="root"></div><script src="/calendar-fixture.js"></script></body></html>` }));
   let failAvailability = false;
+  let mailFailure = false;
+  const invitationResponses = new Map<string, string>();
+  const attendanceReviews = new Map<string, Record<string, unknown>>();
   const calls: Array<{ path: string; body: Record<string, unknown>; authorization: string | undefined; response?: ReturnType<typeof freeWindows> }> = [];
   await page.route("**/api/one/calendar/**", async route => {
     const request = route.request();
@@ -155,6 +159,35 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     const body = request.postDataJSON() as Record<string, unknown>;
     const call = { path: routePath, body, authorization: request.headers().authorization } as typeof calls[number];
     calls.push(call);
+    if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
+    if (routePath.endsWith("/invitations")) return route.fulfill({ json: {
+      events: fixtureEvents("2026-10-14", "standard").slice(0, 3).map((event, index) => ({ ...event,
+        response_status: invitationResponses.get(event.id) || (index === 2 ? "declined" : "needsAction"),
+        can_respond: true, conflicts: index === 0 ? [{ title: "QA Existing meeting", start: event.start, end: event.end }] : [],
+        organizer: { displayName: ["Priya Mehta", "Rohan Kapoor", "Alex Chen"][index], email: `qa-organizer-${index}@example.test` },
+        attendees: [{ email: "qa-owner@example.com", self: true, response_status: invitationResponses.get(event.id) || "needsAction" }, { email: `qa-organizer-${index}@example.test`, display_name: "Organizer", response_status: "accepted" }],
+      })),
+      pending_count: ["shared-id", "design"].filter(id => !invitationResponses.has(id)).length,
+      unreadable_calendars: [], time_zone: body.time_zone, complete: true,
+      start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z",
+    } });
+    if (routePath.endsWith("/attendance/review")) {
+      const reviewId = `review-${attendanceReviews.size}`;
+      attendanceReviews.set(reviewId, body);
+      return route.fulfill({ json: { review_id: reviewId, review_token: "synthetic-memory-only-review-token".repeat(2), title: "QA Product Sync",
+        response_status: body.response_status || "declined", calendar_id: body.calendar_id, expires_at: "2030-01-01T00:00:00Z",
+        conflicts: body.response_status === "accepted" ? [{ title: "QA Existing meeting", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:00:00Z" } }] : [],
+        openings: body.offer_times ? [{ start_at: "2030-10-15T04:30:00Z", end_at: "2030-10-15T05:00:00Z" }] : [],
+        recipient: body.offer_times ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : null,
+        message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : null,
+        rescheduling_link: body.offer_times ? "https://one.example.test/calendar/reschedule#synthetic-capability" : null,
+      } });
+    }
+    if (routePath.endsWith("/attendance/confirm")) {
+      const review = attendanceReviews.get(String(body.review_id))!;
+      invitationResponses.set(String(review.event_id), String(review.response_status || "declined"));
+      return route.fulfill({ json: { calendar: review.response_status || "declined", email: review.offer_times ? mailFailure ? "failed" : "sent" : "not_sent", calendar_error: null, email_error: mailFailure ? "Synthetic Mail failure. Your RSVP is saved." : null } });
+    }
     if (replay && routePath.endsWith("/schedule/availability")) {
       const bundle = JSON.parse(fs.readFileSync(process.env.CALENDAR_PROVIDER_REPLAY_PATH!, "utf8"));
       expect(body.time_zone).toBe("Asia/Calcutta");
@@ -177,7 +210,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
   await awaitProductFont(page);
   await expect(page.getByRole("heading", { name: "Calendar", exact: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toBeVisible();
   if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
-  return { errors, unexpectedRequests, calls, failAvailability: (failed = true) => { failAvailability = failed; } };
+  return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; } };
 }
 async function assertActionsClearChrome(page: Page, width: number, suffix: string) {
   await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -195,13 +228,13 @@ for (const width of [320, 390, 1440]) {
     const tabBounds = (await tabs.boundingBox())!;
     expect(tabBounds.height).toBe(36);
     expect(Math.abs((await page.locator("[data-calendar-workspace]").boundingBox())!.width - tabBounds.width)).toBeLessThanOrEqual(1);
-    if (width > 1000) expect(tabBounds.width).toBe(820);
+    if (width > 1000) expect(tabBounds.width).toBe(824);
     const segments = await tabs.getByRole("tab").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width));
     expect(Math.max(...segments) - Math.min(...segments)).toBeLessThanOrEqual(1);
     expect(await tabs.locator("[data-ui-role=agent-tab-label]").evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
     expect(await tabs.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe("10px");
     expect((await page.getByRole("tablist", { name: "Schedule views" }).boundingBox())!.height).toBeLessThan(tabBounds.height);
-    expect(await page.getByRole("heading", { name: "Calendar", exact: true }).evaluate(element => getComputedStyle(element).fontFamily)).toMatch(/Plus Jakarta Sans/);
+    expect(await page.getByRole("heading", { name: "Calendar", exact: true }).evaluate(element => getComputedStyle(element).fontFamily)).toMatch(/Inter/);
     await expect(page.getByText("qa-owner@example.com", { exact: true })).toBeVisible();
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "All-day events" })).toBeVisible();
@@ -264,7 +297,7 @@ for (const width of [320, 390, 1440]) {
     await expect(menu).toBeFocused();
     await tabs.getByRole("tab", { name: "Schedule", exact: true }).focus();
     await page.keyboard.press("ArrowRight"); await expect(tabs.getByRole("tab", { name: "Invitations", exact: true })).toBeFocused();
-    await expect(page.getByText("Coming soon", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Invitation filters" })).toBeVisible();
     await page.keyboard.press("ArrowRight"); await expect(tabs.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Home");
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
@@ -415,5 +448,43 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByTestId("agent-calendar-proposal-confirm")).toBeDisabled();
     await expect(page.getByTestId("agent-calendar-proposal-confirm")).toHaveText("Working…");
     await expect(page.getByRole("button", { name: "Change time" })).toBeDisabled();
+  });
+}
+
+
+for (const width of [320, 390, 1440]) {
+  test(`Invitations list, detail, conflict confirmation and RSVP at ${width}px`, async ({ page }, testInfo) => {
+    const { errors, unexpectedRequests, calls } = await openFixture(page, width);
+    await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-list-${testInfo.project.name}-${width}.png`) });
+    await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
+    await expect(page.getByRole("link", { name: "Join meeting", exact: true })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    if (width < 768) await expect(page.getByRole("heading", { name: "Needs your response" })).toBeHidden();
+    else {
+      const list = (await page.getByRole("heading", { name: "Needs your response" }).boundingBox())!;
+      const detail = (await page.getByRole("article", { name: "Invitation details: QA Product Sync" }).boundingBox())!;
+      expect(detail.x).toBeGreaterThan(list.x + 250);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-top-${testInfo.project.name}-${width}.png`) });
+    await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const chrome = (await page.getByTestId("reserved-bottom-chrome").boundingBox())!;
+    const offerBounds = (await page.getByRole("button", { name: "Decline & offer another time" }).boundingBox())!;
+    expect(offerBounds.y + offerBounds.height).toBeLessThanOrEqual(chrome.y);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `invitations-detail-${testInfo.project.name}-${width}.png`) });
+    const accept = page.getByRole("button", { name: "Accept", exact: true });
+    await accept.scrollIntoViewIfNeeded();
+    await accept.click();
+    await expect(page.getByText("This overlaps another meeting")).toBeVisible();
+    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
+    await page.getByRole("button", { name: "Accept anyway" }).click();
+    await expect(page.getByText("Your invitation was accepted.", { exact: true })).toBeVisible();
+    expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
+    await page.getByRole("button", { name: "Invitations", exact: true }).click();
+    await page.getByRole("tab", { name: "Responded", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
+    await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
+    expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }

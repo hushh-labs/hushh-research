@@ -14,13 +14,23 @@ def compile_location_capabilities(
     catalog = {}
     for action in actions:
         command = action.get("command") or {}
+        # One non-mutating Calendar adapter enters the existing conversation.
+        # Its authored contract confers no RSVP or Mail execution capability.
+        calendar_handoff = (
+            action.get("action_id") == "calendar.invitation.review"
+            and action.get("execution_policy") == "allow_direct"
+            and (action.get("execution_target") or {}).get("target") == "continue_calendar_in_chat"
+        )
         if not (
-            str(action.get("action_id", "")).startswith("location.")
+            calendar_handoff
+            or str(action.get("action_id", "")).startswith("location.")
             or command.get("domain") == "location"
         ):
             continue
         # Conversation adapters are not executable command capabilities.
-        if (action.get("execution_target") or {}).get("path") == "voice_tool":
+        if (action.get("execution_target") or {}).get(
+            "path"
+        ) == "voice_tool" and not calendar_handoff:
             continue
         catalog[action["action_id"]] = action
     for workflow in workflows or []:

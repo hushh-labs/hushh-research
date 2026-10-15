@@ -45,11 +45,24 @@ class CalendarAvailabilityWindow(CalendarDay):
     calendar_overrides: dict[str, StrictBool] | None = Field(default=None, max_length=100)
 
 
-class CalendarAttendanceReview(CalendarOpeningWindow):
+class CalendarAttendanceReview(CalendarDay):
+    start_time: str = Field(default="09:00", max_length=5)
+    end_time: str = Field(default="17:00", max_length=5)
+    duration_minutes: int = Field(default=30, ge=1, le=1440)
     event_id: str = Field(min_length=1, max_length=2048)
-    calendar_id: Literal["primary"] = "primary"
+    calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
+    response_status: Literal["accepted", "declined", "tentative"] = "declined"
+    expected_account_email: str | None = Field(default=None, max_length=512)
     offer_times: bool = False
     message: str = Field(default="", max_length=8000)
+
+
+class CalendarInvitationsWindow(BaseModel):
+    selected_calendar_id: str | None = Field(default=None, max_length=1024)
+    selected_event_id: str | None = Field(default=None, max_length=2048)
+    start_at: str | None = Field(default=None, max_length=64)
+    end_at: str | None = Field(default=None, max_length=64)
+    time_zone: str = Field(default="UTC", min_length=1, max_length=128)
 
 
 class CalendarAttendanceConfirm(BaseModel):
@@ -109,6 +122,21 @@ async def schedule_availability(
         ):
             error.detail = {**error.detail, "calendar_options": options}
         raise error from exc
+
+
+@router.post("/invitations")
+async def invitations(
+    payload: CalendarInvitationsWindow,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
+):
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return await _schedule().invitations(
+            user_id=firebase_uid, **payload.model_dump(exclude_none=True)
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
 
 
 @router.post("/attendance/review")

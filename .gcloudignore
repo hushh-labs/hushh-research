@@ -59,7 +59,9 @@ docs/
 !consent-protocol/hushh_mcp/agents/**/*.md
 tmp/
 temp/
-data/
+# Local generated data at the repository root; backend runtime assets may live
+# under consent-protocol/hushh_mcp/data/ and must reach the Docker build context.
+/data/
 **/backend.log
 **/artifacts/
 
@@ -81,6 +83,9 @@ capacitor.config.ts
 
 # Large Assets/Misc
 assets/
+# Approved Wallet artwork is runtime content, including its nested asset folder.
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/**
 # deploy/
 *.sh
 *.ps1
