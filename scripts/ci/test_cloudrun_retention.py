@@ -2109,12 +2109,11 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
 
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
-        source = (
-            pathlib.Path(__file__).resolve().parents[2]
-            / ".github/workflows/capacity-maintenance.yml"
-        ).read_text()
+        workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        source = (workflows / "capacity-maintenance.yml").read_text()
+        clock_source = (workflows / "capacity-maintenance-clock.yml").read_text()
 
-        def check_policy(text):
+        def check_policy(text, clock):
             triggers = text.split("\npermissions:", 1)[0]
             self.assertIn('cron: "17 * * * *"', triggers)
             self.assertIn("  workflow_dispatch:", triggers)
@@ -2129,25 +2128,50 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertIn("cancel-in-progress: false", concurrency)
             self.assertIn("github.run_id", concurrency)
             self.assertNotIn("queue: max", concurrency)
-            # The clock that makes hourly real: ticks coalesce with the cron,
-            # and the next tick waits in an environment, never on a runner.
+            # Ticks are the scheduled pass: no inputs, coalesced with the cron,
+            # and never a deployment event.
             self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-tick]\n", triggers)
             self.assertIn("github.event_name == 'repository_dispatch') && 'scheduled'", concurrency)
-            clock = text.split("\n  next-pass:\n", 1)[1]
-            self.assertIn("      name: capacity-maintenance-clock\n", clock)
-            self.assertIn("needs.select-release.outputs.clock == 'true'", clock)
-            self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", clock)
-            self.assertNotIn("sleep", clock)
+            self.assertNotIn("client_payload", text)
+            # The clock lives in its own workflow, so quiet hours add no run
+            # here for the checkpoint guard to walk.
+            self.assertNotIn("capacity-maintenance-clock", text.split("\njobs:\n", 1)[1])
+            clock_triggers = clock.split("\npermissions:", 1)[0]
+            self.assertNotIn("workflow_run:", clock_triggers)
+            self.assertIn("  repository_dispatch:\n    types: [capacity-maintenance-clock]\n", clock_triggers)
+            self.assertIn("cancel-in-progress: false", clock_triggers)
+            wake = clock.split("\n  wake:\n", 1)[1].split("\n  next-check:\n", 1)[0]
+            self.assertIn("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", wake)
+            self.assertIn("event_type=capacity-maintenance-tick", wake)
+            rearm = clock.split("\n  next-check:\n", 1)[1]
+            self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", rearm)
+            self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", rearm)
+            for line in clock.splitlines():
+                if "sleep" in line:
+                    self.assertEqual(line.strip(), "sleep $((attempt * 10))")
 
-        check_policy(source)
-        for broken in (
-            source.replace("  schedule:", "  workflow_run:\n  schedule:"),
-            source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n',
-            source.replace("      name: capacity-maintenance-clock\n", ""),
-            source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"),
+        check_policy(source, clock_source)
+        for broken, broken_clock in (
+            (source.replace("  schedule:", "  workflow_run:\n  schedule:"), clock_source),
+            (source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n', clock_source),
+            (source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"), clock_source),
+            (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
+            (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
+            (source, clock_source.replace("sleep $((attempt * 10))", "sleep 3600", 1)),
         ):
             with self.assertRaises(AssertionError):
-                check_policy(broken)
+                check_policy(broken, broken_clock)
+
+    def test_only_the_capacity_workflows_carry_its_dispatch_events(self):
+        # A deploy workflow sending a tick would re-couple maintenance to releases.
+        workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
+        allowed = {"capacity-maintenance.yml", "capacity-maintenance-clock.yml"}
+        for path in sorted(workflows.glob("*.y*ml")):
+            text = path.read_text()
+            if path.name not in allowed:
+                with self.subTest(workflow=path.name):
+                    self.assertNotIn("capacity-maintenance-tick", text)
+                    self.assertNotIn("capacity-maintenance-clock", text)
 
     def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
         workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
