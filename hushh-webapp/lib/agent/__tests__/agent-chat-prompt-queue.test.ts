@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
 
 import {
   combineQueuedPromptText,
@@ -10,6 +11,26 @@ import {
 } from "@/lib/agent/agent-chat-prompt-queue";
 
 describe("agent chat prompt queue", () => {
+  it("retires late queued/stream work once and never admits it into a reopened chat", async () => {
+    const session = new AgentChatSessionEpoch();
+    const old = session.value;
+    let resume!: () => void;
+    const waiting = new Promise<void>((resolve) => { resume = resolve; });
+    const landed: string[] = [];
+    const late = waiting.then(() => {
+      if (session.isCurrent(old)) landed.push("old message");
+    });
+    expect(session.isCurrent(old)).toBe(true);
+    expect(session.end()).toBe(true);
+    expect(session.end()).toBe(false);
+    expect(session.isCurrent(old)).toBe(false);
+    session.start();
+    resume();
+    await late;
+    expect(landed).toEqual([]);
+    expect(session.isCurrent(session.value)).toBe(true);
+    expect(session.isCurrent(old)).toBe(false);
+  });
   const first = { id: "first", text: "First", createdAtMs: 1 };
   const second = { id: "second", text: "Second", createdAtMs: 2 };
   const third = { id: "third", text: "Third", createdAtMs: 3 };

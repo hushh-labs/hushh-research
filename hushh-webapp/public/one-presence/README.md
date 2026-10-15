@@ -4,11 +4,11 @@ The chat header and One Feed/Profile sheet receive the same presentation state
 from `AgentChatWorkspace`. This observes current work; it does not classify
 message text or change agent decisions.
 
-| Activity | State | HD fallback | Animation in header and profile |
+| Activity | State | Static fallback | Animation in header and profile |
 | --- | --- | --- | --- |
-| One generating a draft | `working` | `drafting-hd.png` | `working.riv` |
+| Email draft generation in the editor | `working` | `drafting-hd.png` | `working.riv` |
 | One preparing an answer or running a local action | `thinking` | `thinking-hd.png` | `thinking.riv` |
-| Response tokens arriving or voice speaking | `answering` | `thinking-hd.png` (shared static fallback) | `answering.riv` |
+| Response tokens arriving or voice speaking | `answering` | `answering-poster.png` | `answering.riv` |
 | No foreground work | `connected` | Original `profile-hd.png` | `connected.riv` |
 
 An open editor, completed draft, queued proposal or pending confirmation is
@@ -21,8 +21,13 @@ does not keep the artwork busy.
 
 All four native Rive Solo timelines preserve the authored 24 FPS, 72-frame
 loops. The header and open Feed/Profile panel share one activity state. The
-outgoing animation remains mounted while its replacement loads and paints,
-then both crossfade using the shared opacity motion token. Additive blending
+outgoing artwork remains mounted until the requested activity has either a
+decoded portrait or a painted native frame, then both crossfade using the
+shared opacity motion token. A ready portrait presents a short-lived activity
+while its larger Rive file is still loading; the native canvas takes over only
+after its first frame paints. Async portraits wait for `decode()`, including
+cached images, because a loaded image can still draw empty pixels in WebKit.
+If both are unavailable, the outgoing artwork stays visible. Additive blending
 inside an isolated avatar prevents transparent artwork from dimming mid-fade;
 settled artwork uses normal compositing because no visible layers overlap.
 Superseded loads and transitions cannot change the current request.
@@ -45,9 +50,11 @@ geometry remains 52/88px in the header and defaults to 192px in the panel. This 
 20.25 times the backing-pixel count of a 576px Retina profile buffer without
 adding detail; this is not a measured CPU improvement. Actual buffer dimensions
 are rechecked on resize and resume, including
-Rive's internal hidden-to-visible resize. HD fallback density is unchanged.
-HD portraits remain the loading/error and reduced-motion fallback; answering
-currently shares the thinking HD portrait for that static fallback only.
+Rive's internal hidden-to-visible resize. The original HD portraits retain
+their density. Answering uses its existing 128px native-pose poster, with the
+same source resolution as its animation, rather than the Thinking portrait.
+All four activities therefore remain visually distinct during loading,
+errors and reduced motion.
 WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).
 Runtime CDN fallback and asset CDN loading are disabled. Instances, pending
 render callbacks, observers and transition timers are cleaned up on replacement
