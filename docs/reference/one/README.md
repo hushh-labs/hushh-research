@@ -77,3 +77,4 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.
 
 - [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md): default-on background research after setup and vault unlock, the dedicated `/one/profile/world-model` page, and per-fact Yes / No / Edit / Remove saved to the owner's encrypted Soul.md memory.
+- [personal-world-model-uat-ship-2026-10-15-knowledge-graph.md](./personal-world-model-uat-ship-2026-10-15-knowledge-graph.md): evidence-backed graph of the 2026-10-15 UAT ship of live PWM progress and the identity-reason hotfix: the migration replay-guard failures (289, 338) and their adapters, the deploy runs, the serving revisions, decisions and follow-ups.
