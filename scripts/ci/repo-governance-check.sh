@@ -22,6 +22,7 @@ python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
+python3 scripts/ci/test_uat_per_revision_drain.py
 python3 scripts/ci/test_pending_uat_retention_state.py
 python3 scripts/ci/test_wait_uat_capacity.py
 python3 scripts/ci/test_runtime_capacity_budget.py
