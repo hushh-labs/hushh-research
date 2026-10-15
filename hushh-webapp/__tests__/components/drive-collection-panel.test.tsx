@@ -136,6 +136,8 @@ describe("Prepare packets switch row", () => {
     await waitFor(() => expect(caption()).toBe(text));
     expect(toggle).toHaveAttribute("aria-checked", String(saved));
     expect(toggle).toBeEnabled();
+    // The switch is how to try again; a Retry that only re-reads the setting would not.
+    expect(screen.queryByRole("button", { name: "Retry preparation" })).toBeNull();
     expect(state.setProcessing).toHaveBeenCalledWith("private-token", !saved, expect.any(Function));
   });
 

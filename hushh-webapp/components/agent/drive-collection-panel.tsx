@@ -93,7 +93,8 @@ function CollectionPanel({ token, guard, backgroundEnabled }: {
         <p>Text extracted: {status.counts.extracted.toLocaleString()} files{status.initialExtractionDurationMs !== null ? ` · Initial extraction ${duration(status.initialExtractionDurationMs)}` : ""}. Indexed files have completed document understanding.</p>
         {paused && <p>Saved packets were last verified before preparation paused.</p>}
       </details>}
-      {error && <Button size="compact" variant="ghost" disabled={busy} onClick={() => void read()}>Retry preparation</Button>}
+      {/* After a failed change the switch itself is how to try again. */}
+      {error === "read" && <Button size="compact" variant="ghost" disabled={busy} onClick={() => void read()}>Retry preparation</Button>}
     </SettingsGroup>
     {status && <DrivePacketCatalog refreshKey={revision} preparationPaused={paused || !status.enabled} />}
   </section>;
