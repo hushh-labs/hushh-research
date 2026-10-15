@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2712,
+  "finding_count": 2721,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -21055,7 +21055,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/observability-schema.test.ts",
       "symbol": null,
-      "value": 502
+      "value": 590
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23080,7 +23080,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/observability/events.ts",
       "symbol": null,
-      "value": 950
+      "value": 959
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25813,7 +25813,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
       "symbol": null,
-      "value": 1237
+      "value": 1413
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25822,7 +25822,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
       "symbol": null,
-      "value": 1164
+      "value": 1233
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26353,7 +26353,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
       "symbol": null,
-      "value": 595
+      "value": 622
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26596,7 +26596,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
       "symbol": null,
-      "value": 673
+      "value": 915
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26913,6 +26913,15 @@
       "path": "hushh-webapp/__tests__/services/wallet-service.test.ts",
       "symbol": null,
       "value": 526
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+      "symbol": null,
+      "value": 643
     }
   ],
   "inspected_files": 6625,
@@ -48368,6 +48377,55 @@
     ],
     "source_qualification_kind": "reviewed_working_tree_union_before_merge_commit",
     "verification": "317 backend, 161 frontend, 67 real-PostgreSQL Drive, 27 SOS/Feed and 462 Back cases pass. Prior failed and interrupted runs retained. Full canonical core, hosted CI, Dev/pod release and payment/OAuth acceptance remain required."
+  },
+  "scope_commerce_live_mirror_v11_main_union_20261015": {
+    "entries": [
+      {
+        "after": 1413,
+        "before": 1237,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+        "source_sha256": "35f55991764001b1f83f8ac0a3d7bf0cabba8bb7323b51ffb74979f22c9a93c1"
+      },
+      {
+        "after": 1233,
+        "before": 1164,
+        "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+        "source_sha256": "9e83a783f2211209a56fa538ce1208da635af8e5bef5437f3f4ad955864e2fad"
+      },
+      {
+        "after": 959,
+        "before": 950,
+        "key": "module_size|hushh-webapp/lib/observability/events.ts||module exceeds the advisory operon budget",
+        "source_sha256": "f76264b17602745c15c6b702e6935c360f0e7bdcc11c6f4b2e8dd7777398bb48"
+      },
+      {
+        "after": 915,
+        "before": 673,
+        "key": "module_size|hushh-webapp/lib/pkm/live-mirror-projection.ts||module exceeds the advisory operon budget",
+        "source_sha256": "966f268ac5aaa886e9d6ef07b1ab66036ce92683fae19a0c2dae4c253aeed824"
+      },
+      {
+        "after": 643,
+        "before": null,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts||module exceeds the advisory operon budget",
+        "source_sha256": "c5b25d58b5006e759352279b7ae4cd39bf10ef79dc65616560659bbbe8e6305a"
+      },
+      {
+        "after": 622,
+        "before": 595,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts||module exceeds the advisory operon budget",
+        "source_sha256": "2d525b746b3888552a624c5a43316c58f5b25326f92e9248d6b2bda1f1715059"
+      },
+      {
+        "after": 590,
+        "before": 502,
+        "key": "module_size|hushh-webapp/__tests__/services/observability-schema.test.ts||module exceeds the advisory operon budget",
+        "source_sha256": "a92588b3579ed522d630ca5a62fdd0f94604762943941247c2db6cf7d39c66c2"
+      }
+    ],
+    "incoming_main": "dec7043e33081545ce9cf01eb7ea7a29c5cbd098",
+    "retained_parent": "ccd35d3d25",
+    "review": "Independent architecture_review qualifies seven exact module occurrences: four exact incoming files and three bounded unions. Single telemetry validation authority, encrypted-write/epoch checks and owner isolation remain. Existing histories, scanner, exclusions and 500/250/80 budgets remain unchanged. Source qualification is not deployed acceptance."
   },
   "scope_commerce_main20d_integration_review_20261014": {
     "composed_revision": "48e303b902bae31836b300c8bfcf0df0d2683600",

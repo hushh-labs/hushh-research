@@ -12,10 +12,12 @@ import type {
   CacheFreshness,
   CacheResourceClass,
   CacheTier,
+  CountBucket,
   DurationBucket,
   EventPayloadFor,
   EventPayloadWithContextFor,
   EventResult,
+  MinuteDurationBucket,
   ObservabilityAdapter,
   ObservabilityEventName,
   ObservabilityPlatform,
@@ -204,6 +206,34 @@ export function toDurationBucket(durationMs: number): DurationBucket {
   if (durationMs < 3000) return "1s_3s";
   if (durationMs < 10000) return "3s_10s";
   return "gte_10s";
+}
+
+/**
+ * Minute-scale companion to `toDurationBucket` for background work. The
+ * millisecond buckets keep their meaning; this scale starts where they end.
+ * A missing, negative or non-finite duration is `unknown`, never `lt_1m`.
+ */
+export function toMinuteDurationBucket(
+  durationMs: number | null | undefined,
+): MinuteDurationBucket {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) {
+    return "unknown";
+  }
+  if (durationMs < 60_000) return "lt_1m";
+  if (durationMs < 5 * 60_000) return "1m_5m";
+  if (durationMs < 15 * 60_000) return "5m_15m";
+  if (durationMs < 60 * 60_000) return "15m_1h";
+  return "gte_1h";
+}
+
+/** A small count as a band. A count nobody could take is `unknown`, not `0`. */
+export function toCountBucket(count: number | null | undefined): CountBucket {
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 0) return "unknown";
+  if (count < 1) return "0";
+  if (count < 2) return "1";
+  if (count <= 5) return "2_5";
+  if (count <= 20) return "6_20";
+  return "gt_20";
 }
 
 export function trackApiRequestCompleted(params: {

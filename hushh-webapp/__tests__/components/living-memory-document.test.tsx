@@ -1,6 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import type { LiveMirrorClaim, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
 
 const m = vi.hoisted(() => ({
@@ -44,6 +46,7 @@ vi.mock("@/lib/services/cache-service", () => ({
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
+import { formatLiveMirrorDateTime, formatLiveMirrorValue, liveMirrorSourceRoute } from "@/lib/pkm/live-mirror-presentation";
 import {
   appendVerifiedLivingSourceChanges,
   reconcileLivingSources,
@@ -58,6 +61,8 @@ const T0 = "2026-10-15T10:00:00.000Z";
 const T1 = "2026-10-15T10:01:00.000Z";
 const NOW = "2026-10-15T10:02:00.000Z";
 const UPDATED = "2026-10-15T09:30:00.000Z";
+/** Four minutes after NOW: a later read of the same build, still inside the profile's freshness window. */
+const READ_LATER = "2026-10-15T10:06:00.000Z";
 type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
 
 const profile = (name: string, owner = "owner-a"): LivingSourceInput => ({
@@ -66,6 +71,12 @@ const profile = (name: string, owner = "owner-a"): LivingSourceInput => ({
 const consent = (id: string, scope: string): LivingSourceInput => ({
   kind: "consent", id, createdAt: T0, updatedAt: T0, value: { scope, status: "active" },
 });
+/** A paid document request in euros, last changed at UPDATED. */
+const payment = (id: string, amountCents: number): LivingSourceInput => ({
+  kind: "document_request_payment", id, createdAt: T0, updatedAt: UPDATED,
+  value: { mode: "live", status: "paid", amountCents, currency: "EUR", paidAt: UPDATED },
+});
+const euros = (cents: number) => formatLiveMirrorValue("document_request_payment.amountCents", cents, { currency: "EUR" });
 
 /** A real projection with read time applied, built through the real reconciler and history. */
 function mirror(options: {
@@ -76,6 +87,8 @@ function mirror(options: {
   readAt?: string;
   document?: Partial<MemoryDocument>;
   history?: (history: LivingSourceHistory) => LivingSourceHistory;
+  /** Edits the reconciled inventory, such as adding a disagreeing copy of a record. */
+  inventory?: (inventory: LivingSourceInventory) => LivingSourceInventory;
   extra?: Partial<Parameters<typeof buildLiveMirrorProjection>[0]>;
 } = {}): LiveMirrorView {
   let inventory: LivingSourceInventory | null = null;
@@ -89,18 +102,39 @@ function mirror(options: {
     ownerId: options.owner ?? "owner-a",
     vaultEpoch: options.epoch ?? 0,
     now: NOW,
-    inventory,
+    inventory: inventory && options.inventory ? options.inventory(inventory) : inventory,
     history: history && options.history ? options.history(history) : history,
     document: { markdown: "", complete: true, sourceLinks: [], excludedDomains: [], freshness: [], ...options.document },
     ...options.extra,
   });
   return applyLiveMirrorReadTime(projection, options.readAt ?? NOW, options.status ?? "current");
 }
+/**
+ * (a) memory.md, at revision 9, names the owner "Ankit K"; the verified profile says "Ankit Kumar".
+ * Read four minutes after the build, so a check time shows whether it follows the read or the build.
+ */
+const nameConflictView = () => mirror({
+  steps: [{ inputs: [profile("Ankit Kumar")], kinds: ["profile"], now: T1 }],
+  readAt: READ_LATER,
+  document: { freshness: [
+    { domain: "one_memory", title: "Identity facts", status: "conflicted", contentRevision: 9, updatedAt: T0, cardCount: 1 },
+  ] },
+  extra: { nameConflict: true, nameClaims: { soul: ["Ankit K"], profile: "Ankit Kumar" } },
+});
+/** (b) One euro payment whose two copies at the same revision disagree on the amount; the second changed later. */
+const moneyConflictView = () => mirror({
+  steps: [{ inputs: [profile("Ankit Kumar"), payment("p1", 1_234)], kinds: ["profile", "document_request_payment"], now: T1 }],
+  inventory: inventory => ({ ...inventory, records: inventory.records.flatMap(record => record.kind === "document_request_payment"
+    ? [record, { ...record, updatedAt: T0, value: { ...record.value, amountCents: 5_678 } }] : [record]) }),
+});
 const fire = () => act(() => { for (const listener of m.listeners) listener(); });
 const openTab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
-const row = (group: string, label: string) => within(
-  screen.getByRole("heading", { name: group }).closest<HTMLElement>('[data-testid="settings-group"]')!,
-).getByText(label).closest<HTMLElement>('[data-testid="settings-row"]')!;
+const group = (title: string) =>
+  screen.getByRole("heading", { name: title }).closest<HTMLElement>('[data-testid="settings-group"]')!;
+const row = (title: string, label: string) =>
+  within(group(title)).getByText(label).closest<HTMLElement>('[data-testid="settings-row"]')!;
+const rowIn = (container: HTMLElement, title: string) =>
+  within(container).getByText(title).closest<HTMLElement>('[data-testid="settings-row"]')!;
 
 beforeEach(() => {
   m.uid = "owner-a";
@@ -146,7 +180,7 @@ describe("Profile Live Mirror", () => {
       expect(container.textContent).not.toContain(raw);
     fireEvent.click(screen.getByRole("button", { name: /^Earning 1/ }));
     const dialog = screen.getByRole("dialog", { name: "Source details" });
-    expect(within(within(dialog).getByText("Mode").closest<HTMLElement>('[data-testid="settings-row"]')!).getByText("Live")).toBeInTheDocument();
+    expect(within(rowIn(dialog, "Mode")).getByText("Live")).toBeInTheDocument();
   });
 
   it("states the open-and-unlocked boundary in plain words and never shows raw states", () => {
@@ -187,8 +221,8 @@ describe("Profile Live Mirror", () => {
     render(<LivingMemoryDocument />);
     fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
     const dialog = screen.getByRole("dialog", { name: "Source details" });
-    expect(within(within(dialog).getByText("Name").closest<HTMLElement>('[data-testid="settings-row"]')!).getByText("Ankit")).toBeInTheDocument();
-    expect(within(within(dialog).getByText("From").closest<HTMLElement>('[data-testid="settings-row"]')!).getByText("Profile")).toBeInTheDocument();
+    expect(within(rowIn(dialog, "Name")).getByText("Ankit")).toBeInTheDocument();
+    expect(within(rowIn(dialog, "From")).getByText("Profile")).toBeInTheDocument();
     expect(within(dialog).getByText("2")).toBeInTheDocument();
     for (const at of [UPDATED, T1]) expect(dialog.querySelector(`time[datetime="${at}"]`)).not.toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
@@ -239,9 +273,16 @@ describe("Profile Live Mirror", () => {
     expect(container.querySelector("h1")).toBeNull();
     expect(preview.querySelector("h2, h3, h4")?.textContent).toBe("Profile");
     expect(preview.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
-    expect(within(preview).getAllByText(/^Name: # Hi !\[t\]\(https:\/\/x\.test\/p\.png\) <script>alert\(1\)<\/script> \[l\]\(javascript:alert\(1\)\)$/))
-      .not.toHaveLength(0);
-    expect(preview.querySelectorAll("a")).toHaveLength(0);
+    // Owner text renders as written, with no invisible characters that would ride along on a copy.
+    expect(preview.textContent).not.toContain("\u2060");
+    expect(preview.textContent)
+      .toContain("Name: # Hi ![t](https://x.test/p.png) <script>alert(1)</script> [l](javascript:alert(1))");
+    // The only links are the generated source links inside the app.
+    for (const anchor of preview.querySelectorAll("a")) {
+      expect(anchor.getAttribute("href")).toMatch(/^\/(?!\/)/);
+      expect(anchor.getAttribute("href")).not.toMatch(/x\.test|javascript:/);
+      expect(anchor.getAttribute("target")).toBeNull();
+    }
     expect(container.querySelector("pre")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
@@ -295,5 +336,136 @@ describe("Profile Live Mirror", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Up to date");
     view.unmount();
     expect(m.listeners.size).toBe(0);
+  });
+
+  it("lists every side of a disagreement under one heading, chooses neither, and links to each place to fix it", () => {
+    expect(liveMirrorSourceRoute("profile")).toEqual({ href: "/one/profile/account", label: "Edit profile" });
+    m.view = nameConflictView();
+    const first = render(<LivingMemoryDocument />);
+    // The headline stays the only live region.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Needs your review");
+    const name = row("Sources disagree", "Name");
+    expect(within(name).getByText(`Your memory: Ankit K · Changed ${formatLiveMirrorDateTime(T0)} · Version 9`)).toBeInTheDocument();
+    // Checked at T1 and read at READ_LATER: 5 min, not the 1 min between the check and the build.
+    expect(within(name).getByText("Profile: Ankit Kumar · Checked 5 min ago · Version 1")).toBeInTheDocument();
+    // The heading says it once: no badge on its rows, and no separate "Review" group.
+    expect(within(group("Sources disagree")).queryByText("Needs review")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Review" })).toBeNull();
+
+    fireEvent.click(within(name).getByRole("button"));
+    const dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(rowIn(dialog, "Your memory: Ankit K")).getByText(`Changed ${formatLiveMirrorDateTime(T0)} · Version 9`)).toBeInTheDocument();
+    expect(within(rowIn(dialog, "Profile: Ankit Kumar")).getByText("Checked 5 min ago · Version 1")).toBeInTheDocument();
+    // One link per place a side is fixed, in claim order, each titled by where it goes.
+    expect(within(dialog).getAllByRole("link").map(link => link.getAttribute("href"))).toEqual(["/one/pkm", "/one/profile/account"]);
+    expect(within(dialog).getByRole("link", { name: "Edit memory.md" })).toHaveAttribute("href", "/one/pkm");
+    expect(within(dialog).getByRole("link", { name: "Edit profile" })).toHaveAttribute("href", "/one/profile/account");
+    expect(within(dialog).queryByText("Fix at source")).toBeNull();
+    // A fix link closes the sheet first. jsdom cannot follow it; cancel the default, keep the handler.
+    const memory = within(dialog).getByRole("link", { name: "Edit memory.md" });
+    memory.addEventListener("click", event => event.preventDefault());
+    fireEvent.click(memory);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    first.unmount();
+
+    // Negative control: with no disagreement there is nothing to review.
+    m.view = mirror({ steps: [{ inputs: [profile("Ankit Kumar")], kinds: ["profile"], now: T1 }] });
+    render(<LivingMemoryDocument />);
+    expect(screen.queryByRole("heading", { name: "Sources disagree" })).toBeNull();
+    expect(screen.queryByText("Needs review")).toBeNull();
+  });
+
+  it("shows a money disagreement in each copy's own currency, a numbered copy per line", () => {
+    m.view = moneyConflictView();
+    render(<LivingMemoryDocument />);
+    expect([euros(1_234), euros(5_678)]).toEqual(["€12.34", "€56.78"]);
+    const amount = row("Sources disagree", "Amount");
+    expect(within(amount).getByText(`Document payment 1, copy 1: ${euros(1_234)} · Changed ${formatLiveMirrorDateTime(UPDATED)} · Version 1`))
+      .toBeInTheDocument();
+    expect(within(amount).getByText(`Document payment 1, copy 2: ${euros(5_678)} · Changed ${formatLiveMirrorDateTime(T0)} · Version 1`))
+      .toBeInTheDocument();
+    expect(amount.textContent).not.toContain("$");
+    // The record itself only says that its sources disagree; no amount is chosen.
+    expect(within(row("Document payments", "Document payment 1")).getByText("Sources disagree")).toBeInTheDocument();
+
+    fireEvent.click(within(amount).getByRole("button"));
+    const dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(rowIn(dialog, `Document payment 1, copy 1: ${euros(1_234)}`))
+      .getByText(`Changed ${formatLiveMirrorDateTime(UPDATED)} · Version 1`)).toBeInTheDocument();
+    expect(within(dialog).getByText(`Document payment 1, copy 2: ${euros(5_678)}`)).toBeInTheDocument();
+    // Both copies are fixed in one place, so there is one link, titled by where it goes.
+    const route = liveMirrorSourceRoute("document_request_payment")!;
+    expect(within(dialog).getAllByRole("link")).toHaveLength(1);
+    expect(within(dialog).getByRole("link", { name: route.label })).toHaveAttribute("href", route.href);
+  });
+
+  it("never shows a disagreement about another person's identifier, even in a view that skipped read time", () => {
+    // Build and read time both drop these; this view stands in for one that did not.
+    const side = (copy: number, value: string): LiveMirrorClaim => ({ source: "document_request_payment", origin: "record",
+      label: `Document payment 1, copy ${copy}`, value, revision: 1, sourceUpdatedAt: UPDATED, verifiedAt: T1 });
+    m.view = {
+      ...mirror({ steps: [{ inputs: [profile("Ankit Kumar"), payment("p1", 1_234)], kinds: ["profile", "document_request_payment"], now: T1 }] }),
+      conflicts: [
+        { predicate: "document_request_payment.counterpartRef", label: "Person", claims: [side(1, "PERSON_REF_X"), side(2, "PERSON_REF_Y")] },
+      ],
+    };
+    render(<LivingMemoryDocument />);
+    expect(screen.queryByRole("heading", { name: "Sources disagree" })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
+  });
+
+  it("sends each source and record to where it is fixed, titled by where it goes", () => {
+    const profileRoute = liveMirrorSourceRoute("profile")!;
+    const consentRoute = liveMirrorSourceRoute("consent")!;
+    m.view = mirror({ steps: [{ inputs: [profile("Ankit"), consent("c1", "attr.food.*")], kinds: ["profile", "consent"], now: T1 }] });
+    render(<LivingMemoryDocument />);
+    // The whole source row is the link, and it keeps its state.
+    const source = within(row("Sources", "Profile")).getByRole("link");
+    expect(source).toHaveAttribute("href", profileRoute.href);
+    for (const text of ["Profile", "Current", profileRoute.label]) expect(within(source).getByText(text)).toBeInTheDocument();
+    expect(within(row("Sources", "Consents")).getByRole("link")).toHaveAttribute("href", consentRoute.href);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
+    let dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(dialog).getAllByRole("link")).toHaveLength(1);
+    const fix = within(dialog).getByRole("link", { name: profileRoute.label });
+    expect(fix).toHaveAttribute("href", profileRoute.href);
+    expect(within(dialog).queryByText("Fix at source")).toBeNull();
+    fix.addEventListener("click", event => event.preventDefault());
+    fireEvent.click(fix);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Consent 1/ }));
+    dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(dialog).getByRole("link", { name: consentRoute.label })).toHaveAttribute("href", consentRoute.href);
+  });
+
+  it("renders a money source as a GFM table that keeps each amount whole, with owner URLs and emails as text", () => {
+    m.view = mirror({ steps: [{
+      inputs: [profile("www.example.test https://x.test/p"), payment("p1", 1_234)],
+      kinds: ["profile", "document_request_payment"], now: T1,
+    }] });
+    const { container } = render(<LivingMemoryDocument />);
+    openTab("Preview");
+    const preview = screen.getByLabelText("Live memory preview");
+    const table = preview.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(within(table!).getByText(euros(1_234)).tagName).toBe("TD");
+    const text = preview.textContent!;
+    expect(text).not.toContain("\u2060");
+    expect(text).toContain("Name: www.example.test https://x.test/p");
+    expect(text).toContain("Email: owner@example.test");
+    // Owner URLs and emails never become links; only in-app routes do.
+    const anchors = [...preview.querySelectorAll("a")];
+    expect(anchors.length).toBeGreaterThan(0);
+    for (const anchor of anchors) expect(anchor.getAttribute("href")).toMatch(/^\/(?!\/)/);
+    for (const tag of ["pre", "img", "script"]) expect(container.querySelector(tag)).toBeNull();
+    // jsdom has no layout, so the phone-width rule is checked where it lives: the
+    // preview's cells keep one line and the table scrolls instead of breaking amounts.
+    expect(preview).toHaveClass("live-mirror-markdown");
+    const css = fs.readFileSync(path.resolve(__dirname, "../../app/globals.css"), "utf8");
+    expect(css).toContain(".live-mirror-markdown table { overflow-wrap: normal; }");
+    expect(css).toContain(".live-mirror-markdown :is(th, td) { white-space: nowrap; }");
   });
 });

@@ -1,5 +1,5 @@
 import { type EventPayloadWithContextFor, type ObservabilityEventName, type PrimitiveEventValue } from "@/lib/observability/events";
-import { GOVERNED_ACTIONS_BY_EVENT, GOVERNED_RESULTS_BY_EVENT, isGovernedLongString, isInvalidGovernedEnum } from "./governed-values";
+import { GOVERNED_ACTIONS_BY_EVENT, GOVERNED_RESULTS_BY_EVENT, GOVERNED_VALUES_BY_EVENT, isGovernedLongString, isInvalidGovernedEnum } from "./governed-values";
 
 const BASE_ALLOWED_KEYS = [
   "env",
@@ -255,6 +255,14 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "failed_count_bucket",
     "has_active_recipients",
   ],
+  live_memory_source_verified: [
+    ...BASE_ALLOWED_KEYS,
+    "kind",
+    "outcome",
+    "lag_bucket",
+    "pending_bucket",
+    "retry_bucket",
+  ],
   one_location_foreground_retry: [
     ...BASE_ALLOWED_KEYS,
     "operation",
@@ -369,7 +377,7 @@ function looksSensitiveValue(value: PrimitiveEventValue): boolean {
 
 export interface EventValidationResult {
   ok: boolean;
-  /** Invalid governed action/result values make the whole event unsafe to emit. */
+  /** Invalid governed action/result values, or a closed-set value outside its set, make the whole event unsafe to emit. */
   fatal: boolean;
   sanitized: Record<string, PrimitiveEventValue>;
   droppedKeys: string[];
@@ -391,6 +399,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   const requiredGovernedKeys = [
     ...(GOVERNED_ACTIONS_BY_EVENT[eventName] ? ["action"] : []),
     ...(GOVERNED_RESULTS_BY_EVENT[eventName] ? ["result"] : []),
+    ...(GOVERNED_VALUES_BY_EVENT[eventName]?.keys() ?? []),
   ];
   for (const key of requiredGovernedKeys) {
     if (typeof rawPayload[key] !== "string") {

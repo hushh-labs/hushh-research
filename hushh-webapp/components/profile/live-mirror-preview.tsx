@@ -6,14 +6,43 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
-import { LIVE_MEMORY_BOUNDARY_COPY } from "@/lib/pkm/live-mirror-contract";
 import {
+  LIVE_MEMORY_BOUNDARY_COPY,
+  LIVE_MIRROR_HIDDEN_PREDICATES,
+  type LiveMirrorConflict,
+} from "@/lib/pkm/live-mirror-contract";
+import {
+  liveMirrorClaimText,
   liveMirrorFactStateLabel,
+  liveMirrorFixRoutes,
   liveMirrorPreviewRows,
   liveMirrorStatus,
   type LiveMirrorPreviewRow,
 } from "@/lib/pkm/live-mirror-presentation";
 import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
+
+const HIDDEN_PREDICATES = new Set<string>(LIVE_MIRROR_HIDDEN_PREDICATES);
+
+/**
+ * Every side of one disagreement, a line each, as the shared claim formatter
+ * words it: "Profile: Ankit · Checked just now · Version 2". Profile and this
+ * preview both list claims through it, so a side reads the same on each and
+ * money keeps its own currency. Nothing is chosen.
+ */
+export function LiveMirrorClaimLines({ conflict, now }: { conflict: LiveMirrorConflict; now: string }) {
+  return (
+    <>
+      {conflict.claims.map((claim, index) => {
+        const { label, value, detail } = liveMirrorClaimText(claim, conflict.predicate, now);
+        return (
+          <span key={`${claim.source}:${index}`} className="block">
+            {detail ? `${label}: ${value} · ${detail}` : `${label}: ${value}`}
+          </span>
+        );
+      })}
+    </>
+  );
+}
 
 function PreviewRow({ row }: { row: LiveMirrorPreviewRow }) {
   const badge = liveMirrorFactStateLabel(row.state);
@@ -23,6 +52,17 @@ function PreviewRow({ row }: { row: LiveMirrorPreviewRow }) {
       description={row.description ?? undefined}
       trailing={badge ? <Badge variant="secondary">{badge}</Badge> : undefined}
       testId="live-mirror-fact"
+    />
+  );
+}
+
+/** Every claim with its source, a line each, for the owner to review. Nothing is chosen or overwritten. */
+function ConflictRow({ conflict, now }: { conflict: LiveMirrorConflict; now: string }) {
+  return (
+    <SettingsRow
+      title={conflict.label}
+      description={<LiveMirrorClaimLines conflict={conflict} now={now} />}
+      testId="live-mirror-conflict"
     />
   );
 }
@@ -47,7 +87,18 @@ export function LiveMirrorPreview({
   const locked = mirror.status === "locked";
   const view = mirror.status === "ready" ? mirror.view : null;
   const status = view ? liveMirrorStatus(view.overall, view) : liveMirrorStatus(locked ? "locked" : "loading");
-  const rows = view ? liveMirrorPreviewRows(view.facts) : [];
+  // Other people's identifiers never render, not even inside a disagreement.
+  const conflicts = (view?.conflicts ?? []).filter((conflict) => !HIDDEN_PREDICATES.has(conflict.predicate));
+  // A disputed profile value is shown once, as its conflict row with every
+  // claim. Record rows keep their own "Needs review" state, since a conflict
+  // names a predicate rather than one record.
+  const disputed = new Set(conflicts.map((conflict) => conflict.predicate));
+  const rows = view
+    ? liveMirrorPreviewRows(view.facts.filter((fact) => fact.kind !== "profile" || !disputed.has(fact.predicate)))
+    : [];
+  // Fix rows appear only beside a disagreement, one per screen that owns a
+  // disputed source. memory.md gets none: Memory is already open or a tap away.
+  const fixes = liveMirrorFixRoutes(conflicts, { includeMemory: false });
 
   return (
     <section aria-label="Live memory preview" className="min-w-0">
@@ -74,8 +125,16 @@ export function LiveMirrorPreview({
           description={status.sub ?? undefined}
           testId="live-mirror-status"
         />
+        {view && conflicts.map((conflict) => (
+          <ConflictRow key={conflict.predicate} conflict={conflict} now={view.evaluatedAt} />
+        ))}
         {rows.map((row) => (
           <PreviewRow key={row.key} row={row} />
+        ))}
+        {fixes.map((route) => (
+          <SettingsRow key={route.href} asChild chevron title={route.label} testId="live-mirror-fix-at-source">
+            <Link href={route.href} onClick={onNavigate} />
+          </SettingsRow>
         ))}
         {showOpenMemory && !locked ? (
           <SettingsRow asChild chevron title="Open Memory" testId="live-mirror-open-memory">
