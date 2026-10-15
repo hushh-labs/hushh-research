@@ -149,7 +149,7 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
-  await page.route("http://localhost/one-presence/*-hd.png", route =>
+  await page.route("http://localhost/one-presence/*.png", route =>
     route.fulfill({
       contentType: "image/png",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
@@ -1764,6 +1764,63 @@ test.describe("One profile artwork and animated presence", () => {
   // The npm pack runs these independent cases on one worker so unrelated
   // fixture builds cannot make the native runtime skip its brief idle blink.
   test.use({ deviceScaleFactor: 3 });
+  for (const width of [390, 1440]) for (const reducedMotion of [false, true]) {
+    test(`shows four distinct activity portraits ${reducedMotion ? "with reduced motion" : "while animations load"} at ${width}px`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+      let release!: () => void;
+      const waiting = new Promise<void>(resolve => { release = resolve; });
+      const requests: string[] = [];
+      await page.route(/^http:\/\/localhost\/one-presence\/[a-z]+\.riv$/, async route => {
+        requests.push(new URL(route.request().url()).pathname);
+        await waiting;
+        await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)) });
+      });
+      await page.route("**/api/one/feed**", route => route.fulfill({ json: { items: [], next_cursor: null, unread_count: 0 } }));
+      await page.setViewportSize({ width, height: 850 });
+      await page.goto("http://localhost/connections-fixture?one-profile=1");
+      await page.addScriptTag({ content: script });
+      await page.bringToFront();
+      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const surfaces = [page.getByTestId("one-presence-header"), page.getByRole("dialog", { name: "One", exact: true })]
+        .map(host => host.locator("[data-one-presence-state]"));
+      const hashes = surfaces.map(() => new Set<number>());
+      try {
+        for (const state of ["connected", "thinking", "working", "answering"]) {
+          await page.evaluate(state => (window as any).__setOnePresenceWork({
+            drafting: state === "working", answering: state === "answering", thinking: state !== "connected",
+          }), state);
+          for (const [index, surface] of surfaces.entries()) {
+            await expect(surface).toHaveAttribute("data-one-presence-state", state);
+            const current = surface.locator('[data-one-presence-layer="current"]');
+            await expect(current).toHaveAttribute("data-one-presence-artwork", state);
+            const image = current.locator("img");
+            await expect(image).toHaveCSS("visibility", "visible");
+            const pixels = await image.evaluate((image: HTMLImageElement) => {
+              const probe = document.createElement("canvas"); probe.width = probe.height = 32;
+              const context = probe.getContext("2d", { willReadFrequently: true })!;
+              context.drawImage(image, 0, 0, 32, 32);
+              const pixels = context.getImageData(0, 0, 32, 32).data;
+              let hash = 0, opaque = 0;
+              pixels.forEach((value, index) => { hash = (Math.imul(hash, 31) + value) | 0; if (index % 4 === 3 && value > 0) opaque++; });
+              return { hash, opaque };
+            });
+            expect(pixels.opaque).toBeGreaterThan(0);
+            hashes[index]!.add(pixels.hash);
+          }
+          if (!reducedMotion) await expect.poll(() => requests.includes(`/one-presence/${state}.riv`)).toBe(true);
+        }
+        for (const distinct of hashes) expect(distinct.size).toBe(4);
+        if (reducedMotion) expect(requests).toEqual([]);
+      } finally {
+        release();
+      }
+      if (!reducedMotion) for (const surface of surfaces) await expectPresencePlayback(surface);
+      for (const surface of surfaces) await expect(surface.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
+      expect(errors).toEqual([]);
+    });
+  }
   for (const density of [1, 2, 3]) {
     test.describe(`${density}x artwork surfaces`, () => {
       test.use({ deviceScaleFactor: density, hasTouch: true });
@@ -1846,6 +1903,10 @@ test.describe("One profile artwork and animated presence", () => {
       await waiting;
       await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/working.riv")) });
     });
+    await page.route("http://localhost/one-presence/drafting-hd.png", async route => {
+      await waiting;
+      await route.fulfill({ contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/drafting-hd.png")) });
+    });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("http://localhost/connections-fixture?one-profile=1");
@@ -1912,7 +1973,9 @@ test.describe("One profile artwork and animated presence", () => {
             proof.minPeakAlpha = peak;
             proof.minLayers = [...node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")].map(layer => {
               const style = getComputedStyle(layer);
-              return { state: layer.dataset.onePresenceArtwork, layer: layer.dataset.onePresenceLayer, opacity: style.opacity, desiredOpacity: layer.style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility };
+              const image = layer.querySelector("img")!;
+              return { state: layer.dataset.onePresenceArtwork, layer: layer.dataset.onePresenceLayer, opacity: style.opacity, desiredOpacity: layer.style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility,
+                poster: { src: image.getAttribute("src"), visible: getComputedStyle(image).visibility, complete: image.complete, width: image.naturalWidth } };
             });
           }
         }
