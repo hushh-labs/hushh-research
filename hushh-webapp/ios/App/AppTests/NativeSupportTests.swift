@@ -535,32 +535,57 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testProfileChoiceAcknowledgementKeepsRenderedMenuAppearanceWithoutReplayingTheAction() throws {
+    func testProfileChoiceAcknowledgementKeepsRenderedMenuAppearanceWithoutReplayingTheAction() async throws {
         let model = NativeDrawerModel(privateDrawerState())
         model.interactionEnabled = true
         var choices = 0
         model.choose = { [weak model] _, _, _ in choices += 1; model?.pendingSequence = choices; return true }
+        var rowFrame = CGRect.zero
+        var enabled: Bool?
+        let host = UIHostingController(rootView: NativeDrawerContent(model: model, profileRowObserver: { _, frame, available in
+            rowFrame = frame; enabled = available
+        }))
+        host.overrideUserInterfaceStyle = .light
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true; window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        host.view.layoutIfNeeded()
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            rowFrame.width > 0 && rowFrame.height >= 44 && enabled == true
+        }, object: nil)], timeout: 3)
         func rowPixels() throws -> Data {
-            // Public synthetic content only. Render the actual shared SwiftUI
-            // menu, not a model property or markup snapshot. Exclude its glass
-            // header: the regression is the untouched row's enabled appearance.
-            let renderer = ImageRenderer(content: NativeDrawerContent(model: model)
-                .frame(width: 390, height: 844).environment(\.colorScheme, .light))
-            renderer.scale = 1
-            let image = try XCTUnwrap(renderer.uiImage?.cgImage)
-            let row = try XCTUnwrap(image.cropping(to: CGRect(x: 20, y: 108, width: 350, height: 64)))
+            // Actual attached shared menu, containing only public synthetic
+            // labels. Crop its measured row rather than guessing offscreen bounds.
+            host.view.layoutIfNeeded()
+            var rendered = false
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+                rendered = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertTrue(rendered)
+            let row = try XCTUnwrap(image.cgImage?.cropping(to: rowFrame.integral))
             return try XCTUnwrap(row.dataProvider?.data) as Data
         }
         let baseline = try rowPixels()
         XCTAssertTrue(model.choice("row", row: "row-handle"))
         XCTAssertFalse(model.choice("row", row: "row-handle"), "The visual fix must preserve one-shot choice admission")
         XCTAssertEqual(choices, 1)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(enabled, true, "Pending acknowledgement must not disable the entire menu's visual environment")
         let pending = try rowPixels()
         XCTAssertTrue(baseline == pending, "Bridge acknowledgement cannot dim and restore the whole menu on every tap")
         model.settle(sequence: 1, success: true)
+        try await Task.sleep(for: .milliseconds(100))
         XCTAssertTrue(baseline == (try rowPixels()), "Settlement must not repaint a different row appearance")
         model.update(privateDrawerState(update: 2, enabled: false))
-        XCTAssertFalse(baseline == (try rowPixels()), "Negative control: genuinely unavailable rows must retain disabled appearance")
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in enabled == false }, object: nil)], timeout: 3)
+        XCTAssertEqual(enabled, false, "Negative control: authored unavailable state still reaches the rendered row")
     }
 
     @MainActor

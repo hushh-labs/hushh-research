@@ -491,6 +491,8 @@ private struct NativeHistoryLayoutMeasurement: ViewModifier {
 struct NativeDrawerContent: View {
     @ObservedObject var model: NativeDrawerModel
     var historyLayoutObserver: ((String, NativeHistoryLayoutPart, CGRect) -> Void)? = nil
+    // Public-fixture-only measurement, never installed by a product host.
+    var profileRowObserver: ((String, CGRect, Bool) -> Void)? = nil
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
@@ -648,7 +650,9 @@ struct NativeDrawerContent: View {
                                     }
                                     Spacer(minLength: 0)
                                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(!row.enabled || !model.controlsEnabled)
+                            }.buttonStyle(.plain)
+                                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+                                .disabled(!row.enabled || !model.controlsEnabled)
                                 .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
@@ -708,7 +712,9 @@ struct NativeDrawerContent: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
                 .padding(.horizontal, 16).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
+        }.buttonStyle(.plain)
+            .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
+            .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
             .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
             .accessibilityIdentifier("native-profile-row-\(row.id)")
     }
@@ -755,7 +761,26 @@ private struct NativeDrawerPendingChoice: ViewModifier {
     let pending: Bool
     func body(content: Content) -> some View {
         content.allowsHitTesting(!pending)
-            .accessibilityAddTraits(pending ? .notEnabled : [])
+            .accessibilityRespondsToUserInteraction(!pending)
+    }
+}
+
+private struct NativeProfileRowMeasurement: ViewModifier {
+    let observe: ((String, CGRect, Bool) -> Void)?
+    let row: String
+    @Environment(\.isEnabled) private var enabled
+    @ViewBuilder func body(content: Content) -> some View {
+        if let observe {
+            content.background {
+                GeometryReader { geometry in
+                    let frame = geometry.frame(in: .global)
+                    Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+                        .onAppear { observe(row, frame, enabled) }
+                        .onChange(of: frame) { _, next in observe(row, next, enabled) }
+                        .onChange(of: enabled) { _, next in observe(row, frame, next) }
+                }
+            }
+        } else { content }
     }
 }
 
