@@ -68,14 +68,14 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
 };
 export interface HushhNativeDrawersPlugin {
   getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean }>;
-  applyProfileNameScene?: NativeProfileNameScenePort["applyProfileNameScene"];
-  confirmProfileNameAction?: NativeProfileNameScenePort["confirmProfileNameAction"];
-  settleProfileNameAction?: NativeProfileNameScenePort["settleProfileNameAction"];
-  retireProfileNameScene?: NativeProfileNameScenePort["retireProfileNameScene"];
-  applyProfileStyleScene?: NativeProfileStyleScenePort["applyProfileStyleScene"];
-  confirmProfileStyleAction?: NativeProfileStyleScenePort["confirmProfileStyleAction"];
-  settleProfileStyleAction?: NativeProfileStyleScenePort["settleProfileStyleAction"];
-  retireProfileStyleScene?: NativeProfileStyleScenePort["retireProfileStyleScene"];
+  applyProfileNameScene?(options: Parameters<NativeProfileNameScenePort["applyProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["applyProfileNameScene"]>;
+  confirmProfileNameAction?(options: Parameters<NativeProfileNameScenePort["confirmProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["confirmProfileNameAction"]>;
+  settleProfileNameAction?(options: Parameters<NativeProfileNameScenePort["settleProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["settleProfileNameAction"]>;
+  retireProfileNameScene?(options: Parameters<NativeProfileNameScenePort["retireProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["retireProfileNameScene"]>;
+  applyProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["applyProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["applyProfileStyleScene"]>;
+  confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
+  settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
+  retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
   addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
