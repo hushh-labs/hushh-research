@@ -287,7 +287,7 @@ describe("One agent profile feed preview", () => {
     expect(within(factRow("Name")).getByText("May be old")).toBeInTheDocument();
   });
 
-  it("never shows a disputed or removed value", async () => {
+  it("shows a disputed value only as a claim under review and never shows a removed value", async () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, {
       steps: [
         { inputs: [person(uid, "SYNTHETIC_A"), earning("e1", T0, 4_242)], kinds: ["profile", "document_earning"], now: T0 },
@@ -301,9 +301,14 @@ describe("One agent profile feed preview", () => {
     openProfileTab();
     await screen.findByTestId("live-mirror-status");
     expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
-    expect(within(factRow("Name")).getByText("Needs review")).toBeInTheDocument();
-    expect(factRow("Name").querySelector('[data-slot="settings-row-description"]')).toBeNull();
-    for (const hidden of ["SYNTHETIC_A", "CONFLICT_VALUE_X", "$42.42", "Earning"]) expect(document.body.textContent).not.toContain(hidden);
+    // Both disputed values appear only together, in the review row (A08).
+    const conflict = screen.getByTestId("live-mirror-conflict");
+    expect(within(conflict).getByText("Needs review")).toBeInTheDocument();
+    for (const claim of ["SYNTHETIC_A", "CONFLICT_VALUE_X"]) expect(conflict.textContent).toContain(claim);
+    const outsideReview = document.body.textContent!.replace(conflict.textContent!, "");
+    for (const claim of ["SYNTHETIC_A", "CONFLICT_VALUE_X"]) expect(outsideReview).not.toContain(claim);
+    // A removed record never shows anywhere.
+    for (const removed of ["$42.42", "Earning"]) expect(document.body.textContent).not.toContain(removed);
   });
 
   it("clears owner A's preview on account switch and lock, and ignores a projection filed under another owner", async () => {

@@ -250,9 +250,15 @@ describe("Profile Live Mirror", () => {
     expect(container.querySelector("h1")).toBeNull();
     expect(preview.querySelector("h2, h3, h4")?.textContent).toBe("Profile");
     expect(preview.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:/);
-    expect(within(preview).getAllByText(/^Name: # Hi !\[t\]\(https:\/\/x\.test\/p\.png\) <script>alert\(1\)<\/script> \[l\]\(javascript:alert\(1\)\)$/))
-      .not.toHaveLength(0);
-    expect(preview.querySelectorAll("a")).toHaveLength(0);
+    // Word joiners keep URL-like owner text from autolinking; they are invisible.
+    expect(preview.textContent!.replace(/\u2060/g, ""))
+      .toContain("Name: # Hi ![t](https://x.test/p.png) <script>alert(1)</script> [l](javascript:alert(1))");
+    // The only links are the generated "fix at source" routes inside the app.
+    for (const anchor of preview.querySelectorAll("a")) {
+      expect(anchor.getAttribute("href")).toMatch(/^\/(?!\/)/);
+      expect(anchor.getAttribute("href")).not.toMatch(/x\.test|javascript:/);
+      expect(anchor.getAttribute("target")).toBeNull();
+    }
     expect(container.querySelector("pre")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
@@ -382,9 +388,12 @@ describe("Profile Live Mirror", () => {
     const table = preview.querySelector("table");
     expect(table).not.toBeNull();
     expect(within(table!).getByText("Ankit").tagName).toBe("TD");
-    expect(preview.textContent).toContain("Name: www.example.test https://x.test/p");
-    expect(preview.textContent).toContain("Email: owner@example.test");
-    expect(preview.querySelectorAll("a")).toHaveLength(0);
+    const text = preview.textContent!.replace(/\u2060/g, "");
+    expect(text).toContain("Name: www.example.test https://x.test/p");
+    expect(text).toContain("Email: owner@example.test");
+    // Owner URLs and emails never become links; only in-app routes do.
+    for (const anchor of preview.querySelectorAll("a"))
+      expect(anchor.getAttribute("href")).toMatch(/^\/(?!\/)/);
     for (const tag of ["pre", "img", "script"]) expect(container.querySelector(tag)).toBeNull();
   });
 });

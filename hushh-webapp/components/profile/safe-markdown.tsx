@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import Link from "next/link";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -37,7 +38,9 @@ const COMPONENTS: Record<SafeMarkdownLinkPolicy, Components> = {
   internal: {
     img: image,
     table,
-    a: ({ children, href }) => (href && isAppRelative(href) ? <a href={href}>{children}</a> : <>{children}</>),
+    // Client-side navigation: a full page load would drop the in-memory vault
+    // key and lock the owner out of the page they just opened.
+    a: ({ children, href }) => (href && isAppRelative(href) ? <Link href={href}>{children}</Link> : <>{children}</>),
   },
 };
 const GFM_PLUGINS = [remarkGfm];

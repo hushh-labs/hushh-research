@@ -94,7 +94,7 @@ describe("memory.md editor", () => {
     expect(screen.queryByText("SYNTHETIC_OWNER")).toBeNull();
   });
 
-  it("shows both claims of a disagreement once, above the facts, with no fix link until a source has a route", async () => {
+  it("shows both claims of a disagreement once, above the facts, with a fix-at-source link to the disputed source", async () => {
     const at = "2026-10-15T10:00:00.000Z";
     const fact = (field: "name" | "email", label: string, value: string): LiveMirrorFact => ({
       key: `profile.${field}`, predicate: `profile.${field}`, kind: "profile", sourceId: "owner-a", ref: "Profile", field, label, value,
@@ -122,9 +122,11 @@ describe("memory.md editor", () => {
     expect(preview.getAllByTestId(/^live-mirror-(conflict|fact)$/).map(row => row.dataset.testid))
       .toEqual(["live-mirror-conflict", "live-mirror-fact"]);
     expect(within(preview.getByTestId("live-mirror-fact")).getByText("owner@example.test")).toBeInTheDocument();
-    // No source has a reachable authority route yet, so See all stays the preview's only link.
-    expect(preview.queryByRole("link", { name: /^Fix at source/ })).toBeNull();
-    expect(preview.getAllByRole("link").map(link => link.textContent)).toEqual(["See all"]);
+    // The disputed name is fixed where it lives: the Profile account screen.
+    const fix = preview.getByRole("link", { name: /Fix at source/ });
+    expect(fix).toHaveAttribute("href", "/one/profile/account");
+    expect(within(fix).getByText("Edit profile")).toBeInTheDocument();
+    expect(preview.getAllByRole("link")).toHaveLength(2);
   });
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {

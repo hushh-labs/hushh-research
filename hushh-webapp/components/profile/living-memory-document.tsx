@@ -268,9 +268,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
         </TabsContent>
         <TabsContent value="preview" className="min-w-0">
           {view.markdown.trim()
-            // CommonMark until SafeMarkdown has linkPolicy="internal": GFM, which tables need, autolinks
-            // URL- and email-like values even through the projection's escapes.
-            ? <div aria-label="Live memory preview" className="soul-memory-document min-w-0 px-1"><SafeMarkdown markdown={view.markdown} gfm={false} /></div>
+            ? <div aria-label="Live memory preview" className="soul-memory-document min-w-0 px-1"><SafeMarkdown markdown={view.markdown} gfm linkPolicy="internal" /></div>
             : <Footnote className="px-1">Nothing to preview yet</Footnote>}
         </TabsContent>
       </Tabs>
