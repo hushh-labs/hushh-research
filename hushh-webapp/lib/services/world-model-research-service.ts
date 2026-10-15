@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ApiError, apiJson } from "@/lib/services/api-client";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { profileReportSchema } from "@/lib/services/profile-research-service";
 import type { PwmOwnerDecisions } from "@/lib/services/world-model-decision-service";
@@ -40,6 +42,34 @@ const coverage = z
     explanation: z.string().max(600),
   })
   .strict();
+/**
+ * What research is doing right now, derived by the server from the sealed
+ * job state alone: counts, topic ids and public page titles, never owner text.
+ */
+export const pwmProgressSchema = z
+  .object({
+    stage: z.enum(["starting", "identity", "coverage", "report"]),
+    searches_used: z.number().int().min(0),
+    searches_total: z.number().int().min(1),
+    model_calls_used: z.number().int().min(0),
+    model_calls_total: z.number().int().min(1),
+    topics_checked: z.array(z.string()).max(20),
+    sources_found: z.number().int().min(0),
+    recent_sources: z
+      .array(
+        z.object({ title: z.string().max(160), url: z.string().url() }).strict(),
+      )
+      .max(5),
+    identity_state: z
+      .enum(["owner_linked", "candidate_for_review", "ambiguous", "no_match"])
+      .nullable(),
+    candidates: z.number().int().min(0),
+    started_at: z.string().nullable(),
+    last_activity_at: z.string().nullable(),
+    slice: z.number().int().min(1),
+  })
+  .strict();
+export type PwmProgress = z.infer<typeof pwmProgressSchema>;
 export const pwmResultSchema = z.discriminatedUnion("status", [
   z
     .object({
@@ -98,6 +128,7 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
       status: z.enum(["pending", "paused"]),
       pkm_written: z.literal(false),
       restart_required: z.boolean(),
+      progress: pwmProgressSchema.optional(),
     })
     .strict(),
   z
@@ -106,6 +137,10 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
       pkm_written: z.literal(false),
       research_exhausted: z.boolean().optional(),
       draft_id: z.string().uuid().optional(),
+      /** Why research could not run now; a short code, never owner text. */
+      reason: z.string().max(64).optional(),
+      /** Seconds before another attempt could succeed; the run ends here. */
+      retry_after_s: z.number().int().min(1).optional(),
     })
     .strict(),
   z
@@ -153,6 +188,83 @@ async function request(
   await input.assertCurrent?.();
   return result;
 }
+const STREAM_PATH = "/api/one/world-model/jobs/stream";
+/** A result frame carries a whole report; anything past this is not one. */
+const MAX_STREAM_BYTES = 10 * 1024 * 1024;
+type StreamInput = PwmAuthority & {
+  signal: AbortSignal;
+  onProgress: (progress: PwmProgress) => void;
+  onResult: (result: PwmResult) => void;
+};
+
+/**
+ * One live connection. Resolves when the server closes it, after a result
+ * frame or at its own time limit; rejects on a refused request or a broken
+ * connection. Frames the contract does not name only keep the connection up.
+ */
+async function stream(input: StreamInput) {
+  await input.assertCurrent?.();
+  const headers = await oneChatKeyHeaders(input.vaultKey);
+  await input.assertCurrent?.();
+  const response = await nativeStreamFetch(STREAM_PATH, {
+    method: "GET",
+    cache: "no-store",
+    signal: input.signal,
+    headers: {
+      Authorization: `Bearer ${input.vaultOwnerToken}`,
+      Accept: "text/event-stream",
+      ...headers,
+    },
+  });
+  await input.assertCurrent?.();
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined);
+    throw new ApiError(
+      `Request failed: ${response.status}`,
+      response.status,
+      payload,
+    );
+  }
+  if (
+    !response.body ||
+    !response.headers.get("content-type")?.includes("text/event-stream")
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Stream unavailable");
+  }
+  const reader = response.body.getReader();
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  input.signal.addEventListener("abort", cancel, { once: true });
+  const decoder = new TextDecoder();
+  let remainder = "";
+  let bytes = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (input.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (chunk.done) return;
+      await input.assertCurrent?.();
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_STREAM_BYTES) throw new Error("Stream too large");
+      const parsed = parseSSEBlocks(
+        decoder.decode(chunk.value, { stream: true }),
+        remainder,
+      );
+      remainder = parsed.remainder;
+      for (const frame of parsed.events) {
+        if (frame.event === "progress") {
+          input.onProgress(pwmProgressSchema.parse(JSON.parse(frame.data)));
+        } else if (frame.event === "result") {
+          input.onResult(pwmResultSchema.parse(JSON.parse(frame.data)));
+          return;
+        }
+      }
+    }
+  } finally {
+    input.signal.removeEventListener("abort", cancel);
+    cancel();
+  }
+}
 function pause(signal: AbortSignal, milliseconds: number) {
   return new Promise<void>((resolve, reject) => {
     const abort = () => {
@@ -199,13 +311,21 @@ const RATE_LIMITED_READ_MS = 60_000;
 const DRIVER_POLL_MS = 5_000;
 /** Tabs that are not driving research only read, and only this often. */
 const FOLLOWER_POLL_MS = 15_000;
+/** A closed or failed stream reopens no sooner than this. */
+const STREAM_RECONNECT_MS = 1_000;
+/** This many failed streams in a row, and the run polls instead. */
+const MAX_STREAM_FAILURES = 2;
 const POLL_BUDGET_MS = 3_600_000;
 const MAX_FAILURES = 5;
 
-type Step = { path: "ensure" | "jobs"; method: "GET" | "POST" };
+type Step = { path: "ensure" | "jobs" | "jobs/stream"; method: "GET" | "POST" };
 type Observation = PwmAuthority & {
   signal: AbortSignal;
   onResult: (result: PwmResult) => void;
+  /** Live progress, from a stream frame or a polled pending result. */
+  onProgress?: (progress: PwmProgress) => void;
+  /** A read or stream failed; the service keeps retrying on its own. */
+  onInterrupted?: () => void;
   ownerDecisions?: PwmOwnerDecisions;
 };
 type Session = {
@@ -214,6 +334,7 @@ type Session = {
   lastPostAt: number;
   postBlockedUntil: number;
   failures: number;
+  streamFailures: number;
 };
 type ResearchLocks = {
   request<T>(
@@ -245,10 +366,91 @@ function retryAfterMs(error: ApiError, fallback: number) {
     : fallback;
 }
 
+const canStream = (session: Session) =>
+  session.streamFailures < MAX_STREAM_FAILURES;
+
+/** Hands a result on and chooses the next step; "done" when it was final. */
+function settle(
+  input: Observation,
+  session: Session,
+  result: PwmResult,
+): "done" | number {
+  session.failures = 0;
+  if (
+    (result.status === "pending" || result.status === "paused") &&
+    result.progress
+  )
+    input.onProgress?.(result.progress);
+  input.onResult(result);
+  if (result.status !== "pending" && result.status !== "paused") return "done";
+  session.next = result.restart_required
+    ? { path: "ensure", method: "POST" }
+    : { path: "jobs/stream", method: "GET" };
+  // Running research is watched live, at once; a restart waits its turn.
+  return !result.restart_required && canStream(session) ? 0 : DRIVER_POLL_MS;
+}
+
+/**
+ * One stream, for the driving tab while research runs. A hidden tab closes
+ * it, so the lock can move. A stream that failed, or closed without a result,
+ * is followed by a plain read, since the job may have finished meanwhile, and
+ * after MAX_STREAM_FAILURES in a row this run polls instead.
+ */
+async function streamStep(
+  input: Observation,
+  session: Session,
+): Promise<"done" | number> {
+  const local = new AbortController();
+  const stop = () => local.abort();
+  const hide = () => {
+    if (document.hidden) stop();
+  };
+  input.signal.addEventListener("abort", stop, { once: true });
+  if (typeof document !== "undefined")
+    document.addEventListener("visibilitychange", hide);
+  let final: PwmResult | null = null;
+  try {
+    await stream({
+      vaultKey: input.vaultKey,
+      vaultOwnerToken: input.vaultOwnerToken,
+      assertCurrent: input.assertCurrent,
+      signal: local.signal,
+      onProgress: (progress) => input.onProgress?.(progress),
+      onResult: (result) => {
+        final = result;
+      },
+    });
+  } catch (error) {
+    if (input.signal.aborted) throw error;
+    if (!local.signal.aborted) {
+      session.streamFailures += 1;
+      input.onInterrupted?.();
+      session.next = { path: "jobs", method: "GET" };
+    }
+    return STREAM_RECONNECT_MS;
+  } finally {
+    input.signal.removeEventListener("abort", stop);
+    if (typeof document !== "undefined")
+      document.removeEventListener("visibilitychange", hide);
+  }
+  // The server always sends a result before it closes; a stream that ended
+  // without one broke somewhere along the way, and counts like a thrown one.
+  if (!final) {
+    session.streamFailures += 1;
+    input.onInterrupted?.();
+    session.next = { path: "jobs", method: "GET" };
+    return STREAM_RECONNECT_MS;
+  }
+  session.streamFailures = 0;
+  return settle(input, session, final);
+}
+
 /**
  * One request. Returns "done" on a final result, otherwise the delay before
  * the next one. A read-only step never POSTs, and no POST is sent sooner than
  * MIN_POST_INTERVAL_MS after the last, or while the server is refusing them.
+ * Only the driving tab streams; a follower, or a driver whose streams keep
+ * failing, reads.
  */
 async function step(
   input: Observation,
@@ -266,6 +468,9 @@ async function step(
     path = "jobs";
     method = "GET";
   }
+  if (path === "jobs/stream" && (readOnly || !canStream(session)))
+    path = "jobs";
+  if (path === "jobs/stream") return streamStep(input, session);
   try {
     if (method === "POST") session.lastPostAt = now;
     const result = pwmResultSchema.parse(
@@ -278,16 +483,10 @@ async function step(
           : undefined,
       ),
     );
-    session.failures = 0;
-    input.onResult(result);
-    if (result.status !== "pending" && result.status !== "paused")
-      return "done";
-    session.next = result.restart_required
-      ? { path: "ensure", method: "POST" }
-      : { path: "jobs", method: "GET" };
-    return DRIVER_POLL_MS;
+    return settle(input, session, result);
   } catch (error) {
     if (input.signal.aborted) throw error;
+    input.onInterrupted?.();
     if (error instanceof ApiError && error.status === 429) {
       // Rate limits are not failures: keep reading, never give up on them.
       if (method === "POST") {
@@ -338,6 +537,11 @@ export const WorldModelResearchService = {
       }),
     );
   },
+  /**
+   * Watches running research live: progress frames as they happen, then the
+   * result the job ended with, as GET jobs would return it.
+   */
+  stream,
   async discard(input: PwmAuthority, draftId: string) {
     z.object({ discarded: z.literal(true) })
       .strict()
@@ -367,6 +571,7 @@ export const WorldModelResearchService = {
       lastPostAt: -Infinity,
       postBlockedUntil: 0,
       failures: 0,
+      streamFailures: 0,
     };
     const locks = input.ownerId ? researchLocks() : null;
     const lockName = `pwm-research:${input.ownerId}`;

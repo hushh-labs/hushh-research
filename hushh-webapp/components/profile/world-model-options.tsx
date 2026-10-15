@@ -13,7 +13,6 @@ import {
 } from "@/components/profile/profile-pane-icons";
 import { HelperText } from "@/components/app-ui/typography";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/lib/morphy-ux/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
@@ -94,7 +93,7 @@ export function WorldModelOptions({
 
   return (
     <>
-      <SettingsGroup>
+      <SettingsGroup density="compact">
         {usable ? (
           <SettingsRow
             icon={ProfilePaneInviteIcon}
@@ -160,16 +159,16 @@ export function WorldModelOptions({
         mobilePresentation="sheet"
       >
         {preferences ? (
-          <SettingsGroup>
+          <SettingsGroup density="compact">
             <SettingsRow
-              title="Use public sources"
-              description="Search public pages for your name and verified contact."
+              title="Research public pages"
+              description="Uses your name and verified email or phone to find pages about you."
               trailing={
                 <span className="inline-flex h-11 items-center">
                   <Switch
                     checked={preferences.enabled}
                     disabled={busy}
-                    aria-label="Use public sources"
+                    aria-label="Research public pages"
                     data-voice-control-id="pwm_research_enabled"
                     onCheckedChange={(checked) =>
                       void update({
@@ -201,32 +200,29 @@ export function WorldModelOptions({
               }
             />
             {preferences.enabled && canCheckForUpdates ? (
-              <div className="px-4 py-3">
-                <Button
-                  size="compact"
-                  variant="muted"
-                  disabled={busy}
-                  data-voice-control-id="pwm_refresh"
-                  onClick={() => {
-                    onCheckForUpdates();
-                    close();
-                  }}
-                >
-                  Check for updates
-                </Button>
-              </div>
-            ) : null}
-            {saveFailed ? (
-              <div className="px-4 py-3">
-                <HelperText role="status">Couldn’t save. Try again.</HelperText>
-              </div>
+              <SettingsRow
+                title="Check for updates"
+                description="Look at public pages again now."
+                disabled={busy}
+                chevron
+                voiceControlId="pwm_refresh"
+                onClick={() => {
+                  onCheckForUpdates();
+                  close();
+                }}
+              />
             ) : null}
           </SettingsGroup>
         ) : (
-          <div className="px-4 py-3">
-            <HelperText role="status">Checking your settings…</HelperText>
-          </div>
+          <HelperText role="status" className="profile-account-note">
+            Checking your settings…
+          </HelperText>
         )}
+        {saveFailed ? (
+          <HelperText role="alert" className="profile-account-note">
+            Couldn’t save. Try again.
+          </HelperText>
+        ) : null}
       </SettingsDetailPanel>
     </>
   );

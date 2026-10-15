@@ -4,10 +4,14 @@ import { usePathname } from "next/navigation";
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { HelperText } from "@/components/app-ui/typography";
+import {
+  FormLabel,
+  HelperText,
+  RowDescription,
+  RowLabel,
+} from "@/components/app-ui/typography";
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
 import type { ProfileResearchResult } from "@/lib/services/profile-research-service";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -16,7 +20,7 @@ export function WorldModelSources({
   ownerId,
   vaultKey,
   vaultOwnerToken,
-  name: initialName,
+  name,
   embedded = false,
   present = true,
   backQuery,
@@ -25,14 +29,14 @@ export function WorldModelSources({
   ownerId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  /** The account name; shown, never retyped, and sent with the pages. */
   name: string;
   embedded?: boolean;
   present?: boolean;
   backQuery?: Readonly<Record<string, string>>;
   onSaved?: () => void;
 }) {
-  const [name, setName] = useState(initialName),
-    [urls, setUrls] = useState(""),
+  const [urls, setUrls] = useState(""),
     [permitted, setPermitted] = useState(false);
   const [result, setResult] = useState<ProfileResearchResult | null>(null),
     [busy, setBusy] = useState(false),
@@ -91,7 +95,7 @@ export function WorldModelSources({
     } catch {
       if (guard.isCurrent())
         setMessage(
-          "Couldn’t read those sources. Use up to three public pages and your account name.",
+          "Couldn’t read those pages. Add up to three public links and your name.",
         );
     } finally {
       if (guard.isCurrent()) setBusy(false);
@@ -99,37 +103,35 @@ export function WorldModelSources({
   }
   return (
     <>
-      <SettingsGroup title="Add your own sources">
+      <SettingsGroup title="Pages you choose">
         <div className="space-y-3 px-4 py-3">
           <HelperText>
-            Bring your website or public profiles. Review the supported details
-            before saving them.
+            Add your website or public profiles. You review every detail before
+            it’s saved.
           </HelperText>
-          <label className="block space-y-1 text-xs">
-            <span className="font-semibold">Your account name</span>
-            <Input
-              aria-label="Your account name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={160}
-            />
-          </label>
-          <label className="block space-y-1 text-xs">
-            <span className="font-semibold">Public source links, one per line</span>
+          <div className="block space-y-1">
+            <FormLabel as="span">Your name</FormLabel>
+            <RowLabel as="p" data-testid="pwm-sources-name">
+              {name.trim() || "Not added"}
+            </RowLabel>
+          </div>
+          <label className="block space-y-1">
+            <FormLabel as="span">Page links, one per line</FormLabel>
             <Textarea
-              aria-label="Public source links, one per line"
+              aria-label="Page links, one per line"
               value={urls}
               onChange={(e) => setUrls(e.target.value)}
               maxLength={6144}
             />
           </label>
-          <label className="flex min-h-11 items-center gap-3 text-xs">
+          <label className="flex min-h-11 items-center gap-3">
             <Checkbox
               checked={permitted}
               onCheckedChange={(v) => setPermitted(v === true)}
             />
-            These are public sources I can use, supplied independently of Google
-            research results.
+            <RowDescription as="span">
+              These are public pages I chose myself, not search results.
+            </RowDescription>
           </label>
           <Button
             size="compact"
@@ -137,7 +139,7 @@ export function WorldModelSources({
             disabled={busy || !permitted || !name.trim() || !urls.trim()}
             onClick={() => void prepare()}
           >
-            {busy ? "Reading your sources…" : "Prepare details to review"}
+            {busy ? "Reading pages…" : "Read these pages"}
           </Button>
           {message && <HelperText role="status">{message}</HelperText>}
         </div>

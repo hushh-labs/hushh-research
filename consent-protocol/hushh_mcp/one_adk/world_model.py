@@ -210,6 +210,8 @@ async def run_world_model(
             "answer": "",
             "source_refs": [],
             "state": "started",
+            # Wall-clock start time: the last activity moves when a search begins.
+            "at": time.time(),
         }
         await checkpoint()
 
@@ -257,6 +259,7 @@ async def run_world_model(
                 answer=answer,
                 state="received" if observed else "unavailable",
                 search_suggestions=[html] if isinstance(html, str) and html else [],
+                at=time.time(),
             )
             await checkpoint()
 
@@ -278,11 +281,13 @@ async def run_world_model(
         await require_access()
         if len(result.final_text) > 100_000:
             raise ValueError("Provider answer exceeds supported bounds")
+        # Wall-clock completion time lets progress report the last activity.
         attempts[str(index)].update(
             observed=observed,
             answer=result.final_text,
             source_refs=received,
             state="received" if observed else "unavailable",
+            at=time.time(),
         )
         await checkpoint()
         return {

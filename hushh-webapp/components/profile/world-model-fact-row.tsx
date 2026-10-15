@@ -2,6 +2,7 @@
 
 import { SettingsRow } from "@/components/profile/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/lib/morphy-ux/button";
 
 /** One short Personal World Model statement with its owner decision controls. */
@@ -20,7 +21,9 @@ export function WorldModelFactRow({
   /** Stable statement key; focus moves to the next row's Yes after a decision. */
   factKey?: string;
   statement: string;
+  /** Source title or decision; never blank for a doubtful match (the page falls back). */
   meta: string;
+  /** Tagged "Possible match": doubtful evidence or a doubtful match. */
   unsure: boolean;
   undecided: boolean;
   saving: boolean;
@@ -31,15 +34,11 @@ export function WorldModelFactRow({
 }) {
   return (
     <SettingsRow
-      title={<span className="line-clamp-2 break-words">{statement}</span>}
+      title={<span className="line-clamp-2 [overflow-wrap:anywhere]">{statement}</span>}
       description={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="min-w-0 break-words">{meta}</span>
-          {unsure ? (
-            <span className="shrink-0 rounded-full bg-[color:var(--app-neutral-fill)] px-2 py-0.5">
-              Unsure
-            </span>
-          ) : null}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{meta}</span>
+          {unsure ? <Badge variant="secondary">Possible match</Badge> : null}
         </span>
       }
       onClick={onOpen}

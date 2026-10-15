@@ -40,6 +40,8 @@ flowchart TD
   root --> n15
   n16["MuleSoft Managed Omni Gateway Private Space"]
   root --> n16
+  n18["Personal World Model Runbook"]
+  root --> n18
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
@@ -118,6 +120,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
 - [migration-governance.md](./migration-governance.md): canonical migration authority, the exact UAT/production DB contracts, and allowed SQL surfaces.
 - [mulesoft-managed-omni-gateway-private-space.md](./mulesoft-managed-omni-gateway-private-space.md): current CRM transport, credential boundary, and UAT handshake proof.
+- [pwm-runbook.md](./pwm-runbook.md): Personal World Model operator runbook: run lifecycle, log evidence, paging states, frontend-only deploy during a provider outage, and alerting.
 - [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
 - [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.
