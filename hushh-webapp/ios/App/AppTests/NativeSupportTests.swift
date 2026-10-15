@@ -535,6 +535,35 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testProfileChoiceAcknowledgementKeepsRenderedMenuAppearanceWithoutReplayingTheAction() throws {
+        let model = NativeDrawerModel(privateDrawerState())
+        model.interactionEnabled = true
+        var choices = 0
+        model.choose = { _, _, _ in choices += 1; model.pendingSequence = choices; return true }
+        func rowPixels() throws -> Data {
+            // Public synthetic content only. Render the actual shared SwiftUI
+            // menu, not a model property or markup snapshot. Exclude its glass
+            // header: the regression is the untouched row's enabled appearance.
+            let renderer = ImageRenderer(content: NativeDrawerContent(model: model)
+                .frame(width: 390, height: 844).environment(\.colorScheme, .light))
+            renderer.scale = 1
+            let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+            let row = try XCTUnwrap(image.cropping(to: CGRect(x: 20, y: 108, width: 350, height: 64)))
+            return try XCTUnwrap(row.dataProvider?.data) as Data
+        }
+        let baseline = try rowPixels()
+        XCTAssertTrue(model.choice("row", row: "row-handle"))
+        XCTAssertFalse(model.choice("row", row: "row-handle"), "The visual fix must preserve one-shot choice admission")
+        XCTAssertEqual(choices, 1)
+        let pending = try rowPixels()
+        XCTAssertTrue(baseline == pending, "Bridge acknowledgement cannot dim and restore the whole menu on every tap")
+        model.settle(sequence: 1, success: true)
+        XCTAssertTrue(baseline == (try rowPixels()), "Settlement must not repaint a different row appearance")
+        model.update(privateDrawerState(update: 2, enabled: false))
+        XCTAssertFalse(baseline == (try rowPixels()), "Negative control: genuinely unavailable rows must retain disabled appearance")
+    }
+
+    @MainActor
     func testDrawerMotionQuarantinesInteractionWithoutDisabledAppearance() {
         let model = NativeDrawerModel(privateDrawerState())
         let choose = expectation(description: "Only admitted row choice")
