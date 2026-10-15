@@ -6,7 +6,7 @@ Each fixture scripts what a misbehaving model returns. The runtime functions
 - ``rejected``: a runtime validator refused the output;
 - ``not_ready``: accepted, but not Ready;
 - ``accepted_clean``: Ready, and the eval's deterministic checks find no defect
-  (for example a request-only packet after the runtime rewrote its copy);
+  (for example a bounded request description accepted by the independent checker);
 - ``accepted_with_defect``: Ready although a deterministic check fails. This
   turns CI red, unless the fixture names a ``known_gap`` (tracked runtime work),
   which the test suite marks as a strict expected failure.

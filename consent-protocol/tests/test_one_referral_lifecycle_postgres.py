@@ -1,0 +1,730 @@
+"""Real PostgreSQL referral transactions, concurrency and authority boundaries.
+
+Use CI's ONE_COMMAND_TEST_DATABASE_URL or set REFERRAL_TEST_DATABASE_URL to a
+disposable PostgreSQL database. Each test owns a random isolated schema.
+"""
+
+import importlib
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import create_engine, text
+
+from hushh_mcp.services import one_referral_activity_service as activity
+from hushh_mcp.services import one_referral_challenge_service as challenge
+from hushh_mcp.services import one_referral_leaderboard_service as leaderboard
+from hushh_mcp.services import one_referral_maintenance_service as maintenance
+from hushh_mcp.services import one_referral_network_service as network
+from hushh_mcp.services import one_referral_program_settings_service as settings
+from hushh_mcp.services import one_referral_rewards_service as rewards
+from hushh_mcp.services import one_referral_scoring_service as scoring
+from hushh_mcp.services import one_referral_service as referrals
+
+pytestmark = pytest.mark.db
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def db(monkeypatch):
+    url = os.getenv("REFERRAL_TEST_DATABASE_URL") or os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("A disposable referral or canonical CI PostgreSQL URL is required")
+    schema = "referral_test_" + uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as conn:
+        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-c search_path={schema},public"})
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.exec_driver_sql("""
+              CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY,created_at TIMESTAMPTZ DEFAULT clock_timestamp());
+              CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT,phone_verified BOOLEAN);
+              CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY,setup_completed BOOLEAN,setup_completed_at BIGINT);
+              CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT);
+              CREATE TABLE one_location_circle_members(circle_id UUID,user_id TEXT,status TEXT);
+              CREATE TABLE pkm_data(user_id TEXT PRIMARY KEY,encrypted_data_ciphertext TEXT);
+              CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
+            """)
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347):
+                path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
+                conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
+
+        @contextmanager
+        def connection():
+            with engine.begin() as conn:
+                yield conn
+
+        for module in (
+            activity,
+            challenge,
+            leaderboard,
+            network,
+            settings,
+            rewards,
+            scoring,
+            referrals,
+            maintenance,
+            importlib.import_module("db.db_client"),
+            importlib.import_module("hushh_mcp.services.one_referral_display_handle_service"),
+        ):
+            monkeypatch.setattr(module, "get_db_connection", connection)
+        yield engine
+    finally:
+        engine.dispose()
+        with admin.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+def _actor(db, uid, name=None):
+    with db.begin() as conn:
+        conn.execute(text("INSERT INTO actor_profiles(user_id) VALUES(:uid)"), {"uid": uid})
+        conn.execute(
+            text("INSERT INTO actor_identity_cache VALUES(:uid,:name,TRUE)"),
+            {"uid": uid, "name": name or uid},
+        )
+        conn.execute(
+            text("INSERT INTO vault_keys VALUES(:uid,TRUE,:at)"),
+            {"uid": uid, "at": int(datetime.now(timezone.utc).timestamp() * 1000)},
+        )
+
+
+def _invite(db, parent, child, name=None):
+    slug = referrals.get_or_create_referral_code(parent, referrals.get_active_policy())["slug"]
+    attribution = referrals.resolve_slug_for_attribution(slug, user_agent="Mozilla/5.0")
+    _actor(db, child, name)
+    assert referrals.bind_attribution(attribution["attribution_id"], child)["status"] == "bound"
+    return attribution["attribution_id"]
+
+
+def _reply(db, uid, *, status="complete", model="verified-runtime"):
+    conversation_id, message_id = uuid4(), uuid4()
+    with db.begin() as conn:
+        conn.execute(
+            text("INSERT INTO agent_chat_conversations(id,user_id) VALUES(:id,:uid)"),
+            {"id": conversation_id, "uid": uid},
+        )
+        for role, mid in (("user", uuid4()), ("assistant", message_id)):
+            conn.execute(
+                text("""
+              INSERT INTO agent_chat_messages(id,conversation_id,user_id,role,status,
+              content_ciphertext,content_iv,content_tag,model,completed_at)
+              VALUES(:id,:cid,:uid,:role,:status,'encrypted','iv','tag',:model,clock_timestamp())
+            """),
+                {
+                    "id": mid,
+                    "cid": conversation_id,
+                    "uid": uid,
+                    "role": role,
+                    "status": status,
+                    "model": model,
+                },
+            )
+    return str(message_id)
+
+
+def _settle():
+    return [scoring.process_one_job(job) for job in scoring.claim_due_scoring_jobs()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sidecar", [None, "suggest_follow_ups", "react_to_message"])
+async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(
+    db, monkeypatch, sidecar
+):
+    import time
+    from types import SimpleNamespace
+
+    from google.adk.events import Event, EventActions
+    from google.genai import types
+
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.queued_input import STOPPED_ANSWER, registry, run_scope, settle
+    from tests.helpers.chat_keys import static_chat_cipher
+
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    service = EncryptedAdkSessionService(static_chat_cipher(), referral_usage_app_name="hussh_one")
+
+    async def execute(sql, params):
+        with db.begin() as connection:
+            return SimpleNamespace(
+                data=[dict(row) for row in connection.execute(text(sql), params).mappings()]
+            )
+
+    monkeypatch.setattr(service, "_execute", execute)
+    session = await service.create_session(
+        app_name="hussh_one", user_id="bob", session_id="real-chat-path"
+    )
+    await service.append_event(
+        session,
+        Event(
+            author="user",
+            invocation_id="turn",
+            timestamp=time.time(),
+            content=types.Content(role="user", parts=[types.Part(text="synthetic private prompt")]),
+        ),
+    )
+    failed = Event(
+        author="one",
+        invocation_id="turn",
+        timestamp=time.time(),
+        error_code="MODEL_FAILED",
+        content=types.Content(role="model", parts=[types.Part(text="synthetic failed reply")]),
+    )
+    await service.append_event(session, failed)
+    await service.append_event(
+        session,
+        Event(
+            author="user",
+            invocation_id="cancelled-turn",
+            timestamp=time.time(),
+            content=types.Content(
+                role="user", parts=[types.Part(text="synthetic cancelled prompt")]
+            ),
+        ),
+    )
+    async with run_scope("bob", session.id, "cancelled-run", accepting=True) as run:
+        try:
+            registry.request_stop("bob", session.id)
+            await service.append_event(
+                session,
+                Event(
+                    author="one",
+                    invocation_id="cancelled-turn",
+                    timestamp=time.time(),
+                    content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
+                ),
+            )
+        finally:
+            settle(run)
+    await service.append_event(
+        session,
+        Event(
+            author="one",
+            invocation_id="turn",
+            timestamp=time.time(),
+            long_running_tool_ids={"review"},
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(text="synthetic review awaiting approval"),
+                    types.Part(
+                        function_call=types.FunctionCall(id="review", name="review", args={})
+                    ),
+                ],
+            ),
+        ),
+    )
+    for part in [
+        types.Part(text="synthetic private reasoning", thought=True),
+        types.Part(text=" \n\t"),
+    ]:
+        await service.append_event(
+            session,
+            Event(
+                author="one",
+                invocation_id="turn",
+                timestamp=time.time(),
+                content=types.Content(role="model", parts=[part]),
+            ),
+        )
+    if sidecar:
+        # A shown presentation tool alone cannot promote failed/thought-only
+        # output to a successful reply, nor borrow an answer from another turn.
+        await service.append_event(
+            session,
+            Event(
+                author="one",
+                invocation_id="other-turn",
+                timestamp=time.time(),
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(text="synthetic answer from another turn"),
+                        types.Part(function_call=types.FunctionCall(name=sidecar, args={})),
+                    ],
+                ),
+            ),
+        )
+
+        def sidecar_result(*, error_code=None, name=sidecar):
+            return Event(
+                author="one",
+                invocation_id="turn",
+                timestamp=time.time(),
+                error_code=error_code,
+                actions=EventActions(skip_summarization=True),
+                content=types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=name, response={"status": "shown"}
+                            )
+                        )
+                    ],
+                ),
+            )
+
+        await service.append_event(session, sidecar_result())
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT COUNT(*) FROM one_referral_events WHERE event_type='product_usage'")
+            ).scalar()
+            == 0
+        )
+    answer_parts = [types.Part(text="synthetic private reply")]
+    if sidecar:
+        answer_parts.append(types.Part(function_call=types.FunctionCall(name=sidecar, args={})))
+    reply = Event(
+        author="one",
+        invocation_id="turn",
+        timestamp=time.time(),
+        content=types.Content(role="model", parts=answer_parts),
+    )
+    await service.append_event(session, reply)
+    if sidecar:
+        assert not reply.is_final_response()
+        await service.append_event(session, sidecar_result(error_code="TOOL_FAILED"))
+        await service.append_event(session, sidecar_result(name="ordinary_tool"))
+        with db.connect() as conn:
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT COUNT(*) FROM one_referral_events WHERE event_type='product_usage'"
+                    )
+                ).scalar()
+                == 0
+            )
+        reply = sidecar_result()
+        assert reply.is_final_response()
+        await service.append_event(session, reply)
+    await service.append_event(session, reply)  # persisted source replay stays once-only
+    await service.append_event(
+        session,
+        Event(
+            author="specialist",
+            invocation_id="turn",
+            timestamp=time.time(),
+            content=types.Content(
+                role="model", parts=[types.Part(text="another private reply in the same turn")]
+            ),
+        ),
+    )
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 1
+    assert len(_settle()) == 1
+    assert activity.get_balances("alice") == {"points": 115, "coins": 100}
+    assert activity.get_balances("bob") == {"points": 10, "coins": 0}
+    with db.connect() as conn:
+        rows = (
+            conn.execute(
+                text("SELECT metadata FROM one_referral_events WHERE event_type='product_usage'")
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    assert rows[0]["source"] == "adk_chat"
+    assert "synthetic private" not in str(rows)
+
+
+def test_referral_journey_and_replay_awards(db):
+    _actor(db, "alice")
+    aid = _invite(db, "alice", "bob", "Bob Patel")
+    summary = referrals.get_referral_summary("alice")
+    assert summary["total_count"] == 1 and summary["in_progress_count"] == 1
+    assert summary["referrals"][0]["display_name"] == "Bob Patel"
+    assert referrals.bind_attribution(aid, "bob")["status"] == "already_used"
+    activity.record_app_open("bob")
+    referrals.sync_referral_qualification_from_onboarding("bob")
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 0
+    # Neither arbitrary IDs nor a failed reply count as verified product use.
+    activity.reconcile_product_activity("bob", str(uuid4()))
+    activity.reconcile_product_activity("bob", _reply(db, "bob", status="error"))
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 0
+    mid = _reply(db, "bob")
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: activity.reconcile_product_activity("bob", mid), range(4)))
+    assert _settle()[0]["status"] == "completed"
+    assert not _settle()
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 1
+    history = activity.get_transaction_history("alice")
+    assert sorted(row["points"] for row in history["entries"]) == [5, 10, 100]
+    assert sum(row["coins"] for row in history["entries"]) == 100
+    assert scoring.get_cumulative_score("alice") == 115
+    assert scoring.get_cumulative_score("bob") == 10
+    scoring.publish_leaderboard_snapshot()
+    assert (
+        leaderboard.get_individual_leaderboard(viewer_user_id="alice")["entries"][0]["points"]
+        == 100
+    )
+    # Historical coin migration must not turn activity points into coins on replay.
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        try:
+            conn.connection.cursor().execute(
+                (ROOT / "db/migrations/347_one_referral_dashboard_lifecycle.sql").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except Exception:
+            conn.connection.cursor().execute("ROLLBACK")
+            raise
+    assert sum(row["coins"] for row in activity.get_transaction_history("alice")["entries"]) == 100
+
+
+def test_concurrent_bind_preserves_single_parent_and_tree(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    slug = referrals.get_or_create_referral_code("bob", referrals.get_active_policy())["slug"]
+    aid = referrals.resolve_slug_for_attribution(slug, user_agent="Mozilla/5.0")["attribution_id"]
+    _actor(db, "carol")
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: referrals.bind_attribution(aid, "carol"), range(4)))
+    assert sum(r["status"] == "bound" for r in results) == 1
+    assert (
+        network.get_network_circle("alice")["circle_id"]
+        == network.get_network_circle("carol")["circle_id"]
+    )
+    circle = network.get_network_circle("alice")
+    assert circle["member_count"] == 3 and circle["score"] == 0
+    activity.reconcile_product_activity("carol", _reply(db, "carol"))
+    assert network.get_network_circle("alice")["score"] == 1
+    assert network.get_network_circle("alice")["qualified_member_count"] == 1
+
+
+def test_daily_streak_concurrency_timezone_reset_and_bonus(db, monkeypatch):
+    _actor(db, "alice")
+
+    class Clock(datetime):
+        value = datetime(2026, 10, 14, 18, 29, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+
+    monkeypatch.setattr(activity, "datetime", Clock)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        result = list(pool.map(lambda _: activity.record_app_open("alice"), range(4)))
+    assert sum(r["recorded"] for r in result) == 1
+    assert result[0]["activity_date"] == "2026-10-14"
+    Clock.value = datetime(2026, 10, 14, 18, 30, tzinfo=timezone.utc)
+    assert activity.record_app_open("alice")["current_run_days"] == 2
+    Clock.value += timedelta(days=1)
+    assert activity.record_app_open("alice")["current_run_days"] == 3
+    assert activity.get_transaction_history("alice")["entries"][0]["coins"] == 15
+    activity.record_app_open("alice")
+    assert len(activity.get_transaction_history("alice")["entries"]) == 1
+    Clock.value += timedelta(days=2)
+    assert activity.get_daily_streak("alice", "Asia/Kolkata")["current_run_days"] == 0
+    assert activity.record_app_open("alice")["current_run_days"] == 1
+    assert activity.get_daily_streak("alice", "Asia/Kolkata")["longest_run_days"] == 3
+
+
+def test_rewards_claims_and_next_milestone_are_persisted(db):
+    _actor(db, "alice")
+    for index in range(10):
+        uid = f"friend{index}"
+        _invite(db, "alice", uid)
+        activity.reconcile_product_activity(uid, _reply(db, uid))
+    _settle()
+    progress = leaderboard.get_milestone_progress(
+        "alice", settings_milestones=settings.get_active_program_settings().milestones
+    )
+    assert progress["earned"][0]["milestone_key"] == "voucher_10"
+    assert progress["next_milestone"]["threshold"] == 100
+    assert progress["earned"][0]["fulfillment_status"] == "pending_review"
+    _actor(db, "intruder")
+    with pytest.raises(rewards.RewardClaimError):
+        rewards.claim_milestone("intruder", "voucher_10")
+
+    def claim(_):
+        try:
+            return rewards.claim_milestone("alice", "voucher_10")["status"]
+        except rewards.RewardClaimError:
+            return "rejected"
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(claim, range(4))).count("claimed") == 1
+    with pytest.raises(rewards.RewardClaimError):
+        rewards.claim_milestone("alice", "earbuds_100")
+
+
+def test_challenge_is_persisted_and_expired_entries_are_refused(db):
+    first = challenge.get_challenge_status()
+    second = challenge.get_challenge_status()
+    assert first["round_id"] == second["round_id"] and first["cutoff_at"] == second["cutoff_at"]
+    with db.begin() as conn:
+        challenge.require_open_round(conn, first["round_id"])
+        conn.execute(
+            text("UPDATE one_referral_reward_rounds SET cutoff_at=NOW()-INTERVAL '1 second'")
+        )
+    with db.begin() as conn, pytest.raises(ValueError):
+        challenge.require_open_round(conn, first["round_id"])
+    challenge.get_challenge_status()
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT status FROM one_referral_reward_rounds WHERE id=CAST(:id AS UUID)"),
+                {"id": first["round_id"]},
+            ).scalar()
+            == "ended"
+        )
+
+
+def test_product_rewards_follow_trusted_writes(db):
+    _actor(db, "alice")
+    _actor(db, "bob")
+    with db.begin() as conn:
+        conn.execute(text("INSERT INTO pkm_data VALUES('alice','ciphertext')"))
+        conn.execute(text("UPDATE pkm_data SET encrypted_data_ciphertext='new_ciphertext'"))
+        conn.execute(text("INSERT INTO connections(user_a_id,user_b_id) VALUES('alice','bob')"))
+        conn.execute(text("UPDATE connections SET status='revoked'"))
+        conn.execute(text("UPDATE connections SET status='active'"))
+    assert scoring.get_cumulative_score("alice") == 20
+    assert scoring.get_cumulative_score("bob") == 5
+    assert all(row["coins"] == 0 for row in activity.get_transaction_history("alice")["entries"])
+
+
+def test_job_backoff_stale_lease_and_terminal_retry(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    activity.reconcile_product_activity("bob", _reply(db, "bob"))
+    job = scoring.claim_due_scoring_jobs()[0]
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_scoring_jobs SET lease_id=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '1 minute'"
+            )
+        )
+    assert scoring.process_one_job(job)["reason"] == "stale_lease"
+    scoring._record_job_failure(job["job_id"], 0, lease_id=job["lease_id"])
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_scoring_jobs SET status='queued',next_at=NOW()+INTERVAL '1 day'"
+            )
+        )
+    assert scoring.claim_due_scoring_jobs() == []
+    with db.begin() as conn:
+        conn.execute(text("UPDATE one_referral_scoring_jobs SET next_at=NOW(),retry_count=4"))
+    job = scoring.claim_due_scoring_jobs()[0]
+    scoring._record_job_failure(job["job_id"], 4, lease_id=job["lease_id"])
+    with db.connect() as conn:
+        row = conn.execute(text("SELECT status,retry_count FROM one_referral_scoring_jobs")).one()
+        assert row.status == "failed" and row.retry_count == 5
+
+
+def test_network_cycle_and_cross_owner_product_events_are_rejected(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    _invite(db, "bob", "carol")
+    mid = _reply(db, "carol")
+    activity.reconcile_product_activity("bob", mid)
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 0
+    slug = referrals.get_or_create_referral_code("carol", referrals.get_active_policy())["slug"]
+    aid = referrals.resolve_slug_for_attribution(slug, user_agent="Mozilla/5.0")["attribution_id"]
+    with pytest.raises(Exception, match="referral cycle"), db.begin() as conn:
+        conn.execute(
+            text("""
+          INSERT INTO one_referral_relationships(attribution_id,referrer_user_id,referred_user_id,policy_version,status)
+          VALUES(CAST(:aid AS UUID),'carol','alice',2,'signed_up')
+        """),
+            {"aid": aid},
+        )
+    assert network.get_network_circle("alice")["member_count"] == 3
+
+
+def test_leaderboard_pagination_and_point_only_activity_cannot_change_coin_rank(db):
+    _actor(db, "point_only")
+    now = datetime.now(timezone.utc)
+    with db.begin() as conn:
+        activity.record_score(
+            conn,
+            user_id="point_only",
+            event_type="agent_usage",
+            points=1000000,
+            coins=0,
+            version=3,
+            key="point-only",
+        )
+        for index in range(502):
+            uid = f"scored{index:04d}"
+            conn.execute(text("INSERT INTO actor_profiles(user_id) VALUES(:uid)"), {"uid": uid})
+            activity.record_score(
+                conn,
+                user_id=uid,
+                event_type="app_streak_bonus",
+                points=15,
+                coins=15,
+                version=3,
+                key=uid,
+                occurred_at=now,
+            )
+    assert scoring.publish_leaderboard_snapshot().entry_count == 502
+    page = leaderboard.get_individual_leaderboard(limit=2, viewer_user_id="scored0501")
+    assert [entry["rank"] for entry in page["entries"]] == [1, 2]
+    assert page["viewer"]["rank"] == 502
+    continuation = leaderboard.get_individual_leaderboard(
+        limit=2, after_rank=2, snapshot_id=page["snapshot_id"]
+    )
+    assert [entry["rank"] for entry in continuation["entries"]] == [3, 4]
+
+
+def test_concurrent_round_creation_and_late_flash_boundary(db):
+    cutoff = datetime.now(timezone.utc) + timedelta(days=7)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        rounds = list(
+            pool.map(
+                lambda _: settings.get_or_create_reward_round(cutoff, "Asia/Kolkata"), range(4)
+            )
+        )
+    assert len({item["id"] for item in rounds}) == 1
+    from hushh_mcp.operons.referral_scoring.points import points_for_qualification
+
+    start = datetime.now(timezone.utc)
+    end = start + timedelta(seconds=1)
+    windows = [{"start": start.isoformat(), "end": end.isoformat()}]
+    assert (
+        points_for_qualification(
+            end, {"qualified_referral_points": 100, "flash_window_total_points": 200}, windows
+        ).points
+        == 100
+    )
+
+
+def test_delayed_parent_bind_merges_an_existing_subtree(db):
+    _actor(db, "alice")
+    slug = referrals.get_or_create_referral_code("alice", referrals.get_active_policy())["slug"]
+    aid = referrals.resolve_slug_for_attribution(slug, user_agent="Mozilla/5.0")["attribution_id"]
+    _actor(db, "bob")
+    _invite(db, "bob", "carol")
+    assert referrals.bind_attribution(aid, "bob")["status"] == "bound"
+    assert (
+        network.get_network_circle("alice")["circle_id"]
+        == network.get_network_circle("carol")["circle_id"]
+    )
+    assert network.get_network_circle("alice")["member_count"] == 3
+
+
+def test_account_deletion_rebuilds_surviving_parent_chains(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    _invite(db, "bob", "carol")
+    _invite(db, "carol", "dave")
+    with db.begin() as conn:
+        conn.execute(text("DELETE FROM actor_profiles WHERE user_id='bob'"))
+    assert (
+        network.get_network_circle("carol")["circle_id"]
+        == network.get_network_circle("dave")["circle_id"]
+    )
+    assert (
+        network.get_network_circle("carol")["circle_id"]
+        != network.get_network_circle("alice")["circle_id"]
+    )
+
+
+def test_unready_users_cannot_starve_usage_reconciliation(db):
+    _actor(db, "alice")
+    for index in range(21):
+        uid = f"person{index:02d}"
+        _invite(db, "alice", uid)
+        if index < 20:
+            with db.begin() as conn:
+                conn.execute(
+                    text("UPDATE vault_keys SET setup_completed=FALSE WHERE user_id=:uid"),
+                    {"uid": uid},
+                )
+        _reply(db, uid, model=None)  # Trusted specialist completion can omit a model field.
+    assert maintenance.reconcile_pending_activity() == 20
+    assert maintenance.reconcile_pending_activity() == 1
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 1
+
+
+def test_conflicting_migration_replay_is_rejected_without_rewriting_history(db):
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_program_settings SET points=points || jsonb_build_object('referral_in_progress_points',999) WHERE version=4"
+            )
+        )
+    with (
+        pytest.raises(Exception, match="conflicting or inactive program settings"),
+        db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn,
+    ):
+        try:
+            conn.connection.cursor().execute(
+                (ROOT / "db/migrations/347_one_referral_dashboard_lifecycle.sql").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except Exception:
+            conn.connection.cursor().execute("ROLLBACK")
+            raise
+
+
+def test_authenticated_api_uses_real_owner_storage_and_forbids_circle_changes(db):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from tests.test_one_referral_dashboard_routes import routes
+
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    app = FastAPI()
+    app.include_router(routes.router)
+    client = TestClient(app)
+    assert client.get("/api/one/referrals/points").status_code == 401
+    app.dependency_overrides[routes.require_firebase_auth] = lambda: "alice"
+    assert client.get("/api/one/referrals/points?user_id=bob").json() == {"points": 5, "coins": 0}
+    assert client.post("/api/one/referrals/points", json={"points": 99999}).status_code == 405
+    assert (
+        client.post(
+            "/api/one/referrals/rewards/claim",
+            json={"milestone_key": "voucher_10", "user_id": "bob"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/one/referrals/rewards/claim", json={"milestone_key": "voucher_10"}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post("/api/one/referrals/circle", json={"circle_id": str(uuid4())}).status_code
+        == 403
+    )
+    assert activity.get_balances("alice") == {"points": 5, "coins": 0}
+
+
+def test_qualification_window_expires_without_fake_usage(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    with db.begin() as conn:
+        conn.execute(
+            text("UPDATE one_referral_relationships SET created_at=NOW()-INTERVAL '8 days'")
+        )
+    maintenance.reconcile_pending_activity()
+    summary = referrals.get_referral_summary("alice")
+    assert summary["in_progress_count"] == 0 and summary["referrals"][0]["status"] == "Expired"
+
+
+def test_rollback_preserves_awards_and_claim_history(db):
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    earned = activity.get_balances("alice")
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.connection.cursor().execute(
+            (
+                ROOT / "db/migrations/rollback/347_one_referral_dashboard_lifecycle.rollback.sql"
+            ).read_text(encoding="utf-8")
+        )
+    assert activity.get_balances("alice") == earned
+    assert settings.get_active_program_settings().version == 3

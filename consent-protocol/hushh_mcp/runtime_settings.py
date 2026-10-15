@@ -80,6 +80,9 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
     "hussh_shared_files_bucket": "HUSSH_SHARED_FILES_BUCKET",
+    "wallet_artwork_providers_enabled": "HUSHH_WALLET_ARTWORK_PROVIDERS_ENABLED",
+    "wallet_artwork_providers_path": "HUSHH_WALLET_ARTWORK_PROVIDERS_PATH",
+    "wallet_artwork_catalog_path": "HUSHH_WALLET_ARTWORK_CATALOG_PATH",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
     "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
@@ -100,6 +103,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "cloudsql_proxy_port": "CLOUDSQL_PROXY_PORT",
     "consent_sse_enabled": "CONSENT_SSE_ENABLED",
     "sync_remote_enabled": "SYNC_REMOTE_ENABLED",
+    "referral_scoring_drain_enabled": "REFERRAL_SCORING_DRAIN_ENABLED",
+    "referral_scoring_drain_scheduler_audience": "REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE",
+    "referral_scoring_drain_scheduler_project_id": "REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID",
+    "referral_scoring_drain_scheduler_service_account_email": "REFERRAL_SCORING_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL",
     "developer_api_enabled": "DEVELOPER_API_ENABLED",
     "remote_mcp_enabled": "REMOTE_MCP_ENABLED",
     "cors_allowed_origins": "CORS_ALLOWED_ORIGINS",
@@ -1128,6 +1135,33 @@ def get_wallet_pass_settings() -> WalletPassSettings:
         api_base_url=_clean_env(WALLET_API_BASE_URL_ENV) or _WALLET_API_BASE_URL_DEFAULT,
         api_key=_clean_env(WALLET_API_KEY_ENV) or "",
     )
+
+
+def wallet_artwork_provider_settings() -> tuple[bool, str]:
+    """Non-secret, default-off provider policy; separate from signing settings."""
+    return (
+        _clean_env("HUSHH_WALLET_ARTWORK_PROVIDERS_ENABLED").lower() == "true",
+        _clean_env("HUSHH_WALLET_ARTWORK_PROVIDERS_PATH"),
+    )
+
+
+def wallet_artwork_provider_credential(provider_id: str) -> str:
+    """Read uncached server secret bindings; never merge them into public config."""
+    raw = _clean_env("WALLET_ARTWORK_PROVIDER_CREDENTIALS_JSON")
+    if len(raw) > 64 * 1024:
+        raise ValueError("artwork_credentials_invalid")
+    try:
+        values = json.loads(raw or "{}")
+        value = values.get(provider_id) if isinstance(values, dict) else None
+    except (ValueError, TypeError):
+        raise ValueError("artwork_credentials_invalid") from None
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 4096
+        or any(not 33 <= ord(char) <= 126 for char in value)
+    ):
+        raise ValueError("artwork_credentials_unavailable")
+    return value
 
 
 @lru_cache(maxsize=1)

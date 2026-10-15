@@ -124,8 +124,9 @@ def register_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope-commerce-policy-file", default="", help="Approved non-secret JSON policy overlay; omitted fields retain current financial and drain settings.")
 
 
-def policy_for_args(args: argparse.Namespace, run, secret_exists, canonical_origin) -> dict[str, Any]:
-    policy = _merge_scope_commerce_policy(_read_existing_runtime_config(args.project, run, secret_exists), args.scope_commerce_policy_file)
+def policy_for_args(args: argparse.Namespace, run, secret_exists, canonical_origin, *, existing_runtime_config: dict[str, Any] | None = None) -> dict[str, Any]:
+    existing = existing_runtime_config if existing_runtime_config is not None else _read_existing_runtime_config(args.project, run, secret_exists)
+    policy = _merge_scope_commerce_policy(existing, args.scope_commerce_policy_file)
     origin = policy.get("scope_commerce_frontend_origin")
     if origin:
         if not origin.startswith("https://") or canonical_origin(origin) != origin:

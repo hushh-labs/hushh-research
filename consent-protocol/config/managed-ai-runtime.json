@@ -28,7 +28,7 @@
       "embedding_model": "gemini-embedding-001"
     },
     "uat": {
-      "project": "hussh-511311",
+      "project": "hushh-vertex-personal54",
       "auth_mode": "vertex_adc",
       "text_model": "gemini-3.6-flash",
       "text_locations": [

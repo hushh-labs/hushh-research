@@ -4,8 +4,8 @@ import { useLayoutEffect } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
-const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn() }));
-vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork } }));
+const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn() }));
+vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display } }));
 // Exercise the real region dropdown with a bounded, representative catalog.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
   { value: "US", label: "United States" }, { value: "IN", label: "India" },
@@ -39,6 +39,8 @@ beforeEach(() => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:owned-test-photo") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] });
+    networkApi.preview.mockResolvedValue("data:image/png;base64,c3ludGhldGlj");
+    networkApi.display.mockResolvedValue(true);
     scan.read.mockReset();
     scan.pick.mockReset();
     scan.native.mockReturnValue(false);
@@ -46,6 +48,52 @@ beforeEach(() => {
     networkApi.supported.mockReset();
     networkApi.supported.mockResolvedValue(["visa", "mastercard", "amex", "discover", "rupay", "other"]);
     networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
+});
+
+it("keeps Add available during an exact-design download and preserves a later owner choice", async () => {
+  let finish!: (value: unknown) => void;
+  networkApi.select.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const variant = { assetId: "owned-blue", issuerId: "owned", productId: "test", variantId: "blue", label: "Owned blue", image: "/not-dispatched-by-this-mock", digest: "a".repeat(64), allowOverlay: false };
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "exact", issuerId: "owned", variants: [variant] });
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  let token = "original-consent";
+  const getContext = () => ({ userId: "owner", vaultOwnerToken: token });
+  const view = render(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />); fillRequired();
+  await waitFor(() => expect(networkApi.select).toHaveBeenCalledOnce());
+  expect(screen.getByRole("heading", { name: "Choose your card design" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Use a simple design" }));
+  await act(async () => { finish({ source: "catalog", assetId: "owned-blue" }); });
+  token = "renewed-consent"; view.rerender(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />);
+  await waitFor(() => expect(networkApi.artwork).toHaveBeenCalledTimes(2));
+  expect(networkApi.select).toHaveBeenCalledOnce();
+  submit();
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ artwork: { source: "neutral", version: 1 } })));
+});
+
+it("rechecks open picker and selected imagery without replacing the owner choice or restoring a foreign preview", async () => {
+  vi.stubGlobal("IntersectionObserver", undefined);
+  try {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const variant = { assetId: "owned-blue", issuerId: "owned", productId: "test", variantId: "blue", label: "Owned blue", image: "/not-dispatched-by-this-mock", digest: "a".repeat(64), allowOverlay: false };
+  const selected = { ...variant, source: "catalog", version: 1, catalogVersion: "owned-1", image: "data:image/png;base64,c3ludGhldGlj", evidence: "owner_selected" };
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "exact", issuerId: "owned", variants: [variant] });
+  networkApi.select.mockResolvedValue(selected);
+  let owner = "owner";
+  const getContext = () => ({ userId: owner, vaultOwnerToken: "consent" });
+  const view = render(<SecureCardAddForm onSubmit={vi.fn()} getNetworkContext={getContext} />); fillRequired();
+  await waitFor(() => expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(2));
+  const finishes: ((approved: boolean) => void)[] = [];
+  networkApi.display.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
+  fireEvent.focus(window);
+  await waitFor(() => expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(0));
+  expect(screen.getByRole("button", { name: "Owned blue" })).toHaveAttribute("aria-pressed", "true");
+  owner = "other-owner";
+  networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", provider: "unconfigured", match: "unknown", issuerId: null, variants: [] });
+  view.rerender(<SecureCardAddForm onSubmit={vi.fn()} getNetworkContext={getContext} />);
+  await act(async () => { finishes.forEach(finish => finish(true)); });
+  expect(view.container.querySelectorAll('[data-card-artwork="catalog"] img, [aria-label="Approved card designs"] img')).toHaveLength(0);
+  } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 });
 
 

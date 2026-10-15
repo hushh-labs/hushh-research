@@ -88,6 +88,9 @@
     "transition_pkm_upgrade_run_v1",
     "transition_pkm_upgrade_step_v1",
     "upsert_pkm_data_blob",
+    "one_referral_bind_network",
+    "one_referral_record_completed_reply",
+    "one_referral_rebuild_network",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -2434,6 +2437,47 @@
       "source_fingerprint",
       "source_id",
       "source_url"
+    ],
+    "one_referral_activity_days": [
+      "user_id",
+      "activity_date",
+      "timezone",
+      "recorded_at"
+    ],
+    "one_referral_events": [
+      "scored_at"
+    ],
+    "one_referral_leaderboard_snapshots": [
+      "source_event_id"
+    ],
+    "one_referral_milestone_entitlements": [
+      "claimed_at"
+    ],
+    "one_referral_network_circles": [
+      "id",
+      "leader_user_id",
+      "created_at"
+    ],
+    "one_referral_network_members": [
+      "user_id",
+      "circle_id",
+      "parent_user_id",
+      "relationship_id",
+      "joined_at"
+    ],
+    "one_referral_policies": [
+      "required_product_event"
+    ],
+    "one_referral_reward_rounds": [
+      "started_at"
+    ],
+    "one_referral_score_events": [
+      "coins"
+    ],
+    "one_referral_streak_state": [
+      "last_activity_date",
+      "current_streak",
+      "longest_streak"
     ],
     "one_voice_conversations": [
       "audio_in_seconds",

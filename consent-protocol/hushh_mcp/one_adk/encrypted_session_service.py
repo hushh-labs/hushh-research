@@ -16,7 +16,9 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
+from datetime import datetime, timezone
 from typing import Any
 
 from google.adk.events import Event
@@ -34,11 +36,15 @@ from db.db_client import get_db
 from db.query_telemetry import record_query
 from hushh_mcp.one_adk.adk_session_repository import (
     AdkSessionRepository,
+    CompletedReplyUsage,
     PostgresAdkSessionRepository,
+    SessionRecordResult,
 )
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
+from hushh_mcp.one_adk.queued_input import current_run, registry
+from hushh_mcp.one_adk.turn_completion import successful_answer_completion
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
@@ -308,16 +314,49 @@ class EncryptedAdkSessionService(BaseSessionService):
         cipher: ChatCipher | None = None,
         *,
         repository: AdkSessionRepository | None = None,
+        referral_usage_app_name: str | None = None,
     ) -> None:
         if repository is None and pod_mode():
             raise RuntimeError("Private sessions require the injected owner repository.")
         self._cipher = cipher or ChatCipher()
         # An explicit runtime may supply its repository. Shared defaults retain the
         # existing SQL adapter and value-free database error boundary.
-        self._repository = (
-            repository
-            if repository is not None
-            else PostgresAdkSessionRepository(lambda sql, params: self._execute(sql, params))
+        self._shared_reply_replace: Callable[..., Awaitable[SessionRecordResult]] | None = None
+        self._referral_usage_app_name = referral_usage_app_name
+        if repository is None:
+            shared = PostgresAdkSessionRepository(lambda sql, params: self._execute(sql, params))
+            self._repository: AdkSessionRepository = shared
+            if referral_usage_app_name:
+                self._shared_reply_replace = shared.replace
+        else:
+            self._repository = repository
+
+    def _completed_reply_usage(self, session: Session, event: Event) -> CompletedReplyUsage | None:
+        if (
+            self._shared_reply_replace is None
+            or session.app_name != self._referral_usage_app_name
+            or not (event.id and event.invocation_id)
+            or not successful_answer_completion(event, session.events)
+            or not any(
+                prior.author == "user"
+                and prior.invocation_id == event.invocation_id
+                and prior.timestamp <= event.timestamp
+                for prior in reversed(session.events)
+            )
+        ):
+            return None
+        run = current_run()
+        if (
+            run is not None
+            and run.owner_id == session.user_id
+            and run.conversation_id == session.id
+            and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id)
+        ):
+            return None
+        return CompletedReplyUsage(
+            event_id=event.id,
+            invocation_id=event.invocation_id,
+            occurred_at=datetime.fromtimestamp(event.timestamp, timezone.utc),
         )
 
     @staticmethod
@@ -709,16 +748,19 @@ class EncryptedAdkSessionService(BaseSessionService):
             persistence_started_at = time.perf_counter()
             try:
                 encoded = self._encode(session)
-                result = await self._repository.replace(
-                    **{
-                        "app": session.app_name,
-                        "user": session.user_id,
-                        "session": session.id,
-                        "revision": revision,
-                        "chat_marker": CHAT_CIPHERTEXT_LIKE,
-                        **encoded,
-                    }
-                )
+                params = {
+                    "app": session.app_name,
+                    "user": session.user_id,
+                    "session": session.id,
+                    "revision": revision,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                    **encoded,
+                }
+                usage = self._completed_reply_usage(session, event)
+                if usage is not None and self._shared_reply_replace is not None:
+                    result = await self._shared_reply_replace(reply_usage=usage, **params)
+                else:
+                    result = await self._repository.replace(**params)
             finally:
                 self._record_phase("persistence", persistence_started_at)
             if result.data:

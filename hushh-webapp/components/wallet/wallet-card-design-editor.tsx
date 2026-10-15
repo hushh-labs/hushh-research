@@ -10,6 +10,7 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { WalletCardFace } from "./wallet-card-face";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
+import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
 
 interface OwnerContext { userId: string; vaultKey: string; vaultOwnerToken: string; isCurrent: () => boolean }
 export function WalletCardDesignEditor({ card, name, getContext, onSaved }: {
@@ -30,11 +31,12 @@ export function WalletCardDesignEditor({ card, name, getContext, onSaved }: {
     catch { if (version === revision.current) setNotice("Original artwork unavailable. A neutral design is ready."); }
   };
   const context = open ? getContext() : null;
+  const artworkVisible = useWalletArtworkVisibility(context, artwork?.source === "catalog" ? artwork : undefined, Boolean(context));
   if (!open) return <Button type="button" variant="ghost" size="compact" onClick={() => void begin()}>Change card design</Button>;
   return <section aria-label="Change card design" className="space-y-4">
-    <WalletCardFace summary={card} cardholderName={name} artwork={artwork} />
+    <WalletCardFace summary={card} cardholderName={name} artwork={artworkVisible ? artwork : undefined} />
     <WalletCardScanner active={Boolean(context)} disabled={saveBusy} onBusyChange={setScanning} onRead={draft => { setArtwork(undefined); setReading({ fields: {}, states: { pan: "missing", expiry: "missing", cardholderName: "missing" }, sanitized: draft.sanitized, candidate: draft.candidate }); }} />
-    <WalletCardArtworkPicker context={context} prefix={input?.iinPrefix ?? ""} panLength={input?.panLength ?? 0} active={Boolean(context) && !scanning && !saveBusy} sanitized={reading?.sanitized} candidate={reading?.candidate} onChange={setArtwork} onBusyChange={setBusy} />
+    <WalletCardArtworkPicker context={context} prefix={input?.iinPrefix ?? ""} panLength={input?.panLength ?? 0} active={Boolean(context) && !scanning && !saveBusy} sanitized={reading?.sanitized} candidate={reading?.candidate} value={artwork} onChange={setArtwork} onBusyChange={setBusy} />
     <div className="flex justify-center gap-2"><Button type="button" size="compact" disabled={!artwork || busy || scanning || saveBusy || !context} onClick={() => {
       const owner = getContext(); if (!owner || !artwork || saving.current) return;
       const value = artwork, version = revision.current; saving.current = true; setSaveBusy(true); setBusy(true);

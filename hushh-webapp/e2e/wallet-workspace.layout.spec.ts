@@ -926,7 +926,7 @@ for (const width of [390, 1440]) {
         await expectAligned();
         if (name === "Add") {
           for (let press = 0; press < 4; press++) {
-            const button = page.getByRole("button", { name: "Use neutral design", exact: true });
+            const button = page.getByRole("button", { name: "Use a simple design", exact: true });
             await button.evaluate(el => {
               const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
               root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;

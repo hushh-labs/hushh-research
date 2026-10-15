@@ -279,6 +279,9 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a card", exact: true }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose from photos" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Scan card" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
     expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
   });

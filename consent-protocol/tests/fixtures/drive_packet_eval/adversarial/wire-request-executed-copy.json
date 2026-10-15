@@ -1,5 +1,5 @@
 {
-  "description": "Request-only source; the model claims the transfer was executed. The runtime must replace the visible copy (fence from c3878efdad).",
+  "description": "Request-only source; the model claims the transfer was executed. The independent checker refuses the unsupported completion claim.",
   "documents": [
     {
       "complete": true,
@@ -104,12 +104,14 @@
   "verdict": {
     "correct_coverage": true,
     "correct_issuer_and_type": true,
-    "correct_record_status": true,
+    "correct_record_status": false,
     "correct_standalone_value": true,
     "correct_subject_and_account": true,
-    "issues": [],
+    "issues": [
+      "Completion is not supported by the requested record."
+    ],
     "no_unexplained_omissions": true,
     "no_unrelated_inclusions": true,
-    "state": "ready"
+    "state": "unable_to_verify"
   }
 }

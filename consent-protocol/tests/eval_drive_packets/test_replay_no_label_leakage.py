@@ -107,6 +107,33 @@ async def test_replay_builds_packets_through_the_production_worker():
     assert result.packets[0].member_case_ids == ["c0", "c1", "c2"]
 
 
+@pytest.mark.parametrize("method", ["run_facts_one", "run_packet_one"])
+async def test_replay_refuses_foreign_owners_before_content_or_registry_reads(monkeypatch, method):
+    from unittest.mock import AsyncMock
+
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    registry = AsyncMock(side_effect=AssertionError("Synthetic replay reached real placement"))
+    monkeypatch.setattr("hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", registry)
+    runner = ReplayRunner(
+        interpret=replay.FakeInterpret(), model="fixture-interpret", budget=Budget(max_usd=50)
+    )
+    facts = replay.InMemoryFactsStore(cases(1), policy="policy-1", profile="fixture")
+    facts.enqueue = AsyncMock(side_effect=AssertionError("Foreign owner reached content"))
+    facts.packets.claim_packet = AsyncMock(
+        side_effect=AssertionError("Foreign owner reached packet claim")
+    )
+    worker = runner._worker(facts, "policy-1")
+    with pytest.raises(HTTPException) as refused:
+        await getattr(worker, method)(user_id="foreign-owner")
+    assert refused.value.status_code == 503
+    assert refused.value.detail["code"] == "AGENT_HOSTING_UNAVAILABLE"
+    registry.assert_not_awaited()
+    facts.enqueue.assert_not_awaited()
+    facts.packets.claim_packet.assert_not_awaited()
+
+
 def test_resume_skips_completed_cases_and_refuses_mixed_runtimes():
     done = ObservationRow(
         batch_id="B",

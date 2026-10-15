@@ -443,12 +443,22 @@ export const AGENT_SURFACE_SOURCE = {
         ? {
             // Caller sizing owns the compact shell, not the Profile hero default.
             kind: "image",
-            containerClass: "",
-            className: one(
+            containerClass: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /data-one-presence-state=\{state\} className=\{`([^$]+)\$\{className/,
+              "One presence surface classes",
+              "components/agent/one-presence-avatar.tsx",
+            )[1] + one(
               header,
-              /<OnePresenceAvatar[^>]*className="([^"]+)"/,
-              "One presence shell image",
+              /<OnePresenceAvatar state=\{onePresenceState\} className="([^"]+)"/,
+              "One presence sizing override",
               WORKSPACE_PATH,
+            )[1],
+            className: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /unoptimized loading="eager" decoding="async" className="([^"]+)"/,
+              "One presence image sizing",
+              "components/agent/one-presence-avatar.tsx",
             )[1],
           }
         : {

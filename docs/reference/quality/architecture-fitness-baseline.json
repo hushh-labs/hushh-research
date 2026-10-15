@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2692,
+  "finding_count": 2700,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2542,7 +2542,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py",
       "symbol": "EncryptedAdkSessionService",
-      "value": 479
+      "value": 515
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2632,7 +2632,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/agent_chat_service.py",
       "symbol": "AgentChatService",
-      "value": 1307
+      "value": 1317
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6754,7 +6754,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/agent_chat_service.py",
       "symbol": "add_message",
-      "value": 105
+      "value": 115
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9967,7 +9967,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": "bind_attribution",
-      "value": 97
+      "value": 106
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9976,7 +9976,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": "get_referral_summary",
-      "value": 100
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9985,7 +9985,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": "sync_referral_qualification_from_onboarding",
-      "value": 91
+      "value": 127
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9994,7 +9994,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_weekly_award_service.py",
       "symbol": "finalize_reward_round",
-      "value": 108
+      "value": 117
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13531,7 +13531,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_one_referral_weekly_award_service.py",
       "symbol": "test_a_previous_winner_can_win_the_next_round_with_zero_new_referrals",
-      "value": 100
+      "value": 104
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15178,7 +15178,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "main",
-      "value": 262
+      "value": 267
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16438,7 +16438,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py",
       "symbol": null,
-      "value": 790
+      "value": 832
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16627,7 +16627,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1393
+      "value": 1421
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16681,7 +16681,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/agent_chat_service.py",
       "symbol": null,
-      "value": 2356
+      "value": 2366
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17437,7 +17437,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": null,
-      "value": 695
+      "value": 733
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19354,7 +19354,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": null,
-      "value": 808
+      "value": 835
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20650,7 +20650,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/referrals-panel.test.tsx",
       "symbol": null,
-      "value": 518
+      "value": 519
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20731,7 +20731,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 706
+      "value": 725
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22423,7 +22423,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/referrals-panel.tsx",
       "symbol": null,
-      "value": 650
+      "value": 660
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22540,7 +22540,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1149
+      "value": 1178
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22558,7 +22558,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
-      "value": 898
+      "value": 902
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22594,7 +22594,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2157
+      "value": 2258
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23998,7 +23998,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 733
+      "value": 782
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24116,7 +24116,7 @@
       "limit": 500,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
-      "value": 1957
+      "value": 1968
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25259,7 +25259,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_packet_one",
-      "value": 139
+      "value": 141
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25475,7 +25475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1829
+      "value": 1831
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25565,7 +25565,7 @@
       "limit": 250,
       "path": "scripts/ci/test_one_chat_retention.py",
       "symbol": "OneChatRetentionTest",
-      "value": 251
+      "value": 282
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25867,7 +25867,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 344
+      "value": 358
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25975,7 +25975,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_facts_one",
-      "value": 91
+      "value": 93
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26407,7 +26407,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py",
       "symbol": "resolve_artwork",
-      "value": 89
+      "value": 136
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26434,7 +26434,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
-      "value": 578
+      "value": 624
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26452,7 +26452,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py",
       "symbol": "build",
-      "value": 210
+      "value": 215
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26578,7 +26578,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
       "symbol": null,
-      "value": 883
+      "value": 884
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26587,7 +26587,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
       "symbol": null,
-      "value": 831
+      "value": 837
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26660,6 +26660,78 @@
       "path": "hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx",
       "symbol": null,
       "value": 533
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py|test_current_adk_chat_reply_qualifies_atomically_without_plaintext|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_one_referral_lifecycle_postgres.py",
+      "symbol": "test_current_adk_chat_reply_qualifies_atomically_without_plaintext",
+      "value": 199
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_sync.py|synchronize_artwork|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/wallet_artwork_sync.py",
+      "symbol": "synchronize_artwork",
+      "value": 187
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_wallet_artwork_providers.py|licensed_feed|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_wallet_artwork_providers.py",
+      "symbol": "licensed_feed",
+      "value": 105
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py|get_individual_leaderboard|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py",
+      "symbol": "get_individual_leaderboard",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_encrypted_adk_session_service.py|test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_database|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
+      "symbol": "test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_database",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_one_referral_service_qualification.py|_harness|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_one_referral_service_qualification.py",
+      "symbol": "_harness",
+      "value": 84
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_one_referral_lifecycle_postgres.py",
+      "symbol": null,
+      "value": 730
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx",
+      "symbol": null,
+      "value": 509
     }
   ],
   "inspected_files": 6625,
@@ -48290,6 +48362,417 @@
       "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
       "consent-protocol/scripts/workos_sso_local.py"
     ]
+  },
+  "scope_commerce_main28e_composition_20261015": {
+    "boundary": "Exactly reviewed rank-zero size measurements. Prior findings and all historical qualifications preserved; detector, exclusions and500/250/80budgets unchanged. New growth still rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 1317,
+        "key": "class_size|consent-protocol/hushh_mcp/services/agent_chat_service.py|AgentChatService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1307,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "ef045234d5506dd504c5c979e650940285fd9e33",
+        "source_sha256": "4ca4d64c484f5f0a013b213f8bf4c374d2505d03f3d61115b041a949fd9944ae"
+      },
+      {
+        "accepted_ceiling": 515,
+        "key": "class_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py|EncryptedAdkSessionService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 479,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "caabcc8249c6bc0f2836d335c26eb664fdb63f99",
+        "source_sha256": "5684863f28ac2d4e9a5fbb7aa2f67b76505f8f6d9956aa169353666e78829479"
+      },
+      {
+        "accepted_ceiling": 358,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 344,
+        "review": "Correctness debt: per-instance existing placement-read port for fixed synthetic replay owner; five canonical guards and default production lookup preserved. Foreign owners fail before stores/model;141 focused placement/Postgres cases pass.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "7214f723a136ef83623c515fad1199ae3c2b6610",
+        "source_sha256": "e9ac0052e99af5844284a83925c6823d766bd41e3db5e97e2db1883ac5d02937"
+      },
+      {
+        "accepted_ceiling": 282,
+        "key": "class_size|scripts/ci/test_one_chat_retention.py|OneChatRetentionTest|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 251,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "b6d5837f20d2a293162d8e090f142b63280a9823",
+        "source_sha256": "fe50634a78602a5a9f48616ee482ccc2ab50b8f20ff0faadff294ecce0fe53a2"
+      },
+      {
+        "accepted_ceiling": 267,
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 262,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "12b95c4ac944b169e722cdf268c6c1ee3d90f927",
+        "source_sha256": "c4fee5022a25034777ac6ab396b18643f0c5f409a4455149f8e118ef61eff7cd"
+      },
+      {
+        "accepted_ceiling": 215,
+        "key": "function_size|consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py|build|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 210,
+        "review": "Five-line authored-checker fixture binding; false proposal unchanged. Paired false-ready detector and actual deploy-gate exit1 retained, plus bounded positive.239 cases pass; three existing expected gaps unchanged.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "5e80ce89fc3b2a898f4e86f2b33c1e4d9a3c8516",
+        "source_sha256": "23a6854abb7fa0465f632a6c4187a6bfa84cb845d80800f145bd5330d88093ff"
+      },
+      {
+        "accepted_ceiling": 199,
+        "key": "function_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py|test_current_adk_chat_reply_qualifies_atomically_without_plaintext|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "0260fb3d168ebc86b2efd29fa1bd642db21d79f3",
+        "source_sha256": "d70817d3e2cf01d2e219de7249f43e057e39f0886d81e034b268f9a00d9e2964"
+      },
+      {
+        "accepted_ceiling": 187,
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_sync.py|synchronize_artwork|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "50e8100f5796a2fa9c89f2df009972f83462d11e",
+        "source_sha256": "342996928910d65670f92d3d9b89c45cd9b3ec4fc08e7d552dd0d2277c2ffed5"
+      },
+      {
+        "accepted_ceiling": 141,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 139,
+        "review": "Correctness debt: per-instance existing placement-read port for fixed synthetic replay owner; five canonical guards and default production lookup preserved. Foreign owners fail before stores/model;141 focused placement/Postgres cases pass.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "7214f723a136ef83623c515fad1199ae3c2b6610",
+        "source_sha256": "e9ac0052e99af5844284a83925c6823d766bd41e3db5e97e2db1883ac5d02937"
+      },
+      {
+        "accepted_ceiling": 136,
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py|resolve_artwork|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 89,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "0aefb74081de0b7b5921d790987134c0ce9e6469",
+        "source_sha256": "83cf5ed80a390cb26f010eb421fae47fdc4aa8aa69a0a1c4ec2464792cfbe126"
+      },
+      {
+        "accepted_ceiling": 127,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|sync_referral_qualification_from_onboarding|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 91,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "b012672b8c82a189dc702b3c233a4eab0e8d08db",
+        "source_sha256": "7670af70f4513b6d3d9b5181724b8256fc1c7e76e32e2ff7f1af057527d4c33e"
+      },
+      {
+        "accepted_ceiling": 117,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_weekly_award_service.py|finalize_reward_round|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 108,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "e5ccadda6d8255699b468bf1e4a463d567b04c72",
+        "source_sha256": "a3c0a7c988e2872e305fa30c2c0dd8768d494feed5653ea5cdfafb4f114572a2"
+      },
+      {
+        "accepted_ceiling": 115,
+        "key": "function_size|consent-protocol/hushh_mcp/services/agent_chat_service.py|add_message|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 105,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "ef045234d5506dd504c5c979e650940285fd9e33",
+        "source_sha256": "4ca4d64c484f5f0a013b213f8bf4c374d2505d03f3d61115b041a949fd9944ae"
+      },
+      {
+        "accepted_ceiling": 106,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|bind_attribution|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 97,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "b012672b8c82a189dc702b3c233a4eab0e8d08db",
+        "source_sha256": "7670af70f4513b6d3d9b5181724b8256fc1c7e76e32e2ff7f1af057527d4c33e"
+      },
+      {
+        "accepted_ceiling": 105,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|get_referral_summary|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 100,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "b012672b8c82a189dc702b3c233a4eab0e8d08db",
+        "source_sha256": "7670af70f4513b6d3d9b5181724b8256fc1c7e76e32e2ff7f1af057527d4c33e"
+      },
+      {
+        "accepted_ceiling": 105,
+        "key": "function_size|consent-protocol/tests/services/test_wallet_artwork_providers.py|licensed_feed|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "e342f671b37e25cdf59aed96280d17ec0402fc70",
+        "source_sha256": "36af6932779d937a041d85e77b27cb78cbaf8864b1819c2da1f55be1b094b6bf"
+      },
+      {
+        "accepted_ceiling": 104,
+        "key": "function_size|consent-protocol/tests/services/test_one_referral_weekly_award_service.py|test_a_previous_winner_can_win_the_next_round_with_zero_new_referrals|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 100,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "a3dbe0cab6a8098b923bdee6a9432a86bda4a416",
+        "source_sha256": "d31c8d35c47a0d49026278cf8fc60497f97b22fed18c5eb1a58b288b563956d1"
+      },
+      {
+        "accepted_ceiling": 93,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 91,
+        "review": "Correctness debt: per-instance existing placement-read port for fixed synthetic replay owner; five canonical guards and default production lookup preserved. Foreign owners fail before stores/model;141 focused placement/Postgres cases pass.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "7214f723a136ef83623c515fad1199ae3c2b6610",
+        "source_sha256": "e9ac0052e99af5844284a83925c6823d766bd41e3db5e97e2db1883ac5d02937"
+      },
+      {
+        "accepted_ceiling": 89,
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_leaderboard_service.py|get_individual_leaderboard|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "3ac7c3819067ae59780da1349365b6f344fd0ecd",
+        "source_sha256": "406d8f0cc81d94e9b39af06632386083345492b309f5400e153060a118223974"
+      },
+      {
+        "accepted_ceiling": 85,
+        "key": "function_size|consent-protocol/tests/test_encrypted_adk_session_service.py|test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_database|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "2b9537799e55c8a4ddce16b3c9cd7756f52e0fec",
+        "source_sha256": "468e646f1222c36e511316309c4e46ea200a18406d1c1b76820295eae7583486"
+      },
+      {
+        "accepted_ceiling": 84,
+        "key": "function_size|consent-protocol/tests/services/test_one_referral_service_qualification.py|_harness|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "76db561eb610ccf447926a8d7d833d5c5832e94f",
+        "source_sha256": "bb103ce1d324049385c7e1f54feb7569b7d199878543669306f4f064e79877df"
+      },
+      {
+        "accepted_ceiling": 2366,
+        "key": "module_size|consent-protocol/hushh_mcp/services/agent_chat_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2356,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "ef045234d5506dd504c5c979e650940285fd9e33",
+        "source_sha256": "4ca4d64c484f5f0a013b213f8bf4c374d2505d03f3d61115b041a949fd9944ae"
+      },
+      {
+        "accepted_ceiling": 2258,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 2157,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "3b38d4af1359a0a508d05404ba06135b0e5956e0",
+        "source_sha256": "c5b8e5e559972e918800f14d917a890f9e16816ad69afae0ba2ed41cf08e7604"
+      },
+      {
+        "accepted_ceiling": 1968,
+        "key": "module_size|scripts/ci/uat-retention-maintenance.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1957,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "64fd484b9541c66120b90c9a86d0243b9d402b35",
+        "source_sha256": "c0188f943518884255f31303b0122c0fbd8b4a3909c3e164aaa6161a9bcd78e1"
+      },
+      {
+        "accepted_ceiling": 1831,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1829,
+        "review": "Two formatting lines assert exact default resolve_mode=None admission; existing refusal/log/privacy controls unchanged.141 focused cases pass.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "1c8c34cb171f65f8140e053256dbbe54a49162dd",
+        "source_sha256": "eccbaecc75915da0b6657fea28a749fe19f527257f7042ab10cfe558f1e7ba55"
+      },
+      {
+        "accepted_ceiling": 1421,
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1393,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "d19c8e3bc4124008ecc4792389fdfce54050c59c",
+        "source_sha256": "8ac9ebd0f96602a2b84907c4151975aa7f7bafa0fdd76b210f7bad0b1144c89d"
+      },
+      {
+        "accepted_ceiling": 1178,
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1149,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "client_context",
+        "source_git_blob": "9a949eee442c9d6e7f43b116527fb314cc83a943",
+        "source_sha256": "902adca853a15afc46a1782fe41cbe1a3aa221c25f720f954e6b9772cd23d670"
+      },
+      {
+        "accepted_ceiling": 902,
+        "key": "module_size|hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 898,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "703efd0ec6e137afcb900f0671177fa0215a3dca",
+        "source_sha256": "bfaa064170b280f72bffc92f822f56c4e896ce3ba69ea43f95b3b4e19f4aa9d4"
+      },
+      {
+        "accepted_ceiling": 884,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/cli.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 883,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "aa8e57b9722830ceebd25e19df02e0077a99269e",
+        "source_sha256": "70b996b5addf0449363f0c92896f16613425230841997a65a69d32e41b07fd0a"
+      },
+      {
+        "accepted_ceiling": 837,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 831,
+        "review": "Correctness debt: per-instance existing placement-read port for fixed synthetic replay owner; five canonical guards and default production lookup preserved. Foreign owners fail before stores/model;141 focused placement/Postgres cases pass.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "ef5873a8795b2cc2ba412bd07268458fbc7de9dd",
+        "source_sha256": "a175870f8fe90cb51cd2e7d0a4c072e1c9d322bdb87a19c2b17ccd04ad763a3a"
+      },
+      {
+        "accepted_ceiling": 835,
+        "key": "module_size|consent-protocol/tests/test_encrypted_adk_session_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 808,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "2b9537799e55c8a4ddce16b3c9cd7756f52e0fec",
+        "source_sha256": "468e646f1222c36e511316309c4e46ea200a18406d1c1b76820295eae7583486"
+      },
+      {
+        "accepted_ceiling": 832,
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 790,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "caabcc8249c6bc0f2836d335c26eb664fdb63f99",
+        "source_sha256": "5684863f28ac2d4e9a5fbb7aa2f67b76505f8f6d9956aa169353666e78829479"
+      },
+      {
+        "accepted_ceiling": 782,
+        "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 733,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "12b95c4ac944b169e722cdf268c6c1ee3d90f927",
+        "source_sha256": "c4fee5022a25034777ac6ab396b18643f0c5f409a4455149f8e118ef61eff7cd"
+      },
+      {
+        "accepted_ceiling": 733,
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_referral_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 695,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "b012672b8c82a189dc702b3c233a4eab0e8d08db",
+        "source_sha256": "7670af70f4513b6d3d9b5181724b8256fc1c7e76e32e2ff7f1af057527d4c33e"
+      },
+      {
+        "accepted_ceiling": 730,
+        "key": "module_size|consent-protocol/tests/test_one_referral_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "0260fb3d168ebc86b2efd29fa1bd642db21d79f3",
+        "source_sha256": "d70817d3e2cf01d2e219de7249f43e057e39f0886d81e034b268f9a00d9e2964"
+      },
+      {
+        "accepted_ceiling": 725,
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 706,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "7929bc197e00cc474cf01592b725add0ace6b90e",
+        "source_sha256": "39dfa96da1f5fc9bfd9e9186c76199e20a4ffe88ad637dc9b6d03a663f1137ee"
+      },
+      {
+        "accepted_ceiling": 660,
+        "key": "module_size|hushh-webapp/components/profile/referrals-panel.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 650,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "client_context",
+        "source_git_blob": "1446525e7f56cfbed80dd4fb384891c56fb6f986",
+        "source_sha256": "f8a0bf89d950e50b1cbac9c9e9ee509a1a8c705ef1b7935c52c13276e1fb5a54"
+      },
+      {
+        "accepted_ceiling": 624,
+        "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 578,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "client_context",
+        "source_git_blob": "84714ed74b3ab878ba73a019ecaa74784bc6b085",
+        "source_sha256": "63b43e7fc9c1513ab49ab116c66f7b003292217e7c20e937c4c49d936dc311f2"
+      },
+      {
+        "accepted_ceiling": 519,
+        "key": "module_size|hushh-webapp/__tests__/components/referrals-panel.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 518,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "c1baa4f6925b3c77b395b7e1ffbe0e9eecfde0af",
+        "source_sha256": "28f40ab03d0293e2972dc2bcfcafbbdb4b6a9eedcd2589fa567882b52c29bd93"
+      },
+      {
+        "accepted_ceiling": 509,
+        "key": "module_size|hushh-webapp/__tests__/components/referral-dashboard-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Reviewed inherited main source and bounded composition; preserve owner isolation, existing APIs and security negative controls. Visible architecture debt; no live acceptance established.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "18e29509052a6bec93ad8dc2557df1086029ecdc",
+        "source_sha256": "f5286a4038969faed3d11d0d8003b599818136b95f614f87dc4589422018268d"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "28e9a63f4661917a34a1695200d26061927dd181",
+    "prior_baseline_sha256": "496d5b9de4bd07ce20a24ea8371aba52ecb4edc4866a64039c7657d3e1df66f3",
+    "retained_parent_revision": "acdc522d4e23ef81e970d9d9b48717b609bc0d35",
+    "reviewed_report_sha256": "512bc467cb6c83090dff30f8454a2f6575068d6d7899259633c6ea8c4dcc8258",
+    "verification": "212 backend,100frontend,141placement/Postgres,239eval pass;3existing expected gaps. Core/CI/deployed acceptance remain required."
   },
   "scope_commerce_main5d_test_composition_review_20261014": {
     "boundary": "Exactly two independently reviewed test-module ceilings. All previous occurrences, metadata, detector, exclusions and 500/250/80 budgets retained; future one-line growth negative controls fail. Browser CI remains required.",

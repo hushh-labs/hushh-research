@@ -18,6 +18,7 @@ def no_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
     monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    monkeypatch.setattr(cli, "load_profile", refuse)
 
 
 def test_plan_to_deploy_gate_on_fixtures(tmp_path, capsys, no_network):

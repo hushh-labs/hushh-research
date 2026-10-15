@@ -890,7 +890,9 @@ async def test_packet_claim_failure_is_logged_without_changing_exception_or_expo
     with pytest.raises(ConnectorLifecycleError) as captured:
         await worker.run_packet_one(user_id="private-owner-id")
     assert captured.value is error
-    admission.assert_awaited_once_with("private-owner-id", "drive_packet_build_claim")
+    admission.assert_awaited_once_with(
+        "private-owner-id", "drive_packet_build_claim", resolve_mode=None
+    )
     store.release_packet.assert_not_awaited()
     assert (
         "stage=claim_packet code=connector_storage_unavailable attempt=0 elapsed_ms=" in caplog.text

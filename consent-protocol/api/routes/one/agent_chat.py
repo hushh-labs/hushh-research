@@ -639,7 +639,7 @@ def _shared_sessions() -> EncryptedAdkSessionService:
     """
     global _session_service
     if _session_service is None:
-        _session_service = EncryptedAdkSessionService()
+        _session_service = EncryptedAdkSessionService(referral_usage_app_name=ONE_APP_NAME)
     return _session_service
 
 

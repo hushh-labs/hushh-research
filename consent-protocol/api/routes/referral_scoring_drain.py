@@ -21,6 +21,10 @@ from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 
+from hushh_mcp.services.one_referral_maintenance_service import (
+    publish_dashboard_state,
+    reconcile_pending_activity,
+)
 from hushh_mcp.services.one_referral_scoring_service import (
     claim_due_scoring_jobs,
     process_one_job,
@@ -183,6 +187,7 @@ async def drain_referral_scoring(
     deadline = time.monotonic() + _DRAIN_DEADLINE_SECONDS
     outcomes: dict[str, int] = {"completed": 0, "skipped": 0, "failed": 0}
     try:
+        await run_in_threadpool(reconcile_pending_activity, _MAX_JOBS_PER_DRAIN, deadline)
         jobs = await run_in_threadpool(claim_due_scoring_jobs, _MAX_JOBS_PER_DRAIN)
         for job in jobs:
             if time.monotonic() >= deadline:
@@ -190,6 +195,8 @@ async def drain_referral_scoring(
             result = await run_in_threadpool(process_one_job, job)
             status_key = result.get("status", "failed")
             outcomes[status_key] = outcomes.get(status_key, 0) + 1
+        if deadline - time.monotonic() > 12:
+            await run_in_threadpool(publish_dashboard_state)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

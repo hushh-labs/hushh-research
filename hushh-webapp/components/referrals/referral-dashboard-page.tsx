@@ -24,6 +24,7 @@ import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import {
   ReferralService,
   type CircleLeaderboardEntry,
+  type CircleSelection,
   type EngagementStatus,
   type LeaderboardPage,
   type MilestoneProgress,
@@ -98,7 +99,7 @@ export function formatCountdown(remainingMs: number): string {
  * which `cutoffIso` the caller passes in, which is itself sourced from
  * `GET /api/one/referrals/challenge`, not invented here).
  */
-function useCountdown(cutoffIso: string | null): string | null {
+function useCountdown(cutoffIso: string | null, serverNow?: string, receivedAt?: number): string | null {
   const [label, setLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,7 +108,8 @@ function useCountdown(cutoffIso: string | null): string | null {
       return;
     }
     const cutoff = new Date(cutoffIso).getTime();
-    const tick = () => setLabel(formatCountdown(cutoff - Date.now()));
+    const now = () => serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
+    const tick = () => setLabel(formatCountdown(cutoff - now()));
     tick();
     const interval = window.setInterval(tick, 1000);
     // A backgrounded tab throttles `setInterval`; recompute immediately from
@@ -121,7 +123,7 @@ function useCountdown(cutoffIso: string | null): string | null {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [cutoffIso]);
+  }, [cutoffIso, serverNow, receivedAt]);
 
   return label;
 }
@@ -158,7 +160,25 @@ function useReferralResource<T>(
       return fetcher(await user.getIdToken());
     },
   });
-  const reload = useCallback(() => { void refresh({ force: true }); }, [refresh]);
+  const pendingRefresh = useRef(false);
+  const ownRefresh = useRef(false);
+  const flushRefresh = useCallback(async () => {
+    if (ownRefresh.current) return;
+    ownRefresh.current = true;
+    try {
+      do {
+        pendingRefresh.current = false;
+        await refresh({ force: true });
+      } while (pendingRefresh.current);
+    } finally { ownRefresh.current = false; }
+  }, [refresh]);
+  const reload = useCallback(() => {
+    pendingRefresh.current = true;
+    if (!loading && !refreshing) void flushRefresh();
+  }, [loading, refreshing, flushRefresh]);
+  useEffect(() => {
+    if (!loading && !refreshing && pendingRefresh.current) void flushRefresh();
+  }, [loading, refreshing, flushRefresh]);
   const res: Res<T> = error && !loading && !refreshing ? { status: "error" }
     : data !== null ? { status: "ready", data } : { status: "loading" };
   return [res, reload];
@@ -236,7 +256,7 @@ function ReferralDashboardContent() {
     ReferralService.getSummary({ idToken }),
   );
   const [pointsRes, reloadPoints] = useReferralResource(user, "points", (idToken) =>
-    ReferralService.getPoints({ idToken }).then((r) => r.points),
+    ReferralService.getPoints({ idToken }),
   );
   const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, "leaderboard", (idToken) =>
     ReferralService.getLeaderboard({ idToken, limit: 10 }),
@@ -256,7 +276,9 @@ function ReferralDashboardContent() {
   const [challengeRes, reloadChallenge] = useReferralResource(user, "challenge", (idToken) =>
     ReferralService.getChallenge({ idToken }),
   );
-
+  const [circleRes, reloadCircle] = useReferralResource(user, "circle", (idToken) =>
+    ReferralService.getCircleSelection({ idToken }),
+  );
 
   const reloadAll = useCallback(() => {
     reloadSummary();
@@ -267,6 +289,7 @@ function ReferralDashboardContent() {
     reloadPolicy();
     reloadEngagement();
     reloadChallenge();
+    reloadCircle();
   }, [
     reloadSummary,
     reloadPoints,
@@ -276,6 +299,7 @@ function ReferralDashboardContent() {
     reloadPolicy,
     reloadEngagement,
     reloadChallenge,
+    reloadCircle,
   ]);
 
   // A pushed "something changed" doorbell re-reads everything: the server
@@ -302,16 +326,21 @@ function ReferralDashboardContent() {
     challengeRes.status === "ready" && challengeRes.data.active
       ? challengeRes.data.cutoff_at
       : null,
+    challengeRes.status === "ready" ? challengeRes.data.server_now : undefined,
+    challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined,
   );
 
   const cutoffAt = challengeRes.status === "ready" ? challengeRes.data.cutoff_at : null;
+  const serverNow = challengeRes.status === "ready" ? challengeRes.data.server_now : undefined;
+  const receivedAt = challengeRes.status === "ready" ? challengeRes.data.received_at_monotonic : undefined;
   useEffect(() => {
     if (!cutoffAt) return;
-    const delay = new Date(cutoffAt).getTime() - Date.now();
+    const now = serverNow && receivedAt !== undefined ? new Date(serverNow).getTime() + performance.now() - receivedAt : Date.now();
+    const delay = new Date(cutoffAt).getTime() - now;
     if (!Number.isFinite(delay)) return;
     const timer = window.setTimeout(reloadChallenge, Math.max(0, delay) + 1000);
     return () => window.clearTimeout(timer);
-  }, [cutoffAt, reloadChallenge]);
+  }, [cutoffAt, reloadChallenge, serverNow, receivedAt]);
 
   const onCopy = useCallback(async () => {
     if (!link) return;
@@ -374,6 +403,8 @@ function ReferralDashboardContent() {
               countdown={countdown}
               link={link}
               onShare={onShare}
+              circleRes={circleRes}
+              onRetryCircle={reloadCircle}
             />
           ) : null}
         </>
@@ -501,10 +532,12 @@ function YouTab({
   countdown,
   link,
   onShare,
+  circleRes,
+  onRetryCircle,
 }: {
   active: boolean;
   summary: ReferralSummary;
-  pointsRes: Res<number>;
+  pointsRes: Res<{ points: number; coins: number }>;
   onRetryPoints: () => void;
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
@@ -515,6 +548,8 @@ function YouTab({
   countdown: string | null;
   link: string;
   onShare: () => void;
+  circleRes: Res<CircleSelection>;
+  onRetryCircle: () => void;
 }) {
   return (
     <>
@@ -562,7 +597,7 @@ function YouTab({
             <ul className="mt-[14px] -mb-2.5 divide-y" style={{ borderColor: COLORS.sep }}>
               {summary.referrals.slice(0, 3).map((row, index) => (
                 <li
-                  key={`${row.started_on}:${index}`}
+                  key={row.id ?? `${row.started_on}:${index}`}
                   className="grid min-h-[58px] grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3"
                 >
                   <span
@@ -571,10 +606,11 @@ function YouTab({
                     <Users className="size-[18px]" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">
-                    <strong className="block referral-type-label">New member</strong>
+                    <strong className="block truncate referral-type-label">{row.display_name ?? "Member"}</strong>
                     <time dateTime={row.started_on} className="block referral-type-support" style={{ color: COLORS.text2 }}>
                       {formatReferralDate(row.started_on)}
                     </time>
+                    <p className="text-xs" style={{ color: COLORS.text2 }}>{row.step}</p>
                   </div>
                   <span className="referral-status-chip referral-type-caption">
                     {row.status}
@@ -586,6 +622,12 @@ function YouTab({
         </Card>
 
       </div>
+      <Card className="p-[22px]">
+        <h3 className="referral-section-heading">Your circle</h3>
+        <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
+          {(circle) => <CircleCardBody circle={circle} />}
+        </Section>
+      </Card>
     </>
   );
 }
@@ -614,7 +656,9 @@ function ChallengeClock({
       if (week_started_at && cutoff_at) {
         const start = new Date(week_started_at).getTime();
         const end = new Date(cutoff_at).getTime();
-        const now = Date.now();
+        const now = challengeRes.data.server_now && challengeRes.data.received_at_monotonic !== undefined
+          ? new Date(challengeRes.data.server_now).getTime() + performance.now() - challengeRes.data.received_at_monotonic
+          : Date.now();
         const totalDays = Math.max(1, Math.round((end - start) / 86_400_000));
         const elapsedDays = Math.min(totalDays, Math.max(0, (now - start) / 86_400_000));
         return { totalDays, elapsedDays, live: true };
@@ -721,7 +765,7 @@ function StatsGrid({
   engagementRes,
   onRetryEngagement,
 }: {
-  pointsRes: Res<number>;
+  pointsRes: Res<{ points: number; coins: number }>;
   onRetryPoints: () => void;
   leaderboardRes: Res<LeaderboardPage>;
   onRetryLeaderboard: () => void;
@@ -737,8 +781,8 @@ function StatsGrid({
   }[] = [
     {
       label: "Your coins",
-      value: statText(pointsRes, (p) => fmt(p)),
-      sub: statSub(pointsRes, () => ""),
+      value: statText(pointsRes, (p) => fmt(p.coins)),
+      sub: statSub(pointsRes, (p) => `${fmt(p.points)} total points`),
       onRetry: pointsRes.status === "error" ? onRetryPoints : undefined,
     },
     {
@@ -751,9 +795,9 @@ function StatsGrid({
       onRetry: leaderboardRes.status === "error" ? onRetryLeaderboard : undefined,
     },
     {
-      label: "Qualified referrals",
-      value: fmt(summary.qualified_count),
-      sub: "",
+      label: "Referrals",
+      value: fmt(summary.total_count ?? summary.qualified_count),
+      sub: `${fmt(summary.qualified_count)} qualified · ${fmt(summary.in_progress_count)} in progress`,
     },
   ];
 
@@ -808,6 +852,7 @@ function StreakCard({
         <StreakFlame engagementRes={engagementRes} />
         <div className="min-w-0">
           <h2 className="ui-text-section-title">Day streak</h2>
+          {engagementRes.status === "ready" && engagementRes.data.streak.longest_run_days !== undefined ? <p className="text-xs" style={{ color: COLORS.text2 }}>Longest: {engagementRes.data.streak.longest_run_days} days</p> : null}
         </div>
       </div>
       <div className="referral-streak-count">
@@ -845,6 +890,41 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
     >
       <Flame className="size-6" style={{ color: COLORS.orange }} aria-hidden="true" />
     </span>
+  );
+}
+
+function CircleCardBody({
+  circle,
+}: {
+  circle: CircleSelection;
+}) {
+  if (!circle.circle_id) {
+    return (
+      <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
+        Your circle forms when your first referred friend joins.
+      </p>
+    );
+  }
+  return (
+          <>
+            <p className="mt-1 text-lg font-semibold">
+              {circle.circle_name ?? "Referral circle"}
+            </p>
+            <dl className="mt-4 flex justify-between gap-4 border-t pt-4" style={{ borderColor: COLORS.sep }}>
+              <div>
+                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team rank</dt>
+                <dd className="mt-0.5 text-base font-semibold tabular-nums">
+                  {circle.rank ? `#${circle.rank}` : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs" style={{ color: COLORS.text2 }}>Team referrals</dt>
+                <dd className="mt-0.5 text-base font-semibold tabular-nums">
+                  {fmt(circle.contribution_count ?? 0)}
+                </dd>
+              </div>
+            </dl>
+          </>
   );
 }
 
@@ -945,7 +1025,7 @@ function StandingsTab({
                   {teams.map((team, index) => (
                     <BoardRow
                       key={team.circle_id}
-                      rank={index + 1}
+                      rank={team.rank ?? 0}
                       who={team.circle_name}
                       points={team.contribution_count}
                       top={teams[0]?.contribution_count ?? team.contribution_count}
@@ -1064,12 +1144,12 @@ function RewardsTab({
       <Section res={milestonesRes} onRetry={onRetry} retryLabel="your reward progress">
         {(milestones) => {
           // A compatibility gate, never a fallback catalogue or user-value override.
-          const expected = { voucher_10: 10, earbuds_100: 100, airpods_500: 500, iphone_10000: 10000 };
+
           const catalogue = milestones.available_milestones;
-          if (!catalogue || catalogue.length !== 4 ||
+          if (!catalogue || catalogue.length === 0 ||
             !Number.isSafeInteger(milestones.lifetime_qualified_count) || milestones.lifetime_qualified_count < 0 ||
-            new Set(catalogue.map((entry) => entry.milestone_key)).size !== 4 ||
-            catalogue.some((entry) => expected[entry.milestone_key as keyof typeof expected] !== entry.threshold)) {
+            new Set(catalogue.map((entry) => entry.milestone_key)).size !== catalogue.length ||
+            catalogue.some((entry) => !Number.isSafeInteger(entry.threshold) || entry.threshold <= 0)) {
             return (
               <Card className="p-[22px]" >
                 <h3 className="ui-text-section-title">Rewards policy unavailable</h3>
@@ -1083,12 +1163,13 @@ function RewardsTab({
             );
           }
           const ladder = [...catalogue].sort((a, b) => a.threshold - b.threshold);
+          const finalReward = ladder[ladder.length - 1];
           const count = milestones.lifetime_qualified_count;
+          const next = milestones.next_milestone;
           const earnedByKey = new Map(milestones.earned.map((entry) => [entry.milestone_key, entry]));
-          const earnedKeys = new Set(ladder.filter((entry) => earnedByKey.has(entry.milestone_key)).map((entry) => entry.milestone_key));
-          const nextEntry = ladder.find((entry) => !earnedKeys.has(entry.milestone_key));
-          const next = nextEntry ? { ...nextEntry, progress: Math.min(count, nextEntry.threshold) } : null;
           const awaitingAward = next !== null && count >= next.threshold;
+          const earnedKeys = new Set(milestones.earned.map((entry) => entry.milestone_key));
+          const previousRewards = milestones.earned.filter((entry) => !ladder.some((item) => item.milestone_key === entry.milestone_key));
           const nextLabel = next?.reward.split(/,?\s+worth\s+/i) ?? [];
 
           return (
@@ -1127,16 +1208,16 @@ function RewardsTab({
                     />
                   </div>
                 </Card>
-              ) : (
-                <Card rewardKey="iphone_10000" className="p-6">
-                  <div className="referral-complete-reward flex items-center gap-6"><div className="h-40 w-28 shrink-0"><RewardArtwork milestoneKey="iphone_10000" title="iPhone" /></div><div><h3 className="ui-text-section-title">All rewards unlocked</h3><p className="mt-2 referral-type-support" style={{ color: COLORS.text2 }}>{fmt(count)} qualified referrals. You have reached all four milestones.</p></div></div>
+              ) : finalReward ? (
+                <Card rewardKey={finalReward.milestone_key} className="p-6">
+                  <div className="flex items-center gap-6"><div className="h-40 w-28 shrink-0"><RewardArtwork milestoneKey={finalReward.milestone_key} title={finalReward.reward} /></div><div><h3 className="ui-text-section-title">All rewards unlocked</h3><p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>{fmt(count)} qualified referrals. Every configured milestone is recorded as earned.</p></div></div>
                 </Card>
-              )}
+              ) : null}
 
               <div className="referral-milestones-heading -mb-1.5 flex items-baseline justify-between gap-3">
                 <h3 className="ui-text-section-title">Milestones</h3>
-                <p className="referral-type-caption" style={{ color: COLORS.text2 }}>
-                  {earnedKeys.size} of 4 unlocked
+                <p className="text-xs" style={{ color: COLORS.text2 }}>
+                  {ladder.filter((entry) => earnedKeys.has(entry.milestone_key)).length} of {ladder.length} unlocked
                 </p>
               </div>
               <ol className="referral-reward-grid grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1167,17 +1248,39 @@ function RewardsTab({
                         <p className={`mt-auto pt-5 referral-type-caption tabular-nums${earned ? " referral-earned" : ""}`} style={{ color: earned ? "#137a35" : COLORS.text2 }}>
                           {earned ? `Unlocked at ${fmt(entry.threshold)}` : `${fmt(entry.threshold)} referrals`}
                         </p>
+                        {earned ? <MilestoneClaim milestone={milestones.earned.find((item) => item.milestone_key === entry.milestone_key)!} onClaimed={onRetry} /> : null}
                       </Card>
                     </li>
                   );
                 })}
               </ol>
+              {previousRewards.length ? <section aria-label="Previously earned rewards"><h3 className="ui-text-section-title">Previously earned rewards</h3><ul>{previousRewards.map((entry) => <li key={entry.milestone_key} className="mt-3"><strong>{entry.reward}</strong><MilestoneClaim milestone={entry} onClaimed={onRetry} /></li>)}</ul></section> : null}
             </div>
           );
         }}
       </Section>
     </>
   );
+}
+
+function MilestoneClaim({ milestone, onClaimed }: { milestone: MilestoneProgress["earned"][number]; onClaimed: () => void }) {
+  const { user } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
+  if (milestone.claimed_at) {
+    const states: Record<string, string> = { pending_review: "Awaiting review", approved: "Approved for fulfillment", shipped: "Shipped", delivered: "Delivered", cancelled: "Cancelled" };
+    return <p className="mt-2 text-xs">Claimed · {states[milestone.fulfillment_status ?? ""] ?? "Awaiting fulfillment review"}</p>;
+  }
+  const claim = async () => {
+    if (!user || saving) return;
+    setSaving(true); setError(false);
+    try {
+      await ReferralService.claimReward({ idToken: await user.getIdToken(), milestoneKey: milestone.milestone_key });
+      onClaimed();
+    } catch { setError(true); onClaimed(); }
+    finally { setSaving(false); }
+  };
+  return <div className="mt-2"><Button variant="muted" disabled={saving} onClick={() => void claim()}>{saving ? "Claiming…" : "Claim reward"}</Button>{error ? <p role="alert" className="mt-1 text-xs">Unable to claim. Refresh your rewards and try again.</p> : null}</div>;
 }
 
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {

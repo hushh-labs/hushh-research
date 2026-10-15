@@ -273,7 +273,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     </NativeFeaturePage>;
     return <>{rows}
       <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
-        <SheetContent side="right" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="z-(--z-dialog) gap-0 overflow-hidden p-0"
+        <SheetContent side="left" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="z-(--z-dialog) gap-0 overflow-hidden p-0"
           onCloseAutoFocus={event => { event.preventDefault(); restoreSidebarFocus(); }}>
           <SheetHeader className="profile-pane-header profile-pane-header--inner shrink-0 border-b">
             <div><button type="button" aria-label="Back to Chats" onClick={() => { setSelectedShareId(null); void loadBulk(); }} className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" /></button><SheetTitle>Drive sharing</SheetTitle></div>

@@ -880,6 +880,10 @@ test.describe("One compact header: phone regression", () => {
       expect(after).toEqual(before);
       expect(after[2].width).toBe(44);
       expect(after[3].width).toBe(32);
+      await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
+      const activeHeader = await box(page, "agent-header");
+      const subtitle = await box(page, "agent-subtitle");
+      expect(subtitle.y + subtitle.height).toBeLessThanOrEqual(activeHeader.y + activeHeader.height);
     }
   });
 

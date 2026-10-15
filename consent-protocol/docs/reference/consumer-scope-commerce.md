@@ -3946,3 +3946,34 @@ New shared-Chrome debugger connections are stopped. No browser restart, context
 close, approval auto-click or safeguard change is used to suppress Chrome prompts.
 Further automated reviewer work uses task-owned headless sessions; authorized
 background AppleScript is available for an existing owner provider session.
+
+### 2026-10-15 latest-main composition and isolated evaluation
+
+The infrastructure branch composes main `28e9a63f4661` without creating another
+branch or preview. Additive migration 347 and task migrations 349–355 remain
+registered with their original SQL bodies and rollback mappings; all three
+schema contracts agree on head 355. Deployment must prove 346 and 347 individually,
+not infer their presence from the highest applied number.
+
+Shared referral completion uses the existing CAS transaction and content-free
+outbox. Explicit private repositories retain their owner cipher and never receive
+the shared outbox writer. A broken-code negative control confirms that violating
+this boundary fails the existing private-repository test. Secret synchronization
+uses one strict runtime snapshot before writes and retains only owned settings.
+
+Focused checks pass 212 backend, 100 frontend, 141 placement/PostgreSQL and 239
+evaluation cases; three pre-existing expected evaluation gaps remain. The synthetic
+replay injects only its fixed owner's placement-read port through the canonical
+guard. Foreign owners fail before content access; production defaults are intact.
+The request-only adversarial fixture now follows the authored checker's refusal
+contract. Its original falsely-Ready checker remains a paired negative control:
+independent detection reports the execution defect and the actual deploy gate
+returns failure. No runtime semantic rule, detector, gate threshold or exemption
+was changed. Synthetic responses do not prove real checker accuracy.
+
+Independent reviews qualify exactly 40 size observations: 32 replacements and
+eight additions, retaining all prior occurrences and history. Scanner behavior,
+exclusions and 500/250/80 budgets remain unchanged. This checkpoint is source
+verification; canonical core, hosted CI, Dev/pod deployment and financial/OAuth
+acceptance are still required. Funding and capital have not been repeated. The
+shared Chrome debugger is untouched; no new connection requests are made.

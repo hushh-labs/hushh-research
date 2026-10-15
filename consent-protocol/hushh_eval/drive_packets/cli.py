@@ -30,6 +30,7 @@ from hushh_eval.drive_packets.contracts import (
     replace_rows,
 )
 from hushh_eval.drive_packets.privacy import PrivacyError, PrivateWorkdir, keyed
+from hushh_mcp.managed_ai_config import load_profile
 
 COMMANDS = ("plan-batch", "run-batch", "judge", "label", "score", "report", "gate")
 VERDICT_ERRORS = {
@@ -44,7 +45,6 @@ DEFAULT_MANIFEST = ROOT / "tests/fixtures/drive_pipeline_eval/manifest-v2.json"
 RUNTIME_MODEL = "gemini-3.6-flash"
 J1_MODEL = "gemini-3.1-pro-preview"
 J2_MODEL = "gemini-3.8-flash"
-VERTEX_PROJECT = "hussh-511311"
 
 
 class UsageError(Exception):
@@ -379,9 +379,10 @@ def _judges(args, plan):
     require_independent(
         runtime_model=plan.runtime["runtime_model"], j1=plan.judge["j1"], j2=plan.judge["j2"]
     )
+    project = args.vertex_project or load_profile("uat")["project"]
     return (
-        VertexJudge(model=plan.judge["j1"], project=args.vertex_project),
-        VertexJudge(model=plan.judge["j2"], project=args.vertex_project),
+        VertexJudge(model=plan.judge["j1"], project=project),
+        VertexJudge(model=plan.judge["j2"], project=project),
     )
 
 
@@ -838,7 +839,7 @@ def parser() -> argparse.ArgumentParser:
 
     judge = base("judge", "Deterministic checks, then the pinned J1/J2 judges")
     judge.add_argument("--judge", choices=("vertex", "fake"), default="vertex")
-    judge.add_argument("--vertex-project", default=VERTEX_PROJECT)
+    judge.add_argument("--vertex-project", default=None)
     judge.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
     judge.add_argument(
         "--retry-provider-errors",
@@ -849,7 +850,7 @@ def parser() -> argparse.ArgumentParser:
 
     label = base("label", "Deterministic labels, blind pre-labels, silver and the human queue")
     label.add_argument("--judge", choices=("vertex", "fake"), default="vertex")
-    label.add_argument("--vertex-project", default=VERTEX_PROJECT)
+    label.add_argument("--vertex-project", default=None)
     label.add_argument("--concurrency", type=int, default=8, choices=range(1, 9))
     label.add_argument("--interactive", action="store_true", help="Terminal y/n/edit labeler")
     label.add_argument("--labeler", default="operator")

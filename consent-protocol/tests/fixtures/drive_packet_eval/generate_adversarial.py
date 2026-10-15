@@ -271,7 +271,7 @@ def build():
         case(
             "wire-request-executed-copy",
             "Request-only source; the model claims the transfer was executed. "
-            "The runtime must replace the visible copy (fence from c3878efdad).",
+            "The independent checker refuses the unsupported completion claim.",
             [wire],
             proposal(
                 ["doc-wire"],
@@ -285,6 +285,11 @@ def build():
             ),
         )
     )
+    cases[-1]["verdict"] = {
+        **verdict("unable_to_verify"),
+        "correct_record_status": False,
+        "issues": ["Completion is not supported by the requested record."],
+    }
     cases.append(
         case(
             "wire-request-as-snapshot",

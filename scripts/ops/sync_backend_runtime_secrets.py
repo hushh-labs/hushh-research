@@ -73,6 +73,7 @@ def _run(
         input=input_text,
         text=True,
         capture_output=True,
+        check=False,
     )
     if check and result.returncode != 0:
         sys.stderr.write(result.stderr or result.stdout)
@@ -266,6 +267,49 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         )
     ):
         raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
+
+
+def _retained_referral_config(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, Any]:
+    """Retain only an explicitly activated, environment-pinned operator setting."""
+    prefix = "referral_scoring_drain_"
+    keys = (
+        prefix + "enabled",
+        prefix + "scheduler_audience",
+        prefix + "scheduler_project_id",
+        prefix + "scheduler_service_account_email",
+    )
+    if not any(key in existing for key in keys):
+        return {}
+    enabled = str(existing.get(keys[0], "")).lower()
+    if enabled not in {"true", "false"}:
+        raise ValueError("Referral drain activation must be an explicit boolean")
+    if enabled == "false":
+        return {keys[0]: False}
+    lanes = {
+        "uat": ("hushh-pda-uat", "https://api.uat.hushh.ai"),
+        "production": ("hushh-pda", "https://api.hushh.ai"),
+    }
+    expected = lanes.get(environment)
+    if (
+        expected is None
+        or project != expected[0]
+        or existing.get("environment") != environment
+    ):
+        raise ValueError(
+            "Referral drain configuration belongs to a different environment"
+        )
+    expected_values = (
+        expected[1],
+        project,
+        f"referral-scoring-sched@{project}.iam.gserviceaccount.com",
+    )
+    if tuple(existing.get(key) for key in keys[1:]) != expected_values:
+        raise ValueError(
+            "Referral drain scheduler identity does not match its environment"
+        )
+    return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -613,8 +657,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
+        retained_runtime_config = _scope_commerce_runtime_policy()["_read_existing_runtime_config"](
+            args.project, _run, _secret_exists
+        )
         args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](
-            args, _run, _secret_exists, _canonical_frontend_origin
+            args, _run, _secret_exists, _canonical_frontend_origin,
+            existing_runtime_config=retained_runtime_config,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -682,16 +730,17 @@ def main() -> int:
     sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
     config = _build_backend_runtime_config(args)
-    retained_files_config = {}
-    if args.environment == "dev":
-        raw_config = _read_secret(args.project, "BACKEND_RUNTIME_CONFIG_JSON")
-        if raw_config:
-            retained_files_config = json.loads(raw_config)
-            if not isinstance(retained_files_config, dict):
-                raise ValueError("Existing runtime configuration must be an object")
+    if retained_runtime_config:
+        config.update(
+            _retained_referral_config(
+                retained_runtime_config,
+                project=args.project,
+                environment=args.environment,
+            )
+        )
     config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
         "apply_policy"
-    ](config, retained_files_config)
+    ](config, retained_runtime_config if args.environment == "dev" else {})
     backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
         args, config
     )

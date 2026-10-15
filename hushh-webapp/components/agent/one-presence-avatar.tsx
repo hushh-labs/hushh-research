@@ -306,7 +306,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     <>
       <NextImage ref={posterRef} src={portrait[state]} alt="" width={1254} height={1254}
         unoptimized loading="eager" decoding="async" className="absolute inset-0 size-full object-contain" />
-      <canvas ref={canvasRef} width={128} height={128} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
+      <canvas ref={canvasRef} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
     </>
   );
 }

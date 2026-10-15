@@ -15,8 +15,8 @@ import { WalletLiveCardCapture } from "./wallet-live-card-capture";
 import styles from "./secure-card-add-form.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
-export function WalletCardScanner({ active, disabled, backRoute, featured = false, onRead, onBusyChange }: {
-  active: boolean; disabled: boolean; backRoute?: string; featured?: boolean;
+export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, onRead, onBusyChange }: {
+  active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean;
   onRead: (draft: CardScanDraft) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const camera = useRef<HTMLInputElement>(null), gallery = useRef<HTMLInputElement>(null);
@@ -89,10 +89,10 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
         <Image src="/wallet/card-scan-agent-one.webp" alt="" width={768} height={644} unoptimized className={styles.scanReference} />
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan here to add card</span>
       </button></div> : null}
-      <div className={styles.scanActions}>
+      {showPhotoActions ? <div className={styles.scanActions}>
         <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button>
         <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("photos")}>Choose from photos</Button>
-      </div>
+      </div> : null}
     </> : <section aria-label="Crop card photo" className="flex flex-col gap-3">
       <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Tap the four card corners clockwise, starting at the top left.</p>
       <button type="button" aria-label={`Set card corner ${cornerIndex + 1}`} disabled={busy} className="relative block min-h-11 w-full overflow-hidden rounded-2xl" onClick={event => {
