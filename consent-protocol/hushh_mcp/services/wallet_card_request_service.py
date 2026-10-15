@@ -56,8 +56,9 @@ def source_visible(conn, row, *, lock=False):
     return bool(
         one(
             conn,
-            "SELECT 1 FROM messages WHERE id=CAST(:id AS uuid) AND deleted_for_everyone_at IS NULL AND deleted_for_recipient_at IS NULL"
-            + (" FOR SHARE" if lock else ""),
+            "SELECT 1 FROM messages WHERE id=CAST(:id AS uuid) AND deleted_for_everyone_at IS NULL AND deleted_for_recipient_at IS NULL FOR SHARE"
+            if lock
+            else "SELECT 1 FROM messages WHERE id=CAST(:id AS uuid) AND deleted_for_everyone_at IS NULL AND deleted_for_recipient_at IS NULL",
             {"id": row["message_id"]},
         )
     )

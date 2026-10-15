@@ -908,6 +908,8 @@ class FeedService:
             return False
 
     def _wallet_card_requests_installed(self):
+        if os.getenv("WALLET_CARD_ACCESS_ENABLED", "").lower() not in {"1", "true", "yes"}:
+            return False
         try:
             rows = (
                 self._get_db()

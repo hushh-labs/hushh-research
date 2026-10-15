@@ -552,13 +552,14 @@ class WalletCardAccessService:
             if card_request_id:
                 from hushh_mcp.services.wallet_card_request_service import resolve_request_feed
 
-                column = "payment_grant_id" if source == PAYMENT else "profile_grant_id"
                 conn.execute(
-                    # Fixed grant-source column; the request and grant identities are bound.
                     text(
-                        f"UPDATE wallet_card_requests SET status='fulfilled',resolved_at=clock_timestamp(),{column}=CAST(:grant AS uuid) WHERE id=CAST(:id AS uuid)"
-                    ),  # nosec B608
-                    {"id": card_request_id, "grant": grant_id},
+                        "UPDATE wallet_card_requests SET status='fulfilled',resolved_at=clock_timestamp(),"
+                        "payment_grant_id=CASE WHEN :payment THEN CAST(:grant AS uuid) ELSE NULL END,"
+                        "profile_grant_id=CASE WHEN :payment THEN NULL ELSE CAST(:grant AS uuid) END "
+                        "WHERE id=CAST(:id AS uuid)"
+                    ),
+                    {"id": card_request_id, "grant": grant_id, "payment": source == PAYMENT},
                 )
                 resolve_request_feed(conn, card_request_id)
             return {"grants": self._request_grants(conn, owner, request_id, source)}
