@@ -10,7 +10,8 @@ wire.
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+from urllib.parse import urlencode
 
 from hushh_mcp.services.compute_backend import PodSpec
 
@@ -37,7 +38,14 @@ def service_incarnation(service: Optional[dict[str, Any]]) -> Optional[str]:
 class PodUpgradeHandoffClient:
     """Small synchronous client; callers run it off the event loop."""
 
-    def __init__(self, *, url: str, hushh_id: str, session: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        url: str,
+        hushh_id: str,
+        session: Any = None,
+        identity_token_provider: Callable[[str], str] | None = None,
+    ) -> None:
         value = str(url or "").strip().rstrip("/")
         if not value.startswith("https://"):
             raise PodUpgradeHandoffUnavailable("pod lifecycle endpoint is not HTTPS")
@@ -46,6 +54,7 @@ class PodUpgradeHandoffClient:
         self._url = value
         self._hushh_id = str(hushh_id).strip()[:256]
         self._session = session
+        self._identity_token_provider = identity_token_provider
 
     def _request(
         self, method: str, path: str, *, body: Optional[dict[str, Any]] = None
@@ -57,7 +66,11 @@ class PodUpgradeHandoffClient:
             import google.auth.transport.requests as google_requests  # type: ignore[import-untyped]
             import google.oauth2.id_token as google_id_token  # type: ignore[import-untyped]
 
-            token = google_id_token.fetch_id_token(google_requests.Request(), self._url)
+            token = (
+                self._identity_token_provider(self._url)
+                if self._identity_token_provider
+                else google_id_token.fetch_id_token(google_requests.Request(), self._url)
+            )
         except Exception as exc:  # noqa: BLE001 - identity failure is a hard handoff failure
             raise PodUpgradeHandoffUnavailable(
                 f"pod lifecycle identity unavailable: {type(exc).__name__}"
@@ -143,6 +156,53 @@ class PodUpgradeHandoffClient:
                 "incarnation": str(incarnation).strip(),
             },
         )
+
+    def verify_model(self, *, deployment: str, expected_revision: str) -> dict[str, Any]:
+        """Existing machine-authenticated routes; no owner information is submitted."""
+        info = self._request("GET", "/pod/info")
+        if (
+            info.get("hushhId") != self._hushh_id
+            or info.get("revision") != expected_revision
+            or info.get("podMode") is not True
+            or info.get("memoryEnabled") is not True
+            or info.get("storageBackend") != "commit_log"
+        ):
+            raise PodUpgradeHandoffUnavailable("model repair runtime recovery is unverified")
+        result = self._request("GET", "/pod/diagnostics/model?" + urlencode({"model": deployment}))
+        if (
+            result.get("provider") != "azure_openai"
+            or result.get("model") != deployment
+            or result.get("reachable") is not True
+            or result.get("status") != 200
+            or result.get("outcome") != "reachable"
+        ):
+            raise PodUpgradeHandoffUnavailable(
+                "model repair managed-identity inference is unverified"
+            )
+        return {
+            "provider": "azure_openai",
+            "model": deployment,
+            "endpoint": result.get("endpoint"),
+            "revision": expected_revision,
+            "reachable": True,
+        }
+
+    def verify_maintenance_access(
+        self, *, expected_revision: str, operation_id: str | None
+    ) -> None:
+        """Prove existing authenticated maintenance admission before resource writes."""
+        info = self._request("GET", "/pod/info")
+        status = self._request("GET", "/api/one/pod/upgrade/status")
+        if (
+            info.get("hushhId") != self._hushh_id
+            or info.get("revision") != expected_revision
+            or info.get("podMode") is not True
+            or status.get("incarnation") != expected_revision
+            or status.get("state") not in {"accepting", "draining", "idle"}
+            or not status.get("runtimeEpoch")
+            or (status.get("state") != "accepting" and status.get("operationId") != operation_id)
+        ):
+            raise PodUpgradeHandoffUnavailable("model repair maintenance admission is unverified")
 
 
 __all__ = [

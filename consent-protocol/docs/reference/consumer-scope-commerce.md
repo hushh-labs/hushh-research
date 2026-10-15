@@ -91,6 +91,24 @@ paired model deployment/environment/role. This is a maintenance gap, not a
 request to reconnect Azure. Read-only quota/model evidence identifies a supported
 GA Azure OpenAI candidate; no billing upgrade or model mutation is claimed.
 
+The bounded model-maintenance implementation now reuses the existing registry
+lease and compare-and-set publication. Its immutable plan binds the owner,
+subscription, pod incarnation, identity, image and exact writable configuration.
+Provider intents precede writes; uncertain outcomes reconcile by readback rather
+than repeating mutations. Only the paired model environment and revision suffix
+may change. Mode publication requires authenticated runtime recovery and actual
+managed-identity inference. Ordinary image upgrades cannot settle this lease.
+The focused maintenance, real-Postgres fencing, recovery and transport pack passes
+140 cases. Machine-route admission is checked before reservation or provider
+writes. The current admin preflight fails Google machine-token permission with
+HTTP 403; no Azure model, IAM, billing or financial mutation has occurred.
+
+The composed core's subsequent blockers were a main-imported implicit Mermaid
+node and an outdated platform-skill inventory hash. The diagram now declares its
+node; the independently reviewed skill diff changes one freshness comment only,
+and retains its pending-review classification. These corrections preserve the
+checks. Final integrated core and hosted CI remain required before Dev promotion.
+
 Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and was
 pushed on the existing branch. Its
 [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38660426398)

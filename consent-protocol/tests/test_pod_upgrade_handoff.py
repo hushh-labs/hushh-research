@@ -15,6 +15,97 @@ def test_service_incarnation_uses_ready_revision_then_traffic() -> None:
     assert service_incarnation({"status": {}}) is None
 
 
+@pytest.mark.parametrize("refusal", [None, "owner", "revision", "operation", "epoch"])
+def test_model_maintenance_admits_only_the_current_owner_runtime_and_operation(refusal):
+    info = {"hushhId": "ha1-test", "revision": "rev-a", "podMode": True}
+    status = {
+        "incarnation": "rev-a",
+        "state": "idle",
+        "operationId": "model-attempt",
+        "runtimeEpoch": "epoch-a",
+    }
+    if refusal == "owner":
+        info["hushhId"] = "other-owner"
+    elif refusal == "revision":
+        info["revision"] = "rev-other"
+    elif refusal == "operation":
+        status["operationId"] = "different-operation"
+    elif refusal == "epoch":
+        status.pop("runtimeEpoch")
+    client = PodUpgradeHandoffClient(url="https://pod.example", hushh_id="ha1-test")
+    client._request = lambda method, path: info if path == "/pod/info" else status
+    if refusal:
+        with pytest.raises(PodUpgradeHandoffUnavailable):
+            client.verify_maintenance_access(
+                expected_revision="rev-a", operation_id="model-attempt"
+            )
+    else:
+        client.verify_maintenance_access(expected_revision="rev-a", operation_id="model-attempt")
+
+
+@pytest.mark.parametrize("refusal", [None, "owner", "revision", "model_identity"])
+def test_model_maintenance_proves_runtime_and_inference_under_the_exact_pod_audience(refusal):
+    calls = []
+    info = {
+        "hushhId": "ha1-test",
+        "revision": "rev-new",
+        "podMode": True,
+        "memoryEnabled": True,
+        "storageBackend": "commit_log",
+    }
+    diagnostic = {
+        "provider": "azure_openai",
+        "model": "one-chat",
+        "reachable": True,
+        "status": 200,
+        "outcome": "reachable",
+        "endpoint": "test.openai.azure.com",
+    }
+    if refusal == "owner":
+        info["hushhId"] = "other-owner"
+    elif refusal == "revision":
+        info["revision"] = "rev-old"
+    elif refusal == "model_identity":
+        diagnostic["reachable"] = False
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def json(self):
+            return self.body
+
+    class Session:
+        def get(self, url, *, headers, allow_redirects, **_):
+            assert headers["Authorization"] == "Bearer synthetic-identity"
+            assert allow_redirects is False
+            calls.append(url)
+            return Response(diagnostic if "/diagnostics/model?" in url else info)
+
+    def identity(audience):
+        assert audience == "https://pod.example"
+        return "synthetic-identity"
+
+    client = PodUpgradeHandoffClient(
+        url="https://pod.example",
+        hushh_id="ha1-test",
+        session=Session(),
+        identity_token_provider=identity,
+    )
+    if refusal:
+        with pytest.raises(PodUpgradeHandoffUnavailable):
+            client.verify_model(deployment="one-chat", expected_revision="rev-new")
+    else:
+        assert (
+            client.verify_model(deployment="one-chat", expected_revision="rev-new")["reachable"]
+            is True
+        )
+    assert calls[0] == "https://pod.example/pod/info"
+    assert len(calls) == (1 if refusal in {"owner", "revision"} else 2)
+
+
 @pytest.mark.parametrize("method", ["POST", "GET"])
 def test_handoff_rejects_non_success_responses(monkeypatch, method: str) -> None:
     class Response:
