@@ -81,7 +81,9 @@ def _client_key(request: Request) -> str:
     return f"sso:{get_remote_address(request) or 'unknown'}"
 
 
-def _global_key(_request: Request) -> str:
+def _global_key(request: Request) -> str:  # noqa: ARG001
+    # The parameter must be named `request`: slowapi calls a key function with no argument at all
+    # when it is not, and the route then answers 500.
     return "sso:global"
 
 
