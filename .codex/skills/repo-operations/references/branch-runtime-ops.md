@@ -195,7 +195,7 @@ web origin `http://localhost:3000`, and `lsof -ti :6543` (proxy) / `:8000`
    `allow_auto_merge` enabled so `gh pr merge` can enqueue without waiving validation.
 3. `deploy to UAT` is separate: land on `main`, identify the green SHA,
    dispatch UAT deploy for that SHA, and monitor terminal status.
-4. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
+4. Monitor `PR Validation` on the PR head and any merge-group SHA, `Main Post-Merge Smoke`,
    `Deploy to UAT`, and RCA-triggered release authority runs until terminal.
 5. Core runs in `queued`, `in_progress`, or `requested` state mean the task is
    not complete.

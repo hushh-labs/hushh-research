@@ -20,7 +20,7 @@ Run the same local blocking CI surface that GitHub expects for `PR Validation` a
 10. After Codex triggers merge, auto-merge, or merge-queue entry, keep monitoring until the authoritative chain reaches terminal state.
 11. For merge-queue repos, do not stop at `queued to merge`; the minimum completion bar is:
    - queue entry confirmed
-   - `Queue Validation` terminal
+   - merge-group `PR Validation` terminal
    - if the change lands on `main`, `Main Post-Merge Smoke` terminal
 12. If the PR lands on `main` from an isolated branch, switch back to the preserved developer branch and back-sync `origin/main` before handoff.
 13. Only stop at the queue stage when the user asked to queue the PR, not to see it fully land.

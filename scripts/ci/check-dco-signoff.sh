@@ -15,6 +15,19 @@ resolve_range() {
     return 0
   fi
 
+  if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+    if [ -z "${GITHUB_BASE_SHA:-}" ] || [ -z "${GITHUB_HEAD_SHA:-}" ] || [ -z "${GITHUB_SHA:-}" ]; then
+      echo "Merge-group DCO requires its event base, head, and GitHub SHA." >&2
+      return 1
+    fi
+    if [ "$GITHUB_HEAD_SHA" != "$GITHUB_SHA" ] || [ "$(git rev-parse HEAD)" != "$GITHUB_HEAD_SHA" ]; then
+      echo "Merge-group DCO checkout does not match its event head SHA." >&2
+      return 1
+    fi
+    echo "${GITHUB_BASE_SHA}..${GITHUB_HEAD_SHA}"
+    return 0
+  fi
+
   if [ -n "${GITHUB_BASE_SHA:-}" ] && [ -n "${GITHUB_SHA:-}" ]; then
     echo "${GITHUB_BASE_SHA}..${GITHUB_SHA}"
     return 0
@@ -35,14 +48,27 @@ resolve_range() {
 
 COMMIT_RANGE="$(resolve_range "$@")"
 
+# A merge group adds unsigned GitHub-generated merge commits on the first-parent
+# queue spine. Contributor branch commits, including their own merges, enter
+# through the other parent and still require signoff. PR and local release
+# ranges have no synthetic queue commits, so every commit is checked there.
+synthetic_output=""
+if [ "${GITHUB_EVENT_NAME:-}" = "merge_group" ]; then
+  synthetic_output="$(git rev-list --first-parent --merges "$COMMIT_RANGE")"
+fi
+
 COMMITS=()
+commits_output="$(git rev-list "$COMMIT_RANGE")"
 while IFS= read -r commit; do
   [ -n "$commit" ] || continue
+  if [ -n "$synthetic_output" ] && grep -Fxq "$commit" <<< "$synthetic_output"; then
+    continue
+  fi
   COMMITS[${#COMMITS[@]}]="$commit"
-done < <(git rev-list --no-merges "$COMMIT_RANGE")
+done <<< "$commits_output"
 
 if [ "${#COMMITS[@]}" -eq 0 ]; then
-  echo "No non-merge commits found in range ${COMMIT_RANGE}."
+  echo "No authored commits found in range ${COMMIT_RANGE}."
   exit 0
 fi
 

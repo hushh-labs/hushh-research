@@ -4,8 +4,9 @@
 # (origin/main by default) before push/merge. A branch that already contains the
 # base tip is fresh and passes in every mode. MAIN_SYNC_MODE decides what being
 # behind means:
-#   - block (default): fail. The merge queue (.github/workflows/queue-validation.yml),
-#     PRs into integration/pr-train and scripts/ci/local-release-gate.sh use it.
+#   - block (default): fail. PRs into integration/pr-train and
+#     scripts/ci/local-release-gate.sh use it. Merge groups prove their
+#     immutable event base and head instead of racing a moving remote tip.
 #   - warn: print the advisory and exit 0 (pre-push on feature branches).
 #   - bounded: fail only when being behind can hide something the PR's own checks
 #     did not test; otherwise pass with a ::warning:: and a step summary. PR
