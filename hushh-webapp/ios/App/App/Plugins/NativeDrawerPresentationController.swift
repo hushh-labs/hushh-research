@@ -253,8 +253,9 @@ private struct NativeProfilePageBody: View {
     let account: Bool
     var observer: ((String, CGRect, Bool) -> Void)?
     var body: some View {
-        NativeDrawerContent(model: model, profileRowObserver: observer)
-            .profileContent(account ? model.page("account")?.sections ?? [] : model.projection.sections)
+        // Install the actual View, not a helper called on an uninstalled View:
+        // its ScaledMetric and environment properties need SwiftUI ownership.
+        NativeDrawerContent(model: model, profileRowObserver: observer, profilePage: account ? .account : .menu)
     }
 }
 
@@ -669,10 +670,12 @@ private struct NativeHistoryLayoutMeasurement: ViewModifier {
 }
 
 struct NativeDrawerContent: View {
+    enum ProfilePage { case menu, account }
     @ObservedObject var model: NativeDrawerModel
     var historyLayoutObserver: ((String, NativeHistoryLayoutPart, CGRect) -> Void)? = nil
     // Public-fixture-only measurement, never installed by a product host.
     var profileRowObserver: ((String, CGRect, Bool) -> Void)? = nil
+    var profilePage: ProfilePage? = nil
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
@@ -680,7 +683,9 @@ struct NativeDrawerContent: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var renameFocused: String?
     var body: some View {
-        if model.projection.family == "profile", model.projection.profileStack != nil {
+        if let profilePage {
+            profileContent(profilePage == .account ? model.page("account")?.sections ?? [] : model.projection.sections)
+        } else if model.projection.family == "profile", model.projection.profileStack != nil {
             profileNavigation
         } else {
             legacyContent
@@ -821,7 +826,7 @@ struct NativeDrawerContent: View {
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its
     /// scroll/presentation. Dynamic Type may grow rows beyond the 56pt minimum.
-    fileprivate func profileContent(_ sections: [NativeDrawerSection]) -> some View {
+    private func profileContent(_ sections: [NativeDrawerSection]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 ForEach(sections) { section in
