@@ -386,6 +386,37 @@ async def test_real_isolated_parser_and_redacted_failure():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("slots", [1, 2])
+async def test_page_extraction_children_are_bounded_per_process(monkeypatch, slots):
+    import asyncio
+
+    from hushh_mcp.services import drive_document_processor
+
+    monkeypatch.setenv("DRIVE_PAGE_EXTRACTION_SLOTS", str(slots))
+    in_flight = peak = 0
+
+    async def child(*args, **kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.02)
+        in_flight -= 1
+        return {"error": "no_extractable_text"}
+
+    monkeypatch.setattr(drive_document_processor, "_private_process", child)
+    processor = LocalDocumentProcessor(
+        scanner=SimpleNamespace(scan=AsyncMock()), parser=SimpleNamespace(), embedder=None
+    )
+    results = await asyncio.gather(
+        *(processor.extract_pages(content=b"private", mime_type="text/plain") for _ in range(4)),
+        return_exceptions=True,
+    )
+    assert [str(result) for result in results] == ["no_extractable_text"] * 4
+    # Concurrent owner jobs overlap downloads; CPU children stay one per slot.
+    assert peak == slots
+
+
+@pytest.mark.asyncio
 async def test_scanner_failure_prevents_parse_and_embedding():
     scanner = SimpleNamespace(scan=AsyncMock(side_effect=DriveReadError("unsafe_document")))
     parser = SimpleNamespace(parse=AsyncMock())

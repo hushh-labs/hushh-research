@@ -30,6 +30,7 @@ from hushh_mcp.services.drive_document_pages import (
     ExtractedPages,
 )
 from hushh_mcp.services.drive_document_parser import MAX_TEXT_BYTES, ParsedText
+from hushh_mcp.services.drive_worker_limits import page_extraction_slots
 from hushh_mcp.services.embedding_client_leaf import (
     BAKED_MODEL_DIR,
     BAKED_MODEL_DIR_ENV,
@@ -367,8 +368,11 @@ class LocalDocumentProcessor:
         self.scanner = scanner or ClamAvScanner()
         self.parser = parser or IsolatedDocumentParser()
         self.embedder = embedder or IsolatedDocumentEmbedding()
-        # One document per worker; no unbounded CPU/model fan-out.
+        # One embedding document per worker: the local model is memory heavy.
         self._lock = asyncio.Lock()
+        # Page extraction children are single-threaded and bounded per vCPU,
+        # so concurrent owner jobs overlap downloads without CPU fan-out.
+        self._pages = asyncio.Semaphore(page_extraction_slots())
 
     async def prepare(self, *, content: bytes, mime_type: str) -> PreparedIndex:
         if not content or len(content) > CONTENT_LIMIT:
@@ -389,7 +393,7 @@ class LocalDocumentProcessor:
         """Full evidence lane; safe bounded batches are persisted by ingestion."""
         if not content or len(content) > MAX_SOURCE_BYTES:
             raise DriveReadError("file_too_large")
-        async with self._lock:
+        async with self._pages:
             await self.scanner.scan(content, max_bytes=MAX_SOURCE_BYTES)
             result = await _private_process(
                 "pages",

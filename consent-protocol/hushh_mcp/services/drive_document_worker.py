@@ -15,6 +15,23 @@ from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
+from hushh_mcp.services.drive_worker_limits import extraction_owner_slots
+
+# Lower bound on concurrent extraction jobs across all owners in one sweep.
+SWEEP_SLOTS_MIN = 4
+_OUTCOMES = frozenset(
+    {
+        "ready",
+        "queued",
+        "unchanged",
+        "idle",
+        "unavailable",
+        "superseded",
+        "not_ready",
+        "unsupported",
+    }
+)
+_PROGRESS = frozenset({"ready", "queued", "unchanged", "unsupported"})
 
 
 class DriveDocumentWorker:
@@ -124,61 +141,72 @@ class DriveDocumentWorker:
         document_budget = max_jobs - semantic_budget - discovery_budget
 
         async def documents():
-            processed = 0
+            # Local slots per owner; the durable cap across instances is
+            # drive_worker_limits.live_owner_leases(), enforced at claim time.
+            slots = extraction_owner_slots()
+            gate = asyncio.Semaphore(max(SWEEP_SLOTS_MIN, slots))
             blocked = set()
-            while processed < document_budget:
-                reserve_profile_upgrade = processed % 4 == 0 and document_budget - processed >= 2
+            left = document_budget
+            while left > 0:
+                # due_owners lists the reserved profile-upgrade owner first.
                 owners = [
                     owner
-                    for owner in await self.due_owners(
-                        document_budget - processed,
-                        reserve_profile_upgrade=reserve_profile_upgrade,
-                    )
+                    for owner in await self.due_owners(left, reserve_profile_upgrade=True)
                     if owner not in blocked
                 ]
                 if not owners:
                     break
-                semaphore = asyncio.Semaphore(4)
+                shares = {
+                    owner: left // len(owners) + (index < left % len(owners))
+                    for index, owner in enumerate(owners)
+                }
+                # Slot-major order spreads the sweep gate fairly across owners.
+                # The first-listed owner gives at least half of its slots to the
+                # extraction-profile upgrade lane; a slot with no upgrade due
+                # falls back to the ordinary queue inside the same claim.
+                lanes = [
+                    (owner, position == 0 and index % 2 == 0)
+                    for index in range(slots)
+                    for position, owner in enumerate(owners)
+                    if index < shares[owner]
+                ]
+                # Each slot's first job is reserved; later jobs go to whichever
+                # of the owner's slots finishes first.
+                taken = Counter(owner for owner, _ in lanes)
+                started = Counter()
 
-                async def one(owner, *, prefer_profile_upgrade, semaphore=semaphore):
-                    async with semaphore:
+                async def slot(
+                    owner, prefer_profile_upgrade, shares=shares, taken=taken, started=started
+                ):
+                    reserved = True
+                    while owner not in blocked:
+                        if not reserved:
+                            if taken[owner] >= shares[owner]:
+                                return
+                            taken[owner] += 1
+                        reserved = False
+                        started[owner] += 1
                         if not connector_feature_enabled("drive_document_indexing", owner):
                             counts["disabled"] += 1
                             blocked.add(owner)
                             return
                         try:
-                            outcome = await self.service.run_one(
-                                user_id=owner, prefer_profile_upgrade=prefer_profile_upgrade
-                            )
+                            # The database lease cap and SKIP LOCKED keep these
+                            # jobs on distinct documents across slots/instances.
+                            async with gate:
+                                outcome = await self.service.run_one(
+                                    user_id=owner, prefer_profile_upgrade=prefer_profile_upgrade
+                                )
                             status = outcome.get("status")
-                            counts[
-                                status
-                                if status
-                                in {
-                                    "ready",
-                                    "queued",
-                                    "unchanged",
-                                    "idle",
-                                    "unavailable",
-                                    "superseded",
-                                    "not_ready",
-                                    "unsupported",
-                                }
-                                else "not_ready"
-                            ] += 1
-                            if status not in {"ready", "queued", "unchanged", "unsupported"}:
+                            counts[status if status in _OUTCOMES else "not_ready"] += 1
+                            if status not in _PROGRESS:
                                 blocked.add(owner)
                         except Exception:
                             counts["not_ready"] += 1
                             blocked.add(owner)
 
-                await asyncio.gather(
-                    *(
-                        one(owner, prefer_profile_upgrade=(processed + index) % 4 == 0)
-                        for index, owner in enumerate(owners)
-                    )
-                )
-                processed += len(owners)
+                await asyncio.gather(*(slot(owner, prefer) for owner, prefer in lanes))
+                left -= sum(started.values())
 
         async def discovery():
             if self.collection_sync is not None and discovery_budget:
