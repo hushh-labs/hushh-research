@@ -85,7 +85,7 @@ describe("AuthStep committed provider settlement", () => {
     await act(async () => { finish(result); await Promise.resolve(); });
     if (owner === "same") {
       expect(settlement.begin).toHaveBeenCalledExactlyOnceWith(user);
-      expect(settlement.legal).toHaveBeenCalledExactlyOnceWith(user);
+      expect(settlement.legal).toHaveBeenCalledExactlyOnceWith(user, true);
       expect(settlement.contacts).toHaveBeenCalledExactlyOnceWith(result, "google", expect.any(String), true);
       expect(settlement.complete).toHaveBeenCalledExactlyOnceWith(7);
     } else {

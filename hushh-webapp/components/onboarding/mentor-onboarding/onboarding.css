@@ -136,11 +136,11 @@
 .ao-progress .is-current { width: 20px; background: #202025; }
 /* Keep the reading/progress width; do not stretch the primary action to fill it. */
 .ao-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-width: 0; }
-.ao-primary { display: inline-flex; align-items: center; justify-content: center; gap: 12px; position: relative; flex: 0 1 auto; width: max-content; min-width: 116px; max-width: 100%; min-height: 44px; padding: 10px 20px; border: none; border-radius: 999px; background: var(--ao-action-bg); color: #fff; font-size: 1rem; font-weight: 650; letter-spacing: -.018em; line-height: 1.375; overflow-wrap: anywhere; transition: opacity 150ms, transform 150ms; }
+.ao-primary { overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 12px; position: relative; flex: 0 1 auto; width: max-content; min-width: 116px; max-width: 100%; min-height: 44px; padding: 10px 20px; border: none; border-radius: 999px; background: var(--ao-action-bg); color: #fff; font-size: 1rem; font-weight: 650; letter-spacing: -.018em; line-height: 1.375; overflow-wrap: anywhere; transition: opacity 150ms, transform 150ms; }
 .ao-primary > span { min-width: 0; }
 .ao-primary > svg { position: static; width: 18px; height: 18px; flex-shrink: 0; }
 .ao-primary:hover { opacity: .92; }.ao-primary:active { transform: scale(.985); }.ao-primary:disabled { opacity: .6; }
-.ao-skip { display: inline-flex; align-items: center; justify-content: flex-start; position: static; flex: 0 0 auto; width: auto; min-width: 44px; min-height: 44px; margin: 0; padding: 10px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ao-muted); font-size: .875rem; line-height: 1.5; font-weight: 400; }
+.ao-skip { overflow: hidden; display: inline-flex; align-items: center; justify-content: flex-start; position: relative; flex: 0 0 auto; width: auto; min-width: 44px; min-height: 44px; margin: 0; padding: 10px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ao-muted); font-size: .875rem; line-height: 1.5; font-weight: 400; }
 .ao-skip:hover { color: var(--ao-ink); }.ao-skip:disabled { opacity: .6; }
 .ao-error { margin: 10px 0 0; color: #a42835; font-size: .875rem; line-height: 1.4; text-align: center; }
 .ao-invitation { max-width: 400px; margin: 14px auto 0; overflow-wrap: anywhere; }

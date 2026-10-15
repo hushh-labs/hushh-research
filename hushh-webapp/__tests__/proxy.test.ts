@@ -107,20 +107,15 @@ it("keeps private responses out of the index without redirecting registered call
   expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
 });
 
-it.each(["/one/profile/world-model", "/one/profile/world-model/"])(
-  "keeps PWM and contact-bound claim links on their dedicated route: %s",
-  (path) => {
-    const response = proxy(request(`${path}?claim=synthetic-opaque-token`));
-    expect(response.status).toBe(200);
-    expect(response.headers.get("location")).toBeNull();
-  },
-);
-
-it.each(["/one/profile/world-model", "/one/profile/world-model/"])("opens an ordinary model link inside Profile: %s", (path) => {
-  const response = proxy(request(`${path}?from=%2Fone%2Ffeed`));
-  const location = new URL(response.headers.get("location")!);
-  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
-  expect(location.searchParams.get("profile_pane")).toBe("1");
-  expect(location.searchParams.get("profile_panel")).toBe("world-model");
-  expect(location.searchParams.get("from")).toBe("/one/feed");
+it.each(
+  ["/one/profile/world-model", "/one/profile/world-model/"].flatMap((path) =>
+    ["claim=synthetic-opaque-token", "from=%2Fone%2Ffeed"].map((query) => `${path}?${query}`),
+  ),
+)("keeps the dedicated Personal World Model route and query: %s", (path) => {
+  const incoming = request(path);
+  const response = proxy(incoming);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
+  expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  expect(incoming.nextUrl.pathname + incoming.nextUrl.search).toBe(path);
 });

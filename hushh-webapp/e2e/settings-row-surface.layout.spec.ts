@@ -34,6 +34,7 @@ let script: string;
 let css: string;
 
 const CONTRACT_SOURCE = `
+window.__titleOnlyControlsAreCentered = ${titleOnlyControlsAreCentered.toString()};
 window.__rowContract = function (row) {
   const violations = [];
   const box = row.getBoundingClientRect();
@@ -170,6 +171,33 @@ const contract = (row: Locator) =>
   row.evaluate((node) =>
     (window as unknown as { __rowContract: (el: Element) => string[] }).__rowContract(node),
   );
+
+/** One browser snapshot per group retains the same geometry checks without per-row protocol trips. */
+function rowMeasurements(group: Locator) {
+  return group.locator("[data-row-layout]").evaluateAll((nodes) => {
+    const checks = window as unknown as {
+      __rowContract: (node: Element) => string[];
+      __titleOnlyControlsAreCentered: (node: Element) => boolean;
+    };
+    return nodes.map((node) => {
+      const bounds = node.getBoundingClientRect();
+      const title = node.querySelector('[data-slot="settings-row-title"]')!;
+      const described = Boolean(node.querySelector('[data-slot="settings-row-description"]'));
+      return {
+        height: bounds.height,
+        titleOffset: described ? title.getBoundingClientRect().top - bounds.top : null,
+        centered: described ? null : checks.__titleOnlyControlsAreCentered(node),
+        violations: checks.__rowContract(node),
+        textContained: [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+          .every((text) => {
+            const box = text.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+              box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && text.scrollHeight <= text.clientHeight + 1;
+          }),
+      };
+    });
+  });
+}
 
 /** Every clickable row the four consumers render. */
 const CLICKABLE_ROWS = [
@@ -387,40 +415,25 @@ for (const width of [320, 393, 834, 1440]) {
         expect(await row.evaluate(titleOnlyControlsAreCentered), "title-only rows retain centered title, icon and chevron").toBe(true);
       }
       for (const source of boundedGroups) {
-        const siblings = source.locator("[data-row-layout]");
-        const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
-        expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
-        expect(spread(heights)).toBeLessThanOrEqual(1);
-        const titleOffsets = await siblings.evaluateAll((nodes) => nodes.filter((node) =>
-          node.querySelector('[data-slot="settings-row-description"]'),
-        ).map((node) => {
-          const title = node.querySelector('[data-slot="settings-row-title"]')!;
-          return title.getBoundingClientRect().top - node.getBoundingClientRect().top;
-        }));
+        const measurements = await rowMeasurements(source);
+        expect(measurements.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
+        expect(spread(measurements.map(row => row.height))).toBeLessThanOrEqual(1);
+        const titleOffsets = measurements.flatMap(row => row.titleOffset === null ? [] : [row.titleOffset]);
         expect(titleOffsets.length).toBeGreaterThan(1);
         expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
-        for (const row of await siblings.all()) {
-          if (await row.locator('[data-slot="settings-row-description"]').count() === 0) {
-            expect(await row.evaluate(titleOnlyControlsAreCentered), "title-only siblings retain centered title, icon and chevron").toBe(true);
+        for (const row of measurements) {
+          if (row.titleOffset === null) {
+            expect(row.centered, "title-only siblings retain centered title, icon and chevron").toBe(true);
           }
-          // Voice rows intentionally have only a trailing switch or a passive
-          // Coming soon badge; they are not full-row navigation actions.
-          if (source !== voiceGroup) expect(await contract(row)).toEqual([]);
-          expect(await row.evaluate((node) => {
-            const bounds = node.getBoundingClientRect();
-            return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
-              .every((text) => {
-                const box = text.getBoundingClientRect();
-                return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
-                  box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && text.scrollHeight <= text.clientHeight + 1;
-              });
-          })).toBe(true);
+          // Voice rows retain their trailing switch/passive badge exception.
+          if (source !== voiceGroup) expect(row.violations).toEqual([]);
+          expect(row.textContained).toBe(true);
         }
       }
       for (const wallet of walletGroups) {
-        expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
+        expect(await wallet.locator("[data-row-layout]").count()).toBe(4);
         const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
-        expect(descriptions).toHaveLength(4);
+        expect(descriptions).toHaveLength(3);
         expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
       }
       expect(await voiceGroup.locator("[data-row-layout]").count()).toBe(8);
@@ -487,11 +500,15 @@ for (const width of [320, 393, 834, 1440]) {
     expect(await events(page)).toEqual(["uniform:switch"]);
     for (const [index, status] of ["active", "paused"].entries()) {
       const walletRows = walletGroups[index]!.locator("[data-row-layout]");
-      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "rotate", "remove"].entries()) {
+      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "remove"].entries()) {
         await clearEvents(page);
         await clickAt(page, walletRows.nth(row), "trailing");
         expect(await events(page)).toEqual([`wallet:${status}:${action}`]);
       }
+      await clearEvents(page);
+      await page.getByTestId(`consumer-wallet-${status}`).getByTestId("settings-group")
+        .filter({ hasText: "Your QR" }).getByRole("button", { name: "Revoke access", exact: true }).click();
+      expect(await events(page)).toEqual([`wallet:${status}:rotate`]);
     }
     await clearEvents(page);
     await voiceGroup.getByRole("switch", { name: "Location", exact: true }).click();

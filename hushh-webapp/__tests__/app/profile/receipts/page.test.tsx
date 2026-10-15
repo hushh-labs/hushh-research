@@ -2580,7 +2580,7 @@ describe("ProfileReceiptsPage", () => {
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
-
+    await startReceiptSync();
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
     );

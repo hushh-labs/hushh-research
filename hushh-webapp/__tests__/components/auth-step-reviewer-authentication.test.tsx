@@ -24,7 +24,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({
   user: null, loading: false, beginPostAuthSettlement: state.noop, completePostAuthSettlement: state.noop,
 }) }));
 vi.mock("@/lib/progress/step-progress-context", () => ({ useStepProgress: () => ({ registerSteps: state.noop, completeStep: state.noop, reset: state.noop }) }));
-vi.mock("@/lib/services/auth-service", () => ({ AuthService: { signInWithCustomToken: state.custom, signInWithGoogle: state.google } }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { signInWithCustomToken: state.custom, signInWithGoogle: state.google, canRequestInitialGoogleContacts: () => false } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { createAppReviewModeSession: state.mint, getAppReviewModeConfig: async () => ({ enabled: true }) } }));
 vi.mock("@/lib/services/legal-acceptance-service", () => ({ LegalAcceptanceService: { recordSignInAcceptance: state.noop } }));
 vi.mock("@/lib/services/post-auth-route-service", () => ({ PostAuthRouteService: {} }));

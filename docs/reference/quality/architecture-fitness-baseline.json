@@ -2262,6 +2262,26 @@
     "reviewer": "peer_fixture_review",
     "scope": "Eight independently reviewed exact-source debt ceilings only. Budgets500/250/80, every unrelated finding, exclusions and scanners unchanged. No claim these existing hotspots meet advisory budgets."
   },
+  "byoc_hosted_browser_fixture_review_20261015": {
+    "entries": [
+      {
+        "after": 584,
+        "before": 567,
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Read-only peer review: cohesive browser-side rowMeasurements snapshot batches protocol reads while preserving exact geometry, both font passes, old-split/content-sizing negative controls, relocated QR rotation dispatch and all event assertions. Existing timeout, scanner and budgets unchanged.",
+        "source_sha256": "a51d50a2b385ae16ac2b72e3cff71a269377e03af012d21117184c15f46b894a"
+      },
+      {
+        "after": 1293,
+        "before": 1291,
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Read-only peer review: retain original geometry, enlarged-font, semantic row and confirmation checks. Exercise relocated QR rotation explicitly, and scope history visibility and bounds to one exact named row. No scanner or budget changes.",
+        "source_sha256": "5ef4f7ee987de087177dfa13e604fcef75a9445308f48fe676e5ac5ee44f63c8"
+      }
+    ],
+    "evidence_revision": "f1159af6d85e44fd36db84a7f3fc1d9221f1e3a5",
+    "reviewer": "peer_fixture_review"
+  },
   "byoc_main_pwm_drain_review_20261015": {
     "entries": [
       {
@@ -22637,7 +22657,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
       "symbol": null,
-      "value": 567
+      "value": 584
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22655,7 +22675,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1291
+      "value": 1293
     },
     {
       "detail": "module exceeds the advisory operon budget",

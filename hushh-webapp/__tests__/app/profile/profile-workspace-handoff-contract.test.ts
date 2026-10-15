@@ -133,10 +133,14 @@ describe("profile workspace duplication contract", () => {
   });
 
   it("opens Personal World Model as its own page, never inside the Profile pane", () => {
-    const row = profilePageSource.split('voiceControlId="profile_world_model"')[1]?.split("/>")[0] ?? "";
-    // The row keeps the vault gate; the pane then leaves for the full page.
-    expect(row).toContain('openVaultBackedPanel("world-model")');
-    expect(row).not.toContain("router.push");
+    expect(menuEntries).toContainEqual(expect.objectContaining({
+      id: "world-model", voiceControlId: "profile_world_model",
+      voiceActionId: "route.profile_world_model",
+    }));
+    // The authored menu dispatch retains the vault gate before leaving the pane.
+    const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";
+    expect(actions).toContain('"world-model": () => openVaultBackedPanel("world-model")');
+    expect(profilePageSource).toContain("onClick={() => { void menuActions[entry.id](); }}");
     const view = profilePageSource.split("const updateProfileView = useMemo(")[1]?.split("const nextLocation")[1] ?? "";
     const toPage = view.split('if (isPanePresentation && nextLocation.panel === "world-model") {')[1]?.split("return;")[0] ?? "";
     expect(toPage).toContain("const href = buildProfileWorldModelRoute();");

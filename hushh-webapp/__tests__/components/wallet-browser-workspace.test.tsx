@@ -99,6 +99,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
 });
 
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 function makeCards(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -203,7 +204,10 @@ describe("Wallet video browser workspace", () => {
     if (boundary === "owner roundtrip") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); authMock.user = owner; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); vaultMock.locked = false; view.rerender(<WalletWorkspace />); }
     if (boundary === "tab") fireEvent.click(document.getElementById("top-shell-wallet-tab-add")!);
-    if (boundary === "overview") fireEvent.click(screen.getByText("All cards").closest("button")!);
+    if (boundary === "overview") {
+      act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+      expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+    }
     await act(async () => { resolveToken("identity"); });
     if (boundary === "current") { expect(referralMock.rotateShareLink).toHaveBeenCalledWith({ idToken: "identity", slug: "fixture" }); expect(screen.getByRole("link", { name: "Preview referral page" })).toHaveAttribute("href", "https://example.test/r/replacement"); expect(screen.getByTestId("wallet-referral-opens")).toHaveTextContent("0"); }
     else expect(referralMock.rotateShareLink).not.toHaveBeenCalled();
