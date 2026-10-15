@@ -270,6 +270,35 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
   }
 });
 
+for (const width of [320, 390, 768, 1440])
+  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mount(page, { width });
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Keep this draft and conversation");
+    const original = await draft.elementHandle();
+    const receipt = page.getByRole("region", { name: "Mail read details" });
+    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
+    // The receipt names the connector and what the person will do there.
+    const button = receipt.getByRole("button", { name: "Review Gmail access" });
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await button.click();
+    await expect(paneTitle(page)).toHaveText("Gmail");
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await expect(button).toBeFocused();
+    await expect(draft).toHaveValue("Keep this draft and conversation");
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
+  });
+
 test("Legal opens in place in the Profile pane and Back returns to Profile", async ({ page }) => {
   const errors = await mount(page, { at: "/one" });
   await page.getByTestId("open-profile").click();

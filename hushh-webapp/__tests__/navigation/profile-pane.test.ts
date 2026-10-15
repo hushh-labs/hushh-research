@@ -357,4 +357,23 @@ describe("Profile pane navigation state", () => {
       window.removeEventListener(PROFILE_PANE_OPEN_EVENT, listener);
     }
   });
+
+  it("hands an authored detail and return target to the shell without a second navigation or policy bypass", () => {
+    const trigger = document.createElement("button");
+    const before = window.location.href;
+    for (const outcome of ["opening", "unavailable"] as const) {
+      const listener = vi.fn((event: Event) => {
+        const detail = (event as CustomEvent<ProfilePaneOpenDetail>).detail;
+        expect(detail.returnFocus).toBe(trigger);
+        expect(detail.destination).toEqual({ location: PHONE, returnsToOrigin: true });
+        detail.onResult?.(outcome);
+      });
+      window.addEventListener(PROFILE_PANE_OPEN_EVENT, listener);
+      try {
+        openProfilePane("/one", window.location.search, PHONE, { returnsToOrigin: true, returnFocus: trigger });
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect(window.location.href).toBe(before);
+      } finally { window.removeEventListener(PROFILE_PANE_OPEN_EVENT, listener); }
+    }
+  });
 });

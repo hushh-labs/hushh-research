@@ -809,15 +809,10 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("history-loaded:")).length)).toBe(2);
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    await recordWalletLayout(page, "sharing-after-tap");
-    try {
-      await expect.poll(() => page.evaluate(() => Math.abs(
-        document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
-        document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
-      ))).toBeLessThan(2);
-    } finally {
-      await recordWalletLayout(page, "sharing-after-alignment");
-    }
+    await expect.poll(() => page.evaluate(() => Math.abs(
+      document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
+      document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
+    ))).toBeLessThan(2);
     const sharing = page.getByTestId("wallet-sharing-content");
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
     const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentConnectionsDrawer,
@@ -14,8 +14,8 @@ import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/age
 import { DriveRecentSharing } from "../../components/agent/drive-background-search";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
-import { ConnectorsPanel } from "../../components/agent/connectors-panel";
-import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
+import { HistoryConnectorsPage } from "../../components/agent/history-connectors-page";
+import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
@@ -203,6 +203,14 @@ function ChatConnectCards() {
 }
 
 function Fixture() {
+  useEffect(() => registerChatConnectorRecoveryHost({
+    prepare: async (request) => {
+      const fixtureWindow = window as RecoveryFixtureWindow;
+      (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
+      return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
+    },
+    clear: async () => undefined,
+  }), []);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -301,28 +309,22 @@ function Fixture() {
             hideCloseButton={false}
             mode="mobile"
             className="h-full w-full"
-            onOpenConnectors={() => setMode("connections")}
+            onOpenConnectors={trigger => { triggerRef.current = trigger; setMode("connections"); }}
           />
         }
         connections={
-          <ConnectorsPanel
+          <HistoryConnectorsPage
+            native={false}
+            owner="fixture-owner"
+            context="public-layout"
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
             onClose={() => changeOpen(false)}
             onExternalModalChange={setExternal}
-            onPrepareRecovery={async (request) => {
-              const fixtureWindow = window as RecoveryFixtureWindow;
-              (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
-              return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
-            }}
-            onClearRecovery={async () => undefined}
           />
         }
       />
       <section ref={transcriptRef} inert={open} data-gesture-body className="flex min-h-0 flex-1 touch-pan-y flex-col p-4">
-        <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
-          status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
-          onOpenConnections={(_provider, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <ChatConnectCards />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>

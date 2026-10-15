@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowLeftIcon, XIcon } from "@/components/icons";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
@@ -28,10 +28,14 @@ export function HistoryConnectorsPage({ open, native, owner, context, onBack, on
     else onBack();
   };
   useBackLayer(pathname, open ? 2 : 0, () => { back(); return true; });
-  const title = (connector ? connectorDetailTitle(connector) : null) ?? "Connectors";
+  const handleExternalModalChange = useCallback((next: boolean) => {
+    setExternal(next);
+    onExternalModalChange(next);
+  }, [onExternalModalChange]);
+  const title = (connector ? connectorDetailTitle(`connector:${connector}`) : null) ?? "Connectors";
   const content = <div className="px-[var(--page-inline-gutter-standard)] py-4">
     <ProfileConnectorsSection open={open} connectorId={connector} onConnectorChange={setConnector}
-      onExternalModalChange={next => { setExternal(next); onExternalModalChange(next); }} />
+      onExternalModalChange={handleExternalModalChange} />
   </div>;
   if (native) return <NativeFeaturePage pane side="left" layer="chat-history" open={open} title={title}
     owner={owner} context={`${context}:${connector ?? "list"}`} onBack={back} onClose={onClose}
@@ -48,6 +52,6 @@ export function HistoryConnectorsPage({ open, native, owner, context, onBack, on
       <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h2>
       <ShellActionSurface aria-label="Close connectors" onClick={onClose}><XIcon className="size-5" /></ShellActionSurface>
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{content}</div>
+    <div data-history-connectors-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{content}</div>
   </div>;
 }

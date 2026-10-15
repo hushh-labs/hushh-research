@@ -353,8 +353,16 @@ export function openProfilePane(
      * restored child still steps back through its parent.
      */
     returnsToOrigin?: boolean;
+    /** Authored origin retained by the existing shell; never persisted. */
+    returnFocus?: HTMLElement;
   } = {},
 ): void {
+  if (options.returnFocus) {
+    const result = requestProfilePaneOpen("tap", options.returnFocus, {
+      location, returnsToOrigin: options.returnsToOrigin,
+    });
+    if (result === "opening" || result === "unavailable") return;
+  }
   pushProfilePaneLocation(pathname, searchParams, location, options);
 }
 
@@ -489,6 +497,7 @@ export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
   /** Transient authored opener, not inferred DOM or persisted state. */
   returnFocus?: HTMLElement;
+  destination?: { location: ProfilePaneLocation; returnsToOrigin?: boolean };
   /** Called synchronously by the shell listener with what it did. */
   onResult?: (result: ProfilePaneOpenResult) => void;
 };
@@ -504,6 +513,7 @@ export type ProfilePaneOpenDetail = {
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
   returnFocus?: HTMLElement,
+  destination?: ProfilePaneOpenDetail["destination"],
 ): ProfilePaneOpenResult | null {
   if (typeof window === "undefined") return null;
   let result: ProfilePaneOpenResult | null = null;
@@ -512,6 +522,7 @@ export function requestProfilePaneOpen(
       detail: {
         source,
         returnFocus,
+        destination,
         onResult: (value) => {
           result = value;
         },

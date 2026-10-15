@@ -530,7 +530,8 @@ function AppShellFrame({ children }: ProvidersProps) {
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
-        profilePaneResumeLocation,
+        detail?.destination?.location ?? profilePaneResumeLocation,
+        { returnsToOrigin: detail?.destination?.returnsToOrigin },
       );
       if (detail?.source === "tap") appHaptic("light");
       else if (detail?.source === "native_swipe") appHaptic("selection");

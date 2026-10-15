@@ -25,7 +25,7 @@ export async function writeAppHapticPreference(value: boolean): Promise<void> {
 
 /** Called only by an accepted authored interaction, never by route observation.
  * No retries, queued cues, protected fields or dependency on operation success. */
-export function appHaptic(kind: "light" | "selection", intentId: string = crypto.randomUUID()) {
+export function appHaptic(kind: "light" | "selection", intentId?: string) {
   if (!usesNativeHapticPreference() || document.visibilityState === "hidden") return;
   const observation = nativePrivacyObservation();
   // An unobserved lifecycle cannot authorize a delayed vibration. Bootstrap
@@ -39,7 +39,7 @@ export function appHaptic(kind: "light" | "selection", intentId: string = crypto
     if (privacy.shielded || !privacy.appIsActive || privacy.generation !== observation.state?.generation ||
         nativePrivacyObservation().epoch !== observation.epoch || document.visibilityState === "hidden" ||
         nativeDocumentId() !== documentId || Date.now() - issuedAtMs > 200) return;
-    const request = { documentId, privacyGeneration: privacy.generation, intentId, kind, issuedAtMs };
+    const request = { documentId, privacyGeneration: privacy.generation, intentId: intentId ?? crypto.randomUUID(), kind, issuedAtMs };
     if (selectedTransport === "settings") await settings.interactionFeedback(request);
     else await nativeChrome.interactionFeedback(request);
   })().catch(() => { /* Feedback must not block or replay the user's action. */ });

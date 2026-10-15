@@ -8107,18 +8107,18 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   }
 }
 @media (max-width: 639px), (pointer: coarse) {
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header {
     padding-top: calc(16px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
     padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(68px, calc(52px + env(safe-area-inset-right, 0px))) !important;
   }
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header--inner,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-header--inner {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header--inner,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header--inner {
     padding-right: max(16px, env(safe-area-inset-right, 0px)) !important;
   }
-  html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-close,
-  html.native-full-window-overlays .profile-pane-sheet .profile-pane-close {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-close,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-close {
     top: calc(17px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
     right: max(16px, env(safe-area-inset-right, 0px)) !important;
   }

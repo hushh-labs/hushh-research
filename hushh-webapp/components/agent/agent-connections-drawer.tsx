@@ -125,6 +125,16 @@ export function AgentConnectionsDrawer({
     // immediate Escape cannot land on the old, inert trigger before a RAF.
     if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
   }, [open, triggerRef, historyRenderer]);
+  useLayoutEffect(() => {
+    if (!historyDisplayed || mode !== "chats" || externalModalOpen) return;
+    const active = document.activeElement;
+    // Returning from Connectors makes its focused Back control inert in this
+    // commit. Transfer focus before paint, not after a later animation frame,
+    // so a second Escape cannot be delivered to the retired child.
+    if (active instanceof HTMLElement && active.closest("[hidden], [inert]")) {
+      focused()[0]?.focus({ preventScroll: true });
+    }
+  }, [historyDisplayed, mode, externalModalOpen]);
   useEffect(() => {
     if (open) return;
     if (modeAtOpen.current === "chats" && onRestoreHistoryFocus) {

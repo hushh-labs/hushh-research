@@ -2770,7 +2770,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       profileConnectorsLocation(
         provider === "drive" ? "google_drive" : provider === "gmail" ? "gmail" : null,
       ),
-      { returnsToOrigin: true },
+      { returnsToOrigin: true, returnFocus: trigger },
     );
   }, []);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);

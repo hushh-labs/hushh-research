@@ -304,7 +304,12 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
     if (safeSidePane) reference.dataset.appSidePane = "";
+    if (safeSidePane) reference.dataset.chatDetailPane = "";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
+    // Measure the authored leading inset independently: landscape safe-area
+    // left/right values need not be symmetric.
+    reference.style.setProperty("left", "var(--app-side-pane-left-inset)", "important");
+    reference.style.setProperty("right", "auto", "important");
     const card = document.createElement("div");
     const stack = document.createElement("div");
     stack.className = "profile-pane-scroll-root";
@@ -317,7 +322,7 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
     document.body.append(reference);
     const bounds = reference.getBoundingClientRect();
     const style = getComputedStyle(reference);
-    const result = { x: innerWidth - bounds.right, y: bounds.y,
+    const result = { x: bounds.x, y: bounds.y,
       width: bounds.width, height: bounds.height,
       radius: style.borderTopLeftRadius,
       card: { background: getComputedStyle(card).backgroundColor,
@@ -505,6 +510,8 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const connectors = chats.getByRole("button", { name: "Open Connectors" });
     await expect(search).toBeVisible();
     await expect(connectors).toBeVisible();
+    const reference = await profileFrame(page);
+    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const searchBox = (await search.boundingBox())!;
     const connectorBox = (await connectors.boundingBox())!;
     const drawerBox = (await chats.boundingBox())!;
@@ -516,14 +523,16 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
       const style = getComputedStyle(element);
       return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
     });
-    expect(corners).toEqual(["25px", "25px", "25px", "25px"]);
+    expect(corners).toEqual(Array(4).fill(reference.radius));
     const close = chats.getByRole("button", { name: "Close chat history", exact: true });
-    const reference = await profileFrame(page);
-    await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const closeBox = (await close.boundingBox())!;
     expect(closeBox.width).toBeGreaterThanOrEqual(44);
     expect(closeBox.height).toBeGreaterThanOrEqual(44);
-    expect(closeBox.x - drawerBox.x).toBeCloseTo(16, 0);
+    const leadingInset = await chats.evaluate(node => {
+      const header = node.querySelector("[data-agent-history-header]")!;
+      return parseFloat(getComputedStyle(header).paddingLeft) + parseFloat(getComputedStyle(node).borderLeftWidth);
+    });
+    expect(closeBox.x - drawerBox.x).toBeCloseTo(leadingInset, 0);
     // Layout width, not WebKit's fractional translated DOMRect rounding.
     expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
@@ -630,7 +639,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
   expect(measured.frameTransform).toContain("translate3d");
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
-  await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo(0, 0);
+  await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo((await profileFrame(page)).x, 0);
   const exit = await page.evaluate(async () => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     // The authored Escape handler closes History without another navigation owner.
@@ -647,7 +656,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
     return { samples, width: panel.offsetWidth };
   });
   expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
-  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width, 0);
+  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width - 48 + (await profileFrame(page)).x, 0);
 });
 
 /** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
@@ -729,7 +738,7 @@ for (const { width, safeLeft } of [
     await expect.poll(async () => {
       const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
       return bounds?.x;
-    }).toBeCloseTo(0, 0);
+    }).toBeCloseTo(Math.max(safeLeft, (await profileFrame(page)).x), 0);
     await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
     // Auth freshness can temporarily disable the gesture while the drawer
     // remains open. Reattaching must preserve the same closed endpoint.
@@ -840,23 +849,28 @@ for (const width of [390, 768, 1440])
     expect(box.y).toBeCloseTo(reference.y, 0);
     expect(box.height).toBeCloseTo(reference.height, 0);
     expect(box.width).toBeCloseTo(reference.width, 0);
-    expect(surface.y).toBeCloseTo(box.y + 1, 0);
-    expect(surface.height).toBeCloseTo(box.height - 2, 0);
-    expect(box.x + box.width).toBeLessThan(width);
+    const border = await chats.evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth));
+    expect(surface.y).toBeCloseTo(box.y + border, 0);
+    expect(surface.height).toBeCloseTo(box.height - 2 * border, 0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
     expect(await chats.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe(reference.radius);
 
     // The gaps around the card still belong to the modal scrim; underlying
     // navigation cannot become active while the drawer is open.
     const beside = (box.x + box.width + width) / 2;
-    expect(await hitAt(page, beside, 20)).toBe("scrim");
-    expect(await hitAt(page, beside, height - barHeight / 2)).toBe("scrim");
-    expect(await hitAt(page, box.x + box.width / 2, 2)).toBe("scrim");
-    expect(await hitAt(page, box.x + box.width / 2, height - 2)).toBe("scrim");
+    const bounded = box.width < width;
+    if (bounded) {
+      expect(await hitAt(page, beside, 20)).toBe("scrim");
+      expect(await hitAt(page, beside, height - barHeight / 2)).toBe("scrim");
+      expect(await hitAt(page, box.x + box.width / 2, 2)).toBe("scrim");
+      expect(await hitAt(page, box.x + box.width / 2, height - 2)).toBe("scrim");
+    }
     expect(await hitAt(page, box.x + 40, box.y + 40)).toBe("panel");
     expect(await hitAt(page, box.x + 40, box.y + box.height - 40)).toBe("panel");
 
     // A tap on the scrim beside the panel closes it.
-    await page.mouse.click(beside, height / 2);
+    if (bounded) await page.mouse.click(beside, height / 2);
+    else await chats.getByRole("button", { name: "Close chat history" }).click();
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
     // Header and body translate as one full-height panel. Closed, the whole
     // presentation is hidden/inert and clears the viewport, not a split body.
@@ -873,7 +887,7 @@ for (const width of [390, 768, 1440])
     await expect.poll(async () => (await readScrim()).visibility).toBe("hidden");
     expect((await readScrim()).opacity).toBe("0");
     // And the chrome underneath is reachable again.
-    expect(await hitAt(page, beside, height - barHeight / 2)).toBe("bottom-bar");
+    expect(await hitAt(page, width / 2, height - barHeight / 2)).toBe("bottom-bar");
     expect(await hitAt(page, 20, 20)).toBe("header");
   });
 
@@ -922,7 +936,7 @@ for (const width of [390, 768])
       ),
     ).toBe(true);
     await connectors.click();
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Chat connectors", exact: true })).toBeVisible();
   });
 
 test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
@@ -945,37 +959,6 @@ test("chat sidebar closes from its own control and returns focus to the trigger"
 });
 
 for (const width of [320, 390, 768, 1440])
-  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.setViewportSize({ width, height: 820 });
-    await expect(page).toHaveTitle("One Connectors contract");
-    await expect(page).toHaveURL("http://localhost/connections-fixture");
-    const draft = page.getByRole("textbox", { name: "Chat draft" });
-    await draft.fill("Keep this draft and conversation");
-    const original = await draft.elementHandle();
-    const receipt = page.getByRole("region", { name: "Mail read details" });
-    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
-    // The receipt names the connector and what the person will do there.
-    const button = receipt.getByRole("button", { name: "Review Gmail access" });
-    const bounds = (await button.boundingBox())!;
-    expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    await button.click();
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).not.toBeVisible();
-    await expect(button).toBeFocused();
-    await expect(draft).toHaveValue("Keep this draft and conversation");
-    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
-    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(errors).toEqual([]);
-    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
-  });
-
-for (const width of [320, 390, 768, 1440])
   test(`mounted drawer retains chat and wraps controls at ${width}px`, async ({
     page,
   }, testInfo) => {
@@ -996,44 +979,27 @@ for (const width of [320, 390, 768, 1440])
     const chatSearch = page.getByRole("searchbox", { name: "Search chats" });
     await chatSearch.fill("History filter");
     await expect(chatSearch).toHaveValue("History filter");
+    const historyFrame = await page.locator("[data-agent-history-drawer]").elementHandle();
+    const historyGeometry = await page.locator("[data-agent-history-drawer]").boundingBox();
     await page.getByLabel("Open Connectors", { exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const drawer = page.getByRole("dialog", { name: "Chat connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
-    await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
-    if (width >= 768) {
-      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.x + box.width / 2 - width / 2);
-      }).toBeLessThan(2);
-    } else {
-      await expect.poll(async () => {
-        const box = (await drawer.boundingBox())!;
-        return Math.abs(box.y + box.height - 820);
-      }).toBeLessThan(2);
-    }
+    expect(await drawer.evaluate((node, prior) => node === prior, historyFrame)).toBe(true);
+    await expect.poll(() => drawer.boundingBox()).toEqual(historyGeometry);
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
-    const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
+    const overlay = page.locator('[data-agent-history-scrim]');
     await expect(overlay).toBeVisible();
     expect(await overlay.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(");
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
-    await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
-    await drawer.getByRole("searchbox", { name: "Search connectors" }).fill("drive");
-    await expect(drawer.getByRole("button", { name: "Gmail", exact: true })).toHaveCount(0);
-    await expect(drawer.getByRole("button", { name: "Google Drive", exact: true })).toBeVisible();
-    await drawer.getByRole("searchbox", { name: "Search connectors" }).clear();
     for (const [connector, account, names] of [
       ["Gmail", "mail-owner@synthetic.invalid", ["Disconnect Mail"]],
       ["Google Drive", "drive-owner@synthetic.invalid", ["Disconnect Drive", "Choose files"]],
     ] as const) {
-      await drawer.getByRole("button", { name: connector, exact: true }).click();
-      await expect(drawer.getByRole("button", { name: "Back to connectors" })).toBeFocused();
+      await drawer.getByRole("button", { name: new RegExp(`^${connector}\\b`) }).click();
+      await expect(drawer.locator(`[data-connector-detail="${connector === "Gmail" ? "gmail" : "google_drive"}"]`)).toBeFocused();
       await expect(drawer.getByText(account)).toBeVisible();
       if (connector === "Google Drive") {
         await expect(drawer.getByRole("button", { name: "Retry Drive" })).toHaveCount(0);
-        if (width === 1440) expect((await drawer.boundingBox())!.height).toBeLessThan(600);
         if (width === 1440) await testInfo.attach("Drive connected details", {
           body: await page.screenshot({ path: testInfo.outputPath("drive-connected-details.png") }),
           contentType: "image/png",
@@ -1050,10 +1016,10 @@ for (const width of [320, 390, 768, 1440])
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
       }
       await drawer.getByRole("button", { name: "Back to connectors" }).click();
-      await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeFocused();
+      await expect(drawer.getByTestId(`profile-connector-row-${connector === "Gmail" ? "gmail" : "google_drive"}`).getByRole("button").first()).toBeFocused();
     }
     for (const name of ["Gmail", "Google Drive"]) {
-      const button = drawer.getByRole("button", { name, exact: true });
+      const button = drawer.getByRole("button", { name: new RegExp(`^${name}\\b`) });
       await button.scrollIntoViewIfNeeded();
       const bounds = (await button.boundingBox())!;
       expect(bounds.height + 0.0001).toBeGreaterThanOrEqual(44);
@@ -1098,12 +1064,12 @@ for (const width of [320, 390, 1440])
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     await page.getByLabel("Open Connectors", { exact: true }).click();
 
-    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
-    const scrollRegion = dialog.locator('[data-connections-panel] > div').last();
-    await expect(dialog.locator('[data-connections-panel] header h2')).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
+    const scrollRegion = dialog.locator('[data-history-connectors-scroll]');
+    await expect(dialog.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
     expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
-    const plaid = dialog.getByRole("button", { name: "Plaid" });
+    const plaid = dialog.getByTestId("profile-connector-row-plaid").getByRole("button").first();
     await plaid.scrollIntoViewIfNeeded();
     await expect(plaid).toBeVisible();
     const action = await plaid.boundingBox();
@@ -1119,7 +1085,7 @@ for (const width of [320, 390, 1440])
 test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 820 });
   const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
-  const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const connectors = page.getByRole("dialog", { name: "Chat connectors", exact: true });
   const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
 
   // Radix attaches its outside-pointer listener after the open transition
@@ -1127,8 +1093,8 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   const settled = () =>
     expect
       .poll(() =>
-        page.evaluate(
-          () => document.getAnimations().filter((a) => a.playState === "running").length,
+        connectors.evaluate(
+          (node) => node.getAnimations().filter((a) => a.playState === "running").length,
         ),
       )
       .toBe(0);
@@ -1137,7 +1103,7 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await expect(connectors).toBeVisible();
   await settled();
-  await page.mouse.click(24, 400);
+  await page.mouse.click(744, 400);
   await expect(connectors).not.toBeVisible();
   await hamburger.click();
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
@@ -1147,6 +1113,10 @@ test("dismissing Connectors returns the next hamburger open to chat history", as
   await settled();
   await page.keyboard.press("Escape");
   await expect(connectors).not.toBeVisible();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+  await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(chats).not.toBeVisible();
   await hamburger.click();
   await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 });
@@ -1156,7 +1126,7 @@ test("Picker focus, explicit admission, and removal", async ({
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await expect(page.getByRole("button", { name: "Choose files", exact: true })).not.toBeVisible();
   await page.getByText("Previously added files", { exact: true }).click();
   await page.getByRole("button", { name: "Choose files", exact: true }).click();
@@ -1165,7 +1135,7 @@ test("Picker focus, explicit admission, and removal", async ({
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("dialog", { name: "Connectors", exact: true }),
+    page.getByRole("dialog", { name: "Chat connectors", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose files", exact: true }),
@@ -1202,7 +1172,7 @@ test("Picker focus, explicit admission, and removal", async ({
 test("failed Drive revocation preserves the independent Mail connection", async ({ page }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
@@ -1210,7 +1180,7 @@ test("failed Drive revocation preserves the independent Mail connection", async 
     page.getByText(/Google revocation was not confirmed/),
   ).toBeVisible();
   await page.getByRole("button", { name: "Back to connectors" }).click();
-  await page.getByRole("button", { name: "Gmail", exact: true }).click();
+  await page.getByTestId("profile-connector-row-gmail").getByRole("button").first().click();
   await expect(
     page.getByRole("button", { name: "Disconnect Mail" }),
   ).toBeEnabled();
@@ -1225,7 +1195,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Keep my draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByText("Previously added files", { exact: true }).click();
   const selectFile = async () => {
     await page.getByRole("button", { name: "Choose files", exact: true }).click();
@@ -1247,7 +1217,7 @@ test("background processing needs explicit consent and can be paused without rem
   await expect(processing).toBeChecked();
   await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
-  const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
   await remove.scrollIntoViewIfNeeded();
   const removeBox = (await remove.boundingBox())!;
@@ -1265,7 +1235,7 @@ test("background processing needs explicit consent and can be paused without rem
   await processing.click();
   await expect(processing).toBeChecked();
   expect(writes[2].body).toEqual({ enabled: true, confirmed: true, disclosure: "selected-files-background-v1" });
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Close connectors", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Keep my draft");
 });
 
@@ -1290,7 +1260,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   await page.evaluate(() => {
@@ -1310,7 +1280,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
     (window as Window & { __driveRecoveryRequests?: unknown[] }).__driveRecoveryRequests,
   )).toEqual([{ attemptId, reason: "web_full_page" }]);
   expect(page.url()).toBe("http://localhost/connections-fixture");
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Close connectors", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue(
     "Unsent draft",
   );
@@ -1350,7 +1320,7 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
   );
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByTestId("profile-connector-row-google_drive").getByRole("button").first().click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   const popupEvent = page.waitForEvent("popup");
@@ -1460,7 +1430,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
-  await page.getByRole("button", { name: "Calendar", exact: true }).click();
+  await page.getByTestId("profile-connector-row-calendar").getByRole("button").first().click();
   return { calendar, navigations: () => chatNavigations };
 }
 
@@ -2391,8 +2361,8 @@ test("Reset icon colors only its arrowhead and keeps native geometry in the acco
         viewBox: element.getAttribute("viewBox") };
     });
     expect(geometry.viewBox).toBe("0 0 256 256");
-    expect(geometry.width).toBe(22);
-    expect(geometry.height).toBe(22);
+    expect(geometry.width).toBe(24);
+    expect(geometry.height).toBe(24);
     expect(geometry.stroke).toBe("none");
     expect(geometry.fill).not.toBe("none");
     const pixels = await icon.evaluate(async element => {
