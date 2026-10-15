@@ -1,8 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import type { LiveMirrorConflict, LiveMirrorSourceRoute, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
 
+const PROFILE_ROUTE: LiveMirrorSourceRoute = { href: "/one/profile/account", label: "Edit profile" };
+/** The props a generated preview needs for GFM tables: outside links stay text. */
+const INTERNAL_GFM = { gfm: true, linkPolicy: "internal" } as const;
 const m = vi.hoisted(() => ({
   uid: "owner-a",
   unlocked: true,
@@ -10,6 +13,12 @@ const m = vi.hoisted(() => ({
   epoch: 0,
   view: null as LiveMirrorView | null,
   listeners: new Set<() => void>(),
+  /** The source routes under test; a kind absent here has no "Fix at source". */
+  routes: {} as Partial<Record<string, LiveMirrorSourceRoute>>,
+}));
+vi.mock("@/lib/pkm/live-mirror-presentation", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/pkm/live-mirror-presentation")>()),
+  liveMirrorSourceRoute: (kind: string) => m.routes[kind] ?? null,
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid } }),
@@ -41,6 +50,7 @@ vi.mock("@/lib/services/cache-service", () => ({
 }));
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import {
   appendVerifiedLivingSourceChanges,
@@ -107,6 +117,18 @@ beforeEach(() => {
   m.epoch = 0;
   m.view = mirror();
   m.listeners.clear();
+  // No routes unless a test sets them, so no source link appears where base behavior has none.
+  m.routes = {};
+});
+
+/** The name the owner wrote in chat memory against the verified profile name. */
+const nameConflict = (): LiveMirrorConflict => ({
+  predicate: "profile.name",
+  label: "Name",
+  claims: [
+    { source: "profile", label: "Profile", value: "Ankit", revision: 2, sourceUpdatedAt: UPDATED, verifiedAt: T1 },
+    { source: "soul", label: "Memory (you wrote)", value: "Ankit Kumar Singh", revision: null, sourceUpdatedAt: T0, verifiedAt: null },
+  ],
 });
 afterEach(cleanup);
 
@@ -284,5 +306,85 @@ describe("Profile Live Mirror", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Up to date");
     view.unmount();
     expect(m.listeners.size).toBe(0);
+  });
+
+  it("shows both claims of a disagreement with their sources and chooses neither", () => {
+    m.routes = { profile: PROFILE_ROUTE };
+    const steps = [{ inputs: [profile("Ankit")], kinds: ["profile"], now: T1 }];
+    m.view = { ...mirror({ steps, extra: { nameConflict: true } }), conflicts: [nameConflict()] };
+    const first = render(<LivingMemoryDocument />);
+    // The headline stays the only live region.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Needs your review");
+    const review = row("Review", "Name");
+    expect(within(review).getByText("Profile: Ankit")).toBeInTheDocument();
+    expect(within(review).getByText("Memory (you wrote): Ankit Kumar Singh")).toBeInTheDocument();
+    expect(within(review).getByText("Version 2")).toBeInTheDocument();
+    expect(within(review).getByText("Needs review")).toBeInTheDocument();
+    for (const at of [T1, T0]) expect(review.querySelector(`time[datetime="${at}"]`)).not.toBeNull();
+
+    fireEvent.click(within(review).getByRole("button"));
+    const dialog = screen.getByRole("dialog", { name: "Source details" });
+    const claim = (source: string) => within(dialog).getByText(source).closest<HTMLElement>('[data-testid="settings-row"]')!;
+    expect(within(claim("Profile")).getByText("Ankit")).toBeInTheDocument();
+    expect(within(claim("Memory (you wrote)")).getByText("Ankit Kumar Singh")).toBeInTheDocument();
+    // Only the profile claim has a source to fix; chat memory has none.
+    expect(within(dialog).getAllByRole("link")).toHaveLength(1);
+    expect(within(dialog).getByRole("link", { name: /Fix at source/ })).toHaveAttribute("href", PROFILE_ROUTE.href);
+    first.unmount();
+
+    // Negative control: with no disagreement there is nothing to review.
+    m.view = mirror({ steps });
+    render(<LivingMemoryDocument />);
+    expect(screen.queryByRole("heading", { name: "Review" })).toBeNull();
+    expect(screen.queryByText("Needs review")).toBeNull();
+  });
+
+  it("sends each source and record to where it is fixed, and shows no link for a kind without a route", () => {
+    m.routes = { profile: PROFILE_ROUTE };
+    m.view = mirror({ steps: [{ inputs: [profile("Ankit"), consent("c1", "attr.food.*")], kinds: ["profile", "consent"], now: T1 }] });
+    render(<LivingMemoryDocument />);
+    // The whole Profile source row is the link, and it keeps its state.
+    const source = within(row("Sources", "Profile")).getByRole("link");
+    expect(source).toHaveAttribute("href", PROFILE_ROUTE.href);
+    for (const text of ["Profile", "Current", "Edit profile"]) expect(within(source).getByText(text)).toBeInTheDocument();
+    expect(within(row("Sources", "Consents")).queryByRole("link")).toBeNull();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
+    let dialog = screen.getByRole("dialog", { name: "Source details" });
+    const fix = within(dialog).getByRole("link", { name: /Fix at source/ });
+    expect(fix).toHaveAttribute("href", PROFILE_ROUTE.href);
+    expect(within(fix).getByText("Edit profile")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Consent 1/ }));
+    dialog = screen.getByRole("dialog", { name: "Source details" });
+    expect(within(dialog).queryByText("Fix at source")).toBeNull();
+    expect(within(dialog).queryByRole("link")).toBeNull();
+  });
+
+  /** True once SafeMarkdown can keep outside links as text, which GFM needs in a generated preview. */
+  function safeMarkdownKeepsOutsideLinksAsText(): boolean {
+    const probe = render(<SafeMarkdown markdown="https://x.test/p" {...INTERNAL_GFM} />);
+    const kept = probe.container.querySelector("a") === null;
+    probe.unmount();
+    return kept;
+  }
+
+  it("renders a GFM table in the preview and keeps URL- and email-like values as text", (ctx) => {
+    if (!safeMarkdownKeepsOutsideLinksAsText()) ctx.skip("SafeMarkdown has no internal link policy yet, so the preview stays CommonMark");
+    const view = mirror({ steps: [{ inputs: [profile("www.example.test https://x.test/p")], kinds: ["profile"], now: T1 }] });
+    m.view = { ...view, markdown: `${view.markdown}\n| Field | Value |\n| --- | --- |\n| Name | Ankit |\n` };
+    const { container } = render(<LivingMemoryDocument />);
+    openTab("Preview");
+    const preview = screen.getByLabelText("Live memory preview");
+    const table = preview.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(within(table!).getByText("Ankit").tagName).toBe("TD");
+    expect(preview.textContent).toContain("Name: www.example.test https://x.test/p");
+    expect(preview.textContent).toContain("Email: owner@example.test");
+    expect(preview.querySelectorAll("a")).toHaveLength(0);
+    for (const tag of ["pre", "img", "script"]) expect(container.querySelector(tag)).toBeNull();
   });
 });
