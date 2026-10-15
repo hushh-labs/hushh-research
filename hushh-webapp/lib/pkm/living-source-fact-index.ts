@@ -49,6 +49,9 @@ const FIELDS = {
   document_request_payment: ["counterpartRef", "mode", "status", "amountCents", "currency", "paidAt", "refundStatus", "refundAmountCents", "reconciliationRequired"],
 } as const satisfies Record<SourceKind, readonly string[]>;
 
+/** The admitted field allowlist, shared by every Live Mirror consumer. */
+export const LIVING_SOURCE_FACT_FIELDS: { readonly [K in SourceKind]: readonly string[] } = FIELDS;
+
 const MAX_VERIFICATION_AGE_MS = 5 * 60_000;
 const MAX_FACT_STRING_LENGTH = 2_048;
 

@@ -27,12 +27,52 @@ export interface LivingSourceInventory {
 export interface LivingSourceChange {
   sequence: number;
   kind: LivingSourceInput["kind"];
+  /** "*" for a gap marker, which belongs to a source kind rather than a record. */
   id: string;
+  /** 0 for a gap marker. */
   revision: number;
-  operation: "upsert" | "delete";
+  operation: "upsert" | "delete" | "gap";
   capturedAt: string;
   sourceUpdatedAt: string | null;
+  /** A gap marker's value is exactly a LivingSourceGapValue. */
   value: Record<string, unknown>;
+}
+
+/** Committed changes that were not individually captured; never invented values. */
+export interface LivingSourceGapValue {
+  reason: "unobserved_changes" | "journal_gap";
+  committedChanges: number | null;
+  verifiedChanges: number | null;
+  firstOccurredAt: string | null;
+  lastOccurredAt: string | null;
+}
+
+/** Encrypted replay bookkeeping stored in the same write as the journal cursors.
+ * A kind stays pending until a build verifies it, so a cursor can move past
+ * its hints without losing them. */
+export interface LivingJournalPendingEntry {
+  /** Committed hints awaiting verification; null when unknown after a reset. */
+  count: number | null;
+  firstOccurredAt: string | null;
+  lastOccurredAt: string | null;
+  /** observed_history.nextSequence when this entry was first recorded. */
+  historySequence: number;
+}
+export interface LivingJournalPending {
+  version: 1;
+  kinds: Partial<Record<LivingSourceInput["kind"], LivingJournalPendingEntry>>;
+}
+
+/** Owner-only freshness health. Source-kind keys, numbers and ISO times only. */
+export interface LivingSourceHealthEntry {
+  lastLagMs: number | null;
+  /** At most 20 recent commit-to-encrypted-write lags. */
+  lagSamplesMs: number[];
+  lastVerifiedAt: string;
+}
+export interface LivingSourceHealth {
+  version: 1;
+  kinds: Partial<Record<LivingSourceInput["kind"], LivingSourceHealthEntry>>;
 }
 
 export interface LivingSourceHistory {

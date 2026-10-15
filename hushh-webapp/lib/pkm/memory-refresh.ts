@@ -13,6 +13,7 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PROFILE_MEMORY_SCOPE_IDS, retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
+import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -86,6 +87,17 @@ export function peekMemoryView(userId: string): MemoryView {
           : "current",
   };
 }
+/**
+ * The owner's shared Live Mirror with read-time states applied, or null before
+ * a build exists. Contract stub until the projection is built and cached by
+ * refreshMemoryDocument.
+ */
+export function peekLiveMirror(userId: string, now: number = Date.now()): LiveMirrorView | null {
+  void userId;
+  void now;
+  return null;
+}
+
 export interface RefreshMemoryParams {
   userId: string;
   vaultKey: string;
