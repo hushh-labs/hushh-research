@@ -13,6 +13,11 @@ const m = vi.hoisted(() => ({
   domainChangeListener: null as ((detail: { userId: string; domain: string; operation: string }) => void) | null,
   connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
   payoutChangeListener: null as ((detail: { kinds: string[] }) => void) | null,
+  LivingSourcesIncompleteError: class extends Error {
+    constructor(readonly failedKinds: string[]) {
+      super("Source inventory incomplete; retry required");
+    }
+  },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -80,6 +85,7 @@ vi.mock("@/lib/agent/agent-chat-history-events", () => ({
 }));
 vi.mock("@/lib/pkm/living-source-sync", () => ({
   LIVING_SOURCE_DOMAIN: "one_living_sources",
+  LivingSourcesIncompleteError: m.LivingSourcesIncompleteError,
   syncLivingSources: (...args: unknown[]) => m.syncLivingSources(...args),
 }));
 vi.mock("@/lib/testing/native-test", () => ({
@@ -87,6 +93,14 @@ vi.mock("@/lib/testing/native-test", () => ({
 }));
 
 import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
+import {
+  getLivingSourceSessionVerification,
+  recordLivingSourceSessionVerification,
+} from "@/lib/pkm/living-source-session-verification";
+
+const flush = () => act(async () => {
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+});
 
 /**
  * The bridge forced a full, network-bound refresh on every trigger --
@@ -276,8 +290,80 @@ describe("LivingMemoryBridge", () => {
     m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
     render(<LivingMemoryBridge />);
     await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    // An untyped failure (storage, session change) refreshes nothing.
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
     act(() => window.dispatchEvent(new Event("focus")));
     await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
     expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("still refreshes the mirror after a sync that stored only the checked sources", async () => {
+    m.syncLivingSources.mockRejectedValueOnce(new m.LivingSourcesIncompleteError(["consent"]));
+    render(<LivingMemoryBridge />);
+    await flush();
+    expect(m.refreshMemoryDocument).toHaveBeenCalledTimes(1);
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("wakes when the app becomes visible, never when it is hidden", async () => {
+    let visibility: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    try {
+      render(<LivingMemoryBridge />);
+      await flush();
+      m.syncLivingSources.mockClear();
+      visibility = "hidden";
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush();
+      expect(m.syncLivingSources).not.toHaveBeenCalled();
+      visibility = "visible";
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush();
+      expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+    }
+  });
+
+  const wakeEverything = async () => {
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } }));
+      m.domainChangeListener?.({ userId: "owner-a", domain: "identity", operation: "stored" });
+    });
+    await flush();
+  };
+
+  it.each([
+    ["the vault is locked", { unlocked: false }],
+    ["the vault key is missing", { vaultKey: "" }],
+  ])("never reads or writes sources while %s", async (_label, state) => {
+    Object.assign(m, state);
+    vi.useFakeTimers();
+    render(<LivingMemoryBridge />);
+    await flush();
+    await wakeEverything();
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
+  });
+
+  it("stops reading and forgets this session's verification when the vault locks", async () => {
+    vi.useFakeTimers();
+    recordLivingSourceSessionVerification("owner-a", 0, ["profile"], "2026-10-15T00:00:00.000Z");
+    const view = render(<LivingMemoryBridge />);
+    await flush();
+    // Positive control: the unlocked bridge reads sources.
+    expect(m.syncLivingSources).toHaveBeenCalled();
+    m.unlocked = false;
+    view.rerender(<LivingMemoryBridge />);
+    expect(getLivingSourceSessionVerification("owner-a", 0)).toEqual({});
+    m.syncLivingSources.mockClear();
+    m.refreshMemoryDocument.mockClear();
+    await wakeEverything();
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
   });
 });

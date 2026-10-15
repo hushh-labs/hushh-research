@@ -23,8 +23,10 @@ import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 import {
   LIVING_SOURCE_DOMAIN,
+  LivingSourcesIncompleteError,
   syncLivingSources,
 } from "@/lib/pkm/living-source-sync";
+import { clearLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 /** Continuous unlocked-session updates only. Closed/locked operation requires
@@ -77,18 +79,26 @@ export function LivingMemoryBridge() {
             const requestPaymentVersion = requestPaymentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
-              await syncLivingSources({
-                userId,
-                vaultKey,
-                vaultOwnerToken,
-                idToken,
-                forceConnections: connectionVersion > scannedConnectionVersion,
-                forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
-                forcePayoutActivity: activityVersion > scannedActivityVersion,
-                forceConsent: consentVersion > scannedConsentVersion,
-                forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
-                forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
-              });
+              try {
+                await syncLivingSources({
+                  userId,
+                  vaultKey,
+                  vaultOwnerToken,
+                  idToken,
+                  forceConnections: connectionVersion > scannedConnectionVersion,
+                  forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                  forcePayoutActivity: activityVersion > scannedActivityVersion,
+                  forceConsent: consentVersion > scannedConsentVersion,
+                  forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
+                  forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
+                });
+              } catch (error) {
+                if (!(error instanceof LivingSourcesIncompleteError)) throw error;
+                // The verified sources were stored. Each forced read got its
+                // attempt; a failed source stays pending and is retried on a
+                // later wake. Still refresh, so the mirror shows what was checked.
+                sourceDirty = true;
+              }
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
               scannedActivityVersion = activityVersion;
@@ -205,6 +215,12 @@ export function LivingMemoryBridge() {
     );
     window.addEventListener("online", refreshSources);
     window.addEventListener("focus", refreshSources);
+    // Browsers throttle timers in hidden tabs, so check again as soon as the
+    // app is visible. Hiding it never starts a read.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshSources();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     const timer = window.setInterval(refreshSources, 60_000);
     void build();
     return () => {
@@ -223,7 +239,9 @@ export function LivingMemoryBridge() {
       );
       window.removeEventListener("online", refreshSources);
       window.removeEventListener("focus", refreshSources);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       clearMemoryDocument(userId);
+      clearLivingSourceSessionVerification(userId);
     };
   }, [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   return null;
