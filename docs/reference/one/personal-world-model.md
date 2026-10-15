@@ -36,17 +36,18 @@ The page provides a plain-English draft, identity explanation, topic coverage ga
 
 The single authored system instruction is the `one_personal_world_model.system_instruction` block in [the One manifest](../../../consent-protocol/hushh_mcp/agents/one/agent.yaml). Python loads this manifest; it contains no duplicate system prompt. The generated product-agent registries describe the same specialist.
 
-The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.6-flash`**, with medium thinking and a 16,384-token output ceiling. Gemini interprets public search receipts. The implemented retrieval adapter uses **Tavily Basic**, rather than Google Search grounding, for this persistent reviewed-evidence workflow.
+The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-flash`**, with medium thinking and a 16,384-token output ceiling. Gemini interprets public search receipts. The implemented retrieval adapter uses **Tavily Basic**, rather than Google Search grounding, for this persistent reviewed-evidence workflow.
 
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
-| Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Local | `hushh-pda-uat` | `gemini-3.8-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Dev | `hushh-gemini-bridge` | same | same | same |
 | UAT | `hussh-511311` (Parth) | same | same | same |
 | Production | `hushh-vertex-personal54` | same | same | same |
 
-Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
+The default 3.8 text model uses verified `global`; Live remains regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 
 Change the checked-in environment profile and deploy its revision. The compiler and runtime share validation and a normalized configuration hash. Candidate readiness compares the image's hash and exercises the configured text and enabled Live targets. The runtime config CI contract rejects managed environment reads outside the canonical settings boundary. Local development retains explicit overrides; hosted runtimes use the packaged profile and ignore retired per-surface project overrides.
 

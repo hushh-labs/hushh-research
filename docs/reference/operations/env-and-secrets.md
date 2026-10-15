@@ -255,19 +255,14 @@ It checks that:
 
 ### Fleet text model switch (2026-09-02)
 
-`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
-every text agent to one Gemini generation at once: agent manifests say
-`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
-default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
-Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
-Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
-3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
-lane may flip it only after its project's `constraints/vertexai.allowedModels`
-policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
-2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
-and production's Gemini project is `hushh-vertex-personal54` (`_GENAI_PROJECT_ID` in
-`deploy-uat.yml` / `deploy-production.yml`); UAT runs `gemini-3.8-flash` and
-production pins `gemini-3.7-flash` until an org-policy admin admits 3.8 there.
+Managed targets come from `consent-protocol/config/managed-ai-runtime.json`.
+This bounded dev release selects `hushh-gemini-bridge` and `gemini-3.8-flash` on
+global, with no private-agent image change. Its local, UAT and production project
+entries retain their existing placement; this branch does not deploy those lanes.
+The text default and supported pair advance to 3.8 and 3.7, preserving the existing
+single-model catalog. Live Voice and embeddings keep their own declared targets.
+Hosted runtimes use the packaged profile; local mode retains explicit overrides.
+Serving state must be verified independently from this release configuration.
 
 One Live Voice adds three names on every lane: `ONE_VOICE_LIVE_ENABLED` (kill switch,
 `false` in production until UAT sign-off), `VERTEX_LIVE_MODEL_ID` (an exact Live model
