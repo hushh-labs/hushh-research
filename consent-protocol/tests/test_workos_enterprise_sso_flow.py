@@ -842,8 +842,8 @@ def test_deploy_refuses_to_enable_sso_with_a_secret_missing(flag, bound, ok):
         'add_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
         "add_env() { :; }\n"
     )
-    env = {**os.environ, "BOUND": bound, "_WORKOS_SSO_ENABLED": flag}
-    env["_WORKOS_REDIRECT_URI"] = "https://app.example/login"
+    # The deploy step hands the script one packed variable (enabled|redirect URI|origins), not three.
+    env = {**os.environ, "BOUND": bound, "_WORKOS_CONFIG": f"{flag}|https://app.example/login|"}
     run = subprocess.run(  # noqa: S603 - fixed shell and repository script; fixed inputs
         ["bash", "-c", f"{stubs}source {script}"], env=env, capture_output=True, text=True
     )
