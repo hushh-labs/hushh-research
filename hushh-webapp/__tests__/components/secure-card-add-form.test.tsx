@@ -51,9 +51,9 @@ beforeEach(() => {
     networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
 });
 
-it("keeps Add available during an exact-design download and rejects its reply after a number edit", async () => {
-  let finish!: (value: unknown) => void;
-  networkApi.select.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+it("keeps Add available during an exact-design download and ignores a stale token result", async () => {
+  const finishes: ((value: unknown) => void)[] = [];
+  networkApi.select.mockImplementation(() => new Promise(resolve => { finishes.push(resolve); }));
   const variant = { assetId: "owned-blue", issuerId: "owned", productId: "test", variantId: "blue", label: "Owned blue", image: "/not-dispatched-by-this-mock", digest: "a".repeat(64), allowOverlay: false };
   networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "exact", issuerId: "owned", variants: [variant] });
   const onSubmit = vi.fn().mockResolvedValue(undefined);
@@ -63,16 +63,16 @@ it("keeps Add available during an exact-design download and rejects its reply af
   await waitFor(() => expect(networkApi.select).toHaveBeenCalledOnce());
   expect(screen.queryByRole("heading", { name: "Choose your card design" })).toBeNull();
   expect(screen.queryByText("Select the design that matches your card.")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
   expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
-  networkApi.artwork.mockResolvedValue({ catalogVersion: "owned-1", provider: "configured", match: "unknown", variants: [] });
-  fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4000000000000002" } });
-  await act(async () => { finish({ source: "catalog", assetId: "owned-blue" }); });
+  expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
   token = "renewed-consent"; view.rerender(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />);
   await waitFor(() => expect(networkApi.artwork).toHaveBeenCalledTimes(2));
   expect(networkApi.select).toHaveBeenCalledOnce();
+  await act(async () => { finishes[0]!({ source: "catalog", assetId: "owned-blue" }); });
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", "neutral");
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
   submit();
-  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ pan: "4000000000000002", artwork: undefined })));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ artwork: undefined })));
 });
 
 it("rechecks open picker and selected imagery without replacing the owner choice or restoring a foreign preview", async () => {
@@ -263,7 +263,7 @@ async function chooseBank() {
   const select = await screen.findByLabelText("Bank (optional)"); fireEvent.keyDown(select, { key: "ArrowDown" });
   fireEvent.click(await screen.findByRole("option", { name: "Owned Test Bank · US" }));
 }
-it("fences a bank suggestion after a suffix-only PAN edit and preserves a manual bank choice", async () => {
+it("fences a bank suggestion after a suffix-only PAN edit and lets the owner clear the bank", async () => {
   enableBankFixture(); let first!: (v: typeof bankVariants[number]) => void;
   const suggestion = vi.fn().mockReturnValueOnce(new Promise(resolve => { first = resolve; })).mockResolvedValue(bankVariants[1]);
   render(<SecureCardAddForm onSubmit={vi.fn()} suggestBankDesign={suggestion} />); fillRequired(); await chooseBank();
@@ -273,8 +273,9 @@ it("fences a bank suggestion after a suffix-only PAN edit and preserves a manual
   await act(async () => first(bankVariants[0]));
   expect(screen.getByRole("button", { name: "Gold", exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Blue", exact: true }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Blue", exact: true })).toHaveAttribute("aria-pressed", "true"));
+  fireEvent.keyDown(screen.getByLabelText("Bank (optional)"), { key: "ArrowDown" });
+  fireEvent.click(await screen.findByRole("option", { name: "Choose your bank", exact: true }));
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", "neutral");
 });
 it.each([false, true])("revalidates a bank choice after inactive Add without replacing changed bytes (%s)", async changed => {
   enableBankFixture(); const save = vi.fn().mockResolvedValue(undefined), suggestion = vi.fn().mockResolvedValue(bankVariants[1]);
