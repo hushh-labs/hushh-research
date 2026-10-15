@@ -98,7 +98,7 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe("/one-presence/profile-hd.png");
     expect(runtime.instances).toHaveLength(0);
     const instance = await loadVisibleAvatar(view);
-    expect(instance.options.src).toBe("/one-presence/connected.riv");
+    expect(instance.options.src).toBe("/one-presence/hd/connected.riv");
     act(() => { lifecycle.state = "background"; lifecycle.listeners.forEach(listener => listener()); });
     expect(instance.stopRendering).toHaveBeenCalled();
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
@@ -131,7 +131,7 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     act(() => enterViewport([{ isIntersecting: true }]));
     await waitFor(() => expect(runtime.instances).toHaveLength(2));
     const pending = runtime.instances[1];
-    expect(pending.options.src).toBe("/one-presence/answering.riv");
+    expect(pending.options.src).toBe("/one-presence/hd/answering.riv");
     expect(pending.options.enableRiveAssetCDN).toBe(false);
     expect(old.cleanup).not.toHaveBeenCalled();
     expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("style")).toContain("opacity: 1");
@@ -173,9 +173,11 @@ describe("OnePresenceAvatar playback lifecycle", () => {
     expect(view.container.querySelector("canvas")?.style.visibility).toBe("hidden");
     expect(view.container.querySelector("img")?.style.visibility).toBe("visible");
     expect(pending.play).not.toHaveBeenCalled();
-    expect(old.cleanup).toHaveBeenCalledOnce();
+    // The new DOM can commit before React flushes passive unmount cleanup.
+    await waitFor(() => expect(old.cleanup).toHaveBeenCalledOnce());
     view.rerender(<OnePresenceAvatar state="connected" />);
     await waitFor(() => expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("connected"));
+    await waitFor(() => expect(pending.cleanup).toHaveBeenCalledOnce());
     act(() => pending.options.onLoad());
     expect(view.container.querySelector('[data-one-presence-layer="current"]')?.getAttribute("data-one-presence-artwork")).toBe("connected");
   });

@@ -59,7 +59,7 @@
     "verify:service-boundary": "node ./scripts/architecture/verify-service-layer-boundary.mjs",
     "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs && node ./scripts/design/verify-accent-tokens.mjs && node ./scripts/design/verify-apple-hierarchy.mjs && node ./scripts/design/verify-restraint-charter.mjs && node ./scripts/architecture/verify-render-performance.mjs && npm run verify:brand-assets",
     "build:brand-assets": "node ./scripts/design/generate-hushh-brand-assets.mjs",
-    "verify:brand-assets": "node ./scripts/design/generate-hushh-brand-assets.mjs --check",
+    "verify:brand-assets": "node ./scripts/design/generate-hushh-brand-assets.mjs --check && node ./scripts/design/build-one-presence-hd.mjs --check",
     "verify:render-performance": "node ./scripts/architecture/verify-render-performance.mjs",
     "perf:ios:card": "zsh ./scripts/perf/ios-perf-card.sh",
     "perf:android:card": "zsh ./scripts/perf/android-perf-card.sh",
