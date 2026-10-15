@@ -440,6 +440,15 @@ test("borrowed reviewer sessions preserve other clients and permanently retire o
     const next = await harness.attachExistingSession(fixture.page);
     fixture.state.vaultEpoch += 1;
     await assert.rejects(next.assertCurrent(), /retired/);
+    const handler = [...fixture.routes].find(value => typeof value === "function");
+    let forwarded = false;
+    await assert.doesNotReject(handler({
+      request: () => ({ method: () => "POST", url: () => `${APP_ORIGIN}/api/scope-commerce/purchases` }),
+      continue: async () => { forwarded = true; },
+      fulfill: async () => { throw new Error("Route is already handled!"); },
+    }));
+    assert.equal(forwarded, false);
+    await assert.rejects(next.assertCurrent(), /retired/);
     await next.dispose();
     fixture.state.ownerMatches = false;
     await assert.rejects(harness.attachExistingSession(fixture.page), /retired/);
