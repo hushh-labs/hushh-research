@@ -780,7 +780,7 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
         "dev": "hushh-pda-uat",
-        "uat": "hussh-511311",
+        "uat": "hushh-vertex-personal54",
         "production": "hushh-vertex-personal54",
     }
     for env in ("dev", "uat", "production"):
