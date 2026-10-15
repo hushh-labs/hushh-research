@@ -27,7 +27,27 @@ approval. Both reviewers' signed funding settlements and platform capital on
 shared Dev are separately verified below; they do not prove a consumer purchase
 or payout.
 
-### Current Dev evidence — 2026-10-14 UTC
+### Current Dev evidence — 2026-10-15 UTC
+
+Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and is
+pushed on the existing branch. Its
+[full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38660426398)
+is running; Dev promotion has not occurred.
+
+The existing Chrome debugger remains connected. A task-owned background page
+proved the primary's ordinary Firebase owner, visible cold vault challenge,
+unlock and same-session Saved/Add and information-payout navigation, without
+reloading the shared original tab or persisting vault keys. The primary's
+information-access setup button is visible and enabled; readiness is still false.
+
+The reviewer guard now supports narrowly admitted private Memory preparation
+against the current authenticated, canonically verified signed pod endpoint.
+Endpoint, route, callback and asynchronous owner-retirement controls pass
+77 focused frontend and 19 Node cases. The actual private request passed the
+guard but returned HTTP 400 at the pod's model-access boundary. No encrypted
+fixture was saved and no paid purchase was submitted. Existing owner AI selection
+must be verified through the normal private-pod connection contract; a browser
+vault backup alone does not prove a usable pod selection.
 
 At `2026-10-14T23:23:44Z`, source-bound database and provider reads confirmed
 both reviewers' document/answer payout accounts have submitted details, an
@@ -46,8 +66,8 @@ History's WebKit sampling raced initial painting and residual touch-cancel
 overrides. The fixture now requires a painted closed baseline and released inline
 motion before sampling. Chromium and WebKit pass; forcing zero-duration motion
 still fails the intermediate-frame guard. Latency, final geometry, unchanged
-Chat position and revocation assertions remain intact. These changes require a
-new exact-candidate core and full CI before Dev promotion.
+Chat position and revocation assertions remain intact. Candidate `69d1f729fbd5`
+passed core; successful exact-source full CI remains required before Dev promotion.
 
 New main `493a66762d61` was fetched and assessed separately from this frozen
 payment release. Its 340 additional commits expose a migration identity collision:

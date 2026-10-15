@@ -65,6 +65,14 @@ class ExistingReviewerSession {
       };
       await page.route(pattern, this.routeHandler);
     } }, { appOrigin: ports.appOrigin, reviewerAuthMode: "human_authenticated",
+      allowMemoryPreparation: ports.allowMemoryPreparation,
+      admitOwnerPodMemoryPreparation: async request => {
+        if (!this.baseline || !ports.admitOwnerPodMemoryPreparation) return false;
+        await this.assertCurrent();
+        const admitted = await ports.admitOwnerPodMemoryPreparation(request);
+        await this.assertCurrent();
+        return admitted === true;
+      },
       admitProviderOAuth: ports.admitProviderOAuth, admitMutation: async request => {
         if (!this.baseline) return false;
         await this.assertCurrent();

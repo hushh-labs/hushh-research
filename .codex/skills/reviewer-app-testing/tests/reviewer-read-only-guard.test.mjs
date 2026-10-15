@@ -122,7 +122,7 @@ test("cold operator admission waits for the owner-bound challenge without inject
 function requestFor(handler, method, url, body = undefined) {
   const result = { forwarded: false, response: null };
   return handler({
-    request: () => ({ method: () => method, url: () => url, postDataJSON: () => body }),
+    request: () => ({ method: () => method, url: () => url, postDataJSON: () => body, isNavigationRequest: () => false }),
     continue: async () => { result.forwarded = true; },
     fulfill: async (response) => { result.response = response; },
   }).then(() => result);
@@ -453,20 +453,22 @@ test("borrowed reviewer sessions preserve other clients and permanently retire o
   }
 });
 
-test("a retired borrowed session cannot publish deferred evidence or forward deferred mutation approval", async () => {
+for (const privatePreparation of [false, true]) test(`a retired borrowed session cannot publish deferred evidence or forward deferred ${privatePreparation ? "private preparation" : "mutation"} approval`, async () => {
   const previousMode = process.env.REVIEWER_AUTH_MODE, previousWrites = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS;
   process.env.REVIEWER_AUTH_MODE = "human_authenticated"; process.env.REVIEWER_ALLOW_SHARED_MUTATIONS = "true";
   const fixture = borrowedPage();
   let release, entered;
   const pending = new Promise(resolve => { release = resolve; }), started = new Promise(resolve => { entered = resolve; });
+  const pathname = privatePreparation ? "/api/one/pod/memory/proposals" : "/api/scope-commerce/purchases";
+  const admit = async request => { assert.equal(new URL(request.url()).pathname, pathname); entered(); await pending; return true; };
   const harness = await createReviewerSessionHarness({ repoRoot: path.resolve(import.meta.dirname, "../../../.."),
     appOrigin: APP_ORIGIN, reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "" },
-    admitMutation: async request => { assert.equal(new URL(request.url()).pathname, "/api/scope-commerce/purchases"); entered(); await pending; return true; } });
+    ...(privatePreparation ? { allowMemoryPreparation: true, admitOwnerPodMemoryPreparation: admit } : { admitMutation: admit }) });
   const closeObservation = () => { for (const handler of fixture.events.get("close")) handler(); };
   try {
     const session = await harness.attachExistingSession(fixture.page);
     const handler = [...fixture.routes].find(value => typeof value === "function");
-    const request = requestFor(handler, "POST", APP_ORIGIN + "/api/scope-commerce/purchases");
+    const request = requestFor(handler, "POST", (privatePreparation ? "https://owner-pod.example" : APP_ORIGIN) + pathname);
     await started; closeObservation(); release();
     assert.equal((await request).forwarded, false);
     await assert.rejects(session.assertCurrent(), /retired/);
