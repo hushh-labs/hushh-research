@@ -189,7 +189,7 @@ describe("Wallet video browser workspace", () => {
     expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" }));
     expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242");
     expect(document.querySelector('textarea')).toBeNull();
-    expect(screen.getByText("Hidden")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Saved card details" })).not.toHaveTextContent(/\b(?:CVV|CVC|PIN)\b/);
     expect(screen.queryByRole("button", { name: "Copy CVV" })).toBeNull();
     expect(trackEventMock.mock.calls.flatMap((call) => call).map(String).join(" ")).not.toContain("4242424242424242");
   });

@@ -91,7 +91,7 @@ describe("WalletService", () => {
   });
   it("saves valid details with neutral artwork when catalog approval is revoked while reviewing", async () => {
     const artwork = approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "test-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" }, CONTEXT.userId, snapshotVaultSessionEpoch());
-    networkApi.fetch.mockImplementation(async (url, options) => url.endsWith("/artwork/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: false, allowOverlay: false }] })) : new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
+    networkApi.fetch.mockImplementation(async (url) => url.endsWith("/artwork/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: false, allowOverlay: false }] })) : new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
     const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030, artwork }, surface: "web", source: "one_wallet_add" });
     expect(saved.artwork).toEqual({ source: "neutral", version: 1 });
     const result = mockStoreWalletDomain.mock.calls[0]![0].applyMutation({}); expect(result.artwork[saved.cardId]).toEqual(saved.artwork);

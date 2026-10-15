@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
