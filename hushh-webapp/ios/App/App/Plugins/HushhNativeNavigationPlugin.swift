@@ -232,6 +232,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.resolve(["applied": false]); return
             }
             container.setBottomChromeScrollOffset(UIAccessibility.isReduceMotionEnabled ? 0 : offset)
+            self.publishPresentationProbe()
             call.resolve(["applied": true])
         }
     }
@@ -373,6 +374,10 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         guard let bar = tabBar, let probe = presentationProbe else { return }
         // Public presentation only; never routes, owners, drafts or credentials.
         var fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
+                                    "scrollFollowing": scrollFollowing, "scrollActive": scrollActive,
+                                    "scrollPressHeld": scrollPressHeld, "keyboardVisible": keyboardVisible,
+                                    "scrollOffset": compositor?.bottomChromeScrollOffset ?? 0,
+                                    "scrollSequence": scrollState.sequence,
                                     "accessibilityHidden": bar.accessibilityElementsHidden,
                                     "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
                                     "x": bar.frame.minX, "y": bar.frame.minY,

@@ -2042,6 +2042,7 @@ final class AppUITests: XCTestCase {
             start.press(forDuration: 0.05, thenDragTo: end)
             let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
             guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
+                reportNativeDockAdmission(app)
                 XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_FOLLOW_USER_SCROLL"); return
             }
             let displacement = bar.frame.minY - baseline
@@ -2516,14 +2517,19 @@ final class AppUITests: XCTestCase {
         let navigation = app.buttons["native-navigation-presentation"].firstMatch
         if navigation.exists, let raw = navigation.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for key in ["visible", "interactive", "covered", "planeVisible", "retained", "accessibilityHidden"] {
+            for key in ["visible", "interactive", "covered", "planeVisible", "retained", "accessibilityHidden", "scrollFollowing", "scrollActive", "scrollPressHeld", "keyboardVisible"] {
                 if let value = packet[key] as? Bool { print("NATIVE_NAVIGATION_ADMISSION key=\(key) value=\(value)") }
+            }
+            for key in ["scrollOffset", "scrollSequence"] {
+                if let value = packet[key] as? NSNumber, value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
+                    print("NATIVE_PUBLIC_GEOMETRY key=\(key) value=\(value.doubleValue)")
+                }
             }
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
            let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused"] {
+            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused", "bottomProgress", "appScrollTop", "appScrollRange"] {
                 if let value = packet[key], value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
                     // Keep finite subpixel evidence: rounding hid geometry
                     // rejected at the strict native containment boundary.

@@ -816,6 +816,7 @@ final class NativeVaultLayoutProbe {
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
                             "profileOverlayBlocked", "profileInertBlocked", "profileMoving", "profileSuppressed", "profileVoiceBlocked", "profileDocumentHidden",
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
+                            "bottomProgress", "appScrollTop", "appScrollRange",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
@@ -903,6 +904,8 @@ final class NativeVaultLayoutProbe {
       const root = document.documentElement;
       const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
       const dockFailure = document.querySelector('[data-native-dock-failure-code]');
+      const scrollRoot = document.querySelector('[data-app-scroll-root="true"]');
+      const progressConsumer = document.querySelector('[data-bottom-chrome-progress-consumer]') || root;
       // Read only the authored public guard packet. Never include its raw text,
       // private scene/body, document identity or an arbitrary DOM projection.
       let profileGuards = {};
@@ -918,6 +921,9 @@ final class NativeVaultLayoutProbe {
       }
       const result = {
         ...profileGuards,
+        bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
+        appScrollTop: scrollRoot?.scrollTop,
+        appScrollRange: scrollRoot ? scrollRoot.scrollHeight - scrollRoot.clientHeight : undefined,
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
         cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
