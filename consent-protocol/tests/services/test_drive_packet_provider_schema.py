@@ -103,6 +103,9 @@ def test_new_model_status_and_checker_fields_are_required_without_rewriting_hist
     for model in (ReferencedPageFacts, ReferencedDocumentFacts):
         assert "record_status" in model.model_json_schema()["required"]
     assert "correct_record_status" in PacketVerificationProposal.model_json_schema()["required"]
+    assert "correct_standalone_value" in PacketVerificationProposal.model_json_schema()["required"]
+    assert "standalone_value" in PacketProposal.model_json_schema()["required"]
+    assert "utility_rationale" in PacketProposal.model_json_schema()["required"]
     legacy = {
         "state": "ready",
         "correct_subject_and_account": True,
@@ -113,12 +116,17 @@ def test_new_model_status_and_checker_fields_are_required_without_rewriting_hist
         "issues": [],
     }
     assert PacketVerification.model_validate(legacy).correct_record_status is None
+    assert PacketVerification.model_validate(legacy).correct_standalone_value is None
     with pytest.raises(ValidationError):
         PacketVerificationProposal.model_validate(legacy)
     with pytest.raises(ValidationError):
-        PacketVerificationProposal.model_validate({**legacy, "correct_record_status": False})
+        PacketVerificationProposal.model_validate(
+            {**legacy, "correct_record_status": True, "correct_standalone_value": False}
+        )
     assert (
-        PacketVerificationProposal.model_validate({**legacy, "correct_record_status": True}).state
+        PacketVerificationProposal.model_validate(
+            {**legacy, "correct_record_status": True, "correct_standalone_value": True}
+        ).state
         == "ready"
     )
 

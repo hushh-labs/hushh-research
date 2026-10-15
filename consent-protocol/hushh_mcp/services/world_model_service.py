@@ -22,15 +22,19 @@ from hushh_mcp.one_adk.world_model import (
 from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
-from hushh_mcp.services.profile_research_jobs import ProfileResearchJobs
+from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
 from hushh_mcp.services.world_model_preferences import (
     checkpoint_before_write,
     checkpoint_committed,
+    draft_completed,
+    enroll_default,
     preferences,
 )
 
 NAMESPACE = "one.personal_world_model.v1"
+# A finished model is prepared again once its latest run is this old.
+PWM_REPREPARE_AFTER_SECONDS = 7 * 86400
 
 
 async def owner_identity(user_id, consent_token, *, conn=None):
@@ -91,7 +95,14 @@ async def admission(user_id, consent_token):
 
 
 async def offer(
-    *, user_id, consent_token, attempts_used=(), on_attempts_start=None, work=None, on_progress=None
+    *,
+    user_id,
+    consent_token,
+    attempts_used=(),
+    on_attempts_start=None,
+    work=None,
+    on_progress=None,
+    inputs=None,
 ):
     refused, original = await admission(user_id, consent_token)
     if refused:
@@ -121,6 +132,7 @@ async def offer(
         on_attempts_start=on_attempts_start,
         work=work,
         on_progress=on_progress,
+        owner_decisions=(inputs or {}).get("owner_decisions"),
     )
     refused, current = await admission(user_id, consent_token)
     if refused:
@@ -142,13 +154,38 @@ class WorldModelJobs(ProfileResearchJobs):
             raise PermissionError("Research consent required")
         return {"consent_generation": str(consent["generation"])}
 
-    async def ensure(self, user_id, consent_token):
+    async def ensure(self, user_id, consent_token, *, owner_decisions=None):
+        # Research is on by default once setup disclosed it. An existing row,
+        # including an explicit opt-out, is never changed here.
+        if (
+            one_profile_research_enabled()
+            and await preferences(user_id) is None
+            and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+        ):
+            await enroll_default(user_id, consent_token)
         refused, _ = await admission(user_id, consent_token)
         if refused:
             return refused
         consent = await preferences(user_id)
         state = await self.store.get(user_id)
-        if consent["auto_started_at"] is not None and state is None:
+        if (
+            state is not None
+            and state.get("status") in {"offered", "low_confidence", "saved"}
+            and self.clock() - state.get("finished_at", self.clock()) >= TTL_SECONDS
+        ):
+            # Past retention but not yet purged: decide as if it is already gone,
+            # so an aged-out draft never buys a new run before the interval.
+            state = None
+        last_run = consent["auto_started_at"]
+        active_draft = consent.get("active_draft_id")
+        if (
+            state is None
+            and last_run is not None
+            and self.clock() - last_run.timestamp() < PWM_REPREPARE_AFTER_SECONDS
+            and (active_draft is None or await draft_completed(user_id, active_draft))
+        ):
+            # The latest run finished recently and its draft aged out. A run the
+            # retention purge removed before it finished is prepared again.
             return {"status": "saved", "pkm_written": False}
         if (
             state
@@ -156,7 +193,8 @@ class WorldModelJobs(ProfileResearchJobs):
             and state.get("consent_generation") == str(consent["generation"])
         ):
             return state["result"]
-        return await self.start(user_id, consent_token)
+        inputs = None if owner_decisions is None else {"owner_decisions": owner_decisions}
+        return await self.start(user_id, consent_token, inputs=inputs)
 
     async def dismiss(self, user_id, consent_token, draft_id=None):
         if await validate_first_party_owner_token(user_id, consent_token) is None:

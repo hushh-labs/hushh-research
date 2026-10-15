@@ -37,7 +37,7 @@ export function WalletCardPassPreview({
     >
       <div className="col-start-1 min-w-0 px-4 pt-4 pb-2">
         <div className="min-w-0">
-          <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+          <div className="app-metadata-label text-[10px] font-normal uppercase tracking-[0.22em] text-muted-foreground">
             Hussh One
           </div>
           <div className="mt-2 truncate text-[19px] font-semibold leading-tight text-foreground">
@@ -55,7 +55,7 @@ export function WalletCardPassPreview({
         <dl className="col-start-1 flex min-w-0 flex-wrap gap-x-4 gap-y-2 px-4 pb-4">
           {organisation.trim() ? (
             <div className="min-w-0">
-              <dt className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <dt className="text-[10px] font-normal uppercase tracking-[0.18em] text-muted-foreground">
                 Organisation
               </dt>
               <dd className="mt-0.5 truncate text-[13px] text-foreground">
@@ -65,7 +65,7 @@ export function WalletCardPassPreview({
           ) : null}
           {locationLabel.trim() ? (
             <div className="min-w-0">
-              <dt className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <dt className="text-[10px] font-normal uppercase tracking-[0.18em] text-muted-foreground">
                 Location
               </dt>
               <dd className="mt-0.5 truncate text-[13px] text-foreground">

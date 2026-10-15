@@ -200,9 +200,12 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
 
     def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        # UAT admits up to 900 projected (reserve included) of 1000 since
+        # 2026-10-15: measured num_backends peaked at 256 over 7 days (median
+        # 86), and a fully maxed 862 still fits under max_connections.
         self.assertEqual(budget.connection_policy(profile, "uat"), {
             "database_max_connections": 1000,
-            "admission_limit": 800,
+            "admission_limit": 900,
             "administrative_reserve": 100,
         })
         self.assertEqual(budget.connection_policy(profile, "production"), {
@@ -254,6 +257,8 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-older-drain"),
         ]
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        # Multiple older generations may still hold admitted requests. Neither
+        # a zero minimum instance count nor aggregate SQL peaks prove drainage.
         for environment in ("uat", "production"):
             for configured in profile["environments"][environment]["services"].values():
                 with self.subTest(environment=environment, container=configured["container"]):

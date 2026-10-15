@@ -85,9 +85,9 @@
   z-index: 2;
   margin: 0;
   padding-inline: 16px;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  font-family: var(--font-app-display);
   font-size: clamp(23px, 6.716vw, 27px);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.7px;
   line-height: 32px;
   text-align: center;
@@ -133,7 +133,7 @@
   color: #8e8e93 !important;
   font-family: var(--font-app-body) !important;
   font-size: 13px !important;
-  font-weight: 590 !important;
+  font-weight: 600 !important;
   letter-spacing: 0 !important;
   line-height: 16px !important;
 }
@@ -194,7 +194,7 @@
   color: #ffffff !important;
   font-family: var(--font-app-body) !important;
   font-size: 17px !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
   letter-spacing: -0.2px !important;
   line-height: 22px !important;
   transition: opacity 0.12s ease !important;
@@ -443,7 +443,7 @@
   min-width: 0;
   height: 52px;
   border-radius: 18px;
-  font-weight: 500;
+  font-weight: 400;
 }
 .codeScreen [data-figma-otp-actions] {
   /* Keep the other field gaps at 24px; these two actions sit 12px apart. */

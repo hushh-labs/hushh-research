@@ -539,6 +539,23 @@ describe("Feed history interactions", () => {
     expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
   });
 
+  it("does not claim removal when the server acknowledges no dismissed row", async () => {
+    mocks.useActionTestRow = true;
+    mocks.dismiss.mockResolvedValueOnce(null);
+    await renderAfterAutomaticRead();
+
+    fireEvent.click(screen.getByRole("button", { name: "row-5" }));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
+      "Couldn't confirm removal. Try again.",
+    ));
+    expect(mocks.refresh).toHaveBeenCalledWith({ force: true });
+    expect(screen.getByRole("button", { name: "row-5" })).toBeInTheDocument();
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      "Removed from Feed", expect.anything(),
+    );
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalledWith("action");
+  });
+
   it("does not reveal an older consent bundle row from stale cache after dismissal", async () => {
     mocks.useActionTestRow = true;
     mocks.data.items = [

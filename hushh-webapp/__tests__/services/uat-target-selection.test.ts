@@ -76,9 +76,20 @@ describe("the production selector CLI", () => {
         } else if (path.includes("/check-runs")) {
           const sha = path.split("/").at(-2);
           const gate = state.candidates.find(item => item.sha === sha)?.gate;
-          payload = { check_runs: gate ? [{ name: "Main Post-Merge Smoke Gate",
-            status: gate === "pending" ? "in_progress" : "completed",
-            conclusion: gate === "pending" ? null : gate }] : [] };
+          // GitHub's shape: newest first, per_page window, exact check_name
+          // filter. state.crowded puts that many newer checks ahead of the gate.
+          const params = new URL(url).searchParams;
+          const all = [
+            ...Array.from({ length: state.crowded ?? 0 }, () => ({
+              name: "Check for due maintenance without cloud credentials",
+              status: "completed", conclusion: "success" })),
+            ...(gate ? [{ name: "Main Post-Merge Smoke Gate",
+              status: gate === "pending" ? "in_progress" : "completed",
+              conclusion: gate === "pending" ? null : gate }] : []),
+          ];
+          const named = params.get("check_name");
+          payload = { check_runs: (named ? all.filter(run => run.name === named) : all)
+            .slice(0, Number(params.get("per_page") ?? 30)) };
         } else throw new Error("Unexpected GitHub request");
         return new Response(JSON.stringify(payload), { status: 200 });
       };
@@ -172,6 +183,15 @@ describe("the production selector CLI", () => {
 
   it("still selects the newest proven forward-moving commit", () => {
     const result = run({ main: B, live: LIVE, candidates: [{ sha: B, gate: "success" }] });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`sha=${B}\ndecision=DEPLOY_EXACT_SHA\n`);
+  });
+
+  it("finds a commit's gate behind more than a page of newer checks", () => {
+    // An idle main head gathers the hourly capacity clock's checks, all newer
+    // than its push-time gate; an unfiltered first page would hide the gate.
+    const result = run({ main: B, live: LIVE, crowded: 150,
+      candidates: [{ sha: B, gate: "success" }] });
     expect(result.status).toBe(0);
     expect(result.output).toContain(`sha=${B}\ndecision=DEPLOY_EXACT_SHA\n`);
   });

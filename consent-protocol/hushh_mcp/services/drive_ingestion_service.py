@@ -98,7 +98,9 @@ class DriveIngestionService:
             require_current=lambda: self.store.current(job),
         )
 
-    async def run_one(self, *, user_id: str, document_ids=None) -> dict[str, str]:
+    async def run_one(
+        self, *, user_id: str, document_ids=None, prefer_profile_upgrade=False
+    ) -> dict[str, str]:
         targets = document_targets(document_ids)
         row = await self.oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if not row:
@@ -107,6 +109,7 @@ class DriveIngestionService:
             user_id=user_id,
             generation=row["connection_generation"],
             **({"document_ids": targets} if targets is not None else {}),
+            prefer_profile_upgrade=prefer_profile_upgrade,
         )
         if not job:
             return {"status": "idle"}
@@ -192,4 +195,8 @@ class DriveIngestionService:
                 await self.store.fail(job, code=code)
             except DriveReadError:
                 return {"status": "superseded"}
-            return {"status": "not_ready"}
+            return {
+                "status": "unsupported"
+                if job.get("source_profile") == "live" and code == "unsupported_format"
+                else "not_ready"
+            }

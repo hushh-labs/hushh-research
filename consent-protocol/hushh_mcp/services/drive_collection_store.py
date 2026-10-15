@@ -8,10 +8,11 @@ Collection processing never grants a buyer permission or publishes a listing.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import secrets
 from dataclasses import asdict
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
@@ -24,12 +25,14 @@ from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     DRIVE_POLICY,
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
     LIVE_POLICY_HASH,
     DriveReadError,
 )
 
 COLLECTION_DISCLOSURE = "live-drive-collection-v1"
 COLLECTION_LEASE_SECONDS = 120
+UNSUPPORTED_RECHECK_LIMIT = 128
 
 
 class DriveCollectionStore(DriveLivePreferences):
@@ -179,7 +182,8 @@ class DriveCollectionStore(DriveLivePreferences):
                 UPDATE connected_documents SET processing_enabled=:enabled,
                   collection_revision=:revision,processing_revision=processing_revision+1,
                   lease_id=NULL,lease_expires_at=NULL,attempt_count=0,next_attempt_at=clock_timestamp(),
-                  status=CASE WHEN active_version IS NOT NULL THEN 'ready' ELSE 'queued' END,
+                  status=CASE WHEN status='unsupported' THEN 'unsupported'
+                    WHEN active_version IS NOT NULL THEN 'ready' ELSE 'queued' END,
                   updated_at=clock_timestamp()
                 WHERE user_id=:user AND connection_generation=:generation AND source_profile='live'
                   AND last_error_code IS DISTINCT FROM 'source_unavailable'
@@ -491,6 +495,7 @@ class DriveCollectionStore(DriveLivePreferences):
         """One source-registration path for discovery and bounded request candidates."""
         invalidated, document_ids = [], []
         for metadata in files:
+            supported = metadata.mime_type in LIVE_EXTRACTABLE_ORIGINAL_TYPES
             fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
             old = self._row(
                 connection,
@@ -527,7 +532,7 @@ class DriveCollectionStore(DriveLivePreferences):
                     if same_source
                     else None
                 )
-                if progress and progress["complete"]:
+                if supported and progress and progress["complete"]:
                     connection.execute(
                         text("""UPDATE connected_documents SET source_profile='live',
                           processing_enabled=TRUE,processing_disclosure_version=:disclosure,
@@ -552,6 +557,7 @@ class DriveCollectionStore(DriveLivePreferences):
                 and old["source_version"] == metadata.version
                 and self.cipher.open(dict(old)) == asdict(metadata)
                 and old["last_error_code"] != "source_unavailable"
+                and not (supported and old["last_error_code"] == "unsupported_format")
             ):
                 continue
             envelope = self.cipher.seal(
@@ -566,17 +572,18 @@ class DriveCollectionStore(DriveLivePreferences):
                 text("""
                 INSERT INTO connected_documents(document_id,user_id,connection_generation,source_fingerprint,
                   metadata_envelope,source_version,processing_enabled,processing_disclosure_version,
-                  processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch)
+                  processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch,
+                  status,last_error_code)
                 VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version,TRUE,:disclosure,
-                  clock_timestamp(),1,'live',:revision,:epoch)
+                  clock_timestamp(),1,'live',:revision,:epoch,:status,:error)
                 ON CONFLICT (user_id,connector_id,source_fingerprint) DO UPDATE SET
                   metadata_envelope=EXCLUDED.metadata_envelope,source_version=EXCLUDED.source_version,
                   source_profile='live',processing_disclosure_version=EXCLUDED.processing_disclosure_version,
                   processing_accepted_at=EXCLUDED.processing_accepted_at,
-                  status='queued',active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
+                  status=EXCLUDED.status,active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
                   processing_enabled=TRUE,collection_revision=EXCLUDED.collection_revision,
                   processing_revision=connected_documents.processing_revision+1,attempt_count=0,
-                  next_attempt_at=clock_timestamp(),last_error_code=NULL,updated_at=clock_timestamp()
+                  next_attempt_at=clock_timestamp(),last_error_code=EXCLUDED.last_error_code,updated_at=clock_timestamp()
             """),
                 {
                     "id": identity,
@@ -588,9 +595,99 @@ class DriveCollectionStore(DriveLivePreferences):
                     "disclosure": COLLECTION_DISCLOSURE,
                     "revision": revision,
                     "epoch": epoch,
+                    "status": "queued" if supported else "unsupported",
+                    "error": None if supported else "unsupported_format",
                 },
             )
         return document_ids, invalidated
+
+    def _recheck_unsupported_locked(self, connection, *, job, checkpoint):
+        """Resume a bounded parser-policy sweep during ordinary discovery pages."""
+        from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
+
+        policy = hashlib.sha256(
+            json.dumps(
+                [EXTRACTION_PROFILE, sorted(LIVE_EXTRACTABLE_ORIGINAL_TYPES)],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        previous = checkpoint.get("unsupported_recheck")
+        current = (
+            previous if isinstance(previous, dict) and previous.get("policy") == policy else {}
+        )
+        if current.get("complete") is True:
+            return []
+        after = current.get("after")
+        # Checkpoint data is authenticated, yet still validate its shape before
+        # using it as a SQL value after a future code or schema upgrade.
+        try:
+            after = str(UUID(after)) if after is not None else None
+        except (TypeError, ValueError, AttributeError):
+            after = None
+        rows = list(
+            connection.execute(
+                text("""
+                SELECT document_id,user_id,connection_generation,source_version,
+                  processing_revision,metadata_envelope,active_version
+                FROM connected_documents
+                WHERE user_id=:user AND connection_generation=:generation
+                  AND source_profile='live' AND processing_enabled
+                  AND processing_disclosure_version=:disclosure
+                  AND collection_revision=:revision
+                  AND status='unsupported' AND last_error_code='unsupported_format'
+                  AND (CAST(:after AS uuid) IS NULL OR document_id>CAST(:after AS uuid))
+                ORDER BY document_id LIMIT :limit
+            """),
+                {
+                    "user": job["user_id"],
+                    "generation": job["connection_generation"],
+                    "disclosure": COLLECTION_DISCLOSURE,
+                    "revision": job["revision"],
+                    "after": after,
+                    "limit": UNSUPPORTED_RECHECK_LIMIT,
+                },
+            ).mappings()
+        )
+        invalidated = []
+        for row in rows:
+            try:
+                metadata = self.cipher.open(dict(row))
+            except DriveReadError:
+                # An unreadable retired envelope cannot stall all discovery.
+                continue
+            if metadata.get("mime_type") not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+                continue
+            changed = self._row(
+                connection,
+                """UPDATE connected_documents SET status='queued',last_error_code=NULL,
+                  active_version=NULL,processing_revision=processing_revision+1,
+                  lease_id=NULL,lease_expires_at=NULL,attempt_count=0,
+                  next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+                WHERE document_id=:id AND user_id=:user AND connection_generation=:generation
+                  AND source_profile='live' AND processing_enabled
+                  AND processing_disclosure_version=:disclosure
+                  AND collection_revision=:revision AND source_version=:version
+                  AND processing_revision=:processing_revision
+                  AND status='unsupported' AND last_error_code='unsupported_format'
+                RETURNING document_id""",
+                {
+                    "id": row["document_id"],
+                    "user": job["user_id"],
+                    "generation": job["connection_generation"],
+                    "disclosure": COLLECTION_DISCLOSURE,
+                    "revision": job["revision"],
+                    "version": row["source_version"],
+                    "processing_revision": row["processing_revision"],
+                },
+            )
+            if changed and row["active_version"] is not None:
+                invalidated.append(row["document_id"])
+        checkpoint["unsupported_recheck"] = {
+            "policy": policy,
+            "after": str(rows[-1]["document_id"]) if rows else after,
+            "complete": len(rows) < UNSUPPORTED_RECHECK_LIMIT,
+        }
+        return invalidated
 
     async def candidate_authority(self, *, user_id):
         def operation(connection):
@@ -686,6 +783,9 @@ class DriveCollectionStore(DriveLivePreferences):
                 revision=row["revision"],
                 files=files,
                 epoch=epoch,
+            )
+            invalidated.extend(
+                self._recheck_unsupported_locked(connection, job=job, checkpoint=checkpoint)
             )
             for file_id in removed:
                 old = self._row(

@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { WorldModelSourceService } from "@/lib/services/world-model-source-service";
-import { useWorldModelResearch } from "./world-model-provider";
-import type {
-  ProfileResearchResult,
-  ProfileReport,
-} from "@/lib/services/profile-research-service";
+import type { ProfileResearchResult } from "@/lib/services/profile-research-service";
 import { Input } from "@/components/ui/input";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -20,74 +15,24 @@ import {
   type WorldModelInvitation,
 } from "@/lib/services/world-model-invitations-service";
 import { shareLink, isShareCancellationError } from "@/lib/share/share-link";
-import { ROUTES } from "@/lib/navigation/routes";
 
-export function WorldModelInvitations({
+/** Owner-bound action runner shared by the inviter and recipient flows. */
+export function useWorldModelOwnerAction({
   ownerId,
   vaultKey,
   vaultOwnerToken,
-  onClaimed,
 }: {
   ownerId: string;
   vaultKey: string;
   vaultOwnerToken: string;
-  onClaimed?: () => void;
 }) {
-  const router = useRouter();
-  const query = useSearchParams();
-  const [claimToken, setClaimToken] = useState<string | null>(
-    query.get("claim"),
-  );
-  const [name, setName] = useState(""),
-    [sourceUrl, setSourceUrl] = useState(""),
-    [introduction, setIntroduction] = useState("");
-  const [preview, setPreview] = useState<Extract<
-    ProfileResearchResult,
-    { status: "offered" }
-  > | null>(null);
-  const [receivedPreview, setReceivedPreview] = useState<{
-    report: ProfileReport;
-    introduction: string;
-  } | null>(null);
-  const [selected, setSelected] = useState<string[]>([]),
-    [permission, setPermission] = useState(false),
-    [researchConsent, setResearchConsent] = useState(false);
-  const { reload: reloadResearch } = useWorldModelResearch();
-  useEffect(() => {
-    const syncToken = () =>
-      setClaimToken(
-        new URLSearchParams(window.location.hash.slice(1)).get("claim") ||
-          query.get("claim"),
-      );
-    syncToken();
-    window.addEventListener("hashchange", syncToken);
-    return () => window.removeEventListener("hashchange", syncToken);
-  }, [query]);
-  useEffect(() => {
-    let active = true;
-    setReceivedPreview(null);
-    if (claimToken)
-      void WorldModelInvitationsService.preview(claimToken)
-        .then((row) => {
-          if (active) setReceivedPreview(row);
-        })
-        .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [claimToken]);
-  const [contact, setContact] = useState("");
-  const [link, setLink] = useState<string | null>(null);
-  const [rows, setRows] = useState<WorldModelInvitation[]>([]);
   const [busy, setBusy] = useState(false);
   const pendingAction = useRef(false);
   const [message, setMessage] = useState("");
-  const [revision, setRevision] = useState(0);
   const current = useRef({ ownerId, vaultKey, vaultOwnerToken });
   current.current = { ownerId, vaultKey, vaultOwnerToken };
   const active = useRef(true);
   const lifetime = useRef(new AbortController());
-  const session = { vaultKey, vaultOwnerToken };
   const guard = () =>
     createAgentPkmCaptureGuard({
       userId: ownerId,
@@ -106,26 +51,6 @@ export function WorldModelInvitations({
       lifetime.current.abort();
     };
   }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    const capture = createAgentPkmCaptureGuard({
-      userId: ownerId,
-      signal: controller.signal,
-      isEnabled: () =>
-        active.current &&
-        current.current.ownerId === ownerId &&
-        current.current.vaultOwnerToken === vaultOwnerToken,
-    });
-    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken })
-      .then((value) => {
-        if (capture.isCurrent()) setRows(value);
-      })
-      .catch(() => {
-        if (capture.isCurrent())
-          setMessage("Invitations couldn’t be opened. Try again.");
-      });
-    return () => controller.abort();
-  }, [ownerId, vaultKey, vaultOwnerToken, revision]);
   async function run(action: () => Promise<void>) {
     if (pendingAction.current) return;
     pendingAction.current = true;
@@ -145,111 +70,63 @@ export function WorldModelInvitations({
       if (capture.isCurrent()) setBusy(false);
     }
   }
+  return { busy, message, setMessage, guard, run, active, current };
+}
+
+export function WorldModelInvitations({
+  ownerId,
+  vaultKey,
+  vaultOwnerToken,
+}: {
+  ownerId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+}) {
+  const [name, setName] = useState(""),
+    [sourceUrl, setSourceUrl] = useState(""),
+    [introduction, setIntroduction] = useState("");
+  const [preview, setPreview] = useState<Extract<
+    ProfileResearchResult,
+    { status: "offered" }
+  > | null>(null);
+  const [selected, setSelected] = useState<string[]>([]),
+    [permission, setPermission] = useState(false);
+  const [contact, setContact] = useState("");
+  const [link, setLink] = useState<string | null>(null);
+  const [rows, setRows] = useState<WorldModelInvitation[]>([]);
+  const [revision, setRevision] = useState(0);
+  const { busy, message, setMessage, guard, run, active, current } =
+    useWorldModelOwnerAction({ ownerId, vaultKey, vaultOwnerToken });
+  const session = { vaultKey, vaultOwnerToken };
+  useEffect(() => {
+    const controller = new AbortController();
+    const capture = createAgentPkmCaptureGuard({
+      userId: ownerId,
+      signal: controller.signal,
+      isEnabled: () =>
+        active.current &&
+        current.current.ownerId === ownerId &&
+        current.current.vaultOwnerToken === vaultOwnerToken,
+    });
+    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken })
+      .then((value) => {
+        if (capture.isCurrent()) setRows(value);
+      })
+      .catch(() => {
+        if (capture.isCurrent())
+          setMessage("Invitations couldn’t be opened. Try again.");
+      });
+    return () => controller.abort();
+  }, [ownerId, vaultKey, vaultOwnerToken, revision, active, current, setMessage]);
   return (
-    <Card preset="compact">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Build for someone else</CardTitle>
+    <SettingsGroup>
+      <div className="space-y-3 px-4 py-3">
         <HelperText>
           Prepare a short public professional preview, review it, then share a
           contact-bound invitation. Their full model stays under their control.
         </HelperText>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
-        {claimToken && (
-          <div className="space-y-2 rounded-lg border border-border p-3">
-            <p className="text-[13px]">
-              You’ve been invited to claim this starting profile. Verify the
-              invited contact, then review what belongs to you. Claiming shares
-              nothing back.
-            </p>
-            {receivedPreview && (
-              <div className="space-y-2 text-xs">
-                <p>{receivedPreview.introduction}</p>
-                <p>Prepared by the inviter</p>
-                {receivedPreview.report.sections.map((section) => (
-                  <ul key={section.kind} className="space-y-2">
-                    {section.facts.map((fact, index) => (
-                      <li key={index}>
-                        {fact.statement}
-                        <div>
-                          {fact.sources.map((source) => (
-                            <a
-                              key={source.url}
-                              href={source.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex min-h-11 items-center underline"
-                            >
-                              {source.title}
-                            </a>
-                          ))}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ))}
-              </div>
-            )}
-            <label className="flex min-h-11 items-center gap-3 text-xs">
-              <Checkbox
-                checked={researchConsent}
-                onCheckedChange={(v) => setResearchConsent(v === true)}
-              />
-              After claiming, let Gemini research my name and verified contact
-              to prepare my full model.
-            </label>
-            <Button
-              data-voice-control-id="pwm_claim"
-              size="compact"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  const capture = guard();
-                  await WorldModelInvitationsService.claim(
-                    session,
-                    claimToken,
-                    researchConsent,
-                  );
-                  await capture.assertCurrent();
-                  setMessage(
-                    "Claimed. Review your source details above. Nothing has been shared back.",
-                  );
-                  setClaimToken(null);
-                  reloadResearch();
-                  onClaimed?.();
-                  router.replace(ROUTES.PROFILE_WORLD_MODEL);
-                  router.refresh();
-                })
-              }
-            >
-              Claim my model
-            </Button>
-            <Button
-              size="compact"
-              variant="none"
-              disabled={busy}
-              data-voice-control-id="pwm_reject"
-              onClick={() =>
-                void run(async () => {
-                  const capture = guard();
-                  await WorldModelInvitationsService.reject(
-                    session,
-                    claimToken,
-                  );
-                  await capture.assertCurrent();
-                  setClaimToken(null);
-                  setReceivedPreview(null);
-                  router.replace(ROUTES.PROFILE_WORLD_MODEL);
-                  setMessage("Invitation rejected.");
-                })
-              }
-            >
-              Reject invitation
-            </Button>
-          </div>
-        )}
         <label className="block space-y-1 text-xs">
-          Their name
+          <span className="font-semibold">Their name</span>
           <Input
             aria-label="Their name"
             disabled={busy}
@@ -262,7 +139,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Public professional profile URL
+          <span className="font-semibold">Public professional profile URL</span>
           <Input
             aria-label="Public professional profile URL"
             disabled={busy}
@@ -275,7 +152,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Introduction (optional)
+          <span className="font-semibold">Introduction (optional)</span>
           <Textarea
             aria-label="Introduction (optional)"
             value={introduction}
@@ -356,7 +233,7 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          <span>Recipient’s email or phone with country code</span>
+          <span className="font-semibold">Recipient’s email or phone with country code</span>
           <Input
             aria-label="Recipient’s email or phone with country code"
             value={contact}
@@ -458,7 +335,7 @@ export function WorldModelInvitations({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }

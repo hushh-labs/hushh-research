@@ -2,7 +2,7 @@
   "schema_version": 1,
   "region": "us-central1",
   "database_max_connections": 1000,
-  "admission_limit": 800,
+  "admission_limit": 900,
   "administrative_reserve": 100,
   "environments": {
     "uat": {

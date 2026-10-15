@@ -74,9 +74,10 @@
 }
 
 /* The terminal setup action follows the viewport edge on phones and tablets,
-   including landscape, with room to scroll the checklist above it. */
+   including landscape, with room to scroll the checklist above it. The extra
+   6rem is the research disclosure that rides above the action. */
 .hubPage.hubPage {
-  padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
+  padding-bottom: calc(82px + 6rem + var(--app-safe-area-bottom-effective, 0px));
 }
 
 .hubFooter.hubFooter {
@@ -102,9 +103,10 @@
 
 @media (max-width: 639px) {
   .aiSelectionPage.aiSelectionPage {
-    /* Reserve the fixed action so even the last key-entry helper can scroll
-       above it. The shared shell removes its voice-bar reserve on this route. */
-    padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
+    /* Reserve the fixed action and the research disclosure above it so even
+       the last key-entry helper can scroll clear. The shared shell removes its
+       voice-bar reserve on this route. */
+    padding-bottom: calc(82px + 6rem + var(--app-safe-area-bottom-effective, 0px));
   }
 
   .aiSelectionFooter.aiSelectionFooter {

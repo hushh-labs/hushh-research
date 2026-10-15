@@ -536,7 +536,7 @@ function AgentGridItem({
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[14px] font-normal leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
         >
           {mode.title}

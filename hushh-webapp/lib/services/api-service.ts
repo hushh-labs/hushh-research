@@ -1796,10 +1796,18 @@ export class ApiService {
     state: string;
     organization: { name: string };
   }> {
-    const response = await apiFetch(
-      `/api/auth/sso/start?email=${encodeURIComponent(email.trim())}`,
-      { method: "GET", cache: "no-store" },
-    );
+    // The callback must return to the origin the person started on (the app is served on several
+    // hostnames); the backend only honours origins on its allowlist.
+    const origin =
+      typeof window !== "undefined" && window.location.origin.startsWith("http")
+        ? window.location.origin
+        : undefined;
+    // POST with a body: a work email must not travel in a URL.
+    const response = await apiFetch("/api/auth/sso/start", {
+      method: "POST",
+      cache: "no-store",
+      body: JSON.stringify({ email: email.trim(), ...(origin ? { origin } : {}) }),
+    });
     return readEnterpriseSsoResponse(response);
   }
 

@@ -6,6 +6,10 @@ const m = vi.hoisted(() => ({
   connections: vi.fn(),
   connectors: vi.fn(),
   earnings: vi.fn(),
+  activity: vi.fn(),
+  paymentSnapshot: vi.fn(),
+  connectorHead: vi.fn(),
+  sourceChanges: vi.fn(),
   save: vi.fn(),
   epoch: 0,
 }));
@@ -24,14 +28,30 @@ vi.mock("@/lib/services/external-connector-service", () => ({
 vi.mock("@/lib/services/document-payout-service", () => ({
   DocumentPayoutService: { earnings: m.earnings },
 }));
+vi.mock("@/lib/services/payout-activity-service", () => ({
+  PayoutActivityService: { list: m.activity },
+}));
+vi.mock("@/lib/services/document-request-payment-source-service", () => ({
+  DocumentRequestPaymentSourceCapacityError: class extends Error {},
+  DocumentRequestPaymentSourceService: { snapshot: m.paymentSnapshot },
+}));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain: m.save },
+}));
+vi.mock("@/lib/services/source-journal-service", () => ({
+  SOURCE_JOURNAL_KINDS: ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"],
+  isSourceJournalCursor: (value: unknown) => typeof value === "string" && /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n,
+  SourceJournalService: {
+    connectorHead: m.connectorHead,
+    sourceChanges: m.sourceChanges,
+  },
 }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === m.epoch,
 }));
 import { syncLivingSources } from "@/lib/pkm/living-source-sync";
+import { DocumentRequestPaymentSourceCapacityError } from "@/lib/services/document-request-payment-source-service";
 import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
 const OWNER = "owner",
   T = "2026-10-11T00:00:00.000Z";
@@ -100,6 +120,30 @@ const earning = (number: number, stripeMode: "live" | "test" | "legacy" = "live"
 const earningsPage = (mode: "live" | "test", transactions = [] as ReturnType<typeof earning>[], nextCursor: string | null = null) => ({
   mode, currency: "USD", transactions, nextCursor,
 });
+const cashOut = (status = "succeeded") => ({
+  id: `redemption:${earningId(88)}`, kind: "redemption" as const,
+  status, reversalStatus: "none", occurredAt: T, updatedAt: T,
+  coinsDelta: -300, amountCents: 300, test: false,
+  request: { label: "must-not-persist" },
+  bank: { last4: "1234" }, providerTransferId: "tr_must-not-persist",
+});
+const deposit = () => ({
+  id: "deposit:po_PrivateProvider1234", kind: "deposit" as const,
+  status: "in_transit", occurredAt: T, updatedAt: T,
+  coinsDelta: null, amountCents: 300, test: false,
+  expectedArrivalAt: T, bank: { last4: "1234" },
+});
+const activityPage = (mode: "live" | "test", items: unknown[] = [], nextCursor: string | null = null) => ({
+  mode, kind: "all" as const, asOf: T, balanceCoins: 0,
+  items, nextCursor, reset: false,
+});
+const requesterPayment = (status: "paid" | "refunded" = "paid") => ({
+  requestId: earningId(501), counterpartRef: `sub_${"a".repeat(32)}`,
+  mode: "test" as const, status, amountCents: 300, currency: "USD" as const,
+  paidAt: T, refundStatus: status === "refunded" ? "succeeded" : null,
+  refundAmountCents: status === "refunded" ? 300 : null,
+  reconciliationRequired: false, createdAt: T, updatedAt: T,
+});
 let stored: Record<string, unknown>;
 const inventory = () =>
   (stored._private as { inventory: LivingSourceInventory }).inventory;
@@ -121,6 +165,10 @@ beforeEach(() => {
   });
   m.earnings.mockImplementation(async (_token, _cursor, mode) =>
     earningsPage(mode));
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
+  m.paymentSnapshot.mockResolvedValue([]);
+  m.connectorHead.mockResolvedValue({ headCursor: "0", changed: false, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({ headCursor: "0", changedKinds: [], resetRequired: false });
   m.save.mockImplementation(async (p) => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
@@ -128,6 +176,189 @@ beforeEach(() => {
     stored = plan.domainData;
     return { success: true };
   });
+});
+
+it("commits source and connector cursors with a verified encrypted inventory", async () => {
+  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: true, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "7", changedKinds: ["consent", "document_request_payment"],
+    resetRequired: false,
+  });
+  await syncLivingSources(params);
+  expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
+    connectors: "4", events: "7",
+  });
+  expect(m.connectors).toHaveBeenCalledTimes(2);
+  expect(m.list).toHaveBeenCalled();
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+  expect(m.sourceChanges).toHaveBeenCalledWith(params.vaultOwnerToken, "0");
+
+  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: false, resetRequired: false });
+  m.sourceChanges.mockResolvedValue({ headCursor: "7", changedKinds: [], resetRequired: false });
+  await syncLivingSources(params);
+  expect(m.connectorHead).toHaveBeenLastCalledWith(params.vaultOwnerToken, "4");
+  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "7");
+});
+
+it("replays an uncommitted hint after incomplete source verification", async () => {
+  await syncLivingSources(params);
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "8", changedKinds: ["consent"], resetRequired: false,
+  });
+  m.list.mockRejectedValueOnce(new Error("source unavailable"));
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
+    .toBe("0");
+  m.list.mockResolvedValue({ source_read_verified: true, user_id: OWNER, items: [], has_more: false });
+  await syncLivingSources(params);
+  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "0");
+  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
+    .toBe("8");
+});
+
+it("rebuilds sources on reset and can checkpoint a reset stream below its old cursor", async () => {
+  await syncLivingSources(params);
+  (stored._private as Record<string, unknown>).journal_cursors = {
+    connectors: "12", events: "12",
+  };
+  m.connectorHead.mockResolvedValue({ headCursor: "3", changed: true, resetRequired: true });
+  m.sourceChanges.mockResolvedValue({
+    headCursor: "3",
+    changedKinds: ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"],
+    resetRequired: true,
+  });
+  m.list.mockClear();
+  m.paymentSnapshot.mockClear();
+  await syncLivingSources(params);
+  expect(m.list).toHaveBeenCalled();
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+  expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
+    connectors: "3", events: "3",
+  });
+});
+it("stores each verified profile correction in the encrypted owner history", async () => {
+  m.identity.mockResolvedValue(profile("Ankit Kumar Singh"));
+  await syncLivingSources(params);
+  m.identity.mockResolvedValue(profile("Ankit"));
+  await syncLivingSources(params);
+  await syncLivingSources(params);
+  const privateData = stored._private as {
+    observed_history: { changes: Array<{ kind: string; operation: string; value: Record<string, unknown> }> };
+  };
+  expect(privateData.observed_history.changes
+    .filter(change => change.kind === "profile")
+    .map(change => ({ operation: change.operation, name: change.value.name })))
+    .toEqual([
+      { operation: "upsert", name: "Ankit Kumar Singh" },
+      { operation: "upsert", name: "Ankit" },
+    ]);
+});
+it("projects requester document payment status and refund without provider or document details", async () => {
+  m.paymentSnapshot.mockResolvedValue([{ ...requesterPayment(),
+    stripePaymentIntentId: "pi_must_not_persist", documentName: "must not persist",
+    counterpartUserId: "raw-peer",
+  }]);
+  await syncLivingSources(params);
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+  expect(m.paymentSnapshot).toHaveBeenCalledWith(params.vaultOwnerToken, OWNER);
+  const before = inventory().records.find((record) => record.kind === "document_request_payment");
+  expect(before).toMatchObject({ id: earningId(501), value: {
+    counterpartRef: `sub_${"a".repeat(32)}`, mode: "test", status: "paid",
+    amountCents: 300, currency: "USD", paidAt: T,
+    refundStatus: null, refundAmountCents: null, reconciliationRequired: false,
+  } });
+  expect(JSON.stringify(stored)).not.toContain("pi_must_not_persist");
+  expect(JSON.stringify(stored)).not.toContain("raw-peer");
+  m.paymentSnapshot.mockResolvedValue([requesterPayment("refunded")]);
+  await syncLivingSources({ ...params, forceDocumentRequestPayments: true });
+  expect(inventory().records.find((record) => record.kind === "document_request_payment"))
+    .toMatchObject({ revision: 2, value: { status: "refunded", refundAmountCents: 300 } });
+});
+
+it("preserves requester payment history on failed or racing reads, then tombstones after verified absence", async () => {
+  m.paymentSnapshot.mockResolvedValue([requesterPayment()]);
+  await syncLivingSources(params);
+  const prior = inventory().records.find((record) => record.kind === "document_request_payment");
+  m.paymentSnapshot.mockRejectedValueOnce(new Error("source unavailable"));
+  await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
+    .rejects.toThrow("incomplete");
+  expect(inventory().unavailable).toContain("document_request_payment");
+  expect(inventory().records.find((record) => record.kind === "document_request_payment"))
+    .toEqual(prior);
+  const afterFailureCalls = m.paymentSnapshot.mock.calls.length;
+  m.paymentSnapshot.mockResolvedValue([requesterPayment()]);
+  await syncLivingSources(params);
+  expect(m.paymentSnapshot).toHaveBeenCalledTimes(afterFailureCalls + 2);
+  expect(inventory().complete).toBe(true);
+  m.paymentSnapshot.mockResolvedValueOnce([requesterPayment()]).mockResolvedValueOnce([]);
+  await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
+    .rejects.toThrow("incomplete");
+  expect(inventory().records.find((record) => record.kind === "document_request_payment"))
+    .toEqual(prior);
+  m.paymentSnapshot.mockResolvedValue([]);
+  await syncLivingSources({ ...params, forceDocumentRequestPayments: true });
+  expect(inventory().records.find((record) => record.kind === "document_request_payment"))
+    .toMatchObject({ revision: 2, value: {}, deletedAt: expect.any(String) });
+});
+
+it("backs off only a requester payment capacity error for five minutes unless a payment hint forces retry", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-10-15T00:00:00.000Z"));
+    m.paymentSnapshot.mockRejectedValue(new DocumentRequestPaymentSourceCapacityError("over cap"));
+    await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
+      .rejects.toThrow("incomplete");
+    expect(m.paymentSnapshot).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date("2026-10-15T00:01:00.000Z"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(m.paymentSnapshot).toHaveBeenCalledTimes(1);
+    await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
+      .rejects.toThrow("incomplete");
+    expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(new Date("2026-10-15T00:06:01.000Z"));
+    m.paymentSnapshot.mockRejectedValue(new Error("network"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(m.paymentSnapshot).toHaveBeenCalledTimes(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("projects real payout activity metadata without bank or provider details", async () => {
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode,
+    query.mode === "live" ? [
+      { ...cashOut(), id: `earning:${earningId(1)}`, kind: "earning" },
+      cashOut(), deposit(),
+    ] : []));
+  await syncLivingSources(params);
+  expect(m.activity).toHaveBeenCalledTimes(4);
+  const rows = inventory().records.filter((record) => record.kind === "payout_activity");
+  expect(rows).toHaveLength(2);
+  expect(rows.every((row) => /^(live|test):[a-f0-9]{64}$/.test(row.id))).toBe(true);
+  expect(Object.fromEntries(rows.map((row) => [row.value.kind, row.value]))).toEqual({
+    redemption: { kind: "redemption", mode: "live", occurredAt: T, updatedAt: T,
+      amountCents: 300, coinsDelta: -300, status: "succeeded", reversalStatus: "none" },
+    deposit: { kind: "deposit", mode: "live", occurredAt: T, updatedAt: T,
+      amountCents: 300, coinsDelta: null, status: "in_transit", expectedArrivalAt: T },
+  });
+  expect(JSON.stringify(stored)).not.toContain("po_PrivateProvider1234");
+  expect(JSON.stringify(stored)).not.toContain("must-not-persist");
+  expect(JSON.stringify(stored)).not.toContain("1234");
+});
+
+it("retains payout activity on an incomplete scan and tombstones only after two complete scans", async () => {
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode,
+    query.mode === "live" ? [cashOut()] : []));
+  await syncLivingSources(params);
+  const before = inventory().records.find((record) => record.kind === "payout_activity");
+  m.activity.mockImplementation(async (_token, query) => ({
+    ...activityPage(query.mode), nextCursor: "incomplete",
+  }));
+  await expect(syncLivingSources({ ...params, forcePayoutActivity: true })).rejects.toThrow("incomplete");
+  expect(inventory().records.find((record) => record.kind === "payout_activity")).toEqual(before);
+  m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
+  await syncLivingSources({ ...params, forcePayoutActivity: true });
+  expect(inventory().records.find((record) => record.kind === "payout_activity")?.deletedAt).not.toBeNull();
 });
 it("reads live and test earnings by complete keyset pages with only receipt metadata", async () => {
   const firstPage = Array.from({ length: 20 }, (_, index) => earning(index + 1));
@@ -211,7 +442,7 @@ it("timestamps a long scan at completion so a queued refresh does not repeat it"
   }
 });
 
-it.each(["connection", "document_earning", "curated_oauth_connector", "consent"] as const)(
+it.each(["connection", "document_earning", "document_request_payment", "curated_oauth_connector", "consent"] as const)(
   "fails incomplete before retained %s history exceeds its bound",
   async (kind) => {
     const limit = kind === "curated_oauth_connector" ? 1_000 : 10_000;
@@ -228,6 +459,8 @@ it.each(["connection", "document_earning", "curated_oauth_connector", "consent"]
     else if (kind === "document_earning")
       m.earnings.mockImplementation(async (_token, _cursor, mode) =>
         earningsPage(mode, mode === "live" ? [earning(1)] : []));
+    else if (kind === "document_request_payment")
+      m.paymentSnapshot.mockResolvedValue([requesterPayment()]);
     else if (kind === "curated_oauth_connector")
       m.connectors.mockResolvedValue({
         connectors: [connector("connected", "new-provider")], features: {},
@@ -242,7 +475,7 @@ it.each(["connection", "document_earning", "curated_oauth_connector", "consent"]
     expect(inventory().records.filter((record) => record.kind === kind)).toHaveLength(limit);
     expect(inventory().records.some((record) => record.id === "new-link" ||
       record.id === earningId(1) || record.id === "new-provider" ||
-      record.id === "new-consent")).toBe(false);
+      record.id === "new-consent" || record.id === earningId(501))).toBe(false);
   },
 );
 

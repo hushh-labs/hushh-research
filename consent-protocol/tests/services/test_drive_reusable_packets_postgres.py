@@ -103,9 +103,12 @@ async def construct(**kwargs):
         "selected_document_ids": selected,
         "coverage_summary": "Synthetic complete evidence" if complete else "More evidence remains",
         "periods": [],
+        "temporal_scope": "no_period_claim",
         "gaps": [] if complete else ["More evidence remains"],
         "assessment_score": 91,
         "importance": 120,
+        "standalone_value": "supported",
+        "utility_rationale": "A standalone synthetic statement packet for test recipients",
         "pricing": {
             "rubric_version": "drive-packet-price-v1",
             "useful_scope": "collection",
@@ -123,6 +126,7 @@ async def check(**kwargs):
         "correct_subject_and_account": True,
         "correct_issuer_and_type": True,
         "correct_record_status": True,
+        "correct_standalone_value": True,
         "correct_coverage": kwargs["complete"],
         "no_unrelated_inclusions": True,
         "no_unexplained_omissions": True,
@@ -257,6 +261,74 @@ async def test_exact_version_reuse_and_summary_listing_need_separate_allow(reusa
         )
     with pytest.raises((DriveReadError, DriveSharingError)):
         await reusable.packets.list_packets(user_id="unrelated", owner_user_id="owner")
+
+
+async def test_extraction_profile_upgrade_fences_old_packet_before_reprocessing(
+    reusable, monkeypatch
+):
+    packet = await ready_packet(reusable)
+    assert packet["canList"]
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_store.EXTRACTION_PROFILE", "future-extraction-profile"
+    )
+    owner = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert owner["state"] == "ready" and not owner["canList"]
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=packet["version"]
+        )
+
+
+async def test_new_facts_policy_hides_prior_ready_listing_until_rechecked(reusable, monkeypatch):
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ]
+    with reusable.facts.db.engine.connect() as connection:
+        saved_version = dict(
+            connection.execute(
+                text("SELECT manifest_envelope,digest,available FROM drive_packet_versions")
+            )
+            .mappings()
+            .one()
+        )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_intelligence.facts_policy_version",
+        lambda: "new-facts-policy",
+    )
+    owner = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
+    assert owner["state"] == "incomplete" and not owner["canList"]
+    assert owner["title"] == "Packet being checked"
+    assert owner["coverageSummary"] == "Coverage is being checked."
+    assert owner["description"] == "Current source evidence is being checked."
+    assert owner["verifiedAt"] is None and not owner["listingEnabled"]
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            dict(
+                connection.execute(
+                    text("SELECT manifest_envelope,digest,available FROM drive_packet_versions")
+                )
+                .mappings()
+                .one()
+            )
+            == saved_version
+        )
+    with pytest.raises(DriveReadError, match="packet_unavailable"):
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=packet["packetId"], version=1
+        )
 
 
 async def test_source_change_invalidates_listing_without_rewriting_history(reusable):
@@ -1371,3 +1443,35 @@ async def test_request_priority_facts_use_exact_targets_and_reuse_complete_evide
     await reusable.facts.release(claim)
     next_claim = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
     assert str(next_claim["document_id"]) == ids[0]
+
+
+async def test_targeted_facts_enqueue_scopes_membership_reconciliation(reusable, monkeypatch):
+    await originals(reusable, count=2)
+    with reusable.collection.db.engine.connect() as connection:
+        ids = [
+            str(identity)
+            for identity in connection.execute(
+                text("SELECT document_id FROM connected_documents ORDER BY document_id")
+            ).scalars()
+        ]
+    observed = []
+    reconcile = reusable.facts._reconcile_membership_locked
+
+    def scoped_reconcile(connection, **kwargs):
+        observed.append(kwargs["document_ids"])
+        return reconcile(connection, **kwargs)
+
+    monkeypatch.setattr(reusable.facts, "_reconcile_membership_locked", scoped_reconcile)
+    assert (
+        await reusable.facts.enqueue(user_id="owner", policy_version=POLICY, document_ids=[ids[0]])
+        == 1
+    )
+    assert observed == [(ids[0],)]
+    with reusable.collection.db.engine.connect() as connection:
+        rows = [
+            str(identity)
+            for identity in connection.execute(
+                text("SELECT document_id FROM drive_document_facts")
+            ).scalars()
+        ]
+    assert rows == [ids[0]]

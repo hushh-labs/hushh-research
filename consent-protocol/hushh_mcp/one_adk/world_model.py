@@ -7,12 +7,16 @@ import hashlib
 import json
 import time
 
+from pydantic import Field
+
 from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.profile_research import ProfileReport, ProfileSource
 from hushh_mcp.one_adk.world_model_contracts import (
     TOPICS,
+    Contract,
     IdentityAssessment,
     QueryPlan,
+    ShortText,
     WorldModelReport,
 )
 
@@ -20,6 +24,13 @@ POLICY = load_pwm_policy()
 MAX_SEARCHES = POLICY["search_invocations"]
 MAX_MODEL_CALLS = POLICY["model_calls"]
 TASK_SECONDS = POLICY["slice_seconds"]
+
+
+class OwnerDecisions(Contract):
+    """Statements the owner already confirmed or rejected; model data only."""
+
+    confirmed: list[ShortText] = Field(default_factory=list, max_length=50)
+    rejected: list[ShortText] = Field(default_factory=list, max_length=50)
 
 
 class ResearchSliceComplete(RuntimeError):
@@ -71,6 +82,7 @@ async def run_world_model(
     on_attempts_start=None,
     work=None,
     on_progress=None,
+    owner_decisions=None,
 ):
     """Run a resumable research slice, with no PKM or messaging authority.
 
@@ -92,6 +104,7 @@ async def run_world_model(
     await require_access()
     if on_attempts_start is None:
         raise ValueError("Durable provider budget is required")
+    decisions = OwnerDecisions.model_validate(owner_decisions or {}).model_dump()
     task = manifest()
     model_name = resolve_fleet_model_name(task.model.name)
     model = build_managed_regional_gemini_adk_model(model_name)
@@ -345,6 +358,7 @@ async def run_world_model(
                     "query_plan_schema": QueryPlan.model_json_schema(),
                     "assessment_schema": IdentityAssessment.model_json_schema(),
                     "topics": TOPICS,
+                    "owner_decisions": decisions,
                     "requested_by": "consenting_verified_owner",
                     "searches_remaining": MAX_SEARCHES
                     - len(used & set(range(1, MAX_SEARCHES + 1))),

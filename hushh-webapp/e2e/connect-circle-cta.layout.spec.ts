@@ -75,7 +75,7 @@ const SM_BREAKPOINT_PX = 640;
  *
  * `globals.css` is used rather than a bare `@import "tailwindcss"` because the
  * type this measures is defined there, not in Tailwind: `ui-text-input-value`
- * sets the search field to 17px/22px Inter via `--type-input-value-*`. Compiling
+ * sets the search field to 17px/22px Jakarta via `--type-input-value-*`. Compiling
  * without it would measure a 16px system font and quietly prove nothing about
  * the field that shipped.
  *
@@ -128,23 +128,12 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 /**
  * Write a fixture directory and return its `file://` URL.
  *
- * The real Inter face is copied in and the stylesheet's absolute `/fonts/...`
- * URLs rewritten to point at it. Without that step the page silently falls back
- * to a system font, and every width measured here would be a measurement of the
- * wrong typeface -- which is the only thing the placeholder assertions are
- * actually about.
+ * The fixture inlines the shipped Plus Jakarta Sans faces after removing
+ * absolute app font URLs. Placeholder widths then use the product typeface.
  */
 async function buildFixture(name: string, body: string, candidates: string[]) {
-  const webappRoot = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
-
-  let css = await buildStylesheet(candidates);
-
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
-  if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
-    css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
-  }
+  const css = await buildStylesheet(candidates);
 
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
@@ -413,7 +402,7 @@ const searchRowBody = (empty: boolean) => `<div class="block w-full">
  * How much room the placeholder actually has, and how much it needs.
  *
  * Width is measured by laying the string out in the field's own computed font
- * rather than estimated from a character count -- Inter is proportional, and a
+ * rather than estimated from a character count -- Jakarta is proportional, and a
  * per-character average is wrong by enough to make a fit assertion meaningless.
  */
 function probePlaceholder(text: string) {
