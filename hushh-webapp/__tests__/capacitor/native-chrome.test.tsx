@@ -3009,7 +3009,11 @@ describe("native chrome presentation lease", () => {
       if (state.open && holdReturn) { returning = state; return rootAdmission.promise; }
       return { ...state, phase: "active" };
     });
-    drawerBridge.retire.mockResolvedValue({ phase: "retired" });
+    drawerBridge.retire.mockImplementation(async identity => {
+      const latest = drawerBridge.apply.mock.calls.at(-1)![0];
+      return { ...identity, phase: "retired", updateSequence: latest.updateSequence,
+        privacyGeneration: latest.privacyGeneration };
+    });
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
       coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
     bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
