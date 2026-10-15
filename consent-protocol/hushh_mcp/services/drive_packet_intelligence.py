@@ -11,7 +11,6 @@ import json
 import logging
 import re
 import time
-from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -62,9 +61,16 @@ MONTHS = {
     )
     for name in names
 }
+_MONTH_WORD = "|".join(sorted(MONTHS, key=len, reverse=True))
 _YEAR = re.compile(r"\b(\d{4})\b")
 _NUMERIC_DATE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b")
-_MONTH_NAME = re.compile(r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\b", re.I)
+_ISO_MONTH = re.compile(r"\b(\d{4})[./-](\d{1,2})\b")
+_MONTH_YEAR = re.compile(r"\b(\d{1,2})[./-](\d{4})\b")
+_NAMED_MONTH_YEAR = re.compile(
+    rf"\b({_MONTH_WORD})\.?\s+(?:\d{{1,2}}(?:st|nd|rd|th)?,?\s+)?(\d{{4}})\b", re.I
+)
+_DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{4}})\b", re.I)
+_MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
 # Member keys that identify a row or its extraction, not the document's content.
 MEMBER_IDENTITY_KEYS = frozenset(
     {
@@ -109,7 +115,6 @@ def _validation_code(error):
         "invented packet member": "model_membership_invalid",
         "unaccounted packet member": "model_membership_invalid",
         "invalid packet exclusion": "model_membership_invalid",
-        "duplicate packet member content": "model_membership_invalid",
         "unfinished assembly cannot be ready": "model_readiness_invalid",
         "incomplete evidence cannot verify ready": "model_readiness_invalid",
         "nonready proposal cannot verify ready": "model_readiness_invalid",
@@ -341,32 +346,61 @@ def _require_source_periods(periods, source_periods, *, citations=True):
 
 
 def _quoted_dates(quote):
-    """Years and month numbers a quote states; other digits are not dates."""
-    years = {int(match.group(1)) for match in _YEAR.finditer(quote)}
-    months = {MONTHS[match.group(1).casefold()] for match in _MONTH_NAME.finditer(quote)}
+    """(year, month) pairs, bare month names and bare years a quote states.
+
+    Other digits are not dates. A month name with a year beside it is a pair,
+    not a bare month, so last year's month cannot date this year's window.
+    """
+    pairs, dated_names = set(), set()
     for match in _NUMERIC_DATE.finditer(quote):
         first, second, year = (int(part) for part in match.groups())
-        years.add(year + (2000 if year < 70 else 1900) if year < 100 else year)
-        months.update(part for part in (first, second) if 1 <= part <= 12)
-    return years, months
+        year = year + (2000 if year < 70 else 1900) if year < 100 else year
+        pairs.update((year, part) for part in (first, second) if 1 <= part <= 12)
+    for pattern, year_group, month_group in ((_ISO_MONTH, 1, 2), (_MONTH_YEAR, 2, 1)):
+        for match in pattern.finditer(quote):
+            year, month = int(match.group(year_group)), int(match.group(month_group))
+            if 1 <= month <= 12:
+                pairs.add((year, month))
+    for pattern in (_NAMED_MONTH_YEAR, _DAY_NAMED_MONTH_YEAR):
+        for match in pattern.finditer(quote):
+            pairs.add((int(match.group(2)), MONTHS[match.group(1).casefold()]))
+            dated_names.add(match.span(1))
+    months = {
+        MONTHS[match.group(1).casefold()]
+        for match in _MONTH_NAME.finditer(quote)
+        if match.span(1) not in dated_names
+    }
+    years = {int(match.group(1)) for match in _YEAR.finditer(quote)}
+    return pairs, months, years
 
 
 def _period_dated(period):
-    endpoints = [date.fromisoformat(period[key]) for key in ("start", "end")]
-    years, months = {item.year for item in endpoints}, {item.month for item in endpoints}
+    """A quote dates a period when its month falls inside the window.
+
+    A window longer than one month is also dated by a quote stating one of
+    its years (a tax year, a quarter). One month is not: an edit-month window
+    citing a line dated in another month, or only a year, is undated.
+    """
+    start, end = (date.fromisoformat(period[key]) for key in ("start", "end"))
+    first, last = (start.year, start.month), (end.year, end.month)
+    span = (last[0] - first[0]) * 12 + last[1] - first[1]
     for citation in period["citations"]:
-        quoted_years, quoted_months = _quoted_dates(citation["quote"])
-        if quoted_years & years or quoted_months & months:
+        pairs, months, years = _quoted_dates(citation["quote"])
+        if any(first <= pair <= last for pair in pairs):
+            return True
+        if any((month - first[1]) % 12 <= span for month in months):
+            return True
+        if span and any(first[0] <= year <= last[0] for year in years):
             return True
     return False
 
 
 def _require_dated_periods(periods):
-    """A Ready coverage window needs a quote that states its month or year.
+    """A Ready coverage window needs a quote dated inside it.
 
-    A period supported only by undated text (a title, an account line) can
-    come from the file's edit date instead of the document. The feedback
-    names the period and what it lacks.
+    A period supported only by undated text (a title, an account line), or by
+    a line dated in another month, can come from the file's edit date instead
+    of the document. The feedback names the period and what it lacks.
     """
     issues = [
         {"field": "periods", "item": index, "missing": "dated_citation"}
@@ -386,12 +420,23 @@ def _member_evidence(document):
 
 def _require_distinct_member_content(documents, selected):
     """Selected members with one content digest, or identical evidence, are one
-    source. The model keeps one and excludes the other as its duplicate."""
-    members = [item for item in documents if item["document_id"] in selected]
-    digests = Counter(item["content_digest"] for item in members if item.get("content_digest"))
-    evidence = Counter(evidence_digest(_member_evidence(item)) for item in members)
-    if any(count > 1 for count in (*digests.values(), *evidence.values())):
-        raise ValueError("duplicate packet member content")
+    source. The feedback names them; the model keeps one and excludes the
+    others as its duplicates."""
+    groups = {}
+    for item in documents:
+        if item["document_id"] not in selected:
+            continue
+        keys = [("evidence", evidence_digest(_member_evidence(item)))]
+        if item.get("content_digest"):
+            keys.append(("content", item["content_digest"]))
+        for key in keys:
+            groups.setdefault(key, []).append(item["document_id"])
+    duplicates = sorted({member for ids in groups.values() if len(ids) > 1 for member in ids})
+    if duplicates:
+        raise EvidenceValidationError(
+            "model_membership_invalid",
+            issues=[{"field": "selected_document_ids", "duplicate_content": duplicates[:8]}],
+        )
 
 
 def _requested_packet_copy(selected_facts):

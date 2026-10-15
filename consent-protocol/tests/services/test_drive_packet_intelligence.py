@@ -1168,9 +1168,15 @@ async def test_ready_packet_cannot_select_the_same_content_twice(signal):
     arguments = dict(user_id="owner", key="statements", complete=True, documents=copies)
     both = statement_packet(["copy_a", "copy_b"], [statement_facts()["periods"][0]])
     interpreter = AsyncMock(return_value=both)
-    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid") as info:
         await construct_packet(**arguments, interpret=interpreter)
     assert interpreter.await_count == 2
+    # The retry names the members that share content, so the model can keep one.
+    assert info.value.issues == [
+        {"field": "selected_document_ids", "duplicate_content": ["copy_a", "copy_b"]}
+    ]
+    feedback = json.loads(interpreter.await_args.kwargs["prompt"])["validation_feedback"]
+    assert feedback["issues"] == info.value.issues
 
     # The contract's own answer: keep one copy and exclude the other as its duplicate.
     deduped = statement_packet(["copy_a"], [statement_facts()["periods"][0]])
@@ -1271,14 +1277,15 @@ async def test_ready_packet_period_needs_a_quote_that_states_its_date(quote):
         "Statement period September 1, 2026 to September 30, 2026",
         "September 2026",
         "Sept. 2026 statement",
+        "1 September 2026",
         "Closing date 09/30/2026",
         "2026-09-30",
         "Period ending 30.09.26",
+        "Statement for 9/2026",
         "For the month of September",
-        "Tax year 2026",
     ],
 )
-async def test_ready_packet_period_accepts_a_quote_stating_its_month_or_year(quote):
+async def test_ready_packet_period_accepts_a_quote_stating_its_month(quote):
     source = statement_member("statement", statement_facts(quote))
     result = statement_packet(["statement"], [source["facts"]["periods"][0]])
     answer = await construct_packet(
@@ -1289,6 +1296,62 @@ async def test_ready_packet_period_accepts_a_quote_stating_its_month_or_year(quo
         interpret=AsyncMock(return_value=result),
     )
     assert answer.state == "ready" and answer.periods[0].citations[0].quote == quote
+
+
+@pytest.mark.parametrize(
+    ("quote", "window"),
+    [
+        ("Tax year 2026", ("2026-01-01", "2026-12-31")),
+        ("Q3 2026", ("2026-07-01", "2026-09-30")),
+        ("Fiscal year ended June 30, 2026", ("2025-07-01", "2026-06-30")),
+    ],
+)
+async def test_ready_packet_longer_period_accepts_a_quote_stating_its_year(quote, window):
+    facts = statement_facts(quote)
+    facts["periods"][0].update(start=window[0], end=window[1])
+    source = statement_member("statement", facts)
+    result = statement_packet(["statement"], [facts["periods"][0]])
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("quote", "window"),
+    [
+        # A September statement edited in October: the quote is dated, but not
+        # inside the claimed month, so the period came from somewhere else.
+        (
+            "Statement period September 1, 2026 to September 30, 2026",
+            ("2026-10-01", "2026-10-31"),
+        ),
+        ("Closing date 09/30/2026", ("2026-10-01", "2026-10-31")),
+        ("Tax year 2026", ("2026-10-01", "2026-10-31")),
+        ("Account ending 2026", ("2026-10-01", "2026-10-31")),
+        # Last year's statement re-uploaded this month.
+        ("September 2025", ("2026-09-01", "2026-09-30")),
+    ],
+)
+async def test_ready_packet_month_needs_a_quote_dated_inside_it(quote, window):
+    facts = statement_facts(quote)
+    facts["periods"][0].update(start=window[0], end=window[1])
+    source = statement_member("trap", facts)
+    result = statement_packet(["trap"], [facts["periods"][0]])
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(
+            user_id="owner",
+            key="statements",
+            complete=True,
+            documents=[source],
+            interpret=AsyncMock(return_value=result),
+        )
+    assert info.value.code == "model_period_invalid"
+    assert info.value.issues == [{"field": "periods", "item": 0, "missing": "dated_citation"}]
 
 
 async def test_final_checker_cannot_verify_an_undated_period_as_ready():
