@@ -139,16 +139,47 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
    resource->'provider_terminal'->>'outcome'='refused' AND resource->'provider_ack'->>'status'='404'),false);
 $$;
 
+-- Derive receipt content from the retained operation, never from browser claims.
+-- Fresh provider reads and actual thread exit remain the trusted runtime's work.
+CREATE OR REPLACE FUNCTION public.azure_erasure_execution_receipt(
+ state jsonb, stage text, outcome text
+) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE worker jsonb:=state->'worker'; execution_id text:=worker->>'executionId'; ids jsonb;
+ final_receipt jsonb:=state->'finalReadbacks'->execution_id;
+BEGIN
+ IF worker IS NULL OR execution_id IS NULL THEN RETURN NULL; END IF;
+ IF stage='workerExits' AND outcome IN ('returned','failed','cancelled') THEN
+  RETURN jsonb_build_object('worker',worker,'outcome',outcome,'finalReadbackSha256',
+   CASE WHEN final_receipt IS NULL THEN NULL ELSE
+    encode(sha256(convert_to(final_receipt::text,'UTF8')),'hex') END);
+ END IF;
+ IF stage IS DISTINCT FROM 'finalReadbacks' OR outcome IS NOT NULL
+ OR jsonb_typeof(state->'resources') IS DISTINCT FROM 'object' THEN RETURN NULL; END IF;
+ SELECT jsonb_agg(key ORDER BY key) INTO ids FROM jsonb_each(state->'plan'->'resources')
+ WHERE value->'coveredBy'='null'::jsonb;
+ IF ids IS NULL OR ids IS DISTINCT FROM
+  (SELECT jsonb_agg(key ORDER BY key) FROM jsonb_each(state->'resources'))
+ OR EXISTS(SELECT 1 FROM jsonb_each(state->'resources') r
+   WHERE public.azure_erasure_absence_settled(r.value) IS NOT TRUE
+   OR r.value->'absence' IS DISTINCT FROM
+     jsonb_build_object('status','active_resource_absent','id',r.key)) THEN RETURN NULL; END IF;
+ RETURN jsonb_build_object('worker',worker,'status','active_resources_absent',
+  'planDigest',encode(sha256(convert_to((state->'plan')::text,'UTF8')),'hex'),
+  'resourcesSha256',encode(sha256(convert_to((state->'resources')::text,'UTF8')),'hex'),
+  'resourceIdsSha256',encode(sha256(convert_to(ids::text,'UTF8')),'hex'));
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.valid_azure_erasure_append(owner_id text, prior jsonb, incoming jsonb)
 RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
 DECLARE before_state jsonb:=coalesce(prior->'azureTeardown','{}'::jsonb);
  next_state jsonb:=incoming->'azureTeardown'; item record; old_resource jsonb; new_resource jsonb;
- approval jsonb; worker jsonb; stage text; receipt jsonb; definition jsonb;
+ approval jsonb; worker jsonb; stage text; receipt jsonb; definition jsonb; execution_id text;
 BEGIN
  IF incoming-'azureTeardown' IS DISTINCT FROM prior-'azureTeardown'
  OR jsonb_typeof(next_state) IS DISTINCT FROM 'object'
  OR octet_length(next_state::text)>1048576
- OR next_state-ARRAY['plan','approvals','resources','worker']<>'{}'::jsonb THEN RETURN false; END IF;
+ OR next_state-ARRAY['plan','approvals','resources','worker','finalReadbacks','workerExits']<>'{}'::jsonb THEN RETURN false; END IF;
  IF before_state='{}'::jsonb THEN
   RETURN next_state-ARRAY['plan','approvals','resources']='{}'::jsonb
    AND next_state->'approvals'='[]'::jsonb AND next_state->'resources'='{}'::jsonb
@@ -172,6 +203,20 @@ BEGIN
    AND approval->'expiresAt'=to_jsonb(extract(epoch FROM statement_timestamp())::bigint+600);
  END IF;
  approval:=(before_state->'approvals')->-1;
+ worker:=before_state->'worker'; execution_id:=worker->>'executionId';
+ FOREACH stage IN ARRAY ARRAY['finalReadbacks','workerExits'] LOOP
+  IF next_state-stage IS DISTINCT FROM before_state-stage THEN CONTINUE; END IF;
+  IF public.byoc_azure_worker_session_held(owner_id) IS NOT TRUE
+   OR worker->'backendPid' IS DISTINCT FROM to_jsonb(pg_backend_pid())
+   OR jsonb_typeof(next_state->stage) IS DISTINCT FROM 'object'
+   OR coalesce(before_state->stage,'{}'::jsonb) ? execution_id
+   OR (next_state->stage)-execution_id IS DISTINCT FROM coalesce(before_state->stage,'{}'::jsonb)
+   OR (SELECT count(*) FROM jsonb_each(next_state->stage))>128
+   OR (before_state->'workerExits') ? execution_id THEN RETURN false; END IF;
+  receipt:=(next_state->stage)->execution_id;
+  RETURN receipt IS NOT NULL AND receipt=public.azure_erasure_execution_receipt(
+    before_state,stage,receipt->>'outcome');
+ END LOOP;
  IF next_state-'worker'=before_state-'worker' THEN
   worker:=next_state->'worker';
   RETURN public.byoc_azure_worker_session_held(owner_id) IS TRUE
@@ -179,6 +224,11 @@ BEGIN
    AND ((approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp())) IS TRUE
    AND public.azure_erasure_writers_drained(owner_id) IS TRUE
    AND public.erasure_provider_revocation_complete(prior) IS TRUE
+   AND octet_length(next_state::text)<900000
+   AND (SELECT count(*) FROM jsonb_each(coalesce(before_state->'workerExits','{}'::jsonb)))<128
+   AND (SELECT count(*) FROM jsonb_each(coalesce(before_state->'finalReadbacks','{}'::jsonb)))<128
+   AND NOT (coalesce(before_state->'workerExits','{}'::jsonb) ? (worker->>'executionId'))
+   AND NOT (coalesce(before_state->'finalReadbacks','{}'::jsonb) ? (worker->>'executionId'))
    AND (worker->>'executionId' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') IS TRUE
    AND worker->'backendPid'=to_jsonb(pg_backend_pid())
    AND worker->'approvalIndex'=to_jsonb(jsonb_array_length(before_state->'approvals')-1)
@@ -195,6 +245,8 @@ BEGIN
   IF definition IS NULL OR definition->'coveredBy'<>'null'::jsonb THEN RETURN false; END IF;
   old_resource:=coalesce(before_state->'resources'->item.key,'{}'::jsonb); new_resource:=item.value;
   IF new_resource-'providerHistory'=old_resource-ARRAY['providerHistory','provider_request','provider_ack','provider_terminal']
+   AND NOT (coalesce(before_state->'finalReadbacks','{}'::jsonb) ? execution_id)
+   AND NOT (coalesce(before_state->'workerExits','{}'::jsonb) ? execution_id)
    AND public.azure_erasure_request_retryable(old_resource) IS TRUE
    AND NOT old_resource ?| ARRAY['absence','acknowledgement']
    AND jsonb_typeof(new_resource->'providerHistory')='array'
@@ -206,6 +258,8 @@ BEGIN
   FOREACH stage IN ARRAY ARRAY['intent','provider_request','provider_ack','provider_terminal','acknowledgement','absence'] LOOP
    IF old_resource ? stage OR new_resource-stage IS DISTINCT FROM old_resource THEN CONTINUE; END IF;
    IF stage IN ('intent','provider_request') AND (public.azure_erasure_writers_drained(owner_id) IS NOT TRUE
+    OR coalesce(before_state->'finalReadbacks','{}'::jsonb) ? execution_id
+    OR coalesce(before_state->'workerExits','{}'::jsonb) ? execution_id
     OR ((approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp())) IS NOT TRUE) THEN RETURN false; END IF;
    receipt:=new_resource->stage;
    IF jsonb_typeof(receipt) IS DISTINCT FROM 'object' OR octet_length(receipt::text)>24576 THEN RETURN false; END IF;
@@ -265,6 +319,37 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.retain_azure_erasure_execution_receipt(
+ owner_id text, attempt_id text, execution_id text, stage text, outcome text, observed_ids jsonb
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+DECLARE r jsonb; state jsonb; receipt jsonb; ids jsonb;
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+ SELECT backend_metadata->'erasure' INTO r FROM public.personal_agent_registry
+ WHERE user_id=owner_id AND status='suspended' FOR UPDATE;
+ state:=r->'azureTeardown';
+ IF r->>'attemptId' IS DISTINCT FROM attempt_id
+ OR state->'worker'->>'executionId' IS DISTINCT FROM execution_id
+ OR public.byoc_azure_worker_session_held(owner_id) IS NOT TRUE
+ OR state->'worker'->'backendPid' IS DISTINCT FROM to_jsonb(pg_backend_pid())
+ OR (stage IN ('finalReadbacks','workerExits')) IS NOT TRUE THEN RETURN false; END IF;
+ IF stage='finalReadbacks' THEN
+  IF jsonb_typeof(observed_ids) IS DISTINCT FROM 'array' THEN RETURN false; END IF;
+  IF jsonb_array_length(observed_ids) NOT BETWEEN 1 AND 128 THEN RETURN false; END IF;
+  SELECT jsonb_agg(value ORDER BY value) INTO ids FROM jsonb_array_elements_text(observed_ids);
+  IF ids IS DISTINCT FROM (SELECT jsonb_agg(key ORDER BY key)
+   FROM jsonb_each(state->'plan'->'resources') WHERE value->'coveredBy'='null'::jsonb)
+  THEN RETURN false; END IF;
+ ELSIF observed_ids IS NOT NULL THEN RETURN false; END IF;
+ receipt:=public.azure_erasure_execution_receipt(state,stage,outcome);
+ IF receipt IS NULL THEN RETURN false; END IF;
+ state:=jsonb_set(state,ARRAY[stage],coalesce(state->stage,'{}'::jsonb)||
+   jsonb_build_object(execution_id,receipt));
+ RETURN public.retain_azure_erasure_state(owner_id,attempt_id,r,state);
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.approve_azure_erasure_plan(
  owner_id text, attempt_id text, expected_digest text, group_confirmation text
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
@@ -295,11 +380,11 @@ CREATE OR REPLACE FUNCTION public.begin_azure_erasure_worker(
 ) RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
 DECLARE agent public.personal_agent_registry%ROWTYPE; r jsonb; state jsonb; acquired boolean;
 BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+ PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
  IF public.byoc_azure_worker_session_held(owner_id) IS TRUE THEN RETURN false; END IF;
  acquired:=pg_try_advisory_lock(hashtextextended(owner_id,206));
  IF NOT acquired THEN RETURN false; END IF;
- PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
- PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
  SELECT * INTO agent FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
  r:=agent.backend_metadata->'erasure'; state:=r->'azureTeardown';
  state:=state||jsonb_build_object('worker',jsonb_build_object('executionId',execution_id,
@@ -331,6 +416,8 @@ BEGIN
  AND state->'worker'->>'executionId'=execution_id
  AND state->'worker'->'backendPid'=to_jsonb(pg_backend_pid())
  AND state->'worker'->'approvalIndex'=to_jsonb(jsonb_array_length(state->'approvals')-1)
+ AND NOT (coalesce(state->'finalReadbacks','{}'::jsonb) ? execution_id)
+ AND NOT (coalesce(state->'workerExits','{}'::jsonb) ? execution_id)
  AND (approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp());
 END;
 $$;

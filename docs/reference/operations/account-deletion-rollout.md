@@ -57,7 +57,7 @@ exist, account deletion stays pending. See [Azure lifecycle](../architecture/byo
 
 Dev-only 961 records original setup bindings and bounded provider receipts in
 `byoc_setup_jobs.stages`; it adds no credential store or second operation ledger.
-Its latest verified dev ledger read (2026-10-15, 05:37 UTC) stops at 959. Recheck
+Its latest verified dev ledger read (2026-10-15, 20:22 UTC) stops at 959. Recheck
 that ledger before deploying: an applied migration must never be edited.
 
 Fresh setup, approved updates and rebuilds hold a dedicated database session
@@ -81,6 +81,17 @@ subscriptions and normalized path escapes before requesting the operation.
 Legacy asynchronous receipts without a known header kind remain unresolved;
 resource404 alone does not settle them. Independent absence still follows a
 terminal provider receipt. Provider-retained copies need separate disclosure.
+
+Cleanup now retains a fresh final GET-set receipt and actual worker exit as
+separate, append-only execution receipts in the same erasure record. The final
+readback binds the exact plan and retained resource-state digests; missing or
+reappearing resources in that evidence refuse completion. The joined thread
+runner fences cancelled dispatch and waits for exit-receipt persistence before
+closing its dedicated session, including repeated cancellation. An exit may
+truthfully be failed or cancelled with unresolved provider work. Receipt writes
+can finish after approval expires; new mutations cannot. Neither receipt proves
+provider-retained copies were purged, and the public full-cleanup callback stays
+disabled until archival, retention and final account-deletion gates are composed.
 
 If replacement polling fails, only the existing exact incarnation/revision/image
 verdict may settle that original request. Timeout remains unresolved. The explicit

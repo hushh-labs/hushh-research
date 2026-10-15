@@ -6,8 +6,10 @@ import asyncio
 import copy
 import json
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 import pytest
 
 
@@ -183,6 +185,23 @@ def cleanup_state(cleanup_pg):
     return pg, owner, reservation, plan, state, retain
 
 
+@pytest.fixture
+def cleanup_connection(cleanup_pg):
+    pg = cleanup_pg[0]
+
+    @asynccontextmanager
+    async def connection():
+        conn = await asyncpg.connect(
+            host=str(pg.dir), port=pg.port, user="hushh", database="postgres"
+        )
+        try:
+            yield conn
+        finally:
+            await conn.close()
+
+    return connection
+
+
 def _approve_cleanup(pg, owner, reservation, plan):
     digest = pg.execute(
         "SELECT encode(sha256(convert_to(%s::jsonb::text,'UTF8')),'hex')", (json.dumps(plan),)
@@ -236,6 +255,11 @@ def test_durable_cleanup_requires_exact_plan_owner_approval_and_live_worker(clea
             "SELECT assert_azure_erasure_worker(:owner,:attempt,:execution) AS admitted",
             {"owner": owner, "attempt": reservation["attemptId"], "execution": execution},
         ).data == [{"admitted": False}]
+        assert foreign.execute_raw(
+            "SELECT retain_azure_erasure_execution_receipt(:owner,:attempt,:execution,"
+            "'workerExits','failed',NULL) AS retained",
+            {"owner": owner, "attempt": reservation["attemptId"], "execution": execution},
+        ).data == [{"retained": False}]
     finally:
         foreign._engine.dispose()
 
@@ -325,15 +349,11 @@ def test_durable_absence_cannot_settle_an_uncertain_provider_request(cleanup_sta
 
 @pytest.mark.parametrize("interrupted", [False, True])
 async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_session(
-    cleanup_state, interrupted
+    cleanup_state, cleanup_connection, interrupted
 ):
-    from contextlib import asynccontextmanager
-
-    import asyncpg
-
     from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
     from hushh_mcp.services.azure_teardown_authority import azure_teardown_authority
-    from hushh_mcp.services.azure_teardown_inventory import TeardownResource
+    from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused, TeardownResource
     from hushh_mcp.services.azure_teardown_receipts import TeardownMutationJournal
     from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
     from tests.test_azure_arm_client import _Response, _Session
@@ -347,24 +367,15 @@ async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_ses
     session = (
         _Session(_Response(202, {}, {"Azure-AsyncOperation": poll}), _Response(503, {}))
         if interrupted
-        else _Session(_Response(200))
+        else _Session(_Response(200), _Response(404))
     )
 
-    @asynccontextmanager
-    async def connection():
-        conn = await asyncpg.connect(
-            host=str(pg.dir), port=pg.port, user="hushh", database="postgres"
-        )
-        try:
-            yield conn
-        finally:
-            await conn.close()
-
     async with azure_teardown_authority(
-        owner=owner, attempt=reservation["attemptId"], connection_factory=connection
+        owner=owner, attempt=reservation["attemptId"], connection_factory=cleanup_connection
     ) as authority:
 
-        def delete():
+        def delete(**kwargs):
+            kwargs["guard"]()
             authority.assert_parent_approved(resource)
             assert authority.retain(resource, "intent", {"identity": {"id": path}})
             arm = ArmClient("synthetic-token", session=session, sleep=lambda _: None)
@@ -372,24 +383,114 @@ async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_ses
                 TeardownMutationJournal(authority, resource)
             )
             arm.delete(path, api_version=resource.api_version)
+            assert arm.get_or_none(path, api_version=resource.api_version) is None
+            assert authority.retain(
+                resource, "absence", {"status": "active_resource_absent", "id": path}
+            )
+            assert authority.retain_final_readback((path + "/wrong",)) is False
+            assert authority.retain_final_readback((path,)) is True
+            with pytest.raises(AzureTeardownRefused):
+                authority.assert_admitted()
             return authority.state(resource)
 
         if interrupted:
             with pytest.raises(ArmError):
-                await asyncio.to_thread(delete)
+                await authority.run_worker(delete)
             assert "provider_terminal" not in authority.state(resource)
         else:
-            receipts = await asyncio.to_thread(delete)
+            receipts = await authority.run_worker(delete)
     if interrupted:
         # A new real SQL worker observes the original dispatch after restart.
         # It never invents a new request ID or repeats the provider DELETE.
         resumed = _Session(_Response(200, {"status": "Succeeded"}))
         async with azure_teardown_authority(
-            owner=owner, attempt=reservation["attemptId"], connection_factory=connection
+            owner=owner, attempt=reservation["attemptId"], connection_factory=cleanup_connection
         ) as authority:
             client = ArmClient("synthetic-token", session=resumed, sleep=lambda _: None)
-            receipts = await asyncio.to_thread(reconcile_delete, client, resource, authority)
+            receipts = await authority.run_worker(
+                lambda **_: reconcile_delete(client, resource, authority)
+            )
         assert [call["method"] for call in session.sent] == ["DELETE", "GET"]
         assert [call["method"] for call in resumed.sent] == ["GET"]
     assert receipts["provider_terminal"]["outcome"] == "succeeded"
     assert receipts["provider_ack"]["requestId"] == receipts["provider_request"]["requestId"]
+    observed = pg.execute(
+        "SELECT backend_metadata#>'{erasure,azureTeardown}' FROM personal_agent_registry WHERE user_id=%s",
+        (owner,),
+    )[0][0]
+    exits = list(observed["workerExits"].values())
+    assert [value["outcome"] for value in exits].count("failed") == int(interrupted)
+    assert len(exits) == 1 + int(interrupted)
+    assert bool(observed.get("finalReadbacks")) is not interrupted
+    assert sum(value["finalReadbackSha256"] is not None for value in exits) == int(not interrupted)
+
+
+@pytest.mark.parametrize("cancel_during", ["thread", "receipt"])
+async def test_cleanup_cancellation_joins_thread_and_exit_receipt_before_releasing_session(
+    cleanup_state, cleanup_connection, monkeypatch, cancel_during
+):
+    from threading import Event
+
+    from hushh_mcp.services.azure_teardown_authority import azure_teardown_authority
+
+    pg, owner, reservation, plan, state, retain = cleanup_state
+    assert retain(state) is True
+    assert _approve_cleanup(pg, owner, reservation, plan)
+    loop = asyncio.get_running_loop()
+    entered, exiting, persist = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release, stopped = Event(), Event()
+    writes = []
+
+    def worker(**kwargs):
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            assert release.wait(5)
+            authority.assert_admitted()
+            writes.append("synthetic-next-write")
+        finally:
+            stopped.set()
+
+    async with azure_teardown_authority(
+        owner=owner, attempt=reservation["attemptId"], connection_factory=cleanup_connection
+    ) as authority:
+        original = authority._retain_execution
+
+        async def retain_exit(*args):
+            assert stopped.is_set(), "exit cannot be recorded while the real thread is alive"
+            exiting.set()
+            await persist.wait()
+            return await original(*args)
+
+        monkeypatch.setattr(authority, "_retain_execution", retain_exit)
+        task = asyncio.create_task(authority.run_worker(worker))
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            if cancel_during == "thread":
+                task.cancel()
+                await asyncio.sleep(0)
+                task.cancel()
+                assert not task.done() and not stopped.is_set()
+            release.set()
+            await asyncio.wait_for(exiting.wait(), 5)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            assert not task.done(), "receipt persistence must be joined before connection close"
+            persist.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 5)
+        finally:
+            release.set()
+            persist.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    observed = pg.execute(
+        "SELECT backend_metadata#>'{erasure,azureTeardown}' FROM personal_agent_registry WHERE user_id=%s",
+        (owner,),
+    )[0][0]
+    exits = list(observed["workerExits"].values())
+    assert len(exits) == 1 and exits[0]["finalReadbackSha256"] is None
+    assert exits[0]["outcome"] == ("cancelled" if cancel_during == "thread" else "returned")
+    assert bool(writes) == (cancel_during == "receipt")
+    assert "finalReadbacks" not in observed

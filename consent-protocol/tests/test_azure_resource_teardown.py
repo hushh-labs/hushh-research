@@ -24,6 +24,7 @@ class _Journal:
         self.receipts = {}
         self.admitted = True
         self.contents_exclusive = True
+        self.readbacks = []
 
     def assert_admitted(self):
         if not self.admitted:
@@ -43,6 +44,10 @@ class _Journal:
         self.receipts[resource.path] = prepare_stage(
             self.receipts.get(resource.path, {}), stage, receipt
         )
+        return True
+
+    def retain_final_readback(self, resource_ids):
+        self.readbacks.append(resource_ids)
         return True
 
 
@@ -126,10 +131,30 @@ def test_owner_cloud_cleanup_reaches_independent_active_absence(arm):
     assert client.resources == {}
     direct = [r for r in resources if r.covered_by is None]
     assert all(journal.state(r)["absence"]["status"] == "active_resource_absent" for r in direct)
+    assert journal.readbacks == [tuple(r.path for r in direct)]
     writes = [path for method, path, _ in client.calls if method == "DELETE"]
     assert len(writes) == len(set(writes))
     execute(client, inputs, resources, journal, frozen)
     assert [p for m, p, _ in client.calls if m == "DELETE"] == writes
+
+
+@pytest.mark.parametrize("failure", ["reappeared", "receipt"])
+def test_final_readback_failure_never_reports_cleanup_complete(arm, monkeypatch, failure):
+    client, inputs, resources, journal = _prepared(arm)
+    frozen = preflight(client, inputs, resources, journal)
+    original = client.get_or_none
+
+    def observe(path, **kwargs):
+        if failure == "reappeared" and kwargs.get("op") == "cleanup_final":
+            return {"id": path}
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(client, "get_or_none", observe)
+    if failure == "receipt":
+        monkeypatch.setattr(journal, "retain_final_readback", lambda _: False)
+    with pytest.raises(AzureTeardownRefused, match="REAPPEARED|READBACK_UNCONFIRMED"):
+        execute(client, inputs, resources, journal, frozen)
+    assert journal.readbacks == []
 
 
 @pytest.mark.parametrize("change", ["unrelated", "owner", "incarnation", "role", "malformed"])

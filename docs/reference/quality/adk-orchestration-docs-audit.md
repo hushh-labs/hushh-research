@@ -67,6 +67,11 @@ coverage. Legacy zero-counter receipts remain readable but cannot admit cloud
 cleanup. The schema preflight checks the actual producer shape before key
 destruction; hub/schema support must precede installing the emitting pod image.
 Focused pod/transport suites and real-SQL admission checks pass locally.
+Final active-resource readback and actual worker exit now have separate durable
+receipts. Repeated cancellation joins both the real thread and exit persistence;
+executor/journal checks share the stop fence. The broken-guard control fails.
+Final account completion must match current hashes to the same execution's
+readback and exit; these local prerequisites do not enable the public callback.
 
 Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
 JIT deletion/finalization and operator-project mail-topic

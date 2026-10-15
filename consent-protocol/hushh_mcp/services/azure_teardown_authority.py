@@ -16,6 +16,7 @@ from copy import deepcopy
 from typing import Any
 
 from db.connection import dedicated_connection
+from hushh_mcp.services.azure_setup_worker import run_setup_thread
 from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused, TeardownResource
 from hushh_mcp.services.azure_teardown_receipts import prepare_stage
 
@@ -27,6 +28,8 @@ class AzureTeardownAuthority:
         self._loop = asyncio.get_running_loop()
         self._serial = asyncio.Lock()
         self._state: dict = {}
+        self._running = False
+        self._execution_guard: Callable[[], None] | None = None
 
     async def load(self) -> dict:
         raw = await self._connection.fetchval(
@@ -61,8 +64,14 @@ class AzureTeardownAuthority:
         if admitted is not True:
             raise AzureTeardownRefused("AZURE_CLEANUP_AUTHORIZATION_EXPIRED")
 
-    def assert_admitted(self) -> None:
+    def _assert_durable_admission(self) -> None:
         self._wait(self._assert_admitted())
+
+    def assert_admitted(self) -> None:
+        if self._execution_guard is not None:
+            self._execution_guard()
+        else:
+            self._assert_durable_admission()
 
     def assert_parent_approved(self, resource: TeardownResource) -> None:
         """Require explicit whole-parent approval, not a claim about every child's origin."""
@@ -109,6 +118,74 @@ class AzureTeardownAuthority:
 
     def retain(self, resource: TeardownResource, stage: str, receipt: dict) -> bool:
         return self._wait(self._retain(resource, stage, receipt))
+
+    async def _retain_execution(
+        self, stage: str, outcome: str | None, resource_ids: tuple[str, ...] | None
+    ) -> bool:
+        async with self._serial:
+            retained = await self._connection.fetchval(
+                "SELECT public.retain_azure_erasure_execution_receipt($1,$2,$3,$4,$5,$6::jsonb)",
+                self._owner,
+                self._attempt,
+                self._execution,
+                stage,
+                outcome,
+                None if resource_ids is None else json.dumps(resource_ids),
+            )
+            await self.load()
+            return retained is True
+
+    def retain_final_readback(self, resource_ids: tuple[str, ...]) -> bool:
+        return self._wait(self._retain_execution("finalReadbacks", None, resource_ids))
+
+    async def _join_exit_receipt(self, outcome: str) -> None:
+        receipt = asyncio.create_task(self._retain_execution("workerExits", outcome, None))
+        cancelled = False
+        while not receipt.done():
+            try:
+                await asyncio.shield(receipt)
+            except asyncio.CancelledError:
+                cancelled = True
+        if receipt.cancelled() or receipt.result() is not True:
+            raise AzureTeardownRefused("AZURE_CLEANUP_EXIT_UNCONFIRMED")
+        if cancelled:
+            raise asyncio.CancelledError
+
+    async def run_worker(self, worker: Callable[..., Any]) -> Any:
+        """Join the actual thread, then persist exit before releasing this session.
+
+        The callable receives the existing cancellation guard. Provider settlement
+        remains independent: failed/cancelled exit never manufactures cloud success.
+        """
+        if self._running:
+            raise AzureTeardownRefused("AZURE_CLEANUP_WORKER_BUSY")
+        self._running = True
+        outcome = "failed"
+
+        def invoke(**kwargs: Any) -> Any:
+            # Every executor and journal check must see the helper's stop fence,
+            # including checks that do not use the callable's explicit argument.
+            self._execution_guard = kwargs["guard"]
+            try:
+                return worker(**kwargs)
+            finally:
+                self._execution_guard = None
+
+        try:
+            await self._assert_admitted()
+            result = await run_setup_thread(
+                invoke, guard=self._assert_durable_admission, advance=lambda _: None
+            )
+            outcome = "returned"
+            return result
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            try:
+                await self._join_exit_receipt(outcome)
+            finally:
+                self._running = False
 
 
 @asynccontextmanager

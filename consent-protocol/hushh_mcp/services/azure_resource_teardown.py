@@ -160,6 +160,7 @@ def execute(
             _exclusive_group(arm, inputs, resources, empty=True)
         _erase_one(arm, inputs, resource, journal, frozen[resource.path])
     # Do not report completion from a historical absence if a resource reappeared.
+    observed_ids = []
     for resource in resources:
         if (
             not resource.covered_by
@@ -167,3 +168,7 @@ def execute(
             is not None
         ):
             raise AzureTeardownRefused("AZURE_CLEANUP_RESOURCE_REAPPEARED")
+        if not resource.covered_by:
+            observed_ids.append(resource.path)
+    if journal.retain_final_readback(tuple(observed_ids)) is not True:
+        raise AzureTeardownRefused("AZURE_CLEANUP_READBACK_UNCONFIRMED")
