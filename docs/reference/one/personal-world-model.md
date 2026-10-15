@@ -62,7 +62,7 @@ All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-r
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| UAT | `hussh-511311` (Parth) | same | same | same |
+| UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
 | Production | `hushh-vertex-personal54` | same | same | same |
 
 Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
