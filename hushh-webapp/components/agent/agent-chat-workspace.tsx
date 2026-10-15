@@ -2806,6 +2806,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [hasResponseOutput, setHasResponseOutput] = useState(false);
+  const responseOutputRef = useRef(false);
+  const markResponseOutput = (delta: string) => {
+    if (!delta || responseOutputRef.current) return;
+    responseOutputRef.current = true;
+    setHasResponseOutput(true);
+  };
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
   // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
   // instead of bouncing the user to /one/profile. Opened only when a vault-gated
@@ -3050,12 +3057,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const onePresenceState = resolveOnePresenceState({
     drafting: isEmailDrafting,
-    answering: isChatLoading || isStreaming || isToolWorking || appActionBusy || specialistBusy,
+    answering: (isStreaming && hasResponseOutput) || voiceState === "speaking",
+    thinking: isChatLoading || isStreaming || isToolWorking || appActionBusy || specialistBusy || voiceState === "thinking",
   });
   const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback((reason?: string) => {
+    responseOutputRef.current = false;
+    setHasResponseOutput(false);
     setPendingMcpReviews([]);
     streamAbortControllerRef.current?.abort(reason);
     streamAbortControllerRef.current = null;
@@ -4702,6 +4712,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       );
       if (stillRunning) {
         setIsChatLoading(true);
+        responseOutputRef.current = false;
+        setHasResponseOutput(false);
         setIsStreaming(true);
       }
     };
@@ -5543,6 +5555,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
 
     const queueAssistantDelta = (delta: string) => {
+      markResponseOutput(delta);
       pendingAssistantDelta += delta;
       if (assistantFlushFrame !== null) return;
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
@@ -5942,6 +5955,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     liveAssistantMessageIdRef.current = assistantMessageId;
     setActiveToolCalls([]);
     setIsChatLoading(true);
+    responseOutputRef.current = false;
+    setHasResponseOutput(false);
     setIsStreaming(true);
 
     if (!token) {
@@ -6595,6 +6610,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }));
     };
     const queueAssistantDelta = (delta: string) => {
+      markResponseOutput(delta);
       pendingAssistantDelta += delta;
       if (assistantFlushFrame !== null) return;
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
@@ -6619,6 +6635,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     latestVisibleTurnIdRef.current = debugTurnId;
     setActiveToolCalls([]);
     setIsChatLoading(true);
+    responseOutputRef.current = false;
+    setHasResponseOutput(false);
     setIsStreaming(true);
 
     const streamAbortController = new AbortController();
@@ -6820,6 +6838,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }));
     };
     const queueAssistantDelta = (delta: string) => {
+      markResponseOutput(delta);
       pendingAssistantDelta += delta;
       if (assistantFlushFrame !== null) return;
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
@@ -6853,6 +6872,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       : [...current, userMessage, assistantMessage]);
     setActiveToolCalls([]);
     setIsChatLoading(true);
+    responseOutputRef.current = false;
+    setHasResponseOutput(false);
     setIsStreaming(true);
 
     const streamAbortController = new AbortController();
@@ -8359,6 +8380,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             lostTurn: undefined,
           }));
           setIsChatLoading(true);
+          responseOutputRef.current = false;
+          setHasResponseOutput(false);
           setIsStreaming(true);
           watchDetachedAgentTurn({
             ownerId: user.uid,
@@ -9605,6 +9628,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </div>
                 ) : widget.kind === "add" ? (
                   <SecureCardAddForm
+                    artworkEnabled={false}
                     getNetworkContext={() => {
                       const token = getVaultOwnerToken();
                       return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;
@@ -10035,6 +10059,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           title={typeof payload.title === "string" ? payload.title : null}
                           startAt={typeof payload.startAt === "string" ? payload.startAt : null}
                           endAt={typeof payload.endAt === "string" ? payload.endAt : null}
+                          timeZone={typeof payload.timeZone === "string" ? payload.timeZone : undefined}
                           attendees={attendees}
                           location={typeof payload.location === "string" ? payload.location : null}
                           sendUpdates={payload.sendUpdates === true}

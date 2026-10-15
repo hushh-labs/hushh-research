@@ -2,7 +2,7 @@
  * Region-aware payment-card validation. Pure module: no network, no storage.
  *
  * BYOK means only the browser ever sees the PAN, so this module is the
- * authoritative validator for secrets (Luhn, CVV/PIN shape).
+ * local validator for card details (checksum, name and expiry).
  * The server independently re-validates the non-secret envelope (brand, last4,
  * expiry, issuing region) in consent-protocol wallet_card_validation.py -
  * keep the region rules in the two files in sync.
@@ -80,6 +80,7 @@ export interface CardValidationInput {
   cardholderName: string;
   /** The owner may select a network for overlapping or newer BIN ranges. */
   brand?: CardBrand;
+  /** Legacy inputs are ignored; security codes are never required or stored. */
   cvv?: string;
   pin?: string;
   expiryMonth: number;
@@ -103,7 +104,6 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
   const selectedBrand = input.brand;
   const validSelection = selectedBrand === undefined || isCardNetworkId(selectedBrand);
   const brand = validSelection ? (selectedBrand ?? "other") : "other";
-  const credentialBrand = Object.hasOwn(BRAND_PAN_LENGTHS, brand) ? brand as KnownCardBrand : "other";
   const cardholderName = String(input.cardholderName ?? "").trim();
   if (!validSelection) errors.push("brand_invalid");
   if (!cardholderName) {
@@ -115,7 +115,7 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
 
   if (!/^\d{13,19}$/.test(digits)) {
     errors.push("pan_length_invalid");
-  } else if (/^(\d)\1+$/.test(digits) || !luhnValid(digits)) {
+  } else if (/^(\d)\1+$/.test(digits) || (brand !== "unionpay" && !luhnValid(digits))) {
     errors.push("pan_checksum_invalid");
   }
 
@@ -129,19 +129,6 @@ export function validateCardForRegion(input: CardValidationInput): CardValidatio
     const locked = Object.hasOwn(REGION_LOCKED_BRANDS, brand) ? REGION_LOCKED_BRANDS[brand] : undefined;
     if (locked && !locked.includes(region)) {
       errors.push("brand_region_mismatch");
-    }
-  }
-
-  if (!input.cvv?.trim()) {
-    errors.push("cvv_required");
-  } else {
-    const cvvPattern = credentialBrand === "amex" ? /^\d{4}$/ : credentialBrand === "other" ? /^\d{3,4}$/ : /^\d{3}$/;
-    if (!cvvPattern.test(input.cvv)) errors.push("cvv_invalid");
-  }
-
-  if (input.pin !== undefined && input.pin !== "") {
-    if (!/^\d{4,6}$/.test(input.pin)) {
-      errors.push("pin_invalid");
     }
   }
 

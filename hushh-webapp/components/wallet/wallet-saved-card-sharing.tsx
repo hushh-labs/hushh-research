@@ -201,7 +201,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           </div>
           <p role="status" className="text-xs text-muted-foreground">{selectedCount} of {MAX_CARD_SHARE_RECIPIENTS} connections selected. Share with up to {MAX_CARD_SHARE_RECIPIENTS} at a time.</p>
           <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
-          <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. CVV and PIN stay private.</p>
+          <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. Security codes are never shared.</p>
         </div>
       </SettingsDetailPanel>
     </section>

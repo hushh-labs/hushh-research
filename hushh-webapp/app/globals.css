@@ -9719,3 +9719,28 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     max-width: 256px;
   }
 }
+/* Chat detail bodies inherit the same grouped material and type as Profile. */
+[data-chat-detail-body] [role="region"] {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+}
+[data-chat-detail-body] :is(p, ul) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-chat-detail-body] button {
+  height: auto;
+  min-height: 44px;
+  padding-block: 10px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+
+[data-chat-detail-body] button > span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

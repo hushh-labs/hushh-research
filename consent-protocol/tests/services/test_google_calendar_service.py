@@ -160,7 +160,8 @@ def test_calendar_read_discards_result_when_owner_grant_changes_after_provider(
         ("rateLimitExceeded", 429),
         ("userRateLimitExceeded", 429),
         ("quotaExceeded", 429),
-        ("forbidden", 403),
+        ("forbidden", 502),
+        ("insufficientPermissions", 403),
     ],
 )
 def test_calendar_provider_403_distinguishes_quota_from_permission(
@@ -199,6 +200,7 @@ def test_calendar_freebusy_rejects_embedded_provider_error_in_http_200(
             )
         )
     assert exc_info.value.status_code == 502
+    assert exc_info.value.reason_code == "calendar_unreadable"
 
 
 def test_calendar_list_requires_its_incremental_scope_without_breaking_base_reads(
@@ -1264,7 +1266,7 @@ def test_calendar_read_retries_one_transient_failure(
         ("manage", 503, 1, "calendar_unavailable"),
         ("read", 503, 2, "calendar_unavailable"),
         ("read", 401, 1, "calendar_reauthorization_required"),
-        ("read", 403, 1, "calendar_permission_required"),
+        ("read", 403, 1, "calendar_unreadable"),
     ],
 )
 def test_calendar_retry_boundary_and_auth_reasons(
@@ -1545,3 +1547,159 @@ def test_proposal_rejects_connection_change_during_credential_acquisition():
         asyncio.run(service.propose(user_id="user-1", action="create", payload={}))
     assert caught.value.reason_code == "calendar_connection_changed"
     assert not any("INSERT INTO google_calendar_action_proposals" in sql for sql, _ in db.calls)
+
+
+@pytest.mark.parametrize(
+    "reason,status,code",
+    [
+        ("notFound", 502, "calendar_unreadable"),
+        ("forbidden", 502, "calendar_unreadable"),
+        ("internalError", 503, "calendar_provider_unavailable"),
+        ("rateLimitExceeded", 503, "calendar_provider_unavailable"),
+        ("futureProviderReason", 502, "calendar_unreadable"),
+    ],
+)
+def test_partial_freebusy_failure_preserves_recovery_without_exposing_calendars(
+    reason, status, code, caplog
+):
+    from datetime import UTC, datetime
+
+    with pytest.raises(GoogleConnectionError) as caught:
+        GoogleCalendarService._merged_busy_intervals(
+            calendars={
+                "private@example.com": {"busy": []},
+                "other-private@example.com": {"errors": [{"reason": reason}]},
+            },
+            range_start=datetime(2026, 10, 15, 9, tzinfo=UTC),
+            range_end=datetime(2026, 10, 15, 17, tzinfo=UTC),
+        )
+    assert caught.value.status_code == status
+    assert caught.value.reason_code == code
+    assert "private@example.com" not in caplog.text
+    assert "calendar.freebusy.partial_failure" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "calendar,stage",
+    [
+        (None, "freebusy_calendar_shape"),
+        ({}, "freebusy_busy_shape"),
+        ({"busy": [None]}, "freebusy_interval_shape"),
+        ({"busy": [{"start": "bad", "end": "bad"}]}, "freebusy_interval_timestamp"),
+        (
+            {"busy": [{"start": "2026-10-15T10:00:00Z", "end": "2026-10-15T09:00:00Z"}]},
+            "freebusy_interval_order",
+        ),
+    ],
+)
+def test_freebusy_validation_stage_survives_runtime_redaction_without_payload(
+    calendar, stage, caplog
+):
+    from datetime import UTC, datetime
+
+    from hushh_mcp.consent.audit_logger import bind_trace_id, reset_trace_id
+    from mcp_modules.log_redaction import SensitiveLogFilter
+
+    token = bind_trace_id("00000000-0000-4000-a000-000000000001")
+    try:
+        with pytest.raises(GoogleConnectionError) as caught:
+            GoogleCalendarService._merged_busy_intervals(
+                calendars={"private-calendar-id": calendar},
+                range_start=datetime(2026, 10, 15, 9, tzinfo=UTC),
+                range_end=datetime(2026, 10, 15, 17, tzinfo=UTC),
+            )
+    finally:
+        reset_trace_id(token)
+    assert caught.value.reason_code == "calendar_invalid_response"
+    # Apply the real filter even when this test runs without the full app bootstrap.
+    for record in caplog.records:
+        SensitiveLogFilter().filter(record)
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert f"stage={stage.replace('_', '.')}" in rendered
+    assert "request_id=[REDACTED]" in rendered
+    assert "field_path=$.calendars." in caplog.text
+    assert "expected=" in caplog.text
+    assert "received=" in caplog.text
+    assert "reason=" in caplog.text
+    assert "private-calendar-id" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "errors",
+    [{}, [None], [{"reason": "internalError"}, None], [{"reason": {"unexpected": "shape"}}], [{}]],
+)
+def test_malformed_freebusy_errors_are_invalid_responses_not_access_failures(errors, caplog):
+    with pytest.raises(GoogleConnectionError) as caught:
+        GoogleCalendarService._merged_busy_intervals(
+            calendars={"private-calendar": {"errors": errors, "busy": []}},
+            range_start=datetime(2026, 10, 15, 9, tzinfo=UTC),
+            range_end=datetime(2026, 10, 15, 17, tzinfo=UTC),
+        )
+    assert caught.value.reason_code == "calendar_invalid_response"
+    assert caught.value.status_code == 502
+    assert "stage=freebusy.errors.shape" in caplog.text
+    assert "private-calendar" not in caplog.text
+
+
+def test_documented_freebusy_expansion_error_keeps_its_sanitized_reason(caplog):
+    with pytest.raises(GoogleConnectionError):
+        GoogleCalendarService._freebusy_errors(
+            [{"domain": "calendar", "reason": "tooManyCalendarsRequested"}]
+        )
+    assert "reasons=tooManyCalendarsRequested" in caplog.text
+
+
+@pytest.mark.parametrize("optional_fields", [False, True])
+@pytest.mark.parametrize(
+    "busy", [[], [{"start": "2026-10-15T15:00:00+05:45", "end": "2026-10-15T15:30:00+05:45"}]]
+)
+def test_freebusy_preserves_metadata_compatibility_empty_arrays_and_offsets(
+    monkeypatch, optional_fields, busy
+):
+    response = {"calendars": {"primary": {"busy": busy}}}
+    if optional_fields:
+        response.update(
+            {
+                "kind": "calendar#freeBusy",
+                "timeMin": "2026-10-15T09:00:00Z",
+                "timeMax": "2026-10-15T17:00:00Z",
+                "groups": {},
+            }
+        )
+        response["calendars"]["primary"]["errors"] = []
+    calls = _record_calendar_provider(monkeypatch, _provider_response(200, response))
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    result = asyncio.run(
+        service.find_openings(
+            user_id="owner",
+            start_at="2026-10-15T09:00:00Z",
+            end_at="2026-10-15T17:00:00Z",
+            duration_minutes=15,
+        )
+    )
+    assert result["openings"][0]["start_at"] == "2026-10-15T09:00:00Z"
+    assert result["openings"][0]["available_until"] == (
+        "2026-10-15T09:15:00Z" if busy else "2026-10-15T17:00:00Z"
+    )
+    assert len(calls) == 1
+
+
+def test_missing_busy_array_remains_unavailable_with_sanitized_field_diagnostics(
+    monkeypatch, caplog
+):
+    _record_calendar_provider(
+        monkeypatch, _provider_response(200, {"calendars": {"private-calendar": {"errors": []}}})
+    )
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(
+            service.freebusy(
+                user_id="owner",
+                start_at="2026-10-15T09:00:00Z",
+                end_at="2026-10-15T17:00:00Z",
+                calendar_ids=["private-calendar"],
+            )
+        )
+    assert caught.value.reason_code == "calendar_invalid_response"
+    assert "field_path=$.calendars.*.busy expected=array received=missing" in caplog.text
+    assert "private-calendar" not in caplog.text

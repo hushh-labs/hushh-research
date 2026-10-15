@@ -1,4 +1,5 @@
 "use client";
+import type { WalletCardArtwork } from "@/lib/wallet/card-artwork";
 
 /**
  * Wallet workspace - the /one/wallet owner surface for the reserved
@@ -62,6 +63,7 @@ import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
+import { WalletCardDesignEditor } from "@/components/wallet/wallet-card-design-editor";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
@@ -304,10 +306,12 @@ export function WalletWorkspace() {
     ownerId: string;
     cards: WalletCardSummary[];
     cardholderNames: Record<string, string>;
+    artworks: Record<string, WalletCardArtwork | undefined>;
   } | null>(null);
   const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
   const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
   const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
+  const artworks = ownedSnapshot?.artworks ?? {};
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<{
     card: WalletCardSummary;
@@ -521,6 +525,7 @@ export function WalletWorkspace() {
           ownerId: context.userId,
           cards: summaries,
           cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
+          artworks: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.artwork])),
         });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
       } catch {
@@ -821,6 +826,7 @@ export function WalletWorkspace() {
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
+      <WalletCardDesignEditor key={`design:${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} name={cardholderNames[focusedCard.cardId]} getContext={() => getCardShareContext(focusedCard.cardId)} onSaved={artwork => setCardSnapshot(previous => previous?.ownerId === renderedOwnerId ? { ...previous, artworks: { ...previous.artworks, [focusedCard.cardId]: artwork } } : previous)} />
       <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
 
     </div>
@@ -988,6 +994,7 @@ export function WalletWorkspace() {
               key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}
+              artworks={artworks}
               selectedCardId={selectedDeckCardId}
               selectedCardNumber={displayedNumber}
               onSelect={selectCard}
@@ -1028,7 +1035,7 @@ export function WalletWorkspace() {
                         try {
                           const token = await user!.getIdToken();
                           if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
-                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, crypto.randomUUID())).cardId;
+                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, card.draftId || crypto.randomUUID())).cardId;
                         } catch { /* A backend rollout must not prevent saving an unverified card. */ }
                         if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
                         return registered;
@@ -1044,6 +1051,7 @@ export function WalletWorkspace() {
                         ownerId: context.userId,
                         cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
                         cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
+                        artworks: { ...owned?.artworks, [saved.cardId]: saved.artwork },
                       };
                     });
                     setSelectedDeckCardId(saved.cardId);

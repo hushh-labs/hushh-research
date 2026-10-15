@@ -84,7 +84,18 @@ describe("memory.md audience exclusion", () => {
     };
     const openCard = card("personal_data", "Home city", "Bengaluru");
 
-    const forAgent = build([walletCard, documentsCard, openCard], "agent", [
+    const privateArtwork = [
+      { ...card("wallet", "Image", "private-raster-relative"), pathSegments: ["artwork", "card_1", "image"] },
+      { ...card("wallet", "Image", "private-raster-prefixed"), pathSegments: ["wallet", "artwork", "card_2", "image"] },
+    ];
+    const forSelf = buildMemoryDocument({
+      snapshot: { ...snapshotOf([walletCard, openCard, ...privateArtwork]),
+        domainInsights: [{ domain: "wallet", title: "Wallet", summary: "private-raster-derived", highlights: ["private-raster-highlight"], updatedAt: null, cardCount: 3 }] },
+      sources: [], audience: "self", builtAt: "2026-10-10T12:00:00.000Z",
+    });
+    expect(forSelf.markdown).toContain("Visa ending 4242");
+    expect(forSelf.markdown).not.toContain("private-raster");
+    const forAgent = build([walletCard, documentsCard, openCard, ...privateArtwork], "agent", [
       { domain: "wallet", contentRevision: 1 },
       { domain: "identity", contentRevision: 1 },
       { domain: "personal_data", contentRevision: 1 },

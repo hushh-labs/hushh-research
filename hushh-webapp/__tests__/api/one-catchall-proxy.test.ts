@@ -154,3 +154,18 @@ describe("/api/one/[...path] proxy", () => {
     expect((upstream.mock.calls[0]![1] as RequestInit).method).toBe("PUT");
   });
 });
+
+
+it.each([
+  [new TypeError("fetch failed"), 503, "calendar_backend_unavailable"],
+  [new DOMException("Timed out", "TimeoutError"), 504, "calendar_backend_timeout"],
+])("classifies Calendar availability proxy failures with request correlation: %s", async (error, status, reason) => {
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(error);
+  const response = await route.POST(new NextRequest("http://localhost:3000/api/one/calendar/schedule/availability", {
+    method: "POST", body: "{}", headers: { Authorization: "Bearer fixture", "x-request-id": "calendar-availability-check" },
+  }), { params: Promise.resolve({ path: ["calendar", "schedule", "availability"] }) });
+  expect(response.status).toBe(status);
+  expect(response.headers.get("x-request-id")).toBe("calendar-availability-check");
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.json()).toMatchObject({ detail: { reason_code: reason } });
+});

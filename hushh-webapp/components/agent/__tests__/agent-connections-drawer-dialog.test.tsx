@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentConnectionsDrawer } from "@/components/agent/agent-connections-drawer";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }));
 
@@ -11,9 +11,9 @@ function Detail() {
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" onClick={() => setOpen(true)}>View Drive update</button>
-    <Dialog modal open={open} onOpenChange={setOpen}>
-      <DialogContent><DialogTitle>Drive sharing</DialogTitle></DialogContent>
-    </Dialog>
+    <Sheet modal open={open} onOpenChange={setOpen}>
+      <SheetContent side="right" data-chat-detail-pane className="profile-pane-sheet"><SheetTitle>Drive sharing</SheetTitle></SheetContent>
+    </Sheet>
   </>;
 }
 

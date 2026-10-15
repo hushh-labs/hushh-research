@@ -316,12 +316,11 @@ describe("WalletWorkspace at scale", () => {
   const fillCard = () => {
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
-    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
     fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
   };
 
-  it.each(["", "   "])("saves a card without an optional PIN (%j)", async (pin) => {
+  it("saves a card without collecting security codes", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
     serviceMock.addCard.mockResolvedValue({ cardId: "saved", summary });
     render(<WalletWorkspace />);
@@ -330,11 +329,14 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
-    fireEvent.change(screen.getByLabelText("PIN (optional)"), { target: { value: pin } });
+    expect(screen.queryByLabelText("PIN (optional)")).toBeNull();
+    expect(screen.queryByLabelText("CVV")).toBeNull();
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await screen.findByTestId("wallet-selected-card");
-    expect(serviceMock.addCard).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ pin: undefined }) }));
+    const submitted = serviceMock.addCard.mock.calls[0][0].card;
+    expect(submitted).not.toHaveProperty("pin");
+    expect(submitted).not.toHaveProperty("cvv");
     expect(screen.queryByTestId("secure-card-errors")).toBeNull();
   });
 
@@ -451,20 +453,19 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("keeps a draft across tabs, masks it on departure, and drops it on vault lock", async () => {
+  it("keeps a draft across tabs and drops it on vault lock", async () => {
     const workspace = render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
-    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Show CVV and PIN" }));
-    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "text");
+    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
-    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+    expect(screen.queryByLabelText("CVV")).toBeNull();
     vaultMock.locked = true;
     workspace.rerender(<WalletWorkspace />);
     await screen.findByTestId("one-wallet-locked");

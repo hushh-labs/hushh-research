@@ -174,6 +174,7 @@ export default defineConfig({
         /wallet-workspace\.layout\.spec\.ts/,
         /wallet-scroll-reveal\.layout\.spec\.ts/,
         /wallet-card-scan\.layout\.spec\.ts/,
+        /wallet-intelligent-card-add\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
         // Paid photos need WebKit's native image loader and browser recipient

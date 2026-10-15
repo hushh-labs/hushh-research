@@ -154,6 +154,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // for the same reason. Gated on the upstream content type, so every JSON
     // route on this proxy keeps the exact behaviour it had.
     const responseContentType = response.headers.get("content-type");
+    if (request.method === "GET" && /^wallet\/card-access\/artwork\/assets\/[a-f0-9]{64}$/.test(path) && response.ok) {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(responseContentType || "")) return new Response(null, { status: 502, headers: privateResponseHeaders(response) });
+      const artworkHeaders = privateResponseHeaders(response);
+      artworkHeaders.set("Content-Type", responseContentType!);
+      artworkHeaders.set("X-Content-Type-Options", "nosniff");
+      artworkHeaders.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, headers: artworkHeaders });
+    }
     if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
       const headers = privateResponseHeaders(response);
       headers.set("Content-Type", responseContentType || "application/octet-stream");
@@ -195,6 +203,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (error instanceof RangeError) {
       return withRequestIdJson(requestId, { error: "Chat request is too large" },
         { status: 413, headers: privateResponseHeaders() });
+    }
+    if (path === "calendar/schedule/availability") {
+      const timedOut = isUpstreamTimeoutError(error) || (error instanceof DOMException && error.name === "TimeoutError");
+      return withRequestIdJson(requestId, { detail: {
+        reason_code: timedOut ? "calendar_backend_timeout" : "calendar_backend_unavailable",
+        message: timedOut ? "The Calendar service took too long to respond. Try again." : "The Calendar service could not be reached. Try again shortly.",
+      } }, { status: timedOut ? 504 : 503, headers: privateResponseHeaders() });
     }
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
