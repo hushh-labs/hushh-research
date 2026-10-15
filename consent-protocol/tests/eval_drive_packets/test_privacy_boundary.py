@@ -134,3 +134,17 @@ def test_canary_never_reaches_reports_or_logs(tmp_path, monkeypatch, capsys, cap
     # Positive control: the canary is really inside the private evidence.
     assert TEXT_CANARY in (batch / "details.json").read_text()
     assert LABEL_CANARY in (batch / "labels.jsonl").read_text()
+
+
+def test_generic_placeholder_values_do_not_block_reports_but_names_do():
+    text = '{"metric": "fact_accuracy", "n_unknown": 3}'
+    assert_public_text(text, private={"unknown"})
+    with pytest.raises(PrivacyError, match="private_value_leak"):
+        assert_public_text(text + " examplebank", private={"examplebank"})
+
+
+def test_private_values_match_whole_words_only():
+    text = '{"metric": "packet_completeness"}'
+    assert_public_text(text, private={"complet"})
+    with pytest.raises(PrivacyError, match="private_value_leak"):
+        assert_public_text('{"note": "acme_trust"}', private={"acme_trust"})

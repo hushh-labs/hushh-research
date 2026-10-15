@@ -145,6 +145,48 @@ def private_strings(values: Iterable[Any]) -> set[str]:
     return found
 
 
+# Placeholder and vocabulary words that models write as values (an issuer of
+# "Unknown") and that the reports themselves use. A single such word identifies
+# no one; names, numbers and multi-word values are always checked.
+GENERIC_WORDS = frozenset(
+    {
+        "unknown",
+        "unspecified",
+        "document",
+        "documents",
+        "statement",
+        "statements",
+        "packet",
+        "packets",
+        "request",
+        "requests",
+        "record",
+        "records",
+        "receipt",
+        "receipts",
+        "report",
+        "reports",
+        "incomplete",
+        "complete",
+        "pending",
+        "family",
+        "labels",
+        "extraction",
+        "accuracy",
+        "independent",
+        "insufficient",
+        "replay",
+        "served",
+        "delivery",
+        "period",
+        "periods",
+        "unverified",
+        "invoice",
+        "invoices",
+    }
+)
+
+
 def assert_public_text(text: str, *, canaries: Iterable[str] = (), private: Iterable[str] = ()):
     """Public text may not contain a planted canary or any known private value."""
     folded = text.casefold()
@@ -152,6 +194,10 @@ def assert_public_text(text: str, *, canaries: Iterable[str] = (), private: Iter
         if canary and canary.casefold() in folded:
             raise PrivacyError("canary_leak")
     for value in private:
-        if len(value) >= 6 and value in folded:
+        if len(value) < 6 or value in GENERIC_WORDS:
+            continue
+        # Whole-word match: a value is a leak, a coincidental slice of a
+        # template token (for example inside "packet_completeness") is not.
+        if re.search(rf"(?<![a-z0-9]){re.escape(value)}(?![a-z0-9])", folded):
             raise PrivacyError("private_value_leak")
     return text
