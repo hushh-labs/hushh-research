@@ -487,6 +487,14 @@ async def _label(args) -> int:
     j1, _ = _judges(args, plan)
     semaphore = asyncio.Semaphore(args.concurrency)
 
+    # Resume: a case that already has a pre-label under this label version is
+    # not sent to the model again.
+    prelabeled = {
+        row.subject
+        for row in read_rows(batch.file("labels.jsonl"), LabelRow)
+        if row.source == "prelabel" and row.label_version == plan.label_version
+    }
+
     async def one(case):
         detail = details.get(case.case_id) or {}
         content_path = originals / case.case_id
@@ -500,7 +508,7 @@ async def _label(args) -> int:
                 pages=pages or None,
             )
         )
-        if not pages:
+        if not pages or case.case_id in prelabeled:
             return
         payload = prelabel_payload(
             pages=pages,
