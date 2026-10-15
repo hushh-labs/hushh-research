@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { describe, expect, it } from "vitest";
+import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import routeLayout from "@/lib/navigation/app-route-layout.contract.json";
 import {
   LIVE_MIRROR_HIDDEN_PREDICATES,
@@ -71,13 +72,13 @@ const build = (overrides: Partial<BuildLiveMirrorProjectionParams> = {}) => buil
   ownerId: OWNER, vaultEpoch: 0, now: T2, inventory: null, history: null, document: doc(), ...overrides,
 });
 
-/** Markdown rendered as the app renders it (react-markdown with GFM), so links and tables are judged as rendered. */
-function rendered(markdown: string): Document {
-  const html = renderToStaticMarkup(createElement(Markdown, { remarkPlugins: [remarkGfm] }, markdown));
-  return new DOMParser().parseFromString(html, "text/html");
-}
-/** Text as read; the invisible word joiner that keeps owner text from linking is dropped. */
-const visible = (node: Element) => (node.textContent ?? "").replaceAll("\u2060", "");
+const toDocument = (html: string) => new DOMParser().parseFromString(html, "text/html");
+/** Markdown through plain react-markdown with GFM, so tables and escaping are judged as parsed. GFM links URL and email text. */
+const rendered = (markdown: string) =>
+  toDocument(renderToStaticMarkup(createElement(Markdown, { remarkPlugins: [remarkGfm] }, markdown)));
+/** The preview as the page shows it: SafeMarkdown with GFM, keeping only app-relative links. */
+const shown = (markdown: string) =>
+  toDocument(renderToStaticMarkup(createElement(SafeMarkdown, { markdown, gfm: true, linkPolicy: "internal" })));
 
 describe("Live Mirror projection", () => {
   it("is deterministic and fails closed for another owner's profile", () => {
@@ -338,22 +339,29 @@ describe("Live Mirror projection", () => {
     // literal cell: its pipe splits nothing and its HTML never renders.
     const when = formatLiveMirrorValue("document_earning.createdAt", T0);
     const head = ["Record", "Amount", "Status", "When"];
-    expect([...page.querySelectorAll("table")].map(table => [...table.rows].map(row => [...row.cells].map(visible)))).toEqual([
-      [head, ["Earning 1 · Test mode", "$1,234.56", "Paid", when]],
-      [head, ["Wallet activity 1 · Redemption", "$50.00", hostile, when]],
-      [head, ["Document payment 1", "€12.00", "Paid", when]],
-    ]);
+    expect([...page.querySelectorAll("table")].map(table => [...table.rows].map(row => [...row.cells].map(cell => cell.textContent))))
+      .toEqual([
+        [head, ["Earning 1 · Test mode", "$1,234.56", "Paid", when]],
+        [head, ["Wallet activity 1 · Redemption", "$50.00", hostile, when]],
+        [head, ["Document payment 1", "€12.00", "Paid", when]],
+      ]);
     expect(page.querySelector("img, script, b")).toBeNull();
+    // Escaped and nothing more: no invisible character rides along when the owner copies a value.
+    expect(projection.markdown).toContain(String.raw`| Paid \| \[x\]\(https\:\/\/x\.test\) www\.evil\.test &lt;b&gt; a\@b\.test |`);
+    expect(projection.markdown).not.toMatch(/[\u200b-\u200f\u2060-\u2064\ufeff]/);
     expect(projection.markdown).toContain("- Consent 1\n  - Scope: Food data");
     expect(projection.markdown).not.toContain("OTHER_REF");
-    // The only links are the sections' generated ones, each to an existing route.
+    // As the page shows the preview, the only links are the sections'
+    // generated ones, each to an existing route.
     const routes = new Set(routeLayout.map(entry => entry.route));
     const sections: LiveMirrorKind[] = ["profile", "consent", "document_earning", "payout_activity", "document_request_payment"];
-    const links = [...page.querySelectorAll("a")].map(link => [link.getAttribute("href"), visible(link)]);
+    const links = [...shown(projection.markdown).querySelectorAll("a")].map(link => [link.getAttribute("href"), link.textContent]);
     expect(links).toEqual(sections.map(kind => [liveMirrorSourceRoute(kind)!.href, liveMirrorSourceRoute(kind)!.label]));
     for (const [href] of links) expect(routes.has(href!.split("?")[0]!), href!).toBe(true);
-    // Negative control: this renderer links URL and email text, escaped or not.
-    expect(rendered("www.evil.test a@b.test https\\:\\/\\/x\\.test www\\.evil\\.test").querySelectorAll("a")).toHaveLength(4);
+    // Negative control: plain GFM links the owner's URL and email text, escaped
+    // as it is, so only the page's link policy keeps that text plain.
+    expect([...page.querySelectorAll("a")].map(link => link.getAttribute("href")))
+      .toEqual(expect.arrayContaining(["https://x.test/p.png", "http://www.evil.test", "mailto:a@b.test"]));
     // Deterministic, and read-time states reach the record cell.
     expect(build({ inventory: structuredClone(inventory), history: structuredClone(history), now: T0 }).markdown).toBe(projection.markdown);
     expect(applyLiveMirrorReadTime(projection, Date.parse(T0) + WINDOW_MS + 1_000, "current").markdown)

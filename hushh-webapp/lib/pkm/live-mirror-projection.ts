@@ -750,13 +750,16 @@ export function applyLiveMirrorReadTime(
 
 const MARKDOWN_SPECIALS = /\r\n|[\n\r\t\v\f\u2028\u2029]|[&<>]|[!"#$%'()*+,\-./:;=?@[\\\]^_`{|}~]/g;
 const HTML_ENTITIES: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
-// GFM turns "www.", "http(s)://" and email text into links even after escapes
-// are resolved, so an invisible word joiner (U+2060) goes where each starts.
-const AUTOLINK_STARTS = /www(?=\.)|(?=:\/\/|@)/gi;
 
-/** Inline text that cannot open a Markdown or HTML construct, a link, a table cell or a new line. */
+/**
+ * Inline text that cannot open a Markdown or HTML construct, link syntax, a
+ * table cell or a new line. GFM still autolinks bare URL and email text; the
+ * preview's one renderer (SafeMarkdown, linkPolicy "internal") shows every
+ * link that is not app-relative as plain text, so nothing invisible is added
+ * and copied text is exactly what shows.
+ */
 function escapeLiveMirrorText(value: string): string {
-  return value.replace(AUTOLINK_STARTS, "$&\u2060").replace(MARKDOWN_SPECIALS, (match) =>
+  return value.replace(MARKDOWN_SPECIALS, (match) =>
     Object.hasOwn(HTML_ENTITIES, match) ? HTML_ENTITIES[match]! : /^[!-~]$/.test(match) ? `\\${match}` : " ");
 }
 
@@ -808,9 +811,9 @@ const FINANCE_TABLE_HEAD = ["| Record | Amount | Status | When |", "| --- | --- 
 const EMPTY_CELL = "—";
 
 /**
- * One table row. Every cell is escaped like a list value, so a pipe, a line
- * break or a link in an owner value can neither split the row nor become a
- * link. The record cell also says what the activity was, test mode and any
+ * One table row. Every cell is escaped like a list value, so a pipe or a line
+ * break in an owner value cannot split the row and its link syntax stays text.
+ * The record cell also says what the activity was, test mode and any
  * read-time state; a disagreeing record shows no value.
  */
 function financeRow(table: FinanceTable, ref: string, record: readonly LiveMirrorFact[]): string {
@@ -845,7 +848,9 @@ function sourceLink(kind: LiveMirrorKind): string | null {
 
 /**
  * Deterministic preview of the model. Every value is Markdown- and
- * HTML-escaped and can never form a link. It starts at level two and leaves
+ * HTML-escaped, so it never forms link syntax; a bare URL or email that GFM
+ * autolinks renders as text under the preview's internal link policy, which
+ * keeps only the generated app-relative links. It starts at level two and leaves
  * out what the surrounding panel already says (title, status, boundary and
  * history footer). Money sources render as GFM tables, the others as lists,
  * and each section ends with one link to where its source is changed.
