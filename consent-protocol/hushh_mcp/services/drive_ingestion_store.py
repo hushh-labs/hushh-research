@@ -130,14 +130,7 @@ class DriveIngestionStore(DriveDocumentStore):
             # Keep the ordinary due queue on its (user_id,next_attempt_at) index.
             # The bounded upgrade lane starts from the much smaller extraction
             # table, so it does not sort an owner's entire live collection.
-            claim_tail = """
-                ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
-                    lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
-                    attempt_count=attempt_count+1, updated_at=clock_timestamp()
-                  FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
-            """
-            upgrade_sql = (
-                """
+            upgrade_sql = """
                     WITH candidate AS (
                       SELECT d.document_id FROM drive_document_extractions e
                       JOIN connected_documents d ON d.document_id=e.document_id
@@ -151,9 +144,11 @@ class DriveIngestionStore(DriveDocumentStore):
                         AND d.status='ready'
                         AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
                       ORDER BY e.updated_at,e.document_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
-                    """
-                + claim_tail
-            )
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
+                """
             claimed = None
             if profile == "live" and (prefer_profile_upgrade or targets is not None):
                 claimed = self._row(connection, upgrade_sql, params)
@@ -173,8 +168,11 @@ class DriveIngestionStore(DriveDocumentStore):
                         AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
                       ORDER BY d.next_attempt_at,d.created_at,d.document_id
                       LIMIT 1 FOR UPDATE SKIP LOCKED
-                    """
-                    + claim_tail,
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
+                    """,
                     params,
                 )
             # An owner with only old-profile Ready rows still makes progress in
