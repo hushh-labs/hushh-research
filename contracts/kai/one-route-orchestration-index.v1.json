@@ -41,6 +41,7 @@
       "canonical_screen": "chat",
       "voice_contract_file": "app/page.voice-action-contract.json",
       "action_ids": [
+        "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",
         "wallet.list",
@@ -1486,6 +1487,7 @@
       "canonical_screen": "one_agents",
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
@@ -1520,12 +1522,14 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.calendar",
-        "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+        "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail.",
         "screen": "calendar",
         "entry_cue": "Connect Calendar when you want schedule help from One.",
         "proactivity": "ambient",
         "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "happy_path_action_ids": [
+          "calendar.invitation.review"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1535,7 +1539,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
+        "completion_boundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1546,6 +1550,7 @@
       "canonical_screen": "calendar",
       "voice_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read"
       ],
       "action_coverage": "inherited",

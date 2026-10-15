@@ -160,7 +160,8 @@ async def test_calendar_selection_and_read_operations_are_read_only(context):
     # The double has no write methods: a write attempt would fail the tool call.
     assert registry.get_tool("read_calendar").policy.value == "read"
     assert not any(
-        "calendar" in tool.name and tool.name != "read_calendar" for tool in registry.all_tools()
+        "calendar" in tool.name and tool.name not in {"read_calendar", "continue_calendar_in_chat"}
+        for tool in registry.all_tools()
     )
 
 
@@ -301,3 +302,63 @@ async def test_missing_binding_uses_provider_state_for_recovery(context, status,
     result = await ToolExecutor().call(ctx, "read_calendar", {"operation": "events", **_window()})
     assert result.result.reason_code == expected
     service.list_events.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "Show my pending invitations",
+        "Accept tomorrow's client meeting",
+        "Decline my 3 PM invitation",
+        "I can't attend. Ask the organizer to choose another time",
+    ],
+)
+async def test_invitation_voice_requests_handoff_without_provider_effects(context, utterance):
+    ctx, service = context
+    result = await ToolExecutor().call(ctx, "continue_calendar_in_chat", {"request": utterance})
+    assert result.result.status == "chat_review_pending"
+    assert result.result.public()["client_step"] == {
+        "kind": "continue_calendar_in_chat",
+        "owner_id": "owner",
+        "request": utterance,
+    }
+    assert "client_step" not in result.result.model_public()
+    service.list_events.assert_not_awaited()
+    service.get_event.assert_not_awaited()
+
+
+async def test_invitation_voice_selection_preserves_current_calendar_and_account(context):
+    ctx, service = context
+    binding = await service.connections.read_grant_binding()
+    service.connections.status = AsyncMock(return_value={"google_email": "owner@example.com"})
+    ctx.entities.offer_calendar_events(
+        ["instance-1"],
+        calendar_id="selected@example.com",
+        grant_binding=binding,
+        start_at="2027-03-01T00:00:00Z",
+        end_at="2027-03-02T00:00:00Z",
+    )
+    result = await ToolExecutor().call(
+        ctx,
+        "continue_calendar_in_chat",
+        {"request": "I can't attend this one", "event_ordinal": 1, "decision": "offer_times"},
+    )
+    assert result.result.public()["client_step"]["invitation"] == {
+        "ownerId": "owner",
+        "accountEmail": "owner@example.com",
+        "calendarId": "selected@example.com",
+        "eventId": "instance-1",
+        "decision": "offer_times",
+        "timeZone": "Asia/Kolkata",
+        "startAt": "2027-03-01T00:00:00Z",
+        "endAt": "2027-03-02T00:00:00Z",
+    }
+    service.get_event.assert_not_awaited()
+    service.connections.read_grant_binding.return_value = (*binding[:-1], "new-grant")
+    rejected = await ToolExecutor().call(
+        ctx,
+        "continue_calendar_in_chat",
+        {"request": "decline it", "event_ordinal": 1, "decision": "declined"},
+    )
+    assert rejected.result.status == "rejected"
+    assert rejected.result.reason_code == "event_not_offered"

@@ -435,7 +435,92 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
         return _reject(operation, "calendar_unavailable", "I couldn't check Calendar just now.")
 
 
+class CalendarChatRequest(ToolInput):
+    request: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="The owner's original invitation request, preserving their meeting and decision context.",
+    )
+    event_ordinal: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_EVENTS,
+        description="Only an explicitly selected position in the current Calendar event offer.",
+    )
+    decision: Literal["view", "accepted", "declined", "offer_times"] = "view"
+
+
+class CalendarChatResult(ToolResult):
+    status: Literal["chat_review_pending", "rejected"]
+    client_step: dict[str, Any] | None = None
+
+    def model_public(self):
+        return self.model_dump(mode="json", exclude={"client_step"})
+
+
+async def continue_calendar_in_chat(ctx: ToolContext, args: CalendarChatRequest) -> ToolResult:
+    # No RSVP, draft preparation or Mail sending. The ordinary Chat tools and
+    # browser review own all subsequent reads, ambiguity and confirmation.
+    step: dict[str, Any] = {
+        "kind": "continue_calendar_in_chat",
+        "owner_id": ctx.user_id,
+        "request": args.request,
+    }
+    if args.event_ordinal is not None:
+        service = ctx.service(CALENDAR_SERVICE, get_google_calendar_service)
+        binding = await _binding(service, ctx.user_id)
+        offer = ctx.entities.offered_calendar_events
+        if (
+            not ctx.entities.calendar_offer_is_fresh()
+            or not offer
+            or offer.grant_binding != binding
+            or args.event_ordinal > len(offer.event_ids)
+        ):
+            return CalendarChatResult(
+                status="rejected",
+                reason_code="event_not_offered",
+                spoken_facts=["Show the events again before choosing one."],
+            )
+        status = await service.connections.status(user_id=ctx.user_id, service="calendar")
+        if not status.get("google_email") or await _binding(service, ctx.user_id) != binding:
+            return CalendarChatResult(
+                status="rejected",
+                reason_code="connection_changed",
+                spoken_facts=["Calendar changed. Ask again."],
+            )
+        step["invitation"] = {
+            "ownerId": ctx.user_id,
+            "accountEmail": status["google_email"],
+            "calendarId": offer.calendar_id,
+            "eventId": offer.event_ids[args.event_ordinal - 1],
+            "decision": args.decision,
+            "timeZone": ctx.timezone,
+            **(
+                {"startAt": offer.start_at, "endAt": offer.end_at}
+                if offer.start_at and offer.end_at
+                else {}
+            ),
+        }
+    return CalendarChatResult(
+        status="chat_review_pending",
+        needs="client_step",
+        client_step=step,
+        spoken_facts=[
+            "Continue in this conversation to review the invitation. Nothing has been changed or sent."
+        ],
+    )
+
+
 TOOLS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="continue_calendar_in_chat",
+        gateway_action_id="calendar.invitation.review",
+        policy=ToolPolicy.direct,
+        input_model=CalendarChatRequest,
+        output_model=CalendarChatResult,
+        handler=continue_calendar_in_chat,
+        description="For pending invitations, accept, decline, or ask an organizer for another time: continue the owner's original request in existing One Chat. No RSVP or Mail is executed. Use event_ordinal only for an explicitly selected offered event. The browser owns exact confirmation.",
+    ),
     ToolSpec(
         name="read_calendar",
         gateway_action_id="calendar.read",
