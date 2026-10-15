@@ -14809,7 +14809,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 127
+      "value": 128
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19057,7 +19057,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_deletion_release_workflow.py",
       "symbol": null,
-      "value": 930
+      "value": 1076
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24161,7 +24161,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": null,
-      "value": 514
+      "value": 515
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -49344,6 +49344,35 @@
     "reviewed_report_sha256": "5aa37383bc1158768a93e3f7e6bc9ef4d32f7b5fc6b80cf6c9c6a1da1bf4e389",
     "reviewed_source_revision": "831492e896f60f940eb3ce0e82c2e50a2e8a759a",
     "verification": "95 frontend and103 semantic/security cases pass; broader267 store/eval cases pass with real PostgreSQL.462 Back cases pass. No deployment, live model accuracy or financial acceptance inferred."
+  },
+  "scope_commerce_main_deletion_fence_composition_20261015": {
+    "entries": [
+      {
+        "after": 128,
+        "before": 127,
+        "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "9f2961d95ed1df362cd1eb140d22a4565c4fc26885d4cb90f727cb608ad626ab"
+      },
+      {
+        "after": 515,
+        "before": 514,
+        "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "9f2961d95ed1df362cd1eb140d22a4565c4fc26885d4cb90f727cb608ad626ab"
+      },
+      {
+        "after": 1076,
+        "before": 930,
+        "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "40f3b7f7af009390066d3dec00a88f07c5803ae40c5acde9310f82e8e83528c8"
+      }
+    ],
+    "incoming_main": "d0aa65b6381900b02ab81836141d27360740abd9",
+    "review": "Three independently reviewed retained size observations only. Prod fixture composes one incoming required release-tool path with existing paid/pod/hashcoin controls. Account deletion module is byte-identical incoming main and preserves unknown revision, lifecycle, migration/verifier/manifest byte and rename refusal controls. No new findings, budgets, scanner exclusions or history changes; source qualification is not deployment proof.",
+    "reviewer": "architecture_review",
+    "source_head": "75cf3cd18b56dee753a29ebce6a452c9b4a76340"
   },
   "scope_commerce_main_document_payout_union_20261012": {
     "added_slots": [
