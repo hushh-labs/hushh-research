@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+from hushh_mcp.services.drive_worker_limits import packet_slots, semantic_slots
 
 
 async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch):
@@ -37,6 +38,7 @@ async def test_busy_extraction_reserves_parallel_facts_and_packet_budget(monkeyp
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_SEMANTIC_SLOTS", "2")
     semantic_started = asyncio.Event()
 
     async def extraction(**kwargs):
@@ -163,6 +165,7 @@ async def test_single_owner_uses_bounded_sweep_for_packet_phase_progress(monkeyp
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_SEMANTIC_SLOTS", "6")
     service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "ready"}))
     discovery = SimpleNamespace(run=AsyncMock(return_value={"outcomes": {"synced": 2}}))
     packet_worker = SimpleNamespace(
@@ -186,6 +189,55 @@ async def test_single_owner_uses_bounded_sweep_for_packet_phase_progress(monkeyp
     assert sum(result["outcomes"].values()) == 20
     assert result["outcomes"] == {"ready": 13, "synced": 2, "queued": 5}
     wake.assert_awaited_once_with("documents")
+
+
+@pytest.mark.parametrize(
+    "configured,slots", [(None, 12), ("6", 6), ("20", 20), ("21", 2), ("many", 2)]
+)
+async def test_drain_runs_semantic_slots_beside_the_same_extraction_budget(
+    monkeypatch, configured, slots
+):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    if configured is None:
+        monkeypatch.delenv("DRIVE_SEMANTIC_SLOTS", raising=False)
+    else:
+        monkeypatch.setenv("DRIVE_SEMANTIC_SLOTS", configured)
+    service = SimpleNamespace(run_one=AsyncMock(return_value={"status": "ready"}))
+    discovery = SimpleNamespace(run=AsyncMock(return_value={"outcomes": {"synced": 2}}))
+    packet_worker = SimpleNamespace(run=AsyncMock(return_value={"idle": slots}))
+    worker = DriveDocumentWorker(service, collection_sync=discovery, packet_worker=packet_worker)
+    worker.due_owners = AsyncMock(return_value=["owner"])
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", AsyncMock())
+
+    await worker.run(max_jobs=20, deadline_seconds=160)
+
+    # Extraction and discovery keep their 12 and 2 jobs. Facts and packet
+    # builds run in their own slots, 12 by default (6 before); an invalid
+    # setting fails closed to one facts and one packet slot.
+    assert service.run_one.await_count == 12
+    discovery.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=100)
+    packet_worker.run.assert_awaited_once_with(max_jobs=slots, deadline_seconds=160)
+
+
+@pytest.mark.parametrize(
+    "name,limit,default,maximum",
+    [
+        ("DRIVE_SEMANTIC_SLOTS", semantic_slots, 12, 20),
+        ("DRIVE_PACKET_SLOTS", packet_slots, 3, 8),
+    ],
+)
+def test_semantic_limits_have_safe_defaults_and_fail_closed(
+    monkeypatch, name, limit, default, maximum
+):
+    monkeypatch.delenv(name, raising=False)
+    assert limit() == default
+    monkeypatch.setenv(name, str(maximum))
+    assert limit() == maximum
+    for invalid in (str(maximum + 1), "0", "-2", "four"):
+        monkeypatch.setenv(name, invalid)
+        assert limit() == 1
 
 
 @pytest.mark.parametrize("outcome", [{"idle": 2}, {"facts_unavailable": 2}, {}])

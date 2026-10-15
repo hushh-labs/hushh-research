@@ -7,12 +7,21 @@ sidecar. Only this server is allowed to run the document/permission outbox.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from hushh_mcp.runtime_settings import hydrate_runtime_environment
 from mcp_modules.log_redaction import install_sensitive_log_filter
 
+# Drive job timing lines are INFO and carry only codes, counts and timings.
+# Without this the root logger keeps Python's WARNING default and drops them.
+# Same setup as server.py: the redaction filter also covers this handler.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 install_sensitive_log_filter()
 hydrate_runtime_environment()
 

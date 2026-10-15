@@ -96,11 +96,18 @@ hold identities, versions, operational states and money needed for policy checks
   preserves the immutable facts, rejects stale sources, and does no work when
   membership is already current.
 - UAT's existing documents lane runs every minute with bounded work and prompt
-  wakeups. Extraction, discovery, facts and packet construction receive reserved
-  slices. The documents lane permits at most 20 jobs per drain and obeys its
-  deadline; unused semantic capacity can advance further work for the same owner
-  without concurrent claims for that owner and phase. No claim of an exact
-  indexing duration is made before a collection runs.
+  wakeups, and obeys its deadline. Each drain keeps 12 extraction and 2
+  discovery jobs. Facts and packet construction run in their own slots beside
+  them: `DRIVE_SEMANTIC_SLOTS` per worker process (default 12; a fixed 6
+  before). At most `DRIVE_PACKET_SLOTS` (default 3) build packets, one per owner
+  with a build due; a slot with no build due runs facts. Facts go to the least
+  recently served owners first, one each, then extra jobs to owners with more
+  work, up to `DRIVE_FACTS_OWNER_LEASES` (default 4) running jobs per owner
+  across instances, never two on one document. These jobs wait on the model and
+  use the worker's one database connection only for short transactions. An
+  invalid value fails closed to one slot. Unused semantic capacity can advance
+  further work in the same drain. No claim of an exact indexing duration is
+  made before a collection runs.
 - A bounded internal target API can register up to 50 live provider candidates
   and prioritize their ordinary extraction and facts jobs. It rechecks current
   owner authority and metadata, preserves discovery cursor and lease, and reuses
