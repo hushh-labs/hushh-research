@@ -72,9 +72,13 @@ export class NativeProfileNamePresentation<T> {
   }
   publish(state: NativeProfileNameProjection, actions: NativeProfileNameActions<T>): boolean {
     if (this.disposed || !this.ready) return false;
-    if (!this.ownerIsCurrent() || !validNativeProfileNameProjection(state) || !this.fence.update(state)) {
+    if (!this.ownerIsCurrent() || !validNativeProfileNameProjection(state)) {
       void this.fail(); return false;
     }
+    // React may commit an earlier echo after a newer native edit arrived.
+    // Ignore that stale projection; it is not a presentation failure. The
+    // edit fence keeps Save ineligible until the current revision is echoed.
+    if (!this.fence.update(state)) return false;
     const snapshot = { ...state };
     this.current = { state: snapshot, actions: { ...actions } };
     this.highestUpdate = state.updateSequence;

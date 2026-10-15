@@ -39,6 +39,36 @@ function publicNameScene(): NativeProfileNameProjection {
 }
 
 describe("ordinary private Profile form contract", () => {
+  it("skips an intermediate React edit echo without retiring the retained native editor", async () => {
+    const state = publicNameScene();
+    const listeners = new Map<string, (value: unknown) => void>();
+    const phases: string[] = [];
+    const retire = vi.fn(async () => formRetirement(state));
+    const apply = vi.fn(async (next: NativeProfileNameProjection) => ({ ...fenceIdentity(next),
+      phase: "active" as const, updateSequence: next.updateSequence, privacyGeneration: next.privacyGeneration }));
+    const plugin = { applyProfileNameScene: apply, retireProfileNameScene: retire,
+      getCapabilities: async () => ({ contractVersion: 1, supported: true,
+        generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: async (name: string, listener: (value: unknown) => void) => {
+        listeners.set(name, listener); return { remove: async () => { listeners.delete(name); } };
+      } };
+    const presentation = new NativeProfileNamePresentation(state, plugin as never, () => true, phase => phases.push(phase));
+    const actions = { edit: vi.fn(), save: vi.fn(), saved: vi.fn(), cancel: vi.fn() };
+    expect(await presentation.listen()).toBe(true);
+    expect(presentation.publish(state, actions)).toBe(true);
+    await waitFor(() => expect(phases).toEqual(["active"]));
+    const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0, composing: false };
+    listeners.get("profileNameEdit")?.({ ...event, editRevision: 1, text: "Public A" });
+    listeners.get("profileNameEdit")?.({ ...event, editRevision: 2, text: "Public AB" });
+    expect(presentation.publish({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, draft: "Public A" }, actions)).toBe(false);
+    expect(presentation.publish({ ...state, updateSequence: 3, acknowledgedEditRevision: 2, draft: "Public AB" }, actions)).toBe(true);
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
+    expect(phases).not.toContain("blocked");
+    expect(retire).not.toHaveBeenCalled();
+    expect(actions.save).not.toHaveBeenCalled();
+    await presentation.retire();
+  });
+
   it("bounds stalled listener admission and removes its late handle without presenting a form", async () => {
     vi.useFakeTimers();
     try {
