@@ -2,15 +2,19 @@
 BEGIN;
 LOCK TABLE public.personal_agent_registry IN SHARE MODE;
 LOCK TABLE public.personal_agent_standby_placements IN SHARE MODE;
+LOCK TABLE public.personal_agent_deletion_tombstones IN SHARE MODE;
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM public.personal_agent_registry WHERE
    jsonb_path_exists(backend_metadata,'$.**.operatorBindingObservations ? (@.size() > 0)')
+   OR jsonb_path_exists(backend_metadata,'$.**.azureTeardown')
    OR jsonb_path_exists(backend_metadata,'$.** ? (@.type == "pubsub_topic" && @.id like_regex "^projects/")'))
  OR EXISTS(SELECT 1 FROM public.personal_agent_standby_placements WHERE
    jsonb_path_exists(backend_metadata,'$.**.operatorBindingObservations ? (@.size() > 0)')
+   OR jsonb_path_exists(backend_metadata,'$.**.azureTeardown')
    OR jsonb_path_exists(backend_metadata,'$.** ? (@.type == "pubsub_topic" && @.id like_regex "^projects/")'))
  OR EXISTS(SELECT 1 FROM public.personal_agent_deletion_tombstones WHERE
-   jsonb_path_exists(to_jsonb(personal_agent_deletion_tombstones),'$.**.operatorNotificationCustody'))
+   jsonb_path_exists(to_jsonb(personal_agent_deletion_tombstones),'$.**.operatorNotificationCustody')
+   OR jsonb_path_exists(to_jsonb(personal_agent_deletion_tombstones),'$.**.azureCleanup'))
  THEN RAISE EXCEPTION 'Operator notification custody requires forward recovery'; END IF;
 END $$;
 

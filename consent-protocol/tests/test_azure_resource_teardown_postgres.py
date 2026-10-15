@@ -170,7 +170,12 @@ def cleanup_state(cleanup_pg):
             }
         },
     }
-    state = {"plan": plan, "approvals": [], "resources": {}}
+    state = {
+        "plan": plan,
+        "approvals": [],
+        "resources": {},
+        "setupHistory": pg.execute("SELECT azure_erasure_setup_history(%s)", (owner,))[0][0],
+    }
 
     def retain(value):
         current = pg.execute(
@@ -208,7 +213,12 @@ def _approve_cleanup(pg, owner, reservation, plan):
     )[0][0]
     return pg.execute(
         "SELECT approve_azure_erasure_plan(%s,%s,%s,%s)",
-        (owner, reservation["attemptId"], digest, next(iter(plan["resources"]))),
+        (
+            owner,
+            reservation["attemptId"],
+            digest,
+            f"/subscriptions/{plan['context']['subscriptionId']}/resourceGroups/{plan['context']['resourceGroup']}",
+        ),
     )[0][0]
 
 
@@ -494,3 +504,134 @@ async def test_cleanup_cancellation_joins_thread_and_exit_receipt_before_releasi
     assert exits[0]["outcome"] == ("cancelled" if cancel_during == "thread" else "returned")
     assert bool(writes) == (cancel_during == "receipt")
     assert "finalReadbacks" not in observed
+
+
+def _canonical_cleanup_plan(context):
+    from hushh_mcp.services.azure_setup_plan import PlanInputs, Scopes, resource_names
+    from hushh_mcp.services.azure_teardown_inventory import inventory
+    from tests.fixtures.azure_teardown import CREATED
+
+    inputs = PlanInputs(
+        context["hushhId"],
+        context["tenantId"],
+        context["subscriptionId"],
+        context["location"],
+        context["resourceGroup"],
+        context["setupNonce"],
+        files_enabled=True,
+    )
+    resources = inventory(
+        inputs,
+        pod_principal="11111111-1111-1111-1111-111111111111",
+        hub_principal="88888888-8888-8888-8888-888888888888",
+        pod_incarnation="incarnation-1",
+    )
+    values = {
+        r.path: {
+            "apiVersion": r.api_version,
+            "kind": r.kind,
+            "expected": r.expected,
+            "coveredBy": r.covered_by,
+            "identity": None,
+            "deletionScope": "whole_group"
+            if r.path.endswith("/resourceGroups/" + inputs.resource_group)
+            else "all_contents"
+            if r.kind == "resource"
+            else "resource_only",
+        }
+        for r in resources
+    }
+    storage = Scopes(inputs, resource_names(inputs)).storage
+    values[storage]["identity"] = {"id": storage, "createdAt": CREATED}
+    return (
+        inputs,
+        resources,
+        {
+            "version": 1,
+            "context": context,
+            "resources": values,
+            "termsVersion": "azure-exact-parent-v1",
+        },
+    )
+
+
+async def test_full_inventory_retains_original_setup_and_bounded_provider_retention(
+    cleanup_state, cleanup_connection
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.azure_teardown_authority import azure_teardown_authority
+    from hushh_mcp.services.azure_teardown_retention import observe_retention, retention_target
+    from tests.fixtures.azure_teardown import retention_body
+
+    pg, owner, reservation, old_plan, state, retain = cleanup_state
+    inputs, resources, plan = _canonical_cleanup_plan(old_plan["context"])
+    state["plan"] = plan
+    forged = {**state, "setupHistory": []}
+    assert retain(forged) is False
+    assert retain(state) is True
+    assert _approve_cleanup(pg, owner, reservation, plan)
+    async with azure_teardown_authority(
+        owner=owner, attempt=reservation["attemptId"], connection_factory=cleanup_connection
+    ) as authority:
+
+        def observe(**kwargs):
+            for resource in resources:
+                target = retention_target(resource, inputs)
+                receipt = (
+                    None
+                    if target is None
+                    else observe_retention(
+                        SimpleNamespace(
+                            get_or_none=lambda *a, resource=resource, target=target, **k: (
+                                retention_body(inputs, resource.path, target[0])
+                            )
+                        ),
+                        inputs,
+                        resource,
+                        plan["resources"][resource.path]["identity"],
+                    )
+                )
+                if receipt is None:
+                    continue
+                assert (
+                    authority.retain(resource, "retention", receipt) is False
+                )  # no active absence yet
+                assert authority.retain(
+                    resource, "absence", {"id": resource.path, "status": "active_resource_absent"}
+                )
+                assert (
+                    authority.retain(
+                        resource, "retention", {**receipt, "physicalPurgeVerified": True}
+                    )
+                    is False
+                )
+                assert (
+                    authority.retain(
+                        resource,
+                        "retention",
+                        {**receipt, "providerRecord": receipt["providerRecord"] + "/foreign"},
+                    )
+                    is False
+                )
+                assert authority.retain(resource, "retention", receipt)
+            return True
+
+        assert await authority.run_worker(observe) is True
+    current = pg.execute(
+        "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s", (owner,)
+    )[0][0]
+    assert (
+        current["azureTeardown"]["setupHistory"]
+        == pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (owner,))[0][0]
+    )
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    pg.apply_file(root / "parked/963_personal_agent_operator_mail_custody.sql")
+    archived = pg.execute(
+        "SELECT personal_agent_erasure_archive(%s::jsonb,'{}'::jsonb)", (json.dumps(current),)
+    )[0][0]
+    assert archived["receipts"]["azureCleanup"] == current["azureTeardown"]
+    with pytest.raises(Exception, match="forward recovery"):
+        pg.apply_file(root / "rollback/963_personal_agent_operator_mail_custody.rollback.sql")
+    pg.execute("ROLLBACK")
+    assert pg.execute("SELECT personal_agent_erasure_complete(%s)", (owner,))[0][0] is False

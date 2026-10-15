@@ -157,6 +157,11 @@ BEGIN
  OR jsonb_typeof(state->'resources') IS DISTINCT FROM 'object' THEN RETURN NULL; END IF;
  SELECT jsonb_agg(key ORDER BY key) INTO ids FROM jsonb_each(state->'plan'->'resources')
  WHERE value->'coveredBy'='null'::jsonb;
+ IF EXISTS(SELECT 1 FROM jsonb_each(state->'plan'->'resources') item
+  WHERE item.key ~ '/providers/Microsoft[.](KeyVault/vaults|Storage/storageAccounts|CognitiveServices/accounts)/[^/]+$'
+   AND item.value->'coveredBy'='null'::jsonb
+   AND public.valid_azure_retention_receipt(state->'plan',item.key,state->'resources'->item.key->'retention') IS NOT TRUE)
+ THEN RETURN NULL; END IF;
  IF ids IS NULL OR ids IS DISTINCT FROM
   (SELECT jsonb_agg(key ORDER BY key) FROM jsonb_each(state->'resources'))
  OR EXISTS(SELECT 1 FROM jsonb_each(state->'resources') r
@@ -170,6 +175,58 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.valid_azure_retention_receipt(plan jsonb,resource_id text,receipt jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public AS $$
+DECLARE context jsonb:=plan->'context'; base text; group_base text; name text; target text; kind text;
+ api text; value text; deletion_time timestamptz; purge_time timestamptz;
+BEGIN
+ base:='/subscriptions/'||(context->>'subscriptionId')||'/providers/';
+ name:=regexp_replace(resource_id,'^.*/','');
+ group_base:='/subscriptions/'||(context->>'subscriptionId')||'/resourceGroups/'||(context->>'resourceGroup')||'/providers/';
+ IF resource_id=group_base||'Microsoft.KeyVault/vaults/'||name THEN
+  kind:='key_vault'; api:='2023-07-01'; target:=base||'Microsoft.KeyVault/locations/'||(context->>'location')||'/deletedVaults/'||name;
+ ELSIF resource_id=group_base||'Microsoft.Storage/storageAccounts/'||name THEN
+  kind:='storage'; api:='2023-05-01'; target:=base||'Microsoft.Storage/locations/'||(context->>'location')||'/deletedAccounts/'||name;
+ ELSIF resource_id=group_base||'Microsoft.CognitiveServices/accounts/'||name THEN
+  kind:='model_account'; api:='2024-10-01'; target:=base||'Microsoft.CognitiveServices/locations/'||(context->>'location')||'/resourceGroups/'||(context->>'resourceGroup')||'/deletedAccounts/'||name;
+ ELSE RETURN false; END IF;
+ IF NOT (plan->'resources' ? resource_id) OR plan->'resources'->resource_id->>'kind' IS DISTINCT FROM 'resource'
+ OR plan->'resources'->resource_id->'coveredBy' IS DISTINCT FROM 'null'::jsonb
+ OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
+ OR receipt->>'id' IS DISTINCT FROM resource_id OR receipt->>'providerRecord' IS DISTINCT FROM target
+ OR receipt->>'apiVersion' IS DISTINCT FROM api OR receipt->>'kind' IS DISTINCT FROM kind
+ OR receipt->'physicalPurgeVerified' IS DISTINCT FROM 'false'::jsonb
+ THEN RETURN false; END IF;
+ IF receipt->>'status'='provider_record_absent' THEN
+  RETURN receipt-ARRAY['id','providerRecord','apiVersion','kind','physicalPurgeVerified','status']='{}'::jsonb;
+ END IF;
+ IF receipt->>'status' IS DISTINCT FROM 'provider_retained' THEN RETURN false; END IF;
+ IF kind='storage' THEN
+  IF receipt-ARRAY['id','providerRecord','apiVersion','kind','physicalPurgeVerified','status','creationTime','deletionTime']<>'{}'::jsonb
+   OR receipt->>'creationTime' IS DISTINCT FROM plan->'resources'->resource_id->'identity'->>'createdAt'
+   OR jsonb_typeof(receipt->'creationTime') IS DISTINCT FROM 'string'
+   OR jsonb_typeof(receipt->'deletionTime') IS DISTINCT FROM 'string' THEN RETURN false; END IF;
+  RETURN (receipt->>'creationTime')::timestamptz<=(receipt->>'deletionTime')::timestamptz;
+ END IF;
+ IF receipt-ARRAY['id','providerRecord','apiVersion','kind','physicalPurgeVerified','status','deletionDate','scheduledPurgeDate','purgeProtectionEnabled']<>'{}'::jsonb
+ OR jsonb_typeof(receipt->'deletionDate') IS DISTINCT FROM 'string'
+ OR jsonb_typeof(receipt->'scheduledPurgeDate') IS DISTINCT FROM 'string'
+ OR (kind='key_vault' AND jsonb_typeof(receipt->'purgeProtectionEnabled') IS DISTINCT FROM 'boolean')
+ OR (kind='model_account' AND receipt ? 'purgeProtectionEnabled') THEN RETURN false; END IF;
+ deletion_time:=(receipt->>'deletionDate')::timestamptz; purge_time:=(receipt->>'scheduledPurgeDate')::timestamptz;
+ RETURN deletion_time<=purge_time;
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow THEN RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.azure_erasure_setup_history(owner_id text)
+RETURNS jsonb LANGUAGE sql STABLE SET search_path=public AS $$
+ SELECT j.stages FROM public.byoc_setup_jobs j
+ WHERE j.user_id=owner_id AND jsonb_typeof(j.stages)='array'
+ AND encode(sha256(convert_to(j.stages::text,'UTF8')),'hex')=
+    public.azure_erasure_context(owner_id)->>'setupHistorySha256';
+$$;
+
 CREATE OR REPLACE FUNCTION public.valid_azure_erasure_append(owner_id text, prior jsonb, incoming jsonb)
 RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
 DECLARE before_state jsonb:=coalesce(prior->'azureTeardown','{}'::jsonb);
@@ -179,13 +236,18 @@ BEGIN
  IF incoming-'azureTeardown' IS DISTINCT FROM prior-'azureTeardown'
  OR jsonb_typeof(next_state) IS DISTINCT FROM 'object'
  OR octet_length(next_state::text)>1048576
- OR next_state-ARRAY['plan','approvals','resources','worker','finalReadbacks','workerExits']<>'{}'::jsonb THEN RETURN false; END IF;
+ OR next_state-ARRAY['plan','approvals','resources','worker','finalReadbacks','workerExits','setupHistory']<>'{}'::jsonb THEN RETURN false; END IF;
  IF before_state='{}'::jsonb THEN
-  RETURN next_state-ARRAY['plan','approvals','resources']='{}'::jsonb
+  RETURN next_state-ARRAY['plan','approvals','resources','setupHistory']='{}'::jsonb
+   AND next_state->'setupHistory' IS NOT NULL
+   AND next_state->'setupHistory'=public.azure_erasure_setup_history(owner_id)
+   AND octet_length(next_state::text)<750000
    AND next_state->'approvals'='[]'::jsonb AND next_state->'resources'='{}'::jsonb
    AND public.valid_azure_erasure_plan(owner_id,next_state->'plan') IS TRUE;
  END IF;
- IF next_state->'plan' IS DISTINCT FROM before_state->'plan'
+ IF next_state->'setupHistory' IS DISTINCT FROM before_state->'setupHistory'
+ OR next_state->'setupHistory' IS DISTINCT FROM public.azure_erasure_setup_history(owner_id)
+ OR next_state->'plan' IS DISTINCT FROM before_state->'plan'
  OR public.valid_azure_erasure_plan(owner_id,next_state->'plan') IS NOT TRUE THEN RETURN false; END IF;
  IF next_state-'approvals'=before_state-'approvals'
  AND jsonb_typeof(next_state->'approvals')='array'
@@ -255,7 +317,7 @@ BEGIN
      jsonb_build_array(old_resource-ARRAY['intent','providerHistory'])
    AND ((approval->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp())) IS TRUE
    AND octet_length(next_state::text)<900000 THEN RETURN true; END IF;
-  FOREACH stage IN ARRAY ARRAY['intent','provider_request','provider_ack','provider_terminal','acknowledgement','absence'] LOOP
+  FOREACH stage IN ARRAY ARRAY['intent','provider_request','provider_ack','provider_terminal','acknowledgement','absence','retention'] LOOP
    IF old_resource ? stage OR new_resource-stage IS DISTINCT FROM old_resource THEN CONTINUE; END IF;
    IF stage IN ('intent','provider_request') AND (public.azure_erasure_writers_drained(owner_id) IS NOT TRUE
     OR coalesce(before_state->'finalReadbacks','{}'::jsonb) ? execution_id
@@ -287,6 +349,8 @@ BEGIN
    ELSIF stage='acknowledgement' THEN
     RETURN old_resource ? 'provider_request' AND public.azure_erasure_absence_settled(old_resource) IS TRUE
      AND receipt=jsonb_build_object('status','provider_completed','id',item.key);
+   ELSIF stage='retention' THEN
+    RETURN old_resource ? 'absence' AND public.valid_azure_retention_receipt(next_state->'plan',item.key,receipt) IS TRUE;
    ELSIF stage='absence' THEN
     RETURN public.azure_erasure_absence_settled(old_resource) IS TRUE
      AND receipt=jsonb_build_object('status','active_resource_absent','id',item.key);

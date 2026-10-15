@@ -8,6 +8,8 @@ this entire call; this module does not create or bypass that authority.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_setup_plan import PlanInputs, Scopes, resource_names
 from hushh_mcp.services.azure_teardown_inventory import (
@@ -57,6 +59,55 @@ def _exclusive_group(
         raise AzureTeardownRefused("AZURE_CLEANUP_UNRELATED_RESOURCES")
 
 
+def _model_deployments(arm: ArmClient, inputs: PlanInputs, *, empty: bool = False) -> None:
+    scopes = Scopes(inputs, resource_names(inputs))
+    observed = arm.get_or_none(
+        scopes.openai + "/deployments",
+        api_version=API_VERSIONS["cognitive_services"],
+        op="cleanup_model_inventory",
+    )
+    if observed is None:
+        if (
+            arm.get_or_none(
+                scopes.openai,
+                api_version=API_VERSIONS["cognitive_services"],
+                op="cleanup_model_inventory",
+            )
+            is None
+        ):
+            return
+        raise AzureTeardownRefused("AZURE_MODEL_INVENTORY_UNAVAILABLE")
+    values = observed.get("value")
+    if (
+        observed.get("nextLink")
+        or not isinstance(values, list)
+        or len(values) > 128
+        or (empty and values)
+        or any(
+            not isinstance(value, dict)
+            or not isinstance(value.get("id"), str)
+            or value["id"].lower() != scopes.deployment.lower()
+            for value in values
+        )
+    ):
+        raise AzureTeardownRefused("AZURE_MODEL_INVENTORY_UNAVAILABLE")
+
+
+def _qualified_model_parent(
+    arm: ArmClient,
+    inputs: PlanInputs,
+    resources: tuple[TeardownResource, ...],
+    journal: TeardownJournal,
+    frozen: dict,
+) -> None:
+    scopes = Scopes(inputs, resource_names(inputs))
+    parent = next(resource for resource in resources if resource.path == scopes.openai)
+    body = arm.get_or_none(parent.path, api_version=parent.api_version, op="cleanup_model_parent")
+    if body is None or qualified_identity(parent, body, inputs) != frozen[parent.path]:
+        raise AzureTeardownRefused("AZURE_RESOURCE_OWNER_CHANGED")
+    journal.assert_parent_approved(parent)
+
+
 def preflight(
     arm: ArmClient,
     inputs: PlanInputs,
@@ -66,6 +117,7 @@ def preflight(
     """Qualify every existing resource before the first irreversible action."""
     journal.assert_admitted()
     _exclusive_group(arm, inputs, resources)
+    _model_deployments(arm, inputs)
     observed = {}
     for resource in resources:
         if resource.covered_by:
@@ -87,6 +139,7 @@ def _erase_one(
     resource: TeardownResource,
     journal: TeardownJournal,
     frozen_identity: dict | None,
+    before_dispatch: Callable[[], None] | None = None,
 ) -> None:
     journal.assert_admitted()
     state = journal.state(resource) or {}
@@ -117,6 +170,8 @@ def _erase_one(
     journal.assert_admitted()
     if resource.kind == "resource":
         journal.assert_parent_approved(resource)
+    if before_dispatch is not None:
+        before_dispatch()
     recorded = arm.with_mutations(TeardownMutationJournal(journal, resource))
     recorded.delete(resource.path, api_version=resource.api_version, op="account_cleanup")
     settled = journal.state(resource) or {}
@@ -154,11 +209,25 @@ def execute(
     for resource in resources:
         if resource.covered_by:
             continue
+        scopes = Scopes(inputs, resource_names(inputs))
+        if resource.path == scopes.openai:
+            _model_deployments(arm, inputs, empty=True)
         # Recheck exclusivity immediately before the group cascade as well.
         if resource.path == Scopes(inputs, resource_names(inputs)).group:
             journal.assert_group_approved()
             _exclusive_group(arm, inputs, resources, empty=True)
-        _erase_one(arm, inputs, resource, journal, frozen[resource.path])
+        _erase_one(
+            arm,
+            inputs,
+            resource,
+            journal,
+            frozen[resource.path],
+            before_dispatch=(
+                lambda: _qualified_model_parent(arm, inputs, resources, journal, frozen)
+            )
+            if resource.path == scopes.deployment
+            else None,
+        )
     # Do not report completion from a historical absence if a resource reappeared.
     observed_ids = []
     for resource in resources:
@@ -170,5 +239,13 @@ def execute(
             raise AzureTeardownRefused("AZURE_CLEANUP_RESOURCE_REAPPEARED")
         if not resource.covered_by:
             observed_ids.append(resource.path)
+    from hushh_mcp.services.azure_teardown_retention import observe_retention
+
+    for resource in resources:
+        if resource.covered_by:
+            continue
+        observation = observe_retention(arm, inputs, resource, frozen[resource.path])
+        if observation is not None:
+            _retain(journal, resource, "retention", observation)
     if journal.retain_final_readback(tuple(observed_ids)) is not True:
         raise AzureTeardownRefused("AZURE_CLEANUP_READBACK_UNCONFIRMED")

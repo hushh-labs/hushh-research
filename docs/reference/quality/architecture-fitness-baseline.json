@@ -27392,6 +27392,24 @@
       "path": "consent-protocol/tests/test_azure_arm_client.py",
       "symbol": null,
       "value": 540
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_azure_resource_teardown_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_azure_resource_teardown_postgres.py",
+      "symbol": null,
+      "value": 637
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_azure_resource_teardown.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_azure_resource_teardown.py",
+      "symbol": null,
+      "value": 528
     }
   ],
   "inspected_files": 6625,
@@ -52686,6 +52704,25 @@
         "after": 613,
         "source_sha256": "9458e89cb0b667ae9c32190bfa2802a873fdce3407415a934ffafb731a9eaa5b",
         "review": "Independent adk_authority_review: exact operator-project topic custody through existing receipt owners; separate attached ADC and exclusive-grant gates; nearest PostgreSQL roundtrip and negative controls. New leaf logic extracted; no global budget, scanner or unrelated allowance changes."
+      }
+    ]
+  },
+  "azure_cleanup_history_retention_review_20261015": {
+    "reviewer": "owner_lifecycle_cleanup_review",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_azure_resource_teardown_postgres.py||module exceeds the advisory operon budget",
+        "before": 496,
+        "after": 637,
+        "source_sha256": "8a0a2065c25a69c568c0e55f7368f198c544ed08687dd5cc1ba3a10ddb401052",
+        "review": "Independent owner_lifecycle_cleanup_review: nearest core suites prove exact canonical inventory, verified model-child dispatch/recovery, original history retention/archive and bounded provider readbacks. Shared provider fixture; no new oversized function or global budget/scanner changes."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_azure_resource_teardown.py||module exceeds the advisory operon budget",
+        "before": 420,
+        "after": 528,
+        "source_sha256": "575a8200b00e10a855ca2003387c1eb2d994c3db576948c73f842ad79aba4851",
+        "review": "Independent owner_lifecycle_cleanup_review: nearest core suites prove exact canonical inventory, verified model-child dispatch/recovery, original history retention/archive and bounded provider readbacks. Shared provider fixture; no new oversized function or global budget/scanner changes."
       }
     ]
   }

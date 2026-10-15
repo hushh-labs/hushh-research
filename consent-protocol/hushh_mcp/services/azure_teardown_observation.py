@@ -6,7 +6,7 @@ from typing import Any
 
 from hushh_mcp.services.azure_agent_setup import binding_is_valid
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
-from hushh_mcp.services.azure_resource_teardown import _exclusive_group
+from hushh_mcp.services.azure_resource_teardown import _exclusive_group, _model_deployments
 from hushh_mcp.services.azure_setup_plan import NONCE_TAG, PlanInputs, Scopes, resource_names
 from hushh_mcp.services.azure_teardown_inventory import (
     AzureTeardownRefused,
@@ -105,6 +105,7 @@ def inspect_plan(arm: ArmClient, *, context: dict, reservation: dict, hub_princi
         pod_incarnation=metadata.get("serviceUid"),
     )
     _exclusive_group(arm, inputs, resources)
+    _model_deployments(arm, inputs)
     values: dict[str, Any] = {}
     for resource in resources:
         body = (
@@ -136,7 +137,9 @@ def inspect_plan(arm: ArmClient, *, context: dict, reservation: dict, hub_princi
     }
 
 
-def execution_inventory(plan: dict) -> tuple[PlanInputs, tuple[TeardownResource, ...], dict]:
+def execution_inventory(
+    plan: dict, *, pod_principal: str, hub_principal: str, pod_incarnation: str | None
+) -> tuple[PlanInputs, tuple[TeardownResource, ...], dict]:
     """Rehydrate only a SQL-qualified retained plan, never browser-submitted resource IDs."""
     context, values = plan["context"], plan["resources"]
     nonce = next(
@@ -158,27 +161,30 @@ def execution_inventory(plan: dict) -> tuple[PlanInputs, tuple[TeardownResource,
         nonce,
         files_enabled=True,
     )
-    resources = tuple(
-        TeardownResource(
-            path, value["apiVersion"], value["kind"], value["expected"], value["coveredBy"]
-        )
-        for path, value in values.items()
+    canonical = inventory(
+        inputs,
+        pod_principal=pod_principal,
+        hub_principal=hub_principal,
+        pod_incarnation=pod_incarnation,
     )
-    # JSONB does not retain setup order. Preserve dependency order from the plan's
-    # source instead of relying on dict ordering after recovery.
-    order = {
-        r.path: i
-        for i, r in enumerate(
-            inventory(
-                inputs,
-                pod_principal=_MISSING_PRINCIPAL,
-                hub_principal=_MISSING_PRINCIPAL,
-                pod_incarnation=None,
-            )
-        )
-    }
-    if set(order) != set(values):
+    if {resource.path for resource in canonical} != set(values):
         raise AzureTeardownRefused("AZURE_CLEANUP_INVENTORY_CHANGED")
-    resources = tuple(sorted(resources, key=lambda r: order[r.path]))
+    for resource in canonical:
+        selected = values[resource.path]
+        expected_scope = (
+            "whole_group"
+            if resource.path == Scopes(inputs, resource_names(inputs)).group
+            else "all_contents"
+            if resource.kind == "resource"
+            else "resource_only"
+        )
+        if (
+            selected.get("apiVersion") != resource.api_version
+            or selected.get("kind") != resource.kind
+            or selected.get("expected") != resource.expected
+            or selected.get("coveredBy") != resource.covered_by
+            or selected.get("deletionScope") != expected_scope
+        ):
+            raise AzureTeardownRefused("AZURE_CLEANUP_INVENTORY_CHANGED")
     frozen = {path: value["identity"] for path, value in values.items() if not value["coveredBy"]}
-    return inputs, resources, frozen
+    return inputs, canonical, frozen

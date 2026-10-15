@@ -111,6 +111,28 @@ can finish after approval expires; new mutations cannot. Neither receipt proves
 provider-retained copies were purged, and the public full-cleanup callback stays
 disabled until archival, retention and final account-deletion gates are composed.
 
+The local full-inventory path additionally compares every canonical resource's
+kind, API version, parent coverage and expected identity/configuration before
+execution. It removes the exact `one-chat` deployment before its account, refuses
+unknown/incompletely listed deployments and requires a verified empty listing
+before parent removal. Parent authority is checked at dispatch, so observing an
+already-deleted child can still recover after its parent disappears.
+
+The retained cleanup state now holds SQL-derived original setup history. Its
+hash must still match the protected setup job; oversized evidence refuses before
+the first cleanup write. Final archival keeps that actual history and resource
+receipts, and schema rollback refuses retained Azure live/archive custody.
+
+[Key Vault deleted-record](https://github.com/Azure/azure-rest-api-specs/blob/220ad9c6554fc7d6d10a89bdb441c1e3b36e3285/specification/keyvault/resource-manager/Microsoft.KeyVault/stable/2023-07-01/keyvault.json),
+[Storage deleted-record](https://github.com/Azure/azure-rest-api-specs/blob/220ad9c6554fc7d6d10a89bdb441c1e3b36e3285/specification/storage/resource-manager/Microsoft.Storage/stable/2023-05-01/storage.json)
+and [AI account deleted-record](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/deleted-accounts/get?view=rest-aiservices-accountmanagement-2024-10-01)
+observations retain only exact resource identities and provider dates/policy.
+Storage recovery handles and raw response bodies are excluded. A missing record
+never establishes physical purge; no Storage purge date is invented. Read-only
+observations may finish after mutation approval expires. Final active-resource
+receipts bind the retention observations; these source checks still do not enable
+the public cleanup callback or establish account-finalization acceptance.
+
 If replacement polling fails, only the existing exact incarnation/revision/image
 verdict may settle that original request. Timeout remains unresolved. The explicit
 `RoleAssignmentExists` denial is a terminal refusal, not an uncertain write.

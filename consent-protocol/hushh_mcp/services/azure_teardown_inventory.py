@@ -72,8 +72,14 @@ def inventory(
         parent = next((p for p in parents[:-1] if step.path.startswith(p + "/")), None)
         # Nested resource management deletes are not universally supported. Their
         # owning parent's qualified active absence covers them; RBAC has its own DELETE.
-        covered = parent if step.kind == "resource" and parent else None
+        covered = (
+            parent
+            if step.kind == "resource" and parent and step.path != scopes.deployment
+            else None
+        )
         expected = resolve(step.body, values) if step.kind != "resource" else tags(inputs)
+        if step.path == scopes.deployment:
+            expected = {"parent": scopes.openai}
         if step.path == scopes.app and pod_incarnation is not None:
             expected[INCARNATION_TAG] = pod_incarnation
         resources.append(
@@ -83,6 +89,11 @@ def inventory(
 
 
 def qualified_identity(resource: TeardownResource, body: dict, inputs: PlanInputs) -> dict:
+    if (
+        resource.kind == "resource"
+        and resource.path == Scopes(inputs, resource_names(inputs)).deployment
+    ):
+        return _deployment_identity(resource, body)
     if resource.kind != "resource":
         return _role_identity(resource, body)
     observed_id = body.get("id")
@@ -107,7 +118,11 @@ def qualified_identity(resource: TeardownResource, body: dict, inputs: PlanInput
         system = body.get("systemData") or {}
         if not isinstance(system, dict):
             raise AzureTeardownRefused("AZURE_RESOURCE_IDENTITY_UNAVAILABLE")
-        created = system.get("createdAt") or properties.get("creationTime")
+        created = (
+            system.get("createdAt")
+            or properties.get("creationTime")
+            or properties.get("dateCreated")
+        )
         if created is not None:
             identity["createdAt"] = str(created)
         # User-assigned identities have an immutable provider-issued principal.
@@ -135,3 +150,38 @@ def _role_identity(resource: TeardownResource, body: dict) -> dict:
         )
     except (ValueError, KeyError, TypeError) as exc:
         raise AzureTeardownRefused("AZURE_RESOURCE_POLICY_CHANGED") from exc
+
+
+def _deployment_identity(resource: TeardownResource, body: dict) -> dict:
+    properties, sku = body.get("properties"), body.get("sku")
+    if (
+        not isinstance(body.get("id"), str)
+        or body["id"].lower() != resource.path.lower()
+        or not isinstance(properties, dict)
+        or not isinstance(sku, dict)
+    ):
+        raise AzureTeardownRefused("AZURE_MODEL_DEPLOYMENT_UNVERIFIED")
+    model = properties.get("model")
+    if not isinstance(model, dict) or any(
+        not isinstance(model.get(k), str) or not 1 <= len(model[k]) <= 256
+        for k in ("format", "name", "version")
+    ):
+        raise AzureTeardownRefused("AZURE_MODEL_DEPLOYMENT_UNVERIFIED")
+    selected_sku = {
+        key: sku[key] for key in ("name", "capacity", "tier", "family", "size") if key in sku
+    }
+    if (
+        not isinstance(selected_sku.get("name"), str)
+        or not 1 <= len(selected_sku["name"]) <= 128
+        or any(
+            (key == "capacity" and (type(value) is not int or not 0 <= value <= 1000000000))
+            or (key != "capacity" and (not isinstance(value, str) or len(value) > 128))
+            for key, value in selected_sku.items()
+        )
+    ):
+        raise AzureTeardownRefused("AZURE_MODEL_DEPLOYMENT_UNVERIFIED")
+    return {
+        "id": body["id"],
+        "model": {k: model[k] for k in ("format", "name", "version")},
+        "sku": selected_sku,
+    }

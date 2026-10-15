@@ -236,4 +236,6 @@ DROP FUNCTION public.azure_erasure_request_retryable(jsonb);
 DROP FUNCTION public.valid_azure_erasure_plan(text,jsonb);
 DROP FUNCTION public.azure_erasure_writers_drained(text);
 DROP FUNCTION public.azure_erasure_context(text);
+DROP FUNCTION public.valid_azure_retention_receipt(jsonb,text,jsonb);
+DROP FUNCTION public.azure_erasure_setup_history(text);
 COMMIT;

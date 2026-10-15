@@ -52,7 +52,7 @@ qualify cleanup. Unknown cloud responses remain unresolved and are never replaye
 | Cleanup boundary | Local evidence | Remaining release condition |
 | --- | --- | --- |
 | GCP operator-project Gmail | 476 affected checks pass, including real PostgreSQL full-topic admission/acknowledgement/deletion, retained creation/IAM history and attached-identity separation. Missing-proof and dropped-history negative controls fail | Dev-only963 schema and hub must serve before new notification plans; live disposable owner cleanup still required |
-| Azure | Durable exact-plan approval, authenticated worker admission, original-operation reconciliation, cancellation, final active-resource readback and joined exit have focused and PostgreSQL evidence | Complete setup-history archival, canonical inventory closure, provider retention, JIT callback and account finalization; public full cleanup remains refused |
+| Azure | Exact canonical inventory, explicit model-deployment cleanup, original setup-history archival and typed provider-retention receipts now have focused and real PostgreSQL evidence, alongside cancellation and joined exit | Complete JIT callback, reviewed retention terms and common account finalization; live full cleanup remains refused |
 
 Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
 are candidate migrations, and962 remains unselected. Provider retention is not

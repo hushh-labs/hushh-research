@@ -52,7 +52,12 @@ class AzureTeardownStore:
             if prior.get("plan") != plan:
                 raise AzureTeardownRefused("AZURE_CLEANUP_PLAN_CHANGED")
             return deepcopy(prior)
-        candidate = {"plan": plan, "approvals": [], "resources": {}}
+        history = await self._value(
+            "SELECT public.azure_erasure_setup_history(:owner) AS value", {"owner": owner}
+        )
+        if not isinstance(history, list):
+            raise AzureTeardownRefused("AZURE_CLEANUP_HISTORY_UNCONFIRMED")
+        candidate = {"plan": plan, "approvals": [], "resources": {}, "setupHistory": history}
         retained = await self._value(
             "SELECT public.retain_azure_erasure_state(:owner,:attempt,CAST(:expected AS jsonb),"
             "CAST(:candidate AS jsonb)) AS value",

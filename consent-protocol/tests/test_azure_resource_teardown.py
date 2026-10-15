@@ -72,6 +72,8 @@ class _CleanupArm(FakeArm):
         if path.endswith("/resources"):
             group = path.removesuffix("/resources")
             return {"value": [v for k, v in self.resources.items() if k.startswith(group + "/")]}
+        if path.endswith("/deployments"):
+            return {"value": [v for k, v in self.resources.items() if k.startswith(path + "/")]}
         return super().get(path, **kwargs)
 
     def with_mutations(self, journal):
@@ -157,12 +159,17 @@ def test_final_readback_failure_never_reports_cleanup_complete(arm, monkeypatch,
     assert journal.readbacks == []
 
 
-@pytest.mark.parametrize("change", ["unrelated", "owner", "incarnation", "role", "malformed"])
+@pytest.mark.parametrize(
+    "change", ["unrelated", "unrelated_deployment", "owner", "incarnation", "role", "malformed"]
+)
 def test_unrelated_or_changed_resources_refuse_before_first_delete(arm, change):
     client, inputs, resources, journal = _prepared(arm)
     scopes = Scopes(inputs, resource_names(inputs))
     if change == "unrelated":
         path = scopes.group + "/providers/Microsoft.Storage/storageAccounts/unrelated"
+        client.resources[path] = {"id": path}
+    elif change == "unrelated_deployment":
+        path = scopes.openai + "/deployments/unrelated"
         client.resources[path] = {"id": path}
     elif change == "owner":
         client.resources[scopes.storage]["tags"][NONCE_TAG] = "f" * 16
@@ -231,7 +238,22 @@ def test_real_arm_cleanup_keeps_guard_and_does_not_retry_uncertain_mutation(arm)
     assert "provider_terminal" not in journal.state(target)
 
 
-def test_preview_is_read_only_and_restored_inventory_keeps_dependency_order(arm):
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "apiVersion",
+        "kind",
+        "expected",
+        "coveredBy",
+        "deletionScope",
+        "missing",
+        "wrong_principal",
+        "wrong_incarnation",
+    ],
+)
+def test_preview_is_read_only_and_restored_inventory_keeps_dependency_order(arm, change):
+    from hushh_mcp.services.azure_container_app_renderer import INCARNATION_TAG
     from hushh_mcp.services.azure_teardown_observation import execution_inventory, inspect_plan
     from tests.test_owner_access_erasure import OWNER, _snapshot
 
@@ -258,9 +280,32 @@ def test_preview_is_read_only_and_restored_inventory_keeps_dependency_order(arm)
         hub_principal="88888888-8888-8888-8888-888888888888",
     )
     assert not any(method != "GET" for method, _, _ in client.calls)
-    restored_inputs, restored, frozen = execution_inventory(
-        json.loads(json.dumps(plan, sort_keys=True))
+    recovered = json.loads(json.dumps(plan, sort_keys=True))
+    target = next(
+        path for path in recovered["resources"] if path.endswith("/containerApps/ca-hussh-one-pod")
     )
+    if change == "missing":
+        recovered["resources"].pop(target)
+    elif change in {"apiVersion", "kind", "expected", "coveredBy", "deletionScope"}:
+        recovered["resources"][target][change] = {} if change == "expected" else "changed"
+
+    def restore():
+        return execution_inventory(
+            recovered,
+            pod_principal="00000000-0000-0000-0000-000000000001"
+            if change == "wrong_principal"
+            else POD_PRINCIPAL,
+            hub_principal="88888888-8888-8888-8888-888888888888",
+            pod_incarnation="wrong"
+            if change == "wrong_incarnation"
+            else next(r.expected.get(INCARNATION_TAG) for r in resources if r.path == target),
+        )
+
+    if change is not None:
+        with pytest.raises(AzureTeardownRefused, match="INVENTORY_CHANGED"):
+            restore()
+        return
+    restored_inputs, restored, frozen = restore()
     assert restored_inputs.nonce == inputs.nonce
     assert next(r for r in restored if r.kind == "resource").path.endswith(
         "/containerApps/ca-hussh-one-pod"
@@ -318,15 +363,21 @@ def test_definitely_undispatched_or_refused_request_can_resume_once(arm, interru
 
 
 @pytest.mark.parametrize("kind", ["azure-asyncoperation", "location"])
-def test_interrupted_delete_polls_original_typed_operation_without_redispatch(arm, kind):
+@pytest.mark.parametrize("target_kind", ["app", "model_child_parent_gone"])
+def test_interrupted_delete_polls_original_typed_operation_without_redispatch(
+    arm, kind, target_kind
+):
     import hashlib
 
     from hushh_mcp.services.azure_arm_client import ArmClient
     from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
     from tests.test_azure_arm_client import _Response, _Session
 
-    _, _, resources, journal = _prepared(arm)
-    target = next(r for r in resources if not r.covered_by)
+    cleanup, inputs, resources, journal = _prepared(arm)
+    frozen = preflight(cleanup, inputs, resources, journal)
+    scopes = Scopes(inputs, resource_names(inputs))
+    path = scopes.app if target_kind == "app" else scopes.deployment
+    target = next(r for r in resources if r.path == path)
     request_id = str(uuid.uuid4())
     subscription = target.path.split("/")[2]
     url = f"https://management.azure.com/subscriptions/{subscription}/operations/one?api-version=2025-01-01"
@@ -359,6 +410,15 @@ def test_interrupted_delete_polls_original_typed_operation_without_redispatch(ar
     assert settled["acknowledgement"]["status"] == "provider_completed"
     assert [call["method"] for call in session.sent] == ["GET"]
     assert session.sent[0]["url"] == url
+    if target_kind == "model_child_parent_gone":
+        for path in list(cleanup.resources):
+            if path == scopes.openai or path.startswith(scopes.openai + "/"):
+                del cleanup.resources[path]
+        execute(cleanup, inputs, resources, journal, frozen)
+        assert journal.state(target)["absence"]["status"] == "active_resource_absent"
+        assert not any(
+            method == "DELETE" and path == scopes.deployment for method, path, _ in cleanup.calls
+        )
 
 
 @pytest.mark.parametrize(
@@ -418,3 +478,51 @@ def test_unqualified_delete_observation_stays_unresolved_without_replay(arm, cha
         reconcile_delete(client, target, journal)
     assert "provider_terminal" not in journal.state(target)
     assert [call["method"] for call in session.sent] == (["GET"] if change == "failed_read" else [])
+
+
+@pytest.mark.parametrize("kind", ["key_vault", "storage", "model_account"])
+@pytest.mark.parametrize("case", ["retained", "absent", "foreign", "malformed_time"])
+def test_retention_readback_never_claims_purge_or_retains_recovery_secrets(arm, kind, case):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.azure_teardown_retention import observe_retention, retention_target
+
+    _, inputs, resources, _ = _prepared(arm)
+    scopes = Scopes(inputs, resource_names(inputs))
+    path = {"key_vault": scopes.vault, "storage": scopes.storage, "model_account": scopes.openai}[
+        kind
+    ]
+    resource = next(r for r in resources if r.path == path)
+    deleted_path, api, _ = retention_target(resource, inputs)
+    from tests.fixtures.azure_teardown import CREATED, retention_body
+
+    body = retention_body(inputs, path, deleted_path)
+    properties = body["properties"]
+    if case == "foreign":
+        properties.update(vaultId="foreign", storageAccountResourceId="foreign")
+        body["id"] = "foreign"
+    if case == "malformed_time":
+        properties.update(deletionTime="invalid", deletionDate="invalid")
+    calls = []
+
+    def read(actual, **kwargs):
+        calls.append((actual, kwargs))
+        return None if case == "absent" else body
+
+    if case in {"foreign", "malformed_time"}:
+        with pytest.raises(AzureTeardownRefused, match="RETENTION_.*UNVERIFIED"):
+            observe_retention(
+                SimpleNamespace(get_or_none=read), inputs, resource, {"createdAt": CREATED}
+            )
+        return
+    receipt = observe_retention(
+        SimpleNamespace(get_or_none=read), inputs, resource, {"createdAt": CREATED}
+    )
+    assert receipt["physicalPurgeVerified"] is False
+    assert receipt["status"] == (
+        "provider_record_absent" if case == "absent" else "provider_retained"
+    )
+    assert "synthetic-private" not in json.dumps(receipt) and "restoreReference" not in receipt
+    assert calls == [(deleted_path, {"api_version": api, "op": "cleanup_retention"})]
+    if kind == "storage":
+        assert "scheduledPurgeDate" not in receipt

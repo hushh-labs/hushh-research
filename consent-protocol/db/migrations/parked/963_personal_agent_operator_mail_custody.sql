@@ -363,6 +363,8 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=public AS $$
     THEN jsonb_build_object('filesErasure',r->'filesErasure') ELSE '{}'::jsonb END
    -- 954: keep the person's never-hosted receipt; absent (no key) on every hosted archive.
    || jsonb_strip_nulls(jsonb_build_object('neverHosted',r->'neverHosted'))
+   || CASE WHEN jsonb_typeof(r->'azureTeardown')='object'
+      THEN jsonb_build_object('azureCleanup',r->'azureTeardown') ELSE '{}'::jsonb END
    || CASE WHEN jsonb_array_length(coalesce(r->'substrateInventory'->'operatorBindingObservations','[]'::jsonb))>0
     THEN jsonb_build_object('operatorNotificationCustody',jsonb_build_object(
      'bindings',r->'substrateInventory'->'operatorBindingObservations',
