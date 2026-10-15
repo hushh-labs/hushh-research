@@ -103,6 +103,7 @@ async def construct(**kwargs):
         "selected_document_ids": selected,
         "coverage_summary": "Synthetic complete evidence" if complete else "More evidence remains",
         "periods": [],
+        "temporal_scope": "no_period_claim",
         "gaps": [] if complete else ["More evidence remains"],
         "assessment_score": 91,
         "importance": 120,
