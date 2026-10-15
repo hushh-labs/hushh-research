@@ -298,3 +298,75 @@ class FakeBuyerServer:
         if action == "delivery":
             return 200, {"grantedCount": 0}
         return 404, {}
+
+
+class LiveCheckoutRefused(RuntimeError):
+    """UAT Drive checkout is live Stripe; the journey never opens a live session."""
+
+
+def uat_stripe_mode(command=None) -> str | None:
+    """Read-only: the STRIPE_MODE value the UAT backend serves with."""
+    from hushh_eval.drive_packets.sources import BACKEND_SERVICE, _gcloud, describe_service
+
+    service = describe_service(BACKEND_SERVICE, command or _gcloud)
+    for item in service["spec"]["template"]["spec"]["containers"][0].get("env", []):
+        if item["name"] == "STRIPE_MODE":
+            return item.get("value")
+    return None
+
+
+def require_test_mode_payments(mode: str | None) -> None:
+    if mode != "test":
+        raise LiveCheckoutRefused("uat_drive_checkout_is_not_stripe_test_mode")
+
+
+class ApiTransport:
+    """Two designated test accounts (owner, buyer) against the UAT API. Never pays."""
+
+    def __init__(self, base_url: str, sessions: dict[str, Any], client=None):
+        import httpx
+
+        self.base_url = base_url.rstrip("/")
+        self.sessions = sessions
+        self.client = client or httpx.AsyncClient(timeout=60, follow_redirects=False)
+
+    async def __call__(self, role, method, path, json=None):
+        session = self.sessions[role]
+        response = await self.client.request(
+            method,
+            self.base_url + path,
+            json=json,
+            headers={
+                "Authorization": f"Bearer {session.firebase_id_token}",
+                "X-Hushh-Consent": session.vault_owner_token,
+            },
+        )
+        is_json = response.headers.get("content-type", "").startswith("application/json")
+        return response.status_code, response.json() if is_json else {}
+
+
+def main(argv: list[str] | None = None, *, stripe_mode=uat_stripe_mode) -> int:
+    import argparse
+    import json
+    import os
+
+    parser = argparse.ArgumentParser(prog="python -m hushh_eval.drive_packets.journey")
+    parser.add_argument("--owner-ref", default="<owner person ref>")
+    parser.add_argument("--live", action="store_true", help="Requires Stripe test mode in UAT")
+    args = parser.parse_args(argv)
+    if not args.live:
+        print("\n".join(planned_calls(args.owner_ref)))
+        return 0
+    if os.environ.get("DRIVE_PACKET_EVAL_LIVE") != "1":
+        print(json.dumps({"error": "set DRIVE_PACKET_EVAL_LIVE=1"}))
+        return 2
+    try:
+        require_test_mode_payments(stripe_mode())
+    except LiveCheckoutRefused as error:
+        print(json.dumps({"error": str(error)}))
+        return 2
+    raise SystemExit("live journey needs designated test-account sessions; see README")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

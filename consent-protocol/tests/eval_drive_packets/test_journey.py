@@ -47,3 +47,13 @@ def test_dry_run_plan_stops_before_paying():
     stop = next(index for index, call in enumerate(calls) if call.startswith("STOP"))
     assert any("checkout" in call for call in calls[:stop])
     assert all("checkout" not in call for call in calls[stop + 1 :])
+
+
+def test_live_journey_refuses_live_stripe_before_any_call(monkeypatch, capsys):
+    from hushh_eval.drive_packets import journey
+
+    monkeypatch.setenv("DRIVE_PACKET_EVAL_LIVE", "1")
+    assert journey.main(["--live"], stripe_mode=lambda: "live") == 2
+    assert "not_stripe_test_mode" in capsys.readouterr().out
+    assert journey.main([], stripe_mode=lambda: "live") == 0  # dry run only prints the plan
+    assert "STOP: never pay" in capsys.readouterr().out
