@@ -56,6 +56,7 @@ const vaultState = {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
+  usePathname: () => "/one/pkm",
 }));
 
 vi.mock("@/hooks/use-auth", () => ({

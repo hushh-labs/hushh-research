@@ -3905,3 +3905,44 @@ After a host restart ended the debugging client, repeated reconnect probes were
 stopped. The shared Chrome browser remains intact; further rehearsal uses headless
 sessions or the explicitly authorized AppleScript interface without fresh debugger
 connections. Physical-device acceptance remains with its separate device owner.
+
+### 2026-10-15 chat pricing review and browser interruption repair
+
+The authored `pkm.review_sharing_price` action now uses the generated journey into
+Memory and opens its existing exact-section tariff editor. It force-reads current
+owner metadata and manifests, resolves only a unique materialized handle, and
+rejects leaf-to-parent expansion, stale choices, foreign owners, expired sessions
+and unsupported proposed terms. Proposed cents and base duration only prefill the
+review. The editor retains Stripe payout eligibility checks, free sharing and its
+manual confirmation before saving. Stripe tool OAuth is not a payout prerequisite.
+
+`pkm.close_sharing_price_review` reuses the existing cancellation callbacks:
+confirmation closes before the editor. The Memory route admits only the authored
+review layer; it hides underlying actions and exposes no executable action while
+busy. A real snapshot test exposed route fallback behind blocking layers; discovery
+now uses their already-filtered executable inventory. The payment setup link closes
+the editor before opening Payments, preserving modified-link behavior. Shared
+commercial session capture also fences same-owner authentication generations before
+dispatch and publication. Removing that predicate makes the new retirement test
+fail, while its uninterrupted one-cent positive still passes.
+
+Focused verification passes 115 cases across the editor, owner-bound bridge,
+interaction-layer admission, action runtime and context snapshots. Initial failures
+and the negative-control run remain available in local evidence. These are source
+checks, not deployed chat-payment acceptance. Exactly two cohesive test-module size
+observations are independently reviewed; all earlier ratchet records, scanner
+rules and size budgets remain intact. Three exact-revision setup deprecations
+acknowledge the main merge without unioning incompatible workflow policies.
+
+At `2026-10-15T12:27:43Z`, the canonical GET-only Sandbox/provider readback confirms
+$10.50 funding per reviewer and $15 cumulative capital, with matching provider and
+ledger totals, balanced liabilities, settled backing and conserved fees. Dev still
+serves `5c2d1483aa0691134c72615b244da7c3bc0e1747`; this checkpoint submits no further
+funding, Topup, purchase or withdrawal. Canonical core, exact-head hosted CI,
+Dev/pod release, encrypted fixtures, the approved financial lifecycle and the private
+agent's Stripe account/balance OAuth reads remain required. Live payments stay off.
+
+New shared-Chrome debugger connections are stopped. No browser restart, context
+close, approval auto-click or safeguard change is used to suppress Chrome prompts.
+Further automated reviewer work uses task-owned headless sessions; authorized
+background AppleScript is available for an existing owner provider session.

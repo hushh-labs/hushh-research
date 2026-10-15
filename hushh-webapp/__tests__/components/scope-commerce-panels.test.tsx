@@ -45,6 +45,9 @@ import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account"
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { COMMERCE_RETURN_EVENT } from "@/lib/services/scope-commerce-browser";
 import { commerceMoneyButtonName } from "../../../.codex/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
@@ -77,6 +80,7 @@ const entry = (id: string): CommerceActivityItem => ({ id, request_id: requestId
 
 beforeEach(() => {
   vi.resetAllMocks();
+  publishValidatedAuthSessionOwner("owner");
   mocks.user = { uid: "owner", getIdToken: vi.fn(async () => "owner-token") };
   mocks.pathname = "/one/profile/payouts"; mocks.search = ""; mocks.vaultKey = "memory-key";
   mocks.account.mockResolvedValue(balanceAccount());
@@ -363,7 +367,12 @@ describe("free sharing independent of payment setup", () => {
     expect(mocks.tariff).toHaveBeenCalledWith("owner-token", "exact_handle", "attr.food.preferences.*");
     fireEvent.click(button);
     await screen.findByRole("heading", { name: "Price for Food preferences" });
-    expect(screen.getByRole("link", { name: "Set up payouts with Stripe in Payments and earnings" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=payouts");
+    const setup = screen.getByRole("link", { name: "Set up payouts with Stripe in Payments and earnings" });
+    expect(setup).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=payouts");
+    fireEvent.click(setup, { ctrlKey: true });
+    expect(screen.getByRole("heading", { name: "Price for Food preferences" })).toBeVisible();
+    fireEvent.click(setup);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(mocks.saveTariff).not.toHaveBeenCalled();
   });
 
@@ -383,6 +392,47 @@ describe("free sharing independent of payment setup", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm free" }));
     await waitFor(() => expect(mocks.saveTariff).toHaveBeenCalledWith("owner-token", { scope_handle: "exact_handle", machine_scope: "attr.food.preferences.*", price_cents: 0, base_duration_seconds: 604800 }, expect.any(String)));
     expect(mocks.account).not.toHaveBeenCalled();
+  });
+
+  it.each(["back", "agent"])("prefills without saving and closes confirmation before the editor through %s", async method => {
+    mocks.pathname = "/one/pkm";
+    const available = readiness(); available.capabilities.set_paid_tariff = true;
+    mocks.readiness.mockResolvedValue(available);
+    const close = vi.fn();
+    render(<ScopeTariffEditor scopeHandle="exact_handle" machineScope="attr.food.preferences.*" label="Food preferences"
+      reviewRequest={{ id: "review_only", proposedPriceCents: 1, proposedBaseHours: 24 }} onReviewClose={close} />);
+    const input = await screen.findByLabelText("USD base price");
+    await waitFor(() => expect(input).toHaveValue("0.01"));
+    expect(mocks.saveTariff).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
+    expect(await screen.findByRole("button", { name: "Save price" })).toBeVisible();
+    expect(getVoiceSurfaceMetadata()?.interactionLayer).toMatchObject({ blocksUnderlyingActions: true, visibleActionIds: ["pkm.close_sharing_price_review"] });
+    const dismiss = async () => { await act(async () => {
+      if (method === "back") expect(unwindBackLayer(mocks.pathname)).toBe(true);
+      else expect(await resolveLocalOnboardingHandler("pkm.close_sharing_price_review")!({})).toMatchObject({ status: "succeeded" });
+    }); };
+    await dismiss();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByLabelText("USD base price")).toHaveValue("0.01");
+    expect(close).not.toHaveBeenCalled();
+    await dismiss();
+    expect(close).toHaveBeenCalledOnce(); expect(mocks.saveTariff).not.toHaveBeenCalled();
+    expect(resolveLocalOnboardingHandler("pkm.close_sharing_price_review")).toBeNull();
+  });
+
+  it.each([false, true])("dispatches an explicitly confirmed price only in the original auth generation (retired=%s)", async retired => {
+    const available = readiness(); available.capabilities.set_paid_tariff = true;
+    mocks.readiness.mockResolvedValue(available);
+    render(<ScopeTariffEditor scopeHandle="exact_handle" machineScope="attr.food.preferences.*" label="Food preferences"
+      reviewRequest={{ id: "one_cent", proposedPriceCents: 1, proposedBaseHours: 24 }} />);
+    await waitFor(() => expect(screen.getByLabelText("USD base price")).toHaveValue("0.01"));
+    fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
+    const pendingToken = deferred<string>(); mocks.user!.getIdToken = () => pendingToken.promise;
+    fireEvent.click(await screen.findByRole("button", { name: "Save price" }));
+    if (retired) act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); });
+    await act(async () => pendingToken.resolve("owner-token"));
+    if (retired) expect(mocks.saveTariff).not.toHaveBeenCalled();
+    else expect(mocks.saveTariff).toHaveBeenCalledWith("owner-token", { scope_handle: "exact_handle", machine_scope: "attr.food.preferences.*", price_cents: 1, base_duration_seconds: 86400 }, expect.any(String));
   });
 
   it("keeps a confirmed free request reachable when payment availability cannot be read", async () => {

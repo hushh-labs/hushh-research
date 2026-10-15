@@ -4390,6 +4390,8 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "pkm.close_sharing_price_review",
+          "pkm.review_sharing_price",
           "route.one_pkm",
           "route.profile_pkm_agent_lab"
         ],
@@ -6890,21 +6892,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
-    "action_gateway": "abc6ed3f1a22e082e24f4945a0bcdd5e6a0e72589d70eb39eb8a31d996bc7047",
+    "action_gateway": "eed72566a712198a83ddc7ec9c7a13ac9a5c11825577abdbad3cf1e66b2d4181",
     "agent_registry": "7c20b1e8e0239c870cf10ad6171569211dc69115525616aaf9ce190ba02da6e9",
     "cache_manifest": "da4577f9a404c7ee33d79b3e6c0780318f5834dd8e00f11680521c62dc86e987",
     "data_plane": "4171270674ac2e7f11fe22e0131bbb570d37eff087e91b55713ef81812199fa3",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "4a05e7ca27307ade5dbd66a2571d0e57f19b4af08c58ea87031f5e4b77a82736",
-    "route_index": "04dad59e1e38884822f0d04b5026bad48bd3f0ad3fa7da6441e8daefb43532c9",
-    "route_layout": "8128a4a66a2c2bbf6ca7ec92250a213f6fabddf9b49a4a56928857c896911d8d",
-    "surface_map": "a8bbcca4e1be8bbcbd2837c42483e69866954dc4ffac765fa56dbdf3e880a562",
+    "route_index": "20ad713f9837a519765e0ce8b4c4a8c360fc86b51c4320bbdcd7262d8a820848",
+    "route_layout": "d61e641f0302eff9f6dc07313a8b434815d5eb35280d6bad0e4195ffb1e81128",
+    "surface_map": "17771f14de94fcde9bb8865f5e71cbdab5d99143ecafe69423e59734b3a3b8be",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 260,
+    "actions": 262,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,

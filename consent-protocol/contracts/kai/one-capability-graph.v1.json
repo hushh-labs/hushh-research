@@ -16192,6 +16192,294 @@
     },
     {
       "aliases": [
+        "Review sharing price",
+        "review a sharing price",
+        "set a price for my information"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.review_sharing_price",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the existing price editor for one exact owner-authored sharing section. Optional proposed price in USD cents (1 cent = 1 Hussh coin) and base term only prefill the form. Nothing is saved, published, purchased or paid until the person uses the existing confirmation controls. Never broaden a requested leaf into its parent section. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.review_sharing_price",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.review_sharing_price"
+        }
+      },
+      "goal_id": "goal.pkm.review_sharing_price",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved sharing section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved sharing section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review sharing price",
+      "navigation": {
+        "fallback": "pkm.review_sharing_price",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.form",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Close sharing price review",
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.close_sharing_price_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.close_sharing_price_review",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.close_sharing_price_review"
+        }
+      },
+      "goal_id": "goal.pkm.close_sharing_price_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Close sharing price review",
+      "navigation": {
+        "fallback": "pkm.close_sharing_price_review",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Profile",
         "open profile",
         "go to profile"
@@ -42539,7 +42827,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "51565296c84b399c407bd6f4f7db6f7ad24bb3361196b86407575435a5ee523d",
+      "projection_digest": "857b50eb508677cfbd5cd16b25f995378f7f7b35053a0dac302543967d97dc55",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42549,7 +42837,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "06fd1d06596c7487ac5d53aeb008e20a61e1f5cb95c3774ffc532d88e3580354",
+        "capability_graph_evolution": "1f66c7a339e6ba391acf66388ac1742e770f2df5d15a7f3089fa179296d99f5b",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -42558,7 +42846,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "63ca5df4523cc28c",
+      "source_revision": "43c428db7505bdee",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44076,7 +44364,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "63ca5df4523cc28c",
+    "source_revision": "43c428db7505bdee",
     "web": {
       "actions": [
         {
@@ -44119,7 +44407,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "f75de5aa3d8e9480ae756bf399ccaf4d0fa0df78a5f5ced22e9600b1da636a0c",
+      "projection_digest": "852b35f8a23e0beaaefbd6cf29a529822d0729e5336eb3fa1e0bf05d1ec0d4a1",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44129,7 +44417,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "06fd1d06596c7487ac5d53aeb008e20a61e1f5cb95c3774ffc532d88e3580354",
+        "capability_graph_evolution": "1f66c7a339e6ba391acf66388ac1742e770f2df5d15a7f3089fa179296d99f5b",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -44138,7 +44426,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
       },
-      "source_revision": "63ca5df4523cc28c",
+      "source_revision": "43c428db7505bdee",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45695,7 +45983,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "63ca5df4523cc28c",
+  "revision": "43c428db7505bdee",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46571,6 +46859,8 @@
     },
     {
       "action_ids": [
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price",
         "route.one_pkm",
         "route.profile_pkm_agent_lab"
       ],
@@ -47624,6 +47914,8 @@
   "semantic_diff": {
     "added": [
       "actions:one.scheduled_tasks.open",
+      "actions:pkm.close_sharing_price_review",
+      "actions:pkm.review_sharing_price",
       "actions:route.one_files",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
@@ -47643,6 +47935,7 @@
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
       "screens:screen:/one",
+      "screens:screen:/one/pkm",
       "screens:screen:/one/setup",
       "workflows:workflow.setup.connections"
     ],
@@ -47651,16 +47944,13 @@
       "actions:route.profile_payouts"
     ],
     "deprecated": [
-      "actions:profile.world_model.open",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
       "workflows:workflow.setup.connections"
     ],
-    "from_revision": "710bd535b7febc69",
+    "from_revision": "af06ae26b8943fb1",
     "migrated": [],
-    "removed": [
-      "actions:profile.world_model.open"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -49948,21 +50238,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "06fd1d06596c7487ac5d53aeb008e20a61e1f5cb95c3774ffc532d88e3580354",
+    "capability_graph_evolution": "1f66c7a339e6ba391acf66388ac1742e770f2df5d15a7f3089fa179296d99f5b",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "abc6ed3f1a22e082e24f4945a0bcdd5e6a0e72589d70eb39eb8a31d996bc7047",
+    "kai_action_gateway": "eed72566a712198a83ddc7ec9c7a13ac9a5c11825577abdbad3cf1e66b2d4181",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "7c20b1e8e0239c870cf10ad6171569211dc69115525616aaf9ce190ba02da6e9",
-    "route_orchestration_index": "04dad59e1e38884822f0d04b5026bad48bd3f0ad3fa7da6441e8daefb43532c9",
+    "route_orchestration_index": "20ad713f9837a519765e0ce8b4c4a8c360fc86b51c4320bbdcd7262d8a820848",
     "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
   },
-  "source_revision": "63ca5df4523cc28c",
+  "source_revision": "43c428db7505bdee",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "63ca5df4523cc28c",
+    "current_graph_revision": "43c428db7505bdee",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50120,6 +50410,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
@@ -50373,6 +50664,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
@@ -50547,6 +50839,7 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "af06ae26b8943fb1",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b9a36b2860d0022c",
@@ -50828,6 +51121,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
@@ -51068,6 +51362,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
@@ -51308,6 +51603,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
@@ -51548,6 +51844,7 @@
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
           "aaec9bce8ec29c93",
+          "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",

@@ -1833,7 +1833,8 @@
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
-        "route.one_pkm"
+        "route.one_pkm",
+        "pkm.review_sharing_price"
       ],
       "requiredInputs": [],
       "recoveries": {
@@ -1844,7 +1845,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "completionBoundary": "Opening sharing price review does not save a tariff or confirm a purchase. A price changes only after the person confirms in the existing editor and persistence succeeds.",
       "nextRoute": "/one/pkm",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1861,6 +1862,11 @@
         }
       ],
       "kind": "parent"
+    },
+    "interactionLayerPolicy": {
+      "allowedFamilies": [
+        "sharing_price_review"
+      ]
     }
   },
   {

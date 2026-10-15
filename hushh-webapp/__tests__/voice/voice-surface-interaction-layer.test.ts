@@ -8,6 +8,7 @@ import {
   type VoiceInteractionLayerV1,
 } from "@/lib/kai/actions/voice-surface-metadata";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import { registerLocalOnboardingHandler, unregisterLocalOnboardingHandler, type LocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 
 const PUBLISHERS = ["route", "chrome", "layer_one", "layer_two", "next_route"];
 
@@ -128,6 +129,34 @@ afterEach(() => {
 });
 
 describe("voice surface interaction-layer composition", () => {
+  it("admits only mounted Memory review dismissal and excludes all actions while busy", () => {
+    const closeId = "pkm.close_sharing_price_review";
+    const close: LocalOnboardingActionHandler = () => ({ status: "succeeded", summary: "Closed." });
+    registerLocalOnboardingHandler(closeId, close);
+    const state = runtime("/one/pkm", "pkm");
+    state.auth = { signed_in: true, user_id: "synthetic-owner" };
+    state.vault = { unlocked: true, token_available: true, token_valid: true };
+    publishVoiceSurfaceMetadata("route", { screenId: "pkm", actions: [{ id: "review", actionId: "pkm.review_sharing_price", label: "Review price" }] }, { role: "route", routeKey: "/one/pkm" });
+    const publish = (busy: boolean) => publishVoiceSurfaceMetadata("layer_one", { interactionLayer: layer("sharing_price_review", {
+      kind: "sharing_price_review", dismissible: !busy, dismissActionId: busy ? null : closeId,
+      visibleActionIds: busy ? [] : [closeId], visibleControlIds: [], agentContinuity: busy ? "suppressed" : "interactive",
+    }) }, { role: "interaction_layer", routeKey: "/one/pkm" });
+    const snapshot = () => buildOneVoiceContextSnapshot({ appRuntimeState: state, requireMountedLocalHandlers: true });
+    try {
+      publish(false);
+      expect(snapshot().available_action_ids).toEqual([closeId]);
+      expect(snapshot().ui.interaction_layer?.dismiss_action_id).toBe(closeId);
+      publish(true);
+      expect(snapshot().available_action_ids).toEqual([]);
+      expect(snapshot().ui.interaction_layer?.agent_continuity).toBe("suppressed");
+      publish(false);
+      unregisterLocalOnboardingHandler(closeId, close);
+      expect(snapshot().available_action_ids).toEqual([]);
+      clearVoiceSurfaceMetadata("layer_one");
+      expect(snapshot().ui.interaction_layer).toBeNull();
+    } finally { unregisterLocalOnboardingHandler(closeId, close); }
+  });
+
   it("hides route and chrome actions behind a modal layer", () => {
     publishPhoneRoute();
     publishVoiceSurfaceMetadata(

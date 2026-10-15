@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2691,
+  "finding_count": 2692,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -20632,7 +20632,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx",
       "symbol": null,
-      "value": 1388
+      "value": 1389
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26651,6 +26651,15 @@
       "path": "consent-protocol/hushh_eval/drive_packets/metrics.py",
       "symbol": null,
       "value": 502
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx",
+      "symbol": null,
+      "value": 533
     }
   ],
   "inspected_files": 6625,
@@ -43831,6 +43840,33 @@
     "source_qualification_sha256": "3eb3dfbd95727287977fa676e05b5efab03b2fb136561c0e09225cfe7044c892",
     "source_revision": "7c6f0fcebbaf98d4c5c75a83909a8cba1e4a2339",
     "verification": "25 nearest onboarding,451 Back cases,77 existing capacity/retention cases,typecheck and generated UI contracts pass. Full candidate core/CI and deployed acceptance remain required. Separate incoming UAT receipt gap has no Dev consumer."
+  },
+  "scope_commerce_chat_price_review_20261015": {
+    "boundary": "Exactly one existing module occurrence updated and one new cohesive test-module occurrence. Scanner, exclusions, 500/250/80 budgets, all prior occurrences and all history keys remain unchanged.",
+    "entries": [
+      {
+        "accepted_ceiling": 1389,
+        "key": "module_size|hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1388,
+        "review": "Nearest existing tariff/session security tests retain original assertions and add review-only prefill, native Back, recovery-link overlay and pending-token auth-generation retirement with exact one-cent positive control. Natural panel adds only required pathname mock.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "8cb7400677f0ebd8c436ab819b0a80a258d9a66c6690dc3a41132585cf4a80fe"
+      },
+      {
+        "accepted_ceiling": 533,
+        "key": "module_size|hushh-webapp/__tests__/components/scope-commerce-panels.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Nearest existing tariff/session security tests retain original assertions and add review-only prefill, native Back, recovery-link overlay and pending-token auth-generation retirement with exact one-cent positive control. Natural panel adds only required pathname mock. Paired Back/agent dismissal shares existing callbacks; exact foreground action list and handler retirement are checked.",
+        "reviewer": "ci_registry_review",
+        "source_sha256": "8f4bb5d29b9e3905e6fe3286c2cab19e88d7ef0e6117cbcdb3213361a1ddd1b9"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "prior_baseline_sha256": "19348fd7d46eab58556de156b547e5643ea2e29a5dee4aa6e49fdde521096331",
+    "reviewed_report_sha256": "dced21f498520f97a7a17d61416ad4c883644e4e4c2aea0debb13a2cadcc74a6",
+    "verification": "37 focused component tests pass. Initial route-admission test exposed fallback route actions behind a blocking layer; canonical context now uses its exact foreground executable inventory. Full targeted voice checks remain recorded in canonical reference. Removing auth-generation predicate makes retirement negative fail while current-owner positive passes; original restored. Browser, CI, deployment and financial acceptance remain outstanding."
   },
   "scope_commerce_concurrent_branch_union_20261014": {
     "changes": [

@@ -4862,7 +4862,9 @@
           "SurfaceStack"
         ],
         "interaction_layer_policy": {
-          "allowed_families": []
+          "allowed_families": [
+            "sharing_price_review"
+          ]
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
@@ -4872,7 +4874,8 @@
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm",
           "happy_path_action_ids": [
-            "route.one_pkm"
+            "route.one_pkm",
+            "pkm.review_sharing_price"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -4883,7 +4886,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Opening sharing price review does not save a tariff or confirm a purchase. A price changes only after the person confirms in the existing editor and persistence succeeds.",
           "next_route": "/one/pkm",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4910,8 +4913,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/pkm/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -10869,5 +10875,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "366b0a33d0fc1d881c7f1d55b8c3c33361c4bd839b195dc92afe5a4d00c2de47"
+  "content_sha256": "61daa0d6d0c76cd65aa281d6bb0f152f1fe6e9867113b8c52e938453e8f3a519"
 }

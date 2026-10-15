@@ -14,6 +14,7 @@
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
     "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
@@ -453,6 +454,33 @@
         "context_policy": null,
         "trust_boundary": "consent",
         "delegation_policy": "one_action_gate"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "pkm",
+      "surface_title": "Memory",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -13883,6 +13911,243 @@
             "type": "action",
             "action_id": "one.scheduled_tasks.open",
             "label": "Scheduled tasks",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.review_sharing_price",
+      "surface_id": "pkm",
+      "label": "Review sharing price",
+      "aliases": [
+        "review a sharing price",
+        "set a price for my information"
+      ],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section"
+      ],
+      "meaning": "Opens the existing price editor for one exact owner-authored sharing section. Optional proposed price in USD cents (1 cent = 1 Hussh coin) and base term only prefill the form. Nothing is saved, published, purchased or paid until the person uses the existing confirmation controls. Never broaden a requested leaf into its parent section. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.review_sharing_price"
+      },
+      "control_ids": [
+        "pkm-review-sharing-price"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.review_sharing_price",
+        "required_inputs": [
+          {
+            "name": "section",
+            "prompt": "Which saved sharing section?",
+            "required": false,
+            "slot": "section",
+            "resolver": "spoken_free_text"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "section": "spoken_free_text",
+          "scope_choice": "opaque_id_optional",
+          "proposed_price_cents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "proposed_base_hours": {
+            "type": "integer",
+            "enum": [
+              24,
+              72,
+              168,
+              720
+            ]
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Open sharing price review",
+            "failure_behavior": "stop",
+            "action_id": "pkm.review_sharing_price",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.close_sharing_price_review",
+      "surface_id": "pkm",
+      "label": "Close sharing price review",
+      "aliases": [
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "meaning": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An existing sharing price review is open."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.close_sharing_price_review"
+      },
+      "control_ids": [
+        "pkm-close-sharing-price-review"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.close_sharing_price_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.close_sharing_price_review",
+            "label": "Close sharing price review",
             "failure_behavior": "stop"
           }
         ],
