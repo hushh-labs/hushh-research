@@ -370,7 +370,6 @@ test("the rehearsal entrypoint cannot gain blanket spending or choose ambient de
   assert.throws(() => parseCommerceArguments([...argumentsList, "--approve-action", "all"]), /EXACT_OPERATOR_ACTION_INVALID/);
 });
 
-
 test("human authentication admits exact provider exchanges but never custom-token minting or payments", async () => {
   let handler;
   const guard = await installReadOnlyMutationGuard({ route: async (_pattern, callback) => { handler = callback; } },
@@ -439,6 +438,15 @@ test("borrowed reviewer sessions preserve other clients and permanently retire o
     await assert.rejects(harness.attachExistingSession(fixture.page, { evidence: "visible_unlock" }), /Visible vault challenge/);
     const next = await harness.attachExistingSession(fixture.page);
     fixture.state.vaultEpoch += 1;
+    await assert.rejects(next.assertCurrent(), /retired/);
+    const handler = [...fixture.routes].find(value => typeof value === "function");
+    let forwarded = false;
+    await assert.doesNotReject(handler({
+      request: () => ({ method: () => "POST", url: () => `${APP_ORIGIN}/api/scope-commerce/purchases` }),
+      continue: async () => { forwarded = true; },
+      fulfill: async () => { throw new Error("Route is already handled!"); },
+    }));
+    assert.equal(forwarded, false);
     await assert.rejects(next.assertCurrent(), /retired/);
     await next.dispose();
     fixture.state.ownerMatches = false;
