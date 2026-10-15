@@ -788,6 +788,30 @@ def test_start_takes_the_email_in_the_body_never_the_url(monkeypatch):
     assert client.post("/api/auth/sso/start", json={}).status_code == 422
 
 
+def test_the_limited_routes_work_with_the_limiter_switched_on(monkeypatch):
+    # The limiter is off under pytest, so a broken key function never ran. slowapi hands the request
+    # only to a key function whose parameter is named `request` and calls any other with no
+    # argument; that made both routes answer 500 on UAT while every other test passed.
+    from slowapi.errors import RateLimitExceeded
+
+    from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
+
+    client = _routes_client(monkeypatch, enabled=True, secret=SECRET)
+    client.app.state.limiter = limiter
+    client.app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()
+    try:
+        # 61 requests: whichever way a minute boundary splits them, one window holds more than 30.
+        starts = [client.post("/api/auth/sso/start", json={}).status_code for _ in range(61)]
+        exchange = client.post("/api/auth/sso/exchange", json={"code": "x", "state": "y"})
+    finally:
+        limiter.reset()
+
+    assert set(starts) == {422, 429}  # reached the handler (422) until the ceiling held (429)
+    assert exchange.status_code not in (429, 500)
+
+
 def _request(forwarded=None, peer="10.0.0.1"):
     from starlette.requests import Request
 
