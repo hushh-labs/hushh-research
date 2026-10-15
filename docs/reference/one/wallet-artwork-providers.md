@@ -23,7 +23,7 @@ approved feed ingestion, real image decoding, visual candidate previews, and
 independent saved-version approval. This extension adds those pieces.
 
 **No licensed live provider or sandbox account is configured.** The separate
-[reviewed atlas](wallet-card-atlas.md) supplies owner-selected bank designs; it
+[reviewed atlas](./wallet-card-atlas.md) supplies owner-selected bank designs; it
 does not establish automatic physical-card matching or live-provider coverage. The organization confirmed that no provider agreement exists.
 The shipped adapter is an HTTPS implementation of the **Hussh approved-feed v1
 interchange**, not an implementation of an undocumented Visa, Mastercard or bank

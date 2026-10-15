@@ -26,7 +26,7 @@ image is split into Mastercard and RuPay variants. TROY remains labelled a
 this release does not add TROY prefix recognition or claim it is a bank product.
 
 All images originate from the supplied PDF. The complete
-[review manifest](wallet-card-atlas.manifest.json) records its SHA-256, page,
+[review manifest](./wallet-card-atlas.manifest.json) records its SHA-256, page,
 entry, PDF image resource, placement, source links, original pixel hash,
 adaptation recipe and reviewed output digest/pixel hash. Links are provenance
 text only; neither tool fetches them. Source originals are preserved separately
