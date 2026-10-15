@@ -2577,6 +2577,7 @@ export class ApiService {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
@@ -2618,6 +2619,7 @@ export class ApiService {
           sourceContentRevision: data.sourceContentRevision,
           sourceManifestRevision: data.sourceManifestRevision,
           durationHours: data.durationHours,
+          modelProcessingAllowed: data.modelProcessingAllowed === true,
           exportEnvelope: data.exportEnvelope,
           vaultOwnerToken,
         });
@@ -2670,6 +2672,7 @@ export class ApiService {
         sourceContentRevision: data.sourceContentRevision,
         sourceManifestRevision: data.sourceManifestRevision,
         durationHours: data.durationHours,
+        modelProcessingAllowed: data.modelProcessingAllowed === true,
         exportEnvelope: data.exportEnvelope,
       }),
     });

@@ -4187,10 +4187,22 @@ information with employer User 2. Gusto is the requirements checklist; no Gusto
 connector or submission is in scope. Government identifiers already have an
 encrypted PKM writer. Explicit owner approval of exact fields, purpose and model
 use must extend the existing grant; it must not be inferred from payment. Current
-sensitive-information withholding remains the default. The private-pod sharing
-continuation adapter and owner identifier-processing opt-in remain implementation
-work. Recipient use stays tied to the granted information; it does not silently
-create a permanent recipient PKM copy. Rehearsals use synthetic identifiers only.
+sensitive-information withholding remains the default. The current source adds a note-bound, vault-epoch-bound identifier-processing opt-in to Memory
+Add and a separate review-bound recipient model permission to owner consent.
+Tariffs and payment do not set either permission. Paid approval freezes the
+permission; access remains unavailable until activation. Private agents use the
+existing signed owner feed for current consent, discovery and submission receipts,
+with fresh nonce-bound checks before model processing and no shared-database
+fallback in an unqualified pod. These are source and focused-test results, not
+Dev deployment or two-reviewer acceptance.
+
+The packet covers employee legal name, SSN, birthday, phone and home address,
+following [Gusto’s employee onboarding checklist](https://support.gusto.com/article/210728164125837/add-new-employees-to-gusto).
+Other payroll details remain separately selected information; the packet does not
+prove employment eligibility, identity verification or completed Gusto onboarding.
+Recipient use stays tied to the granted information; it does not silently create
+a permanent recipient PKM copy. Credentials and security codes remain withheld.
+Rehearsals use synthetic identifiers only.
 
 The prior main integration (`812974bf4875`) preserves its published referral migrations
 348/349. The unpublished branch tail was relocated byte-for-byte from 349–355

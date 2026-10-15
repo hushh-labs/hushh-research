@@ -28,6 +28,7 @@ from hushh_mcp.one_adk.history_descriptors import (
     _submitted_source_id,
 )
 from hushh_mcp.one_adk.history_projection import _call_providers, project_conversation_history
+from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
@@ -85,11 +86,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     if input.context or any(
         forwarded.get(key)
         for key in (
-            "consentContinuation",
             "driveSearchSelection",
             "pendingEmailDraft",
             "gmailInformationRequestWorkflowId",
-            "personSelectionHandle",
         )
     ):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
@@ -137,6 +136,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_MCP_CONFIGURATION: admit_turn_configurations(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id
         ),
+        "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
+            :128
+        ],
         "temp:one_execution_surface": "typed_chat",
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,
@@ -186,6 +188,10 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
+    if forwarded.get("consentContinuation") is not None:
+        from api.routes.one.pod_consent_chat import admit_continuation
+
+        state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
     await owner.require_access()
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
@@ -246,10 +252,22 @@ async def history(
         raise HTTPException(404, detail="Conversation not found.")
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
+    from hushh_mcp.one_adk.consent_chat_admission import consent_history_access
+    from hushh_mcp.services.pod_consent_read import PodConsentReadPort
+
+    consent_by_invocation, consent_ended = await consent_history_access(
+        owner.owner,
+        session.state,
+        lookup=PodConsentReadPort(owner).lookup,
+    )
+    await owner.require_access()
     result = project_conversation_history(
         session.events,
         conversation_id,
         limit,
+        session_state=session.state,
+        consent_by_invocation=consent_by_invocation,
+        consent_ended=consent_ended,
         project_event=lambda event: (
             _event_text(event),
             _safe_agent_history_metadata(event, submitted, providers),
@@ -450,3 +468,14 @@ async def write_feedback(
 # owner admission (pod_agent_chat_connectors.py, pod_command_proposals.py).
 router.include_router(pod_agent_chat_connectors.router)
 router.include_router(pod_command_proposals.router)
+
+
+@router.post("/history/{conversation_id}/information-requests")
+async def record_information_request_submission(
+    conversation_id: str,
+    payload: RecordInformationRequestSubmission,
+    owner: PodChatContext = Depends(context),
+):
+    from api.routes.one.pod_consent_chat import record_request
+
+    return await record_request(conversation_id, payload, owner, ONE_APP_NAME)

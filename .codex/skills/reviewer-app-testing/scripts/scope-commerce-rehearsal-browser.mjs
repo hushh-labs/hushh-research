@@ -53,7 +53,8 @@ export async function openCommerceBrowsers(repoRoot, options, preflight) {
       if (!browser) browser = await harness.chromium.launch({ headless: preflight.authMode !== "human_authenticated" });
       if (preflight.authMode !== "human_authenticated") await harness.assertVisibleVaultChallenge(browser, "/one");
       const session = await harness.openSession(browser, "/one");
-      actors[role] = { role, harness, session, admission, authMode: preflight.authMode, assertCommerce: installCommerceObserver(session.page) };
+      actors[role] = { role, harness, session, admission, authMode: preflight.authMode,
+        verifyExactReadback: options.verifyExactReadback, assertCommerce: installCommerceObserver(session.page) };
       await harness.navigateInApp(session.page, "/one/connect");
       await session.capture.identityToken();
       const readiness = await checkedCall(session, `/api/scope-commerce/sandbox-readiness?app_origin=${encodeURIComponent(options.appOrigin)}`);
@@ -69,11 +70,15 @@ export async function coldCommerceRecovery(runtime, role, destination) {
   const actor = runtime.actors[role];
   const commitment = actor.harness.vaultKeyCommitment(await actor.session.capture.vaultState());
   await actor.session.context.close();
-  if (actor.authMode !== "human_authenticated") await actor.harness.assertVisibleVaultChallenge(runtime.browser, destination);
-  actor.session = await actor.harness.openSession(runtime.browser, destination);
+  // The canonical entry owns cold authentication/unlock. A public person route
+  // does not automatically mount that challenge; reach it by client navigation.
+  if (actor.authMode !== "human_authenticated") await actor.harness.assertVisibleVaultChallenge(runtime.browser, "/one");
+  actor.session = await actor.harness.openSession(runtime.browser, "/one");
   actor.assertCommerce = installCommerceObserver(actor.session.page);
   commerceEvidence(actor.harness.vaultKeyCommitment(await actor.session.capture.vaultState()) === commitment,
     "COLD_VAULT_COMMITMENT_MISMATCH");
+  await actor.harness.navigateInApp(actor.session.page, destination);
+  await actor.harness.assertVaultContinuity(actor.session.page, "cold paid destination");
   await actor.harness.navigateInApp(actor.session.page, "/one/connect");
   await actor.session.capture.identityToken();
 }
@@ -113,13 +118,30 @@ export async function exactCommerceReadback(actor, record, fixture) {
   const profile = await checkedCall(actor.session, `/api/one/people/${encodeURIComponent(fixture.personRef)}`);
   commerceEvidence(profile.personRef === fixture.personRef && profile.grants?.some(grant =>
     grant.requestId === record.requestId && grant.scopeRef === fixture.scopeRef && grant.status === "granted"), "PAID_ACTIVE_PROFILE_BINDING_MISMATCH");
-  const card = actor.session.page.getByTestId(`grant-card-${record.requestId}`);
-  await card.waitFor({ state: "visible", timeout: 45_000 });
-  if (await card.getByTestId("person-profile-grant-reveal").isVisible().catch(() => false)) await card.getByTestId("person-profile-grant-reveal").click();
-  await card.getByRole("button", { name: "JSON", exact: true }).click();
-  const matched = await card.locator('pre[data-testid="person-profile-grant-value"]').evaluate(matchesExpectedJsonDigest, fixture.expectedPayloadSha256);
-  commerceEvidence(matched, "EXACT_PAID_BROWSER_READBACK_MISMATCH");
-  await card.getByRole("button", { name: "Formatted", exact: true }).click();
+  const headingId = `shared-item-${record.requestId.replace(/[^A-Za-z0-9_-]/g, "")}`;
+  const secureCard = actor.session.page.locator(`article[aria-labelledby="${headingId}"]`);
+  if (typeof actor.verifyExactReadback === "function") {
+    await secureCard.waitFor({ state: "visible", timeout: 45_000 });
+    await actor.session.page.waitForFunction(id => {
+      const article = document.getElementById(id)?.closest("article");
+      return article?.dataset.itemState === "ready" &&
+        article.querySelector('[data-testid="shared-with-you-values"]')?.getAttribute("data-hidden") === "false";
+    }, headingId, { timeout: 45_000 });
+    // The formatted card is intentionally lossy. It proves reachable delivery;
+    // a separately source-bound browser crypto adapter proves exact projected JSON.
+    const proof = await actor.verifyExactReadback(actor, record, fixture);
+    commerceEvidence(proof?.passed === true && proof.canonical_recipient_decryption === true &&
+      proof.exact_projected_payload === true && proof.current_grant === true &&
+      proof.current_paid_term === true, "EXACT_PAID_BROWSER_READBACK_MISMATCH");
+  } else {
+    const card = actor.session.page.getByTestId(`grant-card-${record.requestId}`);
+    await card.waitFor({ state: "visible", timeout: 45_000 });
+    if (await card.getByTestId("person-profile-grant-reveal").isVisible().catch(() => false)) await card.getByTestId("person-profile-grant-reveal").click();
+    await card.getByRole("button", { name: "JSON", exact: true }).click();
+    const matched = await card.locator('pre[data-testid="person-profile-grant-value"]').evaluate(matchesExpectedJsonDigest, fixture.expectedPayloadSha256);
+    commerceEvidence(matched, "EXACT_PAID_BROWSER_READBACK_MISMATCH");
+    await card.getByRole("button", { name: "Formatted", exact: true }).click();
+  }
   await actor.harness.assertVaultContinuity(actor.session.page, "paid exact readback");
   actor.session.capture.assertNoCriticalApiFailures("paid exact readback");
   actor.session.readOnlyGuard.assertNoBlockedMutation(); actor.assertCommerce();

@@ -613,8 +613,10 @@ async def test_kyc_identity_profile_marks_explicit_aadhaar_as_restricted_and_con
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["", "SSN 123-45-6789. "])
 async def test_kyc_identity_profile_blocks_authentication_secrets_before_model_extraction(
     monkeypatch,
+    prefix,
 ) -> None:
     service = PKMAgentLabService()
     extraction = AsyncMock()
@@ -622,7 +624,7 @@ async def test_kyc_identity_profile_blocks_authentication_secrets_before_model_e
 
     result = await service.generate_structure_preview(
         user_id="owner",
-        message="My API key is sk_test_abcdefghij1234.",
+        message=prefix + "My API key is sk_test_abcdefghij1234.",
         current_domains=["identity"],
         memory_profile="kyc_identity_v1",
     )

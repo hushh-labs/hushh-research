@@ -58,6 +58,7 @@ type RequestStatus = "pending" | "handling" | "handled";
 export const BUNDLE_DECISION_CONCURRENCY = 3;
 
 export interface BundleDecisionOptions {
+  modelProcessingAllowed?: boolean;
   bundleId?: string;
   bundleLabel?: string;
   /** The caller owns reporting; failures reject with an owner sentence. */
@@ -348,7 +349,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * Approve a consent request with zero-knowledge export
    */
   const handleApprove = useCallback(
-    (consent: PendingConsent, options?: { quiet?: boolean }): Promise<void> => {
+    (consent: PendingConsent, options?: { quiet?: boolean; modelProcessingAllowed?: boolean }): Promise<void> => {
       const actionKey = `approve:${consent.id}`;
       return runWithActionLock(
         { key: actionKey, kind: "approve", requestId: consent.id },
@@ -381,7 +382,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           throw new OwnerFacingConsentError("Unlock your vault first.");
         }
 
-        const paidMessage = await approvePaidOwnerTerms(consent, vaultOwnerToken, { paidApprovals, paidApprovalKeys }, message => new OwnerFacingConsentError(message));
+        const paidMessage = await approvePaidOwnerTerms(consent, vaultOwnerToken, { paidApprovals, paidApprovalKeys }, message => new OwnerFacingConsentError(message), options?.modelProcessingAllowed === true);
         if (paidMessage) return paidMessage;
 
         let scopeData: Record<string, unknown> = {};
@@ -616,6 +617,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           sourceContentRevision,
           sourceManifestRevision,
           durationHours: consent.durationHours,
+          modelProcessingAllowed: options?.modelProcessingAllowed === true,
           exportEnvelope,
         });
 
@@ -830,7 +832,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       await settleBundle(
         "approve",
         consents.map((consent) => consent.id),
-        (index) => handleApprove(consents[index]!, { quiet: true }),
+        (index) => handleApprove(consents[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed }),
         options
       );
     },
@@ -881,7 +883,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         [...allow.map((consent) => consent.id), ...denyRequestIds],
         (index) =>
           index < allow.length
-            ? handleApprove(allow[index]!, { quiet: true })
+            ? handleApprove(allow[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed })
             : handleDeny(denyRequestIds[index - allow.length]!, { quiet: true }),
         options
       );

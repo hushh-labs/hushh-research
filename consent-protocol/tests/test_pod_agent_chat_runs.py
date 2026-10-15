@@ -236,7 +236,9 @@ async def test_history_completion_race_stays_pending_until_fresh_read():
         _ACTIVE_THREADS.discard("conv-1")
         return SimpleNamespace(events=[], state={})
 
-    owner = SimpleNamespace(owner="owner-a", sessions=SimpleNamespace(get_session=read))
+    owner = SimpleNamespace(
+        owner="owner-a", sessions=SimpleNamespace(get_session=read), require_access=AsyncMock()
+    )
     _ACTIVE_THREADS.add("conv-1")
     try:
         stale = await pod_agent_chat.history("conv-1", limit=50, owner=owner)
@@ -272,7 +274,7 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
     )
     session = SimpleNamespace(events=[], state={}) if session_exists else None
     sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
-    owner = SimpleNamespace(owner=USER_ID, sessions=sessions)
+    owner = SimpleNamespace(owner=USER_ID, sessions=sessions, require_access=AsyncMock())
     stream = transport.pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
     reader = asyncio.create_task(anext(stream))
     try:
@@ -281,7 +283,9 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
         observed = await pod_agent_chat.history(THREAD_ID, limit=50, owner=owner)
         assert observed["turn"] == {"pending": True}
         assert observed["messages"] == []
-        stranger = SimpleNamespace(owner="other-owner", sessions=sessions)
+        stranger = SimpleNamespace(
+            owner="other-owner", sessions=sessions, require_access=AsyncMock()
+        )
         if session_exists:
             other = await pod_agent_chat.history(THREAD_ID, limit=50, owner=stranger)
             assert other["turn"] == {"pending": False}

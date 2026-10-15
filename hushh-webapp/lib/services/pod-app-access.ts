@@ -59,6 +59,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
+  /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
   // Settings' tool refresh and connector login, for owner-registered connectors only.
   /^agent-chat\/connectors\/custom_[0-9a-f]{32}\/mcp\/(catalog|verify|oauth\/(begin|complete|cancel))$/,

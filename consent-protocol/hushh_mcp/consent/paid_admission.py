@@ -100,12 +100,18 @@ async def approve_paid_request(
     duration_seconds: int,
     idempotency_key: str,
     *,
+    model_processing_allowed: bool = False,
     connection: Any = None,
 ) -> dict | None:
     from hushh_mcp.consent.paid_requests import approve_paid_request as approve
 
     return await approve(
-        owner_user_id, request_id, duration_seconds, idempotency_key, connection=connection
+        owner_user_id,
+        request_id,
+        duration_seconds,
+        idempotency_key,
+        model_processing_allowed=model_processing_allowed,
+        connection=connection,
     )
 
 
@@ -116,6 +122,7 @@ async def maybe_approve_paid_request(
     machine_scope: str,
     metadata: dict,
     duration_seconds: int,
+    model_processing_allowed: bool = False,
 ) -> dict | None:
     from hushh_mcp.consent.paid_requests import maybe_approve_paid_request as approve
 
@@ -125,6 +132,7 @@ async def maybe_approve_paid_request(
         machine_scope=machine_scope,
         metadata=metadata,
         duration_seconds=duration_seconds,
+        model_processing_allowed=model_processing_allowed,
     )
 
 

@@ -651,3 +651,84 @@ async def test_nav_actual_invocation_and_tool_require_a_live_local_owner_session
     hub_nav, hub_task = await nav_for("HCT:synthetic-hub-authority")
     with pytest.raises(PermissionError, match="local session"):
         await hub_nav.handle(hub_task)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("replay", [False, True])
+async def test_consent_reads_are_fresh_nonce_bound_and_cannot_replay_an_approval(
+    agent, monkeypatch, replay
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pod_owner_feed_client
+    from hushh_mcp.services.pod_consent_read import PodConsentReadPort
+
+    owner = SimpleNamespace(owner=OWNER, require_access=AsyncMock())
+    bundle_id = "11111111-1111-4111-8111-111111111111"
+    bundle = {
+        "bundleId": bundle_id,
+        "personRef": "synthetic-person",
+        "purpose": "Employment onboarding review",
+        "durationSeconds": 3600,
+        "cancelled": False,
+        "items": [
+            {
+                "requestId": "synthetic-request",
+                "scopeRef": "psr_synthetic",
+                "label": "Identity",
+                "sensitivity": "sensitive",
+                "status": "granted",
+                "accessReady": True,
+                "modelProcessingAllowed": True,
+            }
+        ],
+        "progress": {"outcome": "granted"},
+    }
+
+    class Hub:
+        calls = 0
+        first = None
+
+        def get(self, path, *, params):
+            self.calls += 1
+            assert path.endswith("/consent")
+            if self.first is not None and replay:
+                body = self.first
+            else:
+                signed = envelope_mod.sign_feed(
+                    kind="consent",
+                    owner_id=OWNER,
+                    hushh_id=POD,
+                    projection={"readNonce": params["read_nonce"], "bundle": bundle},
+                    issued_at_ms=int(time.time() * 1000),
+                )
+                body = {
+                    "envelope": envelope_mod.seal_feed(
+                        signed,
+                        pod_public_key_raw=agent.private_key.public_key().public_bytes_raw(),
+                        pod_key_id=agent.key_id,
+                    )
+                }
+                self.first = body
+            return SimpleNamespace(status_code=200, json=lambda: body)
+
+    hub = Hub()
+    client = _client(agent, hub)
+    monkeypatch.setattr(pod_owner_feed_client, "owner_feed_client", lambda: client)
+    port = PodConsentReadPort(owner)
+    assert (await port.get(requester_user_id=OWNER, bundle_id=bundle_id))["items"][0][
+        "modelProcessingAllowed"
+    ]
+    bundle["items"][0].update(status="revoked", accessReady=False, modelProcessingAllowed=False)
+    bundle["progress"]["outcome"] = "revoked"
+    if replay:
+        with pytest.raises(PermissionError, match="binding_changed"):
+            await port.get(requester_user_id=OWNER, bundle_id=bundle_id)
+    else:
+        assert (await port.get(requester_user_id=OWNER, bundle_id=bundle_id))["items"][0][
+            "status"
+        ] == "revoked"
+    assert hub.calls == 2
+    with pytest.raises(PermissionError, match="requester_mismatch"):
+        await port.get(requester_user_id="different-owner", bundle_id=bundle_id)
+    assert hub.calls == 2

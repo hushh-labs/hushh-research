@@ -25,7 +25,13 @@ def is_developer_information_requester(metadata: Any, connector_public_key: Any)
 
 
 async def paid_owner_approval(
-    owner_user_id: str, request_id: str, machine_scope: str, metadata: Any, expiry_hours: int
+    owner_user_id: str,
+    request_id: str,
+    machine_scope: str,
+    metadata: Any,
+    expiry_hours: int,
+    *,
+    model_processing_allowed: bool = False,
 ) -> dict | None:
     from hushh_mcp.consent.paid_admission import maybe_approve_paid_request
 
@@ -36,6 +42,7 @@ async def paid_owner_approval(
             machine_scope=machine_scope,
             metadata=metadata if isinstance(metadata, dict) else {},
             duration_seconds=expiry_hours * 3600,
+            model_processing_allowed=model_processing_allowed,
         )
         if result is not None and not isinstance(result, dict):
             raise ValueError("invalid_paid_approval_result")

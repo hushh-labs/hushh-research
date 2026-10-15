@@ -124,7 +124,7 @@ def _bound_person_export(
 
 
 # Every state transition of a bundle's fields, oldest first (owner-bound).
-PROGRESS_LEDGER_SQL = """SELECT request_id, action, issued_at, expires_at, poll_timeout_at
+PROGRESS_LEDGER_SQL = """SELECT request_id, action, issued_at, expires_at, poll_timeout_at, metadata, token_id
    FROM consent_audit
    WHERE user_id = :subject
      AND request_id = ANY(:request_ids)
@@ -645,6 +645,8 @@ class InformationRequestService:
         catalog, profile or export is loaded.
         """
         bundle, items = await self._bundle(requester_user_id, bundle_id)
+        from hushh_mcp.consent.model_processing import grant_processing_projection
+
         output = []
         now_ms = int(time.time() * 1000)
         ledger_rows, notifications = await self._progress_rows(bundle, items)
@@ -663,10 +665,16 @@ class InformationRequestService:
                 and expires_at is not None
                 and int(expires_at) <= now_ms
             )
+            access = await grant_processing_projection(
+                granted=action == "CONSENT_GRANTED" and not is_expired,
+                token_id=str((status or {}).get("token_id") or ""),
+                metadata=(status or {}).get("metadata"),
+            )
             output.append(
                 {
                     "requestId": item["request_id"],
                     "scopeRef": item["scope_ref"],
+                    **access,
                     # The same name the request card and progress use.
                     "label": human_scope_label(str(item.get("scope") or ""), item.get("label")),
                     # C7: the continuation admission strips values by this.

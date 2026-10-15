@@ -158,6 +158,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern)
     for pattern in (
         rf"/api/one/pod/agent-chat/(?:history|conversations)/{_CONVERSATION}",
+        rf"/api/one/pod/agent-chat/history/{_CONVERSATION}/information-requests",
         r"/api/one/pod/agent-chat/connectors/[A-Za-z0-9_-]{1,128}/mcp/review",
         # Settings' tool refresh and connector login (pod_agent_chat_connectors.py):
         # only owner-registered custom connectors, exactly as the hub routes admit.

@@ -1,5 +1,7 @@
 "use client";
 
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -312,6 +314,9 @@ export function PkmNaturalPanel({
   }, [trackMemoryOutcome, user?.uid, vaultKey, vaultOwnerToken]);
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
+  const [identifierApproval, setIdentifierApproval] = useState<{ note: string; epoch: number } | null>(null);
+  const identifierProcessingApproved = () => identifierApproval?.note === captureText && isVaultSessionEpochCurrent(identifierApproval.epoch);
+  useEffect(() => subscribeVaultSessionEpoch(() => setIdentifierApproval(null)), []);
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
   const captureHasSharedRecipients = captureCards.some(
     (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
@@ -335,6 +340,7 @@ export function PkmNaturalPanel({
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
     if (captureAuthReady) return;
+    setIdentifierApproval(null);
     // Keep the owner's draft, but old work must not resume after verification.
     captureRevision.current += 1;
     setCaptureLoading(false);
@@ -353,6 +359,7 @@ export function PkmNaturalPanel({
   useEffect(() => {
     captureRevision.current += 1;
     setCaptureText("");
+    setIdentifierApproval(null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
     setCaptureRetryingSectionKey(null);
@@ -986,6 +993,7 @@ export function PkmNaturalPanel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
@@ -1060,6 +1068,7 @@ export function PkmNaturalPanel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
@@ -1697,12 +1706,24 @@ export function PkmNaturalPanel({
             }} onChange={(event) => {
               captureRevision.current += 1;
               setCaptureText(event.target.value);
+              setIdentifierApproval(null);
               setCaptureCards([]);
               setCaptureUnresolvedSections([]);
               setCaptureRetryingSectionKey(null);
               setCaptureMessage(null);
               setCaptureLoading(false);
             }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={50000} />
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <input type="checkbox" checked={identifierProcessingApproved()} disabled={captureLoading || captureSaving}
+                onChange={(event) => {
+                  captureRevision.current += 1;
+                  setIdentifierApproval(event.target.checked ? { note: captureText, epoch: snapshotVaultSessionEpoch() } : null);
+                  setCaptureCards([]);
+                  setCaptureUnresolvedSections([]);
+                  setCaptureMessage(null);
+                }} />
+              <span>Allow my private agent’s configured model to process personal identifiers in this note, including SSN, to prepare Memory. Sharing requires a separate approval.</span>
+            </label>
             <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || captureSaving || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
               {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review memory
             </Button>

@@ -15,6 +15,8 @@ export type AgentPkmPreparationInput = {
   userId: string;
   message: string;
   currentDomains: string[];
+  /** Explicit owner opt-in for this preparation, never a sharing permission. */
+  allowIdentifierProcessing?: boolean;
   /** Existing domain manifests: with them the structurer lands facts in scopes that already exist. */
   currentManifests?: unknown[];
   vaultOwnerToken: string;
@@ -33,15 +35,11 @@ export async function requestPkmMemoryPreparation(
   if (params.memoryProfile === "soul_markdown_v1" && (params.reconciliationCandidates?.length ?? 0) > 256) {
     throw new Error("Soul reconciliation snapshot exceeds its bound.");
   }
-  // Last line before a memory proposal: the text was guarded on the device and
-  // carries placeholders only. A raw secret here is refused, never sent; the
-  // server's own net (secret_patterns.py) stays behind this one.
-  assertNoUnguardedSecrets([
-    params.message,
-    ...(params.reconciliationCandidates ?? []).map(
-      (candidate) => candidate.message,
-    ),
-  ]);
+  // Credentials remain guarded before every proposal. Only this note's explicit
+  // owner opt-in admits identifiers; existing candidate memories remain guarded.
+  // The server independently enforces the same permission.
+  assertNoUnguardedSecrets([params.message], { allowIdentifierProcessing: params.allowIdentifierProcessing });
+  assertNoUnguardedSecrets((params.reconciliationCandidates ?? []).map((candidate) => candidate.message));
   const privateOwner = await resolveMemoryPreparationPlacement();
   if (AuthService.getCurrentUser()?.uid !== params.userId) {
     throw new Error("Your account changed. Nothing was saved.");
@@ -69,6 +67,7 @@ export async function requestPkmMemoryPreparation(
         .filter(Boolean)
         .slice(0, 256),
       memory_profile: params.memoryProfile || "general",
+      allow_identifier_processing: params.allowIdentifierProcessing === true,
       ...(params.reconciliationCandidates?.length
         ? {
             simulated_state: {

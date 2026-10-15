@@ -15,6 +15,8 @@ import {
   type SharedFieldSensitivity,
 } from "@/lib/consent/field-sensitivity";
 import { knownFieldLabel } from "@/lib/consent/field-labels";
+import { findSecretSpans } from "@/lib/pkm/secret-patterns";
+import { isSecretShapedKey } from "@/lib/pkm/internal-path-keys";
 
 /**
  * Contract C7. `sensitive` values are opened and shown on this device only;
@@ -28,6 +30,8 @@ export type OpenedPersonInformation = {
   data: Record<string, unknown>;
   /** Absent on a value built elsewhere; the label deny-list still applies. */
   sensitivity?: SharedSensitivity;
+  /** Read from this request’s current canonical grant, never inferred from payment. */
+  modelProcessingAllowed?: boolean;
   /**
    * The server's per-field reading (C7, `fields[]`), when it sent one: an
    * identifier field inside a standard item is sensitive. Without it the
@@ -145,7 +149,7 @@ export async function openGrantedPersonInformation(input: {
   }
   const wanted = input.requestIds ? new Set(input.requestIds) : null;
   const inScope = wanted ? bundle.items.filter((item) => wanted.has(item.requestId)) : bundle.items;
-  const granted = inScope.filter((item) => item.status === "granted");
+  const granted = inScope.filter((item) => item.status === "granted" && item.accessReady !== false);
   const endedRequestIds = wanted
     ? inScope.filter((item) => item.status === "revoked" || item.status === "expired").map((item) => item.requestId)
     : [];
@@ -189,6 +193,7 @@ export async function openGrantedPersonInformation(input: {
       label: item.label,
       data: projectGrantPayload(payload, domain),
       sensitivity: itemSensitivity(bundle, item, domain),
+      modelProcessingAllowed: item.modelProcessingAllowed === true,
       ...(fields.length ? { fields } : {}),
     });
     expiresAtMs = Math.min(expiresAtMs, exact.encryptedExport.export_envelope.aad.expires_at_ms);
@@ -203,10 +208,15 @@ export async function openGrantedPersonInformation(input: {
     latest.bundleId !== bundle.bundleId ||
     latest.personRef !== input.subjectRef ||
     !values.every((value) =>
-      latest.items.some((item) => item.requestId === value.requestId && item.status === "granted"),
+      latest.items.some((item) => item.requestId === value.requestId && item.status === "granted" && item.accessReady !== false),
     )
   ) {
     throw new Error("Grant changed while opening information");
+  }
+  for (const value of values) {
+    value.modelProcessingAllowed = value.modelProcessingAllowed === true && latest.items.some(
+      (item) => item.requestId === value.requestId && item.modelProcessingAllowed === true,
+    );
   }
   return { values, expiresAtMs, endedRequestIds };
 }
@@ -319,12 +329,15 @@ function appendLines(
   value: unknown,
   path: string[],
   keys: string[],
-  withheld: { names: ReadonlySet<string>; hidden: string[] },
+  withheld: { names: ReadonlySet<string>; hidden: string[]; allowModelProcessing?: boolean },
 ): void {
   if (value === null || value === undefined || value === "") return;
   const leaf = (text: string) => {
     const field = [...keys].reverse().find((key) => !/^\d+$/.test(key)) ?? "";
-    if (fieldSensitivity(keys, text) === "standard" && !isNamedSensitiveField(withheld.names, field, humanKey(field))) {
+    const credential = keys.some(isSecretShapedKey) || findSecretSpans(`${keys.join(" ")}: ${text}`)
+      .some((span) => span.pattern.kind === "credential" || span.pattern.kind === "card_security_code");
+    if (!credential && (withheld.allowModelProcessing === true ||
+      (fieldSensitivity(keys, text) === "standard" && !isNamedSensitiveField(withheld.names, field, humanKey(field))))) {
       lines.push(`- ${path.join(" > ")}: ${text}`);
       return;
     }
@@ -459,11 +472,11 @@ export function isSensitiveSharedValue(value: Pick<OpenedPersonInformation, "lab
 export function formatSharedInformationForAgent(values: OpenedPersonInformation[]): string {
   const lines: string[] = [];
   for (const value of values) {
-    if (isSensitiveSharedValue(value)) {
+    if (isSensitiveSharedValue(value) && value.modelProcessingAllowed !== true) {
       lines.push(sensitiveSharedOutline(value));
       continue;
     }
-    const withheld = { names: sensitiveFieldNameSet(value.fields), hidden: [] as string[] };
+    const withheld = { names: sensitiveFieldNameSet(value.fields), hidden: [] as string[], allowModelProcessing: value.modelProcessingAllowed === true };
     appendLines(lines, value.data, [value.label], [], withheld);
     if (withheld.hidden.length) lines.push(sensitiveFieldsLine(value.label, withheld.hidden));
   }

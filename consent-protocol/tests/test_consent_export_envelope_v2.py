@@ -166,7 +166,11 @@ async def test_paid_export_source_fence_rejects_stale_content_and_manifest():
 
 
 @pytest.mark.asyncio
-async def test_paid_owner_approval_replay_keeps_frozen_quote_after_tariff_change(monkeypatch):
+@pytest.mark.parametrize("model_allowed", [False, True])
+async def test_paid_owner_approval_replay_keeps_frozen_quote_after_tariff_change(
+    monkeypatch, model_allowed
+):
+    from hushh_mcp.consent.model_processing import owner_model_processing
     from hushh_mcp.consent.paid_admission import approve_paid_request
     from hushh_mcp.services import scope_commerce_requests
     from hushh_mcp.services.scope_commerce import service as commerce
@@ -186,15 +190,30 @@ async def test_paid_owner_approval_replay_keeps_frozen_quote_after_tariff_change
             raise AssertionError("current tariff cannot rewrite an authorized quote")
 
     async def resolve(*args, **kwargs):
-        return {"owner_user_id": "owner"}
+        return {
+            "owner_user_id": "owner",
+            "metadata": {
+                "model_processing": owner_model_processing(model_allowed),
+            },
+        }
 
     monkeypatch.setattr(commerce, "ScopeCommerceService", Service)
     monkeypatch.setattr(scope_commerce_requests, "resolve_commerce_request", resolve)
-    result = await approve_paid_request("owner", "request", 3600, "replay", connection=Connection())
+    options = {"model_processing_allowed": model_allowed, "connection": Connection()}
+    result = await approve_paid_request("owner", "request", 3600, "replay", **options)
     assert result["quote"]["priceCents"] == 99
     assert result["status"] == "revoked"
     with pytest.raises(ValueError, match="approved_duration_is_immutable"):
-        await approve_paid_request("owner", "request", 7200, "replay", connection=Connection())
+        await approve_paid_request("owner", "request", 7200, "replay", **options)
+    with pytest.raises(ValueError, match="approved_model_processing_is_immutable"):
+        await approve_paid_request(
+            "owner",
+            "request",
+            3600,
+            "replay",
+            model_processing_allowed=not model_allowed,
+            connection=Connection(),
+        )
 
 
 @pytest.mark.asyncio

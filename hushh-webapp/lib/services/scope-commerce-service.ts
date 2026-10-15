@@ -251,8 +251,8 @@ export const ScopeCommerceService = {
     if (nextCursor) query.set("cursor", cursor(nextCursor));
     return parseCommerceActivityPage(await request(token, `activity?${query}`));
   },
-  async approveInactive(token: string, id: string, duration: number, key: string) {
-    return request(token, `requests/${identity(id)}/approve`, { duration_seconds: duration, idempotency_key: key });
+  async approveInactive(token: string, id: string, duration: number, key: string, modelProcessingAllowed = false) {
+    return request(token, `requests/${identity(id)}/approve`, { duration_seconds: duration, idempotency_key: key, model_processing_allowed: modelProcessingAllowed });
   },
   async quote(token: string, id: string, duration: number, key: string) {
     const quote = parseScopeQuote(await request(token, "quotes", { request_id: id, duration_seconds: duration, idempotency_key: key }));

@@ -2782,6 +2782,7 @@ def build_one_text_agent(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
+    consent_bundle_lookup: Callable[[str, str], Awaitable[Any]] | None = None,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
 
@@ -2796,6 +2797,11 @@ def build_one_text_agent(
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
+    async def track_current_consent(callback_context: Any) -> None:
+        await track_consent_access(
+            callback_context, lookup=consent_bundle_lookup or _requester_bundle
+        )
+
     return LlmAgent(
         name="one",
         model=text_model,
@@ -2809,7 +2815,7 @@ def build_one_text_agent(
         ),
         # Consent access is checked once per turn, then redacted before every
         # model call (consent_redaction.py, CONTRACT C3).
-        before_agent_callback=[timed_one_before_agent, _track_one_consent_access],
+        before_agent_callback=[timed_one_before_agent, track_current_consent],
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,
         # Queued messages join at a step boundary; last, so only a real model

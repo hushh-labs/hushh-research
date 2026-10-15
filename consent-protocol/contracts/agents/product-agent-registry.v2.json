@@ -3335,7 +3335,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "26ad0492526a5c413a0754f6b9f39c0b8cbc0913f490b8d38b646668d4a31802",
+      "system_instruction_sha256": "43e04cbec74a090aa0eb8228cbda181fdef2150f787a0412f1ff10467b95c6cf",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3494,7 +3494,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "6e048d54d6c51187d9f44d7e73b68e6fb2d5ddd032e2a01b66e4cb6086b3a232",
+      "system_instruction_sha256": "70e1d8a4e966b2286b46dfc229301de2f78c89a0b013fdc8c3e9047590c95eee",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3623,7 +3623,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "087fc1b9fd79d8d0419bfb8ea1c0063315027b9cc08adfecdf691c48a84a4dc2",
+      "system_instruction_sha256": "8c9266053a10ecae38bd36d85f110702bec821fe9d3e7852ffea68aafbd085eb",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -4525,7 +4525,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "49676252a35da6c32c7c223d977c378652a6e2a775853c14f81a72e4d5160444",
+      "system_instruction_sha256": "23f1d641e1f71a6d471c291309bbb91ef3ec240c1970144454888e14d40a48c8",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -5009,7 +5009,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "d73dbcaaf264d82455c3736368ab60afa6c754894eaf22dd9746566fa8810e11",
+      "system_instruction_sha256": "0aa2bebd766c567db4d55b009de38fe2c8d3562b5cb673e9f1e4815a64aa3898",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

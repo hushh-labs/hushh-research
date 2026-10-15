@@ -54,6 +54,7 @@ class QuoteBody(OperationBody):
 
 class ApprovalBody(OperationBody):
     duration_seconds: int = Field(strict=True, ge=3600, le=7_776_000)
+    model_processing_allowed: bool = Field(default=False, strict=True)
 
 
 class PurchaseBody(OperationBody):
@@ -192,6 +193,7 @@ async def approve(request_id: str, body: ApprovalBody, response: Response, token
             request_id=request_id,
             duration_seconds=body.duration_seconds,
             idempotency_key=str(body.idempotency_key),
+            model_processing_allowed=body.model_processing_allowed,
         )
         if result is None:
             raise HTTPException(

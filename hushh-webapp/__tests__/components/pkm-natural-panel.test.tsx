@@ -774,6 +774,26 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
+  it("binds identifier model permission to the reviewed note", async () => {
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "Synthetic employee SSN 123-45-6789" } });
+    const permission = screen.getByRole("checkbox", { name: /process personal identifiers/i });
+    fireEvent.click(permission);
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowIdentifierProcessing: true }),
+    ));
+    await waitFor(() => expect(note).not.toBeDisabled());
+    fireEvent.change(note, { target: { value: "Another synthetic employee detail" } });
+    expect(permission).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    await waitFor(() => expect(previewAgentPkmMemory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allowIdentifierProcessing: false }),
+    ));
+  });
+
   it("records an exact local duplicate as an expected preparation outcome", async () => {
     vi.spyOn(AgentPkmContextStore, "findLocalDuplicate").mockReturnValueOnce({
       kind: "exact", domain: "preferences", path: ["travel", "seat_choice"],

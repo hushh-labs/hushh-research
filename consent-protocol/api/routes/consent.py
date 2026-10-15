@@ -521,6 +521,8 @@ class ConsentApprovalPayload(BaseModel):
     # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
     model_config = ConfigDict(extra="forbid")
 
+    modelProcessingAllowed: bool = Field(default=False, strict=True)
+
     version: int = Field(default=1, ge=1, le=2)
 
     userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
@@ -677,8 +679,12 @@ async def approve_consent(
         logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
         raise HTTPException(status_code=400, detail="Invalid consent scope")
 
-    # Optional metadata on pending request (used for expiry hints)
-    metadata = pending_request.get("metadata", {})
+    # Requester metadata never grants model-processing permission.
+    from hushh_mcp.consent.model_processing import owner_model_processing
+
+    raw_metadata = pending_request.get("metadata")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+    metadata["model_processing"] = owner_model_processing(_body.modelProcessingAllowed)
     developer_label = (
         metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
     ) or pending_request["developer"]
@@ -694,7 +700,12 @@ async def approve_consent(
     )
 
     paid_approval = await paid_owner_approval(
-        subject_user_id, requestId, requested_scope, metadata, expiry_hours
+        subject_user_id,
+        requestId,
+        requested_scope,
+        metadata,
+        expiry_hours,
+        model_processing_allowed=_body.modelProcessingAllowed,
     )
     if paid_approval is not None:
         return paid_approval
