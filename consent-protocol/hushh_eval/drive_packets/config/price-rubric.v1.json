@@ -1,0 +1,12 @@
+{
+  "schema_version": "dpe.price-rubric.v1",
+  "rubric_version": "drive-packet-price-v1",
+  "source": "Eval-owned product rubric cells (fixture-author judgment). Not market value; no price-accuracy claim.",
+  "bounds_cents": [50, 50000],
+  "cells": {
+    "single": {"verified": [50, 2500], "limited": [50, 1500], "unverifiable": [50, 1000]},
+    "period": {"verified": [50, 2500], "limited": [50, 1500], "unverifiable": [50, 1000]},
+    "multi_period": {"verified": [50, 10000], "limited": [50, 5000], "unverifiable": [50, 2500]},
+    "collection": {"verified": [50, 25000], "limited": [50, 10000], "unverifiable": [50, 5000]}
+  }
+}
