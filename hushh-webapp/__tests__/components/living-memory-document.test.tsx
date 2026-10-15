@@ -433,27 +433,4 @@ describe("Profile Live Mirror", () => {
     expect(css).toContain(".live-mirror-markdown table { overflow-wrap: normal; }");
     expect(css).toContain(".live-mirror-markdown :is(th, td) { white-space: nowrap; }");
   });
-
-  it("copies preview text without the invisible word joiners that keep owner emails from linking", () => {
-    render(<LivingMemoryDocument />);
-    openTab("Preview");
-    const preview = screen.getByLabelText("Live memory preview");
-    expect(preview.textContent).toContain("owner\u2060@example.test");
-    const selection = vi.spyOn(window, "getSelection")
-      .mockReturnValue({ toString: () => "Email: owner\u2060@example.test" } as unknown as Selection);
-    try {
-      const setData = vi.fn();
-      // false: the browser's own copy, joiners included, was cancelled.
-      expect(fireEvent.copy(within(preview).getByText(/^Email:/), { clipboardData: { setData } })).toBe(false);
-      expect(setData).toHaveBeenCalledWith("text/plain", "Email: owner@example.test");
-
-      // Negative control: a selection without joiners is left to the browser.
-      selection.mockReturnValue({ toString: () => "Profile" } as unknown as Selection);
-      setData.mockClear();
-      expect(fireEvent.copy(preview, { clipboardData: { setData } })).toBe(true);
-      expect(setData).not.toHaveBeenCalled();
-    } finally {
-      selection.mockRestore();
-    }
-  });
 });

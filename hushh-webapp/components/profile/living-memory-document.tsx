@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState, type ClipboardEvent, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
 import { LiveMirrorClaimLines } from "@/components/profile/live-mirror-preview";
@@ -143,17 +143,6 @@ function ConflictDetails({ conflict, now, onNavigate }: { conflict: LiveMirrorCo
   );
 }
 
-/**
- * Word joiners (U+2060) in the preview stop owner emails and URLs from
- * becoming links. They are invisible, so a copy leaves them out of the clipboard.
- */
-function copyWithoutWordJoiners(event: ClipboardEvent<HTMLElement>) {
-  const selected = window.getSelection()?.toString() ?? "";
-  if (!selected.includes("\u2060")) return;
-  event.preventDefault();
-  event.clipboardData.setData("text/plain", selected.replace(/\u2060/g, ""));
-}
-
 function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNode }) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [recordLimits, setRecordLimits] = useState<Partial<Record<string, number>>>({});
@@ -254,8 +243,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
         <TabsContent value="preview" className="min-w-0">
           {view.markdown.trim() ? (
             // "live-mirror-markdown" keeps money table cells on one line so the table scrolls on a phone.
-            <div aria-label="Live memory preview" className="soul-memory-document live-mirror-markdown min-w-0 px-1"
-              onCopy={copyWithoutWordJoiners}>
+            <div aria-label="Live memory preview" className="soul-memory-document live-mirror-markdown min-w-0 px-1">
               <SafeMarkdown markdown={view.markdown} gfm linkPolicy="internal" />
             </div>
           ) : <Footnote className="px-1">Nothing to preview yet</Footnote>}
