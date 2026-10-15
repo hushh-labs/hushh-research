@@ -401,7 +401,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         expect(fullNumber).toMatch(/^\d[\d ]+\d$/);
         expect(fullNumber.replace(/ /g, "").endsWith(maskedNumber.slice(-4))).toBe(true);
         await expect(details.getByText(fullNumber, { exact: true })).toBeVisible();
-        await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
+        await expect(details).not.toContainText(/CVV|CVC|PIN/);
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toContain(`reveal:${lastCardId}`);
         await page.getByRole("button", { name: "Back", exact: true }).click();
       }
@@ -617,20 +617,26 @@ for (const width of [320, 393, 1440]) {
     const artwork = scan.locator("img");
     await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
-    const chooser = page.waitForEvent("filechooser");
-    await scan.click();
-    expect((await chooser).isMultiple()).toBe(false);
+    if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
+      await scan.click();
+      await expect(page.getByRole("region", { name: "Photograph your card" })).toBeVisible();
+      await page.getByRole("region", { name: "Photograph your card" }).getByRole("button", { name: "Cancel", exact: true }).click();
+    } else {
+      const chooser = page.waitForEvent("filechooser"); await scan.click();
+      expect((await chooser).isMultiple()).toBe(false);
+    }
     const number = form.getByLabel("Card number", { exact: true });
     const holder = form.getByLabel("Name on card", { exact: true });
     const expiry = form.getByLabel("Expiry (MM/YY)", { exact: true });
-    const cvv = form.getByLabel("CVV", { exact: true });
-    for (const field of [number, holder, expiry, cvv]) {
+    await expect(form.getByLabel("CVV", { exact: true })).toHaveCount(0);
+    await expect(form.getByLabel("PIN (optional)", { exact: true })).toHaveCount(0);
+    for (const field of [number, holder, expiry]) {
       await expect(field).toBeVisible();
       await expect(field).toHaveAttribute("required", "");
       expect(await field.evaluate(node => Boolean(node.closest("details")))).toBe(false);
     }
-    const bounds = await Promise.all([number, holder, expiry, cvv].map(field => field.boundingBox()));
-    for (const [first, second] of [[0, 2], [1, 3]]) {
+    const bounds = await Promise.all([number, holder, expiry].map(field => field.boundingBox()));
+    for (const [first, second] of [[0, 2]]) {
       expect(Math.abs(bounds[first]!.width - bounds[second]!.width)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.height - bounds[second]!.height)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.x - bounds[second]!.x)).toBeLessThan(1);
@@ -646,12 +652,12 @@ for (const width of [320, 393, 1440]) {
     await expect(network).toBeVisible();
     expect(await network.evaluate(el => el.closest("details"))).toBeNull();
     const networkBounds = (await network.boundingBox())!;
-    for (const label of ["Expiry (MM/YY)", "CVV"]) {
+    for (const label of ["Expiry (MM/YY)"]) {
       const box = (await form.getByLabel(label, { exact: true }).boundingBox())!;
       expect(networkBounds.y).toBeGreaterThanOrEqual(box.y + box.height);
     }
     await page.getByText("Additional details", { exact: true }).click();
-    for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "CVV", "PIN (optional)", "Issuing region (optional)"]) {
+    for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
     await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
@@ -691,8 +697,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await form.getByLabel("Card network (optional)", { exact: true }).click();
   await page.getByRole("option", { name: "Mastercard", exact: true }).click();
   await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
-  await form.getByLabel("CVV", { exact: true }).fill("321");
-  await form.getByRole("button", { name: "Save card", exact: true }).click();
+  await form.getByRole("button", { name: "Add to Wallet", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   const selected = page.getByTestId("wallet-selected-card");
   const face = selected.getByTestId("wallet-card-face");
@@ -718,11 +723,11 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   expect(errors).toEqual([]);
 });
 
-test("all twenty payment finishes fit long names and a revealed 19-digit number at 320px", async ({ page }) => {
+test("neutral payment cards fit long names and a revealed 19-digit number at 320px", async ({ page }) => {
   const errors = await open(page, 320, "light", { artworkGallery: true });
   await mount(page, false);
   const faces = page.getByTestId("wallet-card-face");
-  await expect(faces).toHaveCount(40);
+  await expect(faces).toHaveCount(2);
   const measurements = await faces.evaluateAll((elements) => elements.map((face) => {
     const box = (element: Element) => {
       const rect = element.getBoundingClientRect();
@@ -734,7 +739,7 @@ test("all twenty payment finishes fit long names and a revealed 19-digit number 
     return { artwork: face.getAttribute("data-card-artwork"), face: box(face), number: box(number), fields, text,
       top: [...face.querySelector('[data-slot="wallet-card-top"]')!.children].map(box) };
   }));
-  expect(new Set(measurements.map((entry) => entry.artwork)).size).toBe(20);
+  expect(new Set(measurements.map((entry) => entry.artwork)).size).toBe(1);
   for (const entry of measurements) {
     expect(Math.abs(entry.face.width / entry.face.height - ISO_RATIO)).toBeLessThan(0.01);
     for (const part of [...entry.fields, ...entry.text, ...entry.top]) {
@@ -920,19 +925,19 @@ for (const width of [390, 1440]) {
         await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
         await expectAligned();
         if (name === "Add") {
-          for (const label of ["Show", "Hide", "Show", "Hide"]) {
-            const button = page.getByRole("button", { name: `${label} CVV and PIN`, exact: true });
+          for (let press = 0; press < 4; press++) {
+            const button = page.getByRole("button", { name: "Use neutral design", exact: true });
             await button.evaluate(el => {
               const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
               root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
             });
             const box = await button.boundingBox();
-            if (!box) throw new Error("PIN visibility control missing");
+            if (!box) throw new Error("Design control missing");
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
             expect(await alignment()).toBeLessThan(2);
             await page.mouse.up();
-            await expect(page.getByRole("button", { name: `${label === "Show" ? "Hide" : "Show"} CVV and PIN`, exact: true })).toBeVisible();
+            await expect(button).toBeVisible();
             await expectAligned();
             expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
           }
@@ -951,10 +956,10 @@ for (const width of [390, 1440]) {
     await expect(details).toContainText("4242 4242 4242 4242");
     await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
-    await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
+    await expect(details).not.toContainText(/CVV|CVC|PIN/);
     const icons = details.locator('[data-slot="settings-row-icon"] svg');
-    await expect(icons).toHaveCount(8);
-    expect(await icons.evaluateAll(elements => elements.slice(0, 7).every(icon => {
+    await expect(icons).toHaveCount(6);
+    expect(await icons.evaluateAll(elements => elements.slice(0, 5).every(icon => {
       const keyAccent = icon.querySelector('defs pattern circle');
       if (keyAccent) {
         const ink = icon.querySelector('defs pattern rect');

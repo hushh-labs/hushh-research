@@ -74,7 +74,7 @@ describe("buildConsentExportForScope", () => {
 
   it("excludes private-agent memory from a root export while retaining approved ordinary information", async () => {
     pkmMocks.getEncryptedData.mockResolvedValue(null);
-    pkmMocks.loadFullBlob.mockResolvedValue({ one_memory: { markdown: "must stay private" }, travel: { seat: "aisle" } });
+    pkmMocks.loadFullBlob.mockResolvedValue({ one_memory: { markdown: "must stay private" }, " WaLLeT ": { secrets: { pan: "must stay private" } }, travel: { seat: "aisle" } });
     const built = await buildConsentExportForScope({ userId: "user_1", scope: "pkm.read", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" });
     expect(built.payload).toMatchObject({ travel: { seat: "aisle" } });
     expect(built.payload).not.toHaveProperty("one_memory");

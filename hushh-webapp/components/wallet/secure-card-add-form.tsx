@@ -14,10 +14,6 @@ import {
   ProfilePaneCardIcon,
   ProfilePaneCardNetworkIcon,
   ProfilePaneGlobeIcon,
-  ProfilePaneKeyIcon,
-  ProfilePanePreviewIcon,
-  ProfilePanePreviewOffIcon,
-  ProfilePaneSecurityIcon,
 } from "@/components/profile/profile-pane-icons";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
@@ -33,7 +29,12 @@ import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import { WalletService, type WalletNetworkContext, type WalletNetworkResult, type WalletCardInput } from "@/lib/services/wallet-service";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 
+import { type WalletCardArtwork } from "@/lib/wallet/card-artwork";
+import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
+import { WalletCardFace } from "./wallet-card-face";
+import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
 
@@ -46,9 +47,6 @@ const ERROR_COPY: Record<string, string> = {
   cardholder_name_invalid: "Use the name on your card, up to 80 characters.",
   issuing_region_invalid: "Choose a valid issuing region or leave it blank.",
   brand_region_mismatch: "This card network is not issued in the selected region.",
-  cvv_required: "Enter the security code on your card.",
-  cvv_invalid: "Check the security code for this card network.",
-  pin_invalid: "A card PIN is 4 to 6 digits.",
   expiry_month_invalid: "Enter a valid expiry month.",
   expiry_year_invalid: "Enter a valid expiry year.",
   card_expired: "This card is already expired.",
@@ -63,6 +61,8 @@ export interface SecureCardAddFormProps {
   showIntroduction?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
+  /** Private design changes are owned by the Wallet page, not chat writers. */
+  artworkEnabled?: boolean;
   scanInToolbar?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
   active?: boolean;
@@ -72,29 +72,29 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
   const [pan, setPan] = useState(initialPan ?? "");
   const [network, setNetwork] = useState<CardBrand | "">("");
-  const [cvv, setCvv] = useState("");
-  const [pin, setPin] = useState("");
+  const draftId = useRef(walletOperationId());
+  const edited = useRef({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
+  const [scanReading, setScanReading] = useState<CardScanDraft | null>(null);
+  const [artwork, setArtwork] = useState<WalletCardArtwork | undefined>();
   const [expiry, setExpiry] = useState("");
   const [issuingRegion, setIssuingRegion] = useState("");
-  const [revealSecrets, setRevealSecrets] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [artworkBusy, setArtworkBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
     if (!saving.current) onCancel?.();
     return true;
   });
   const [additionalOpen, setAdditionalOpen] = useState(false);
-  useEffect(() => {
-    if (!active) setRevealSecrets(false);
-  }, [active]);
+  useEffect(() => { if (!active) { setScanReading(null); setArtwork(undefined); } }, [active]);
   useEffect(() => {
     if (errors.length) errorsRef.current?.focus();
   }, [errors]);
@@ -106,6 +106,16 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const [networkLoading, setNetworkLoading] = useState(false);
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const context = getNetworkContext?.() ?? null;
+  const ownerKey = `${epoch}:${context?.userId ?? ""}`;
+  const previousOwner = useRef(ownerKey);
+  const draftVisible = active && previousOwner.current === ownerKey;
+  useEffect(() => {
+    if (previousOwner.current === ownerKey) return;
+    previousOwner.current = ownerKey;
+    setPan(""); setCardholderName(""); setExpiry(""); setNetwork(""); setScanReading(null); setArtwork(undefined);
+    setIssuingRegion(""); setErrors([]); setAdditionalOpen(false);
+    edited.current = { pan: false, cardholderName: false, expiry: false }; draftId.current = walletOperationId();
+  }, [ownerKey]);
   const contextRef = useRef(context);
   contextRef.current = context;
   const digits = normalizePan(pan);
@@ -158,7 +168,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || scanning || networkLoading || !active) return;
+    if (saving.current || scanning || artworkBusy || networkLoading || !draftVisible) return;
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
@@ -166,15 +176,15 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       cardholderName: cardholderName.trim(),
       pan,
       brand: network || undefined,
-      cvv: cvv.trim(),
-      pin: pin.trim() || undefined,
+      draftId: draftId.current,
+      artwork,
       expiryMonth: Number(match?.[1] ?? 0),
       expiryYear: match ? (rawYear < 100 ? 2000 + rawYear : rawYear) : 0,
       issuingRegion: issuingRegion || undefined,
     };
     const result = validateCardForRegion({ ...card, brand: network || brand });
     if (!result.valid) {
-      if (result.errors.some(code => ["pin_invalid", "brand_region_mismatch", "issuing_region_invalid"].includes(code))) setAdditionalOpen(true);
+      if (result.errors.some(code => ["brand_region_mismatch", "issuing_region_invalid"].includes(code))) setAdditionalOpen(true);
       setErrors(result.errors);
       return;
     }
@@ -185,14 +195,14 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       await onSubmit(card);
       // Some hosts leave the form mounted after saving. Never retain its secrets.
       setPan("");
-      setCvv("");
-      setPin("");
+      draftId.current = walletOperationId();
+      edited.current = { pan: false, expiry: false, cardholderName: false };
+      setScanReading(null); setArtwork(undefined);
       setCardholderName("");
       setExpiry("");
       setNetwork("");
       setIssuingRegion("");
       setAdditionalOpen(false);
-      setRevealSecrets(false);
     } catch {
       // Raw service errors can contain request details; keep the draft for retry.
       toast.error("Your card could not be saved. Please try again.");
@@ -202,11 +212,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} active={active} disabled={submitting} featured={scanInToolbar} onBusyChange={setScanning} onRead={(fields) => {
-        setPan(fields.pan);
-        setExpiry(fields.expiry ?? "");
-        setCardholderName(fields.cardholderName ?? "");
-        setNetwork(""); setCvv(""); setPin(""); setRevealSecrets(false); setErrors([]);
+  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} onBusyChange={setScanning} onRead={(draft) => {
+        setScanReading(draft); setArtwork(undefined);
+        if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
+        if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(draft.fields.expiry);
+        if (draft.fields.cardholderName && (!edited.current.cardholderName || !cardholderName.trim())) setCardholderName(draft.fields.cardholderName);
+        setNetwork(""); setErrors([]);
       }} /> : null;
 
   return (
@@ -225,7 +236,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         <p>Enter the details printed on your card.</p>
       </div> : null}
       {!scanInToolbar ? scanner : null}
-      <fieldset disabled={submitting || scanning || !active} className={styles.fields}>
+      {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
+      {draftVisible && (scanReading || digits.length >= 13) ? <div className="mx-auto w-full max-w-[26.5rem]">
+        <WalletCardFace artwork={artwork} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
+      </div> : null}
+      <fieldset disabled={submitting || scanning || !draftVisible} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
         <div className={styles.row}>
           <div className={cn(styles.field, styles.number)}>
@@ -233,8 +248,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
             <Input
               id={`${id}-number`}
               dir="ltr"
-              value={pan}
-              onChange={(event) => setPan(event.target.value.replace(/\D/g, "").slice(0, 19))}
+              value={draftVisible ? pan : ""}
+              onChange={(event) => { edited.current.pan = true; setArtwork(undefined); setPan(event.target.value.replace(/\D/g, "").slice(0, 19)); }}
               inputMode="numeric"
               autoComplete="off"
               placeholder="XXXX XXXX XXXX XXXX"
@@ -249,8 +264,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
             <Label htmlFor={`${id}-holder`}><ProfilePaneAccountIcon className={styles.fieldIcon} />Name on card</Label>
             <Input
               id={`${id}-holder`}
-              value={cardholderName}
-              onChange={(event) => setCardholderName(event.target.value)}
+              value={draftVisible ? cardholderName : ""}
+              onChange={(event) => { edited.current.cardholderName = true; setCardholderName(event.target.value); }}
               autoComplete="off"
               maxLength={80}
               required
@@ -263,41 +278,14 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
               id={`${id}-expiry`}
-              value={expiry}
-              onChange={(event) => setExpiry(event.target.value)}
+              value={draftVisible ? expiry : ""}
+              onChange={(event) => { edited.current.expiry = true; setExpiry(event.target.value); }}
               inputMode="numeric"
               autoComplete="off"
               placeholder="MM/YY"
               maxLength={7}
               required
               {...fieldErrors("expiry_month_invalid", "expiry_year_invalid", "card_expired")}
-            />
-          </div>
-          <div className={styles.field}>
-            <div className={styles.secretLabel}>
-            <Label htmlFor={`${id}-cvv`}><ProfilePaneSecurityIcon className={styles.fieldIcon} />CVV</Label>
-              <button
-                type="button"
-                className={styles.reveal}
-                onClick={() => setRevealSecrets((current) => !current)}
-                aria-pressed={revealSecrets}
-                aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
-                data-testid="secure-card-toggle-secrets"
-              >
-                {revealSecrets ? <ProfilePanePreviewOffIcon /> : <ProfilePanePreviewIcon />}
-                {revealSecrets ? "Hide" : "Show"}
-              </button>
-            </div>
-            <Input
-              id={`${id}-cvv`}
-              type={revealSecrets ? "text" : "password"}
-              value={cvv}
-              onChange={(event) => setCvv(event.target.value.replace(/\D/g, "").slice(0, 4))}
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={4}
-              required
-              {...fieldErrors("cvv_required", "cvv_invalid")}
             />
           </div>
         </div>
@@ -322,20 +310,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
           <div className={styles.fields}>
         <div className={styles.row}>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-pin`}><ProfilePaneKeyIcon className={styles.fieldIcon} />PIN (optional)</Label>
-            <Input
-              id={`${id}-pin`}
-              placeholder="Leave blank to skip"
-              type={revealSecrets ? "text" : "password"}
-              value={pin}
-              onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={6}
-              {...fieldErrors("pin_invalid")}
-            />
-          </div>
-          <div className={styles.field}>
             <Label htmlFor={`${id}-region`}><ProfilePaneGlobeIcon className={styles.fieldIcon} />Issuing region (optional)</Label>
             <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || scanning || !active}>
               <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
@@ -351,6 +325,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
           </div>
         </details>
       </fieldset>
+      {artworkEnabled ? <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} onChange={setArtwork} onBusyChange={setArtworkBusy} /> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}
@@ -359,7 +334,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       <FlowActionGroup
         className="mx-auto max-w-[244px]"
         stacked
-        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
+        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || artworkBusy || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
         secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>

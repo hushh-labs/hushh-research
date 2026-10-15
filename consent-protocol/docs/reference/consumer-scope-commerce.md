@@ -3820,3 +3820,24 @@ uniform settings rows, sharing-history geometry and confirmed revocation. Back
 and Search receipts were regenerated together; workflow history and the capability
 graph remain unchanged. These synthetic checks do not replace the hosted full
 suite, private-agent software update or real Sandbox lifecycle receipts.
+
+
+### 2026-10-15 current-main integration qualification
+
+The existing infrastructure branch integrates main at
+`edcff65ed5f31f81fc90ff2fe9fff23e06cd44a8` through a normal merge. Calendar
+availability, the Wallet intake/artwork implementation and four-state private-agent
+presence are preserved together with the local private-placement and Back fences.
+The reviewed Wallet branch-scope exceptions retain their existing consent authority;
+root exports omit Wallet regardless of domain case or surrounding whitespace.
+The nearest five frontend files pass 95 focused cases, including pending-save Back
+refusal and cancellation of an inline scan before cancelling Add. This evidence is
+source qualification, not deployed payment acceptance. The preceding candidate
+`d46a9327e60f9c3cc42207d355e5618ea87d86b7` passed canonical core; the merged
+candidate must pass its own core and exact-head hosted CI before release.
+
+The previously approved temporary OpenID-token creation grant used for the primary
+Azure model repair has been removed. No additional financial action or new IAM
+authority is implied by this integration. Both reviewer funding totals remain
+$10.50 and the cumulative Sandbox capital remains $15. Scope purchases, term
+maturity, withdrawals and private-agent Stripe account/balance reads remain pending.

@@ -90,6 +90,7 @@ export class GoogleCalendarError extends Error {
     message: string,
     readonly reasonCode: string | null,
     readonly status: number,
+    readonly calendarOptions?: CalendarSource[],
   ) {
     super(message);
     this.name = "GoogleCalendarError";
@@ -102,19 +103,19 @@ export class GoogleCalendarError extends Error {
 
 async function calendarError(response: Response, fallback: string): Promise<GoogleCalendarError> {
   const body = (await response.json().catch(() => null)) as {
-    detail?: { message?: string; reason_code?: string } | string;
+    detail?: { message?: string; reason_code?: string; calendar_options?: CalendarSource[] } | string;
   } | null;
   const detail = body?.detail;
   const message = (typeof detail === "string" ? detail : detail?.message) || fallback;
   const reason = typeof detail === "object" && typeof detail?.reason_code === "string"
     ? detail.reason_code : null;
-  return new GoogleCalendarError(message, reason, response.status);
+  return new GoogleCalendarError(message, reason, response.status, typeof detail === "object" && Array.isArray(detail?.calendar_options) ? detail.calendar_options : undefined);
 }
 
 export type CalendarOpening = { start_at: string; end_at: string; available_until?: string };
-export type CalendarSource = { id: string; name?: string; primary?: boolean; access_role?: string; background_color?: string | null };
-export type CalendarDailyResponse = CalendarEventsResponse & { date: string; time_zone: string; calendars: CalendarSource[]; unreadable_calendars: CalendarSource[] };
-export type CalendarAvailability = { windows: (CalendarOpening & { duration_minutes: number })[]; full_count: number; requested_duration_minutes: number; time_zone: string; date: string; time_min: string; time_max: string; calendars: CalendarSource[] };
+export type CalendarSource = { availability_default_included?: boolean; availability_included?: boolean; time_zone?: string | null; id: string; name?: string; primary?: boolean; access_role?: string; background_color?: string | null };
+export type CalendarDailyResponse = CalendarEventsResponse & { date: string; time_zone: string; calendars: CalendarSource[]; unreadable_calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
+export type CalendarAvailability = { windows: (CalendarOpening & { duration_minutes: number })[]; full_count: number; requested_duration_minutes: number; time_zone: string; date: string; time_min: string; time_max: string; calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
 export type CalendarAttendanceReview = { review_id: string; review_token: string; title: string; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
 export type CalendarAttendanceResult = { calendar: "declined" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };
@@ -358,11 +359,12 @@ export class GoogleCalendarService {
   private static async scheduleRead<T>(path: string, body: object, auth: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       auth.signal?.throwIfAborted();
+      if (path === "schedule/availability" && typeof navigator !== "undefined" && !navigator.onLine) throw new GoogleCalendarError("You’re offline. Connect to the internet to check availability.", "calendar_offline", 0);
       if (auth.isEffectCurrent?.() === false) throw new DOMException("Superseded", "AbortError");
       try { return await this.scheduleRequest<T>(path, null, body, auth); }
       catch (error) {
-        const transient = error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError") || (error instanceof GoogleCalendarError && [408, 502, 503, 504].includes(error.status));
-        if (!transient || attempt >= 2 || auth.signal?.aborted || auth.isEffectCurrent?.() === false) throw error;
+        const transient = error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError") || (error instanceof GoogleCalendarError && ([408, 502, 503, 504].includes(error.status) || (path === "schedule/availability" && error.status === 429)));
+        if ((path === "schedule/availability" && ((typeof navigator !== "undefined" && !navigator.onLine) || (error instanceof GoogleCalendarError && ["calendar_invalid_response", "calendar_unreadable"].includes(error.reasonCode || "")))) || !transient || attempt >= 2 || auth.signal?.aborted || auth.isEffectCurrent?.() === false) throw error;
         await new Promise<void>((resolve, reject) => {
           const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
           const timer = setTimeout(() => { auth.signal?.removeEventListener("abort", abort); resolve(); }, attempt === 0 ? 750 : 2000);
@@ -382,9 +384,25 @@ export class GoogleCalendarService {
     return { date: params.date, time_zone: params.timeZone, start_time: params.startTime, end_time: params.endTime, duration_minutes: params.durationMinutes };
   }
 
-  static async availability(params: Omit<CalendarWindowParams, "vaultOwnerToken"> & { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarAvailability> {
-    const result = await this.scheduleRead<CalendarAvailability>("schedule/availability", this.windowBody(params), params);
-    if (!result || result.date !== params.date || result.time_zone !== params.timeZone || !Array.isArray(result.windows) || result.windows.length > 3 || !Number.isInteger(result.full_count) || result.full_count < result.windows.length || result.requested_duration_minutes !== params.durationMinutes || !Array.isArray(result.calendars) || !result.calendars.length || result.windows.some(window => !Number.isFinite(Date.parse(window.start_at)) || !Number.isFinite(Date.parse(window.end_at)) || Date.parse(window.end_at) <= Date.parse(window.start_at) || window.duration_minutes < params.durationMinutes || Math.floor((Date.parse(window.end_at) - Date.parse(window.start_at)) / 60000) !== window.duration_minutes)) throw new GoogleCalendarError("Availability could not be checked.", "calendar_invalid_response", 502);
+  private static isFullLocalDay(result: CalendarAvailability, date: string, zone: string) {
+    try {
+      if (typeof result.time_min !== "string" || typeof result.time_max !== "string") return false;
+      const start = Date.parse(result.time_min), end = Date.parse(result.time_max);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+      const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" });
+      const day = (instant: number) => {
+        const parts = formatter.formatToParts(new Date(instant));
+        return ["year", "month", "day"].map(type => parts.find(part => part.type === type)!.value.padStart(type === "year" ? 4 : 2, "0")).join("-");
+      };
+      // Verify the civil-date transitions, including skipped/repeated midnight.
+      // A clipped 9–5 response or a rolling 24-hour response cannot pass.
+      return day(start) === date && day(start - 1) < date && day(end - 1) === date && day(end) > date;
+    } catch { return false; }
+  }
+
+  static async availability(params: Omit<CalendarWindowParams, "vaultOwnerToken"> & { calendarOverrides?: Record<string, boolean>; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarAvailability> {
+    const result = await this.scheduleRead<CalendarAvailability>("schedule/availability", { ...this.windowBody({ ...params, startTime: "00:00", endTime: "24:00" }), ...(params.calendarOverrides && Object.keys(params.calendarOverrides).length ? { calendar_overrides: params.calendarOverrides } : {}) }, params);
+    if (!result || !this.isFullLocalDay(result, params.date, params.timeZone) || result.date !== params.date || result.time_zone !== params.timeZone || !Array.isArray(result.windows) || result.windows.length > 3 || !Number.isInteger(result.full_count) || result.full_count < result.windows.length || result.requested_duration_minutes !== params.durationMinutes || !Array.isArray(result.calendars) || !result.calendars.length || result.windows.some(window => !Number.isFinite(Date.parse(window.start_at)) || !Number.isFinite(Date.parse(window.end_at)) || Date.parse(window.end_at) <= Date.parse(window.start_at) || Date.parse(window.start_at) < Date.parse(result.time_min) || Date.parse(window.end_at) > Date.parse(result.time_max) || window.duration_minutes < params.durationMinutes || Math.floor((Date.parse(window.end_at) - Date.parse(window.start_at)) / 60000) !== window.duration_minutes)) throw new GoogleCalendarError("Availability could not be checked.", "calendar_invalid_response", 502);
     return result;
   }
 

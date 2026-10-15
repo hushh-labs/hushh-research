@@ -57,6 +57,7 @@ def test_disconnect_cannot_revoke_another_owners_calendar(monkeypatch) -> None:
 
 _TODAY = {"date": "2026-10-14", "time_zone": "Asia/Kolkata"}
 _WINDOW = {**_TODAY, "start_time": "09:00", "end_time": "17:00", "duration_minutes": 30}
+_FULL_DAY = {**_WINDOW, "start_time": "00:00", "end_time": "24:00"}
 _REVIEW = {**_WINDOW, "event_id": "invitation", "calendar_id": "primary", "offer_times": False}
 _CONFIRM = {"review_id": "a-valid-review-identifier", "review_token": "a" * 40}
 
@@ -65,7 +66,7 @@ _CONFIRM = {"review_id": "a-valid-review-identifier", "review_token": "a" * 40}
     ("path", "payload"),
     [
         ("/schedule/today", _TODAY),
-        ("/schedule/availability", _WINDOW),
+        ("/schedule/availability", _FULL_DAY),
         ("/attendance/review", _REVIEW),
         ("/attendance/confirm", _CONFIRM),
     ],
@@ -80,7 +81,7 @@ def test_protected_schedule_actions_require_authentication(path: str, payload: d
     ("path", "payload", "method"),
     [
         ("/schedule/today", _TODAY, "today"),
-        ("/schedule/availability", _WINDOW, "free_windows"),
+        ("/schedule/availability", _FULL_DAY, "free_windows"),
         ("/attendance/review", _REVIEW, "review"),
         ("/attendance/confirm", _CONFIRM, "confirm"),
     ],
@@ -127,7 +128,7 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
     ("path", "payload"),
     [
         ("/schedule/today", _TODAY),
-        ("/schedule/availability", _WINDOW),
+        ("/schedule/availability", _FULL_DAY),
     ],
 )
 def test_schedule_reads_reject_vault_authority_without_verified_firebase_identity(
@@ -238,3 +239,70 @@ def test_mail_permission_failure_stays_typed_and_does_not_look_like_calendar_fai
     assert result.status_code == 409
     assert result.json()["detail"]["reason_code"] == "GMAIL_SEND_PERMISSION_REQUIRED"
     assert result.json()["detail"]["message"] == "Allow Mail sending before offering another time."
+
+
+def test_schedule_selection_overrides_are_strict_and_do_not_enter_attendance(monkeypatch):
+    calls = []
+
+    class Schedule:
+        async def free_windows(self, **kwargs):
+            calls.append(kwargs)
+            return {}
+
+    monkeypatch.setattr(calendar_workspace, "_schedule", lambda: Schedule())
+    app = _app()
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "owner"
+    client = TestClient(app)
+    payload = {**_FULL_DAY, "calendar_overrides": {"shared": False, "holiday": True}}
+    assert client.post("/api/one/calendar/schedule/availability", json=payload).status_code == 200
+    assert calls == [{"user_id": "owner", **payload}]
+    for invalid in ["false", 0, None]:
+        assert (
+            client.post(
+                "/api/one/calendar/schedule/availability",
+                json={**_FULL_DAY, "calendar_overrides": {"shared": invalid}},
+            ).status_code
+            == 422
+        )
+    assert (
+        "calendar_overrides"
+        not in calendar_workspace.CalendarAttendanceReview(
+            **_REVIEW, calendar_overrides={"shared": False}
+        ).model_dump()
+    )
+
+
+def test_availability_failure_preserves_owner_selection_catalog_without_windows(monkeypatch):
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    options = [{"id": "work", "availability_included": True, "availability_default_included": True}]
+
+    class Schedule:
+        async def free_windows(self, **kwargs):
+            error = GoogleConnectionError(
+                "Cannot read calendar", status_code=409, reason_code="calendar_unreadable"
+            )
+            error.calendar_options = options
+            raise error
+
+    monkeypatch.setattr(calendar_workspace, "_schedule", lambda: Schedule())
+    app = _app()
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "owner"
+    result = TestClient(app).post("/api/one/calendar/schedule/availability", json=_FULL_DAY)
+    assert result.status_code == 409
+    assert result.headers["cache-control"] == "private, no-store"
+    assert result.json()["detail"]["calendar_options"] == options
+    assert "windows" not in result.json()
+
+
+def test_full_day_contract_defaults_and_rejects_stale_office_window():
+    from pydantic import ValidationError
+
+    full = calendar_workspace.CalendarAvailabilityWindow(**_TODAY).model_dump()
+    assert (full["start_time"], full["end_time"]) == ("00:00", "24:00")
+    booking = calendar_workspace.CalendarAttendanceReview(
+        **_TODAY, event_id="invitation"
+    ).model_dump()
+    assert (booking["start_time"], booking["end_time"]) == ("09:00", "17:00")
+    with pytest.raises(ValidationError):
+        calendar_workspace.CalendarAvailabilityWindow(**_WINDOW)

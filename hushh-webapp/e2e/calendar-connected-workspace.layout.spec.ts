@@ -116,7 +116,7 @@ function freeWindows(body: Record<string, unknown>) {
     if (cursor >= right) break;
   }
   return { windows: windows.slice(0, 3), full_count: windows.length, requested_duration_minutes: body.duration_minutes,
-    calendars: sources, date: day, time_zone: zone, time_min: new Date(rangeStart).toISOString(), time_max: new Date(right).toISOString() };
+    calendars: sources, date: day, time_zone: zone, time_min: new Date(left).toISOString(), time_max: new Date(right).toISOString() };
 }
 const privateLongTitle = "QA Product Sync with the architecture team and a deliberately long private planning title that must remain complete in event details";
 const privateLongLocation = "A long private meeting location with room instructions and a confidential customer source that must remain complete in event details";
@@ -126,7 +126,7 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty") {
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard") {
+async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard", replay: false | "future" | "today" = false) {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -134,7 +134,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
   page.removeAllListeners("pageerror");
   page.removeAllListeners("console");
   await page.setViewportSize({ width, height: width > 1000 ? 1100 : 950 });
-  await page.clock.setFixedTime(new Date(qaNow));
+  await page.clock.setFixedTime(new Date(replay === "today" ? "2030-01-17T08:42:20Z" : replay ? "2030-01-16T02:00:00Z" : qaNow));
   const errors: string[] = [];
   const unexpectedRequests: string[] = [];
   await page.route("**/*", route => { unexpectedRequests.push(route.request().url()); return route.abort(); });
@@ -155,20 +155,29 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     const body = request.postDataJSON() as Record<string, unknown>;
     const call = { path: routePath, body, authorization: request.headers().authorization } as typeof calls[number];
     calls.push(call);
+    if (replay && routePath.endsWith("/schedule/availability")) {
+      const bundle = JSON.parse(fs.readFileSync(process.env.CALENDAR_PROVIDER_REPLAY_PATH!, "utf8"));
+      expect(body.time_zone).toBe("Asia/Calcutta");
+      expect(body.start_time).toBe("00:00"); expect(body.end_time).toBe("24:00");
+      const response = replay === "today" ? bundle.today[String(body.duration_minutes)] : bundle.days[String(body.date)][String(body.duration_minutes)];
+      return route.fulfill({ json: response });
+    }
     if (routePath.endsWith("/schedule/today")) return route.fulfill({ json: { events: fixtureEvents(String(body.date), variant), date: body.date, time_zone: body.time_zone, calendars: sources, unreadable_calendars: [] } });
     if (routePath.endsWith("/schedule/availability")) {
       const response = freeWindows(body); call.response = response;
       return failAvailability
-        ? route.fulfill({ status: 502, json: { detail: { message: "A subscribed calendar was unavailable.", reason_code: "calendar_invalid_response" } } })
+        ? route.fulfill({ status: 502, json: { detail: { message: "Availability could not be checked.", reason_code: "calendar_invalid_response" } } })
         : route.fulfill({ json: response });
     }
     return route.fulfill({ status: 500, json: { detail: "Unexpected fixture request" } });
   });
-  await page.goto(`https://calendar-fixture.test/calendar-connected-fixture${locked ? "?locked=1" : ""}`);
+  await page.goto(`https://calendar-fixture.test/calendar-connected-fixture${replay ? "?providerReplay=1" : locked ? "?locked=1" : ""}`);
+  expect(page.url()).toBe(`https://calendar-fixture.test/calendar-connected-fixture${replay ? "?providerReplay=1" : locked ? "?locked=1" : ""}`);
+  await expect(page).toHaveTitle("Connected Calendar QA");
   await awaitProductFont(page);
   await expect(page.getByRole("heading", { name: "Calendar", exact: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toBeVisible();
   if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
-  return { errors, unexpectedRequests, calls, failAvailability: () => { failAvailability = true; } };
+  return { errors, unexpectedRequests, calls, failAvailability: (failed = true) => { failAvailability = failed; } };
 }
 async function assertActionsClearChrome(page: Page, width: number, suffix: string) {
   await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -249,7 +258,7 @@ for (const width of [320, 390, 1440]) {
     const menu = page.getByRole("button", { name: "Calendar settings and actions", exact: true });
     await menu.focus(); await page.keyboard.press("Enter");
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("Time zone and availability hours for this session.");
+    await expect(page.getByRole("dialog")).toContainText("Time zone and calendars for this session. Free time checks the whole selected day.");
     for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
@@ -259,7 +268,7 @@ for (const width of [320, 390, 1440]) {
     await page.keyboard.press("ArrowRight"); await expect(tabs.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Home");
     await page.getByRole("tab", { name: "Free time", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "5 available slots today", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "7 available slots today", exact: true })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Free time", exact: true })).toHaveCSS("background-color", selectedSurface);
     await expect(page.getByRole("tab", { name: "Today", exact: true })).toHaveCSS("background-color", inactiveSurface);
     const availabilityCall = calls.find(call => call.path.endsWith("/schedule/availability"))!;
@@ -267,7 +276,7 @@ for (const width of [320, 390, 1440]) {
     expect(availabilityCall.authorization).toBe("Bearer synthetic-firebase-owner-token");
     expect(availabilityCall.response?.windows).toHaveLength(3);
     await expect(page.getByRole("button", { name: /^Ask One about/ })).toHaveCount(3);
-    await expect(page.getByText("Showing 3 of 5 available windows.")).toBeVisible();
+    await expect(page.getByText("Showing 3 of 7 available windows.")).toBeVisible();
     for (const window of availabilityCall.response!.windows) expect(Math.floor((Date.parse(window.end_at) - Date.parse(window.start_at)) / 60_000)).toBe(window.duration_minutes);
     await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = 0; });
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-free-time-${width}.png`) });
@@ -278,7 +287,7 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("button", { name: /Need a different time/ }).click();
     await expect(page.getByTestId("calendar-action")).toContainText("availability hours are 09:00 to 17:00");
     await page.getByRole("tab", { name: "30 min", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "4 available slots today", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "6 available slots today", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
     await expect(page.getByLabel("Selected date")).toHaveValue("2026-10-15");
     await expect(page.getByRole("link", { name: /View full availability/ })).toHaveAttribute("href", "https://calendar.google.com/calendar/u/0/r/day/2026/10/15?authuser=qa-owner%40example.com");
@@ -288,6 +297,15 @@ for (const width of [320, 390, 1440]) {
     await menu.click(); await page.getByRole("menuitem", { name: "Refresh Calendar", exact: true }).click();
     await expect(page.getByText("Availability could not be checked.", { exact: true })).toBeVisible();
     await expect(page.getByText("No free slots in this window.", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(1);
+    await expect(page.getByText("Checking again automatically when connected.", { exact: true })).toHaveCount(0);
+    await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-free-error-${width}.png`) });
+    failAvailability(false);
+    await page.getByRole("button", { name: "Retry", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: /available slots on this day/ })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
     await page.getByRole("button", { name: "Try Calendar Agent with One", exact: true }).click(); await expect(page.getByTestId("calendar-action")).toHaveText("calendar-chat");
     await page.getByRole("button", { name: "Disconnect Calendar", exact: true }).click(); await expect(page.getByTestId("calendar-action")).toHaveText("disconnect-calendar");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -301,7 +319,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
-    await expect(page.getByRole("heading", { name: "5 available slots on this day", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "7 available slots on this day", exact: true })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Free time", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(locked.calls.filter(call => call.path.endsWith("/schedule/availability")).at(-1)?.body.date).toBe("2026-10-15");
     expect(locked.errors).toEqual([]);
@@ -332,5 +350,38 @@ for (const width of [320, 390, 1440]) {
     expect(emptyDisconnect.y + emptyDisconnect.height).toBeLessThanOrEqual(emptyChrome.y);
     expect(empty.errors).toEqual([]);
     expect(empty.unexpectedRequests).toEqual([]);
+  });
+}
+
+if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
+  for (const width of [390, 1440]) test(`Explorer-backed actual calculation renders at ${width}px`, async ({ page }) => {
+    const { errors, unexpectedRequests } = await openFixture(page, width, false, "empty", "future");
+    await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Calcutta");
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await page.getByRole("button", { name: "Next day", exact: true }).click();
+    await page.getByRole("tab", { name: "Free time", exact: true }).click();
+    for (const duration of [15, 30, 60]) {
+      await page.getByRole("tab", { name: `${duration} min`, exact: true }).click();
+      await expect(page.getByText("23 hr", { exact: true })).toBeVisible();
+      await expect(page.getByText("12:00 AM – 11:00 PM", { exact: true })).toBeVisible();
+      await expect(page.getByText(/Midnight \(next day\)/)).toHaveCount(duration === 60 ? 0 : 1);
+      await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `explorer-local-${width}-${duration}.png`) });
+    }
+    await page.getByRole("button", { name: "Next day", exact: true }).click();
+    await expect(page.getByText("23 hr", { exact: true })).toBeVisible();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `explorer-local-next-day-${width}.png`) });
+    expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+    const today = await openFixture(page, width, false, "empty", "today");
+    await page.getByRole("button", { name: "Calendar settings and actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+    await page.getByRole("textbox", { name: "Time zone", exact: true }).fill("Asia/Calcutta");
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await page.getByRole("tab", { name: "Free time", exact: true }).click();
+    await expect(page.getByText(/^2:13.*11:00 PM$/)).toBeVisible();
+    await expect(page.getByText(/Midnight \(next day\)/)).toBeVisible();
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `explorer-local-today-${width}.png`) });
+    expect(today.errors).toEqual([]); expect(today.unexpectedRequests).toEqual([]);
   });
 }

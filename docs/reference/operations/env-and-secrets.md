@@ -100,6 +100,17 @@ These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
 
+### Wallet artwork catalog
+
+Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local
+path to a reviewed, versioned catalog and its approved raster assets. The empty
+default makes no external provider requests and enables no licensed artwork.
+The contributor backend template documents this optional path. Enabling it in
+production requires a pipeline maintainer to configure a read-only mount after
+rights and asset approval. It is not an API key. Private photo and neutral
+artwork work without it. See [Wallet artwork](../one/wallet.md) for the catalog
+contract.
+
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
 3. Legacy frontend fallback keys are read-only compatibility paths for one release cycle:

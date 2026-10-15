@@ -1,5 +1,7 @@
 "use client";
 
+import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
+
 /**
  * Download everything One remembers about you.
  *
@@ -105,11 +107,12 @@ export const PkmExportService = {
       );
     }
 
-    const readable = await PersonalKnowledgeModelService.loadFullBlob({
+    const readable = { ...await PersonalKnowledgeModelService.loadFullBlob({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    });
+    }) };
+    for (const domain of Object.keys(readable)) if (domain.trim().toLowerCase() === "wallet") readable[domain] = projectWalletConsent(readable[domain]);
 
     // The encrypted half is a bonus, not the point. If it cannot be fetched the
     // person still gets everything they can read, and meta says what is missing
@@ -138,6 +141,7 @@ export const PkmExportService = {
         restore_requires:
           "The encrypted copy can only be opened with your vault password. Nobody else can read it, including us.",
         excludes: [
+          "Private card artwork, security codes and sharing receipts are omitted from the readable copy.",
           "Records of what you were shown and agreed to, which are kept for accountability.",
           "Anything outside your memory: connected accounts, saved cards, places, and activity from other parts of the app.",
         ],

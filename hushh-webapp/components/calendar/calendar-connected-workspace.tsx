@@ -21,7 +21,7 @@ import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarProviderShortcut, CalendarTimelineRow, GoogleCalendarMark, calendarDate, calendarDayLabel, calendarProviderDayUrl, durationLabel, eventTime, shiftCalendarDate, timeRangeLabel } from "./calendar-schedule-presentation";
+import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarProviderShortcut, CalendarTimelineRow, GoogleCalendarMark, calendarDate, calendarDayLabel, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, shiftCalendarDate, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import scheduleStyles from "./calendar-schedule.module.css";
 
@@ -61,7 +61,14 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
   getIdTokenRef.current = getIdToken;
   const [tab, setTab] = useState("schedule");
   const [view, setView] = useState("today");
-  const [zone, setZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const [zonePreference, setZonePreference] = useState(() => ({ account: status.google_email, value: deviceZone, explicit: false }));
+  const zonePreferenceRef = useRef(zonePreference);
+  zonePreferenceRef.current = zonePreference;
+  // A replacement Google account starts with the device fallback immediately,
+  // before its primary-calendar metadata arrives. Explicit settings are local
+  // to the account for this session.
+  const zone = zonePreference.account === status.google_email ? zonePreference.value : deviceZone;
   const [zoneInput, setZoneInput] = useState(zone);
   const [zoneError, setZoneError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -69,15 +76,43 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
   const [settingsEnd, setSettingsEnd] = useState("17:00");
   const [entryTime] = useState(() => Date.now());
   const now = Math.max(entryTime, useCoarseClock(60_000));
+  const nowRef = useRef(now);
+  nowRef.current = now;
   const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
   const [alternativeDate, setAlternativeDate] = useState(today);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [duration, setDuration] = useState<15 | 30 | 60>(15);
+  const adoptPrimaryZone = useCallback((calendars: CalendarSource[]) => {
+    const preference = zonePreferenceRef.current;
+    if (preference.account === status.google_email && preference.explicit) return;
+    let primaryZone = calendars.find(calendar => calendar.primary)?.time_zone || zone;
+    try { calendarDate(nowRef.current, primaryZone); } catch { primaryZone = deviceZone; }
+    try {
+      const primaryToday = calendarDate(nowRef.current, primaryZone);
+      const previousToday = calendarDate(nowRef.current, preference.value);
+      setDate(value => value === previousToday ? primaryToday : value);
+      setAlternativeDate(value => value === previousToday ? primaryToday : value);
+      setZonePreference(value => value.account === status.google_email && value.value === primaryZone ? value : { account: status.google_email, value: primaryZone, explicit: false });
+    } catch { /* Invalid provider zones retain the device fallback. */ }
+  }, [zone, deviceZone, status.google_email]);
   const epoch = snapshotVaultSessionEpoch();
+  const calendarAccountKey = `${status.google_email}:${connectionRevision || 0}`;
+  const [sourceCatalog, setSourceCatalog] = useState<{ key: string; calendars: CalendarSource[] }>({ key: "", calendars: [] });
+  const [appliedSelection, setAppliedSelection] = useState<{ key: string; overrides: Record<string, boolean> }>({ key: "", overrides: {} });
+  const [selectionDraft, setSelectionDraft] = useState<{ key: string; overrides: Record<string, boolean> }>({ key: "", overrides: {} });
+  const [pendingExclusion, setPendingExclusion] = useState<CalendarSource | null>(null);
+  const settingsActive = settingsOpen && selectionDraft.key === calendarAccountKey;
+  const calendarOptions = sourceCatalog.key === calendarAccountKey ? sourceCatalog.calendars : [];
+  const selectionJson = JSON.stringify(appliedSelection.key === calendarAccountKey ? appliedSelection.overrides : {});
+  const rememberCalendars = useCallback((calendars: CalendarSource[]) => {
+    setSourceCatalog({ key: calendarAccountKey, calendars });
+  }, [calendarAccountKey]);
   const eventKey = `${date}:${zone}:${epoch}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
-  const availabilityKey = `${date}:${zone}:${startTime}:${endTime}:${duration}:${epoch}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
+  const availabilityKey = `full-day-v1:${selectionJson}:${date}:${zone}:${duration}:${epoch}:${status.google_email}:${connectionRevision || 0}:${status.access_level}:${status.calendar_list_access}`;
+  const currentReadKeys = useRef({ events: eventKey, availability: availabilityKey });
+  currentReadKeys.current = { events: eventKey, availability: availabilityKey };
   const [eventStateKey, setEventStateKey] = useState("");
   const [availabilityStateKey, setAvailabilityStateKey] = useState("");
   const [storedEvents, setEvents] = useState<CalendarEventSummary[] | null>(null);
@@ -125,6 +160,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
   const windowParams = { vaultOwnerToken: token || "", date: alternativeDate, timeZone: zone, startTime, endTime, durationMinutes: duration };
 
   const loadEvents = useCallback(async () => {
+    if (currentReadKeys.current.events !== eventKey) return;
     if (eventFlight.current?.key === eventKey && !eventFlight.current.controller.signal.aborted) return;
     eventFlight.current?.controller.abort();
     if (loadedEventKey.current !== eventKey) setEvents(null);
@@ -133,7 +169,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
     lastReadStarted.current.events = Date.now();
     const requestEpoch = snapshotVaultSessionEpoch();
     const request = ++eventRequest.current;
-    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === eventRequest.current;
+    const isCurrent = () => currentReadKeys.current.events === eventKey && !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === eventRequest.current;
     setEventStateKey(eventKey);
     setEventsLoading(true); setEventsError(null);
 
@@ -143,6 +179,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
       if (!firebaseIdToken) throw new Error("Sign in again to load Calendar.");
       const response = await GoogleCalendarService.today({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone });
       if (isCurrent()) {
+        adoptPrimaryZone(response.calendars); rememberCalendars(response.calendar_options || response.calendars);
         loadedEventKey.current = eventKey; setEvents(response.events); setUnreadableCalendars(response.unreadable_calendars);
         const prior = selection.current;
         // Renewal replaces the token and advances the privacy epoch. Resume
@@ -164,11 +201,12 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
       }
     }
     finally { if (isCurrent()) setEventsLoading(false); if (eventFlight.current?.controller === controller) eventFlight.current = null; }
-  }, [token, date, zone, eventKey, status.google_email]);
+  }, [token, date, zone, eventKey, status.google_email, adoptPrimaryZone, rememberCalendars]);
   useEffect(() => { if (tab === "schedule" && view === "today") void loadEvents(); return () => { eventFlight.current?.controller.abort(); }; }, [loadEvents, tab, view]);
   usePeriodicTask("calendar-workspace-events", 30_000, () => Date.now() - lastReadStarted.current.events >= 3000 ? loadEvents() : undefined, { enabled: tab === "schedule" && view === "today" && !selected });
 
   const checkAvailability = useCallback(async () => {
+    if (currentReadKeys.current.availability !== availabilityKey) return;
     if (availabilityFlight.current?.key === availabilityKey && !availabilityFlight.current.controller.signal.aborted) return;
     availabilityFlight.current?.controller.abort();
     const controller = new AbortController();
@@ -176,25 +214,45 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
     lastReadStarted.current.availability = Date.now();
     const requestEpoch = snapshotVaultSessionEpoch();
     const request = ++availabilityRequest.current;
-    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && !lifetime.current?.signal.aborted && request === availabilityRequest.current;
+    const ownsRequest = () => currentReadKeys.current.availability === availabilityKey && !lifetime.current?.signal.aborted && request === availabilityRequest.current;
+    const isCurrent = () => !controller.signal.aborted && isVaultSessionEpochCurrent(requestEpoch) && ownsRequest();
     setAvailabilityStateKey(availabilityKey);
     setAvailabilityLoading(true); setAvailability(null); setAvailabilityError(null);
+    const failOffline = () => {
+      controller.abort();
+      if (ownsRequest()) {
+        setAvailabilityLoading(false);
+        setAvailabilityError(new GoogleCalendarError("You're offline. Connect to the internet to check availability.", "calendar_offline", 0));
+      }
+    };
+    // Also bound token acquisition; late results cannot replace timeout/offline.
+    const timeout = setTimeout(() => {
+      controller.abort();
+      if (ownsRequest()) {
+        setAvailabilityLoading(false);
+        setAvailabilityError(new GoogleCalendarError("The availability check timed out. Try again.", "calendar_timeout", 504));
+      }
+    }, 45_000);
+    controller.signal.addEventListener("abort", () => { clearTimeout(timeout); window.removeEventListener("offline", failOffline); }, { once: true });
+    window.addEventListener("offline", failOffline);
     try {
+      if (!navigator.onLine) { failOffline(); return; }
       const firebaseIdToken = await getIdTokenRef.current();
       if (!isCurrent()) return;
       if (!firebaseIdToken) throw new Error("Sign in again to check availability.");
-      const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime, endTime, durationMinutes: duration });
-      if (isCurrent()) setAvailability(response);
-    } catch (error) { if (isCurrent()) setAvailabilityError(formatFailure(error)); }
-    finally { if (isCurrent()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
-  }, [date, zone, startTime, endTime, duration, availabilityKey]);
+      const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime: "00:00", endTime: "24:00", durationMinutes: duration, calendarOverrides: JSON.parse(selectionJson) });
+      if (isCurrent()) { const options = response.calendar_options || response.calendars; adoptPrimaryZone(options); rememberCalendars(options); setAvailability(response); }
+    } catch (error) { if (isCurrent()) { if (!navigator.onLine) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(formatFailure(error)); } } }
+    finally { clearTimeout(timeout); window.removeEventListener("offline", failOffline); if (ownsRequest()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
+  }, [date, zone, duration, availabilityKey, adoptPrimaryZone, selectionJson, rememberCalendars]);
   useEffect(() => { if (view === "free" && tab === "schedule") void checkAvailability(); return () => { availabilityFlight.current?.controller.abort(); }; }, [view, tab, checkAvailability]);
-  usePeriodicTask("calendar-workspace-availability", 30_000, () => Date.now() - lastReadStarted.current.availability >= 3000 ? checkAvailability() : undefined, { enabled: tab === "schedule" && view === "free" && !selected });
+  usePeriodicTask("calendar-workspace-availability", 30_000, () => Date.now() - lastReadStarted.current.availability >= 3000 ? checkAvailability() : undefined, { enabled: tab === "schedule" && view === "free" && !selected && Boolean(availability) && !availabilityError });
   useEffect(() => {
     let lastResume = 0;
-    const resume = () => {
+    const resume = (event: Event) => {
+      if (view === "free" && (!navigator.onLine || (availabilityError && (event.type !== "online" || !(availabilityError instanceof GoogleCalendarError) || availabilityError.reasonCode !== "calendar_offline")))) return;
       if (document.visibilityState !== "visible" || tab !== "schedule" || selected || Date.now() - lastResume < 3000) return;
-      if (Date.now() - lastReadStarted.current[view === "today" ? "events" : "availability"] < 3000) return;
+      if (!(view === "free" && event.type === "online" && availabilityError) && Date.now() - lastReadStarted.current[view === "today" ? "events" : "availability"] < 3000) return;
       lastResume = Date.now();
       void (view === "today" ? loadEvents() : checkAvailability());
     };
@@ -206,7 +264,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
       window.removeEventListener("online", resume);
       document.removeEventListener("visibilitychange", resume);
     };
-  }, [tab, view, selected, loadEvents, checkAvailability]);
+  }, [tab, view, selected, loadEvents, checkAvailability, availabilityError]);
   useEffect(() => {
     if (token) return;
     if (ownerTokenStatus === "locked") { selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details"); }
@@ -222,9 +280,9 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
     selection.current = null;
     setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
   };
-  useBackLayer("/one/calendar", settingsOpen ? 1 : selected ? (step === "details" ? 1 : 2) : 0, () => {
+  useBackLayer("/one/calendar", settingsActive ? pendingExclusion ? 2 : 1 : selected ? (step === "details" ? 1 : 2) : 0, () => {
     if (submittingRef.current) return true;
-    if (settingsOpen) { setSettingsOpen(false); return true; }
+    if (settingsActive) { if (pendingExclusion) setPendingExclusion(null); else setSettingsOpen(false); return true; }
     if (step === "review") { setStep("choice"); setReview(null); }
     else if (step === "choice") setStep("details");
     else closeDetails();
@@ -266,16 +324,23 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
     try {
       calendarDate(now, zoneInput.trim());
       if (!/^\d{2}:\d{2}$/.test(settingsStart) || !/^\d{2}:\d{2}$/.test(settingsEnd) || settingsStart >= settingsEnd) throw new Error("Availability end must be after start.");
-      setZone(zoneInput.trim()); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
+      if (selectionDraft.key !== calendarAccountKey) throw new Error("Calendar account changed. Reopen settings.");
+      if (calendarOptions.length && !calendarOptions.some(calendar => selectionDraft.overrides[calendar.id] ?? calendar.availability_default_included !== false)) throw new Error("Choose at least one calendar for availability.");
+      // A fresh inventory may remove an unsubscribed calendar. Retire its stale
+      // override only when the person explicitly reviews and saves settings.
+      const overrides = Object.fromEntries(Object.entries(selectionDraft.overrides).filter(([id]) => calendarOptions.some(calendar => calendar.id === id)));
+      setAppliedSelection({ key: calendarAccountKey, overrides });
+      const preference = { account: status.google_email, value: zoneInput.trim(), explicit: true };
+      zonePreferenceRef.current = preference; setZonePreference(preference); setStartTime(settingsStart); setEndTime(settingsEnd); setZoneError(""); setSettingsOpen(false);
     } catch (error) { setZoneError(error instanceof RangeError ? "Enter a valid IANA time zone, such as Asia/Kolkata." : formatFailure(error).message); }
   };
   const recovery = (error: Error, availabilityFailure = false) => (
     <div role="alert" className="space-y-2">
       <p className="font-semibold">{availabilityFailure ? "Availability could not be checked." : "Calendar could not be loaded."}</p>
-      <p className="text-sm text-muted-foreground">{error.message}</p>
+      <p className="text-sm text-muted-foreground">{availabilityFailure && error instanceof GoogleCalendarError && error.reasonCode === "calendar_invalid_response" ? "Calendar information was incomplete or invalid. Try again." : error.message}</p>
       {error instanceof GoogleCalendarError && error.recovery !== "retry" ? (
         <Button variant="outline" disabled={busy} onClick={() => onConnect("read", error instanceof GoogleCalendarError && error.reasonCode === "calendar_list_permission_required")}>{error.recovery === "reconnect" ? "Reconnect Calendar" : "Allow Calendar access"}</Button>
-      ) : <p className="text-sm text-muted-foreground" role="status">Checking again automatically when connected.</p>}
+      ) : availabilityFailure ? <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={availabilityLoading} onClick={() => void checkAvailability()}>Retry</Button>{calendarOptions.length ? <Button variant="outline" onClick={() => openSettings()}>Review availability calendars</Button> : null}</div> : <p className="text-sm text-muted-foreground" role="status">Checking again automatically when connected.</p>}
     </div>
   );
   const windowControls = (prefix: string) => (
@@ -299,7 +364,7 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
     setMessage("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
   };
   const providerUrl = calendarProviderDayUrl(date, status.google_email);
-  const openSettings = (trigger?: HTMLButtonElement) => { settingsTrigger.current = trigger || accountMenuButton.current; setZoneInput(zone); setSettingsStart(startTime); setSettingsEnd(endTime); setZoneError(""); setSettingsOpen(true); };
+  const openSettings = (trigger?: HTMLButtonElement) => { settingsTrigger.current = trigger || accountMenuButton.current; setZoneInput(zone); setSettingsStart(startTime); setSettingsEnd(endTime); setZoneError(""); setSelectionDraft({ key: calendarAccountKey, overrides: JSON.parse(selectionJson) }); setPendingExclusion(null); setSettingsOpen(true); };
   const timeline = (items: CalendarEventSummary[]) => {
     // Keep chronological order and group the white rows around the highlighted
     // meeting, rather than moving the next meeting ahead of past events.
@@ -346,12 +411,11 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
           <CalendarProviderShortcut date={date} email={status.google_email} />
         </section> : <section aria-label="Free time" className="space-y-2.5">
           <SurfaceCard className="space-y-3.5 p-[15px] shadow-none sm:space-y-[15px] sm:p-4">
-            <div className="flex min-h-[73px] items-center gap-[15px] sm:gap-[22px]"><span aria-hidden className="flex h-16 w-[60px] shrink-0 items-center justify-center rounded-[15px] bg-[color:var(--app-card-surface-compact)] sm:h-[73px] sm:w-[74px]"><CalendarAvailabilityArt /></span><div className="min-w-0"><h2 aria-live="polite" className="text-base font-semibold leading-6 sm:text-lg">{availabilityLoading ? "Checking availability…" : availabilityError ? "Availability could not be checked" : `${availability?.full_count || 0} available slots ${date === today ? "today" : "on this day"}`}</h2><p className="mt-1 text-sm text-muted-foreground">Find time for what matters.</p></div></div>
+            <div className="flex min-h-[73px] items-center gap-[15px] sm:gap-[22px]"><span aria-hidden className="flex h-16 w-[60px] shrink-0 items-center justify-center rounded-[15px] bg-[color:var(--app-card-surface-compact)] sm:h-[73px] sm:w-[74px]"><CalendarAvailabilityArt /></span><div className="min-w-0"><h2 aria-live="polite" className="text-base font-semibold leading-6 sm:text-lg">{availabilityLoading ? "Checking availability…" : availabilityError ? "Free time" : `${availability?.full_count || 0} available slots ${date === today ? "today" : "on this day"}`}</h2><p className="mt-1 text-sm text-muted-foreground">Find time for what matters.</p></div></div>
             <SegmentedTabs className="gap-[7px] [&>button]:h-[38px] [&>button]:flex-1 [&>button[data-state=inactive]]:bg-[color:var(--app-card-surface-data)] sm:[&>button]:h-9" disabled={submitting || busy} variant="filter" ariaLabel="Availability duration" value={String(duration)} options={[15, 30, 60].map(value => ({ value: String(value), label: `${value} min` }))} onValueChange={value => setDuration(Number(value) as 15 | 30 | 60)} />
-            <button type="button" onClick={event => openSettings(event.currentTarget)} className="text-left text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">{startTime} – {endTime} · {zone}</button>
           </SurfaceCard>
           {availabilityError ? <SurfaceCard className="p-4 shadow-none">{recovery(availabilityError, true)}</SurfaceCard> : availability && !availabilityLoading ? <div aria-live="polite" className="space-y-3">
-            {availability.windows.length ? <ul className="space-y-2">{availability.windows.map(window => <li key={window.start_at}><SurfaceCard className="shadow-none"><div className="flex min-h-[68px] items-center gap-3 px-4 py-2.5 sm:min-h-[65px]"><div className="min-w-0 flex-1"><p className="text-[13px] font-normal leading-[21px] sm:text-sm">{timeRangeLabel(window.start_at, window.end_at, zone)}</p><p className="mt-1 text-xs text-muted-foreground">{durationLabel(window.duration_minutes)}</p></div><Button aria-label={`Ask One about ${timeRangeLabel(window.start_at, window.end_at, zone)}`} variant="ghost" size="icon" className="size-10 shrink-0 rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]" onClick={() => onChat(`Book a ${duration}-minute meeting on ${date} during ${timeRangeLabel(window.start_at, window.end_at, zone)} (${zone}). Available window (UTC): ${window.start_at} to ${window.end_at}. Requested booking (UTC): ${window.start_at} to ${new Date(Date.parse(window.start_at) + duration * 60000).toISOString()}. Ask me for any missing title or guests, recheck availability, and show the booking proposal for my confirmation before creating the Calendar event.`)}><Plus className="size-5" /></Button></div></SurfaceCard></li>)}</ul> : <SurfaceCard className="p-4 shadow-none"><p className="text-sm">No free slots in this window.</p></SurfaceCard>}
+            {availability.windows.length ? <ul className="space-y-2">{availability.windows.map(window => <li key={window.start_at}><SurfaceCard className="shadow-none"><div className="flex min-h-[68px] items-center gap-3 px-4 py-2.5 sm:min-h-[65px]"><div className="min-w-0 flex-1"><p className="text-[13px] font-normal leading-[21px] sm:text-sm">{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</p><p className="mt-1 text-xs text-muted-foreground">{durationLabel(window.duration_minutes)}</p></div><Button aria-label={`Ask One about ${timeRangeLabel(window.start_at, window.end_at, zone)}`} variant="ghost" size="icon" className="size-10 shrink-0 rounded-full bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]" onClick={() => onChat(`Book a ${duration}-minute meeting on ${date} during ${timeRangeLabel(window.start_at, window.end_at, zone)} (${zone}). Available window (UTC): ${window.start_at} to ${window.end_at}. Requested booking (UTC): ${window.start_at} to ${new Date(Date.parse(window.start_at) + duration * 60000).toISOString()}. Ask me for any missing title or guests, recheck availability, and show the booking proposal for my confirmation before creating the Calendar event.`)}><Plus className="size-5" /></Button></div></SurfaceCard></li>)}</ul> : <SurfaceCard className="p-4 shadow-none"><p className="text-sm">No free slots in this window.</p></SurfaceCard>}
             {availability.full_count > 3 ? <p className="text-xs text-muted-foreground">Showing 3 of {availability.full_count} available windows.</p> : null}
             <p className="text-xs text-muted-foreground">Availability can change. These times aren't reserved.</p>
           </div> : null}
@@ -361,12 +425,27 @@ function ConnectedSchedule({ status, busy, onConnect, onChat, onDisconnect, onMa
         <div className="flex flex-col items-center gap-2 pt-1"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className="min-h-11 px-3 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" onClick={onDisconnect}>Disconnect Calendar</button></div>
       </div>}
     </div>
-    <Dialog modal open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <DialogContent onCloseAutoFocus={event => { if (settingsTrigger.current?.isConnected) { event.preventDefault(); settingsTrigger.current.focus(); } }}><DialogHeader><DialogTitle>Calendar settings</DialogTitle><DialogDescription>Time zone and availability hours for this session.</DialogDescription></DialogHeader>
+    <Dialog modal open={settingsActive} onOpenChange={open => { if (!open && pendingExclusion) setPendingExclusion(null); else setSettingsOpen(open); }}>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto" onEscapeKeyDown={event => { if (pendingExclusion) { event.preventDefault(); setPendingExclusion(null); } }} onCloseAutoFocus={event => { if (settingsTrigger.current?.isConnected) { event.preventDefault(); settingsTrigger.current.focus(); } }}><DialogHeader><DialogTitle>Calendar settings</DialogTitle><DialogDescription>Time zone and calendars for this session. Free time checks the whole selected day.</DialogDescription></DialogHeader>
         <label className="space-y-2"><span className="text-sm font-semibold">Time zone</span><Input aria-label="Time zone" value={zoneInput} onChange={event => setZoneInput(event.target.value)} /></label>
-        <fieldset className="grid grid-cols-2 gap-3"><legend className="mb-2 text-sm font-semibold">Availability hours</legend><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">From</span><Input aria-label="Availability window start" type="time" value={settingsStart} onChange={event => setSettingsStart(event.target.value)} /></label><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">Until</span><Input aria-label="Availability window end" type="time" value={settingsEnd} onChange={event => setSettingsEnd(event.target.value)} /></label></fieldset>
+        <fieldset className="grid grid-cols-2 gap-3"><legend className="mb-2 text-sm font-semibold">Alternative meeting hours</legend><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">From</span><Input aria-label="Availability window start" type="time" value={settingsStart} onChange={event => setSettingsStart(event.target.value)} /></label><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">Until</span><Input aria-label="Availability window end" type="time" value={settingsEnd} onChange={event => setSettingsEnd(event.target.value)} /></label></fieldset>
+        <fieldset className="space-y-3"><legend className="text-sm font-medium">Calendars used for Free time</legend>
+          <p className="text-xs text-muted-foreground">Google holiday feeds are informational by default. These choices only affect Free time; calendars stay visible in Schedule.</p>
+          {!calendarOptions.length ? <p className="text-sm">Open Free time to load your calendars.</p> : <ul className="space-y-3">{calendarOptions.map(calendar => {
+            const included = selectionDraft.overrides[calendar.id] ?? calendar.availability_default_included !== false;
+            return <li key={calendar.id} aria-label={calendar.name || calendar.id} className="space-y-1">
+              <p className="break-words text-sm font-medium">{calendar.name || calendar.id}</p>
+              <p className="text-xs text-muted-foreground">{included ? "Blocks availability" : calendar.availability_default_included === false ? "Informational holiday feed" : "Excluded from availability"}</p>
+              <Button variant="outline" size="sm" disabled={Boolean(pendingExclusion)} onClick={() => included ? setPendingExclusion(calendar) : setSelectionDraft(current => ({ ...current, overrides: { ...current.overrides, [calendar.id]: true } }))}>{included ? "Exclude this calendar from availability" : "Include in availability"}</Button>
+            </li>;
+          })}</ul>}
+          {pendingExclusion ? <div role="alert" className="space-y-2 rounded-lg border p-3">
+            <p className="text-sm">Exclude {pendingExclusion.name || pendingExclusion.id} from availability? Free time may overlap its events. It will remain visible in Schedule.</p>
+            <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setPendingExclusion(null)}>Keep included</Button><Button onClick={() => { setSelectionDraft(current => ({ ...current, overrides: { ...current.overrides, [pendingExclusion.id]: false } })); setPendingExclusion(null); }}>Confirm exclusion</Button></div>
+          </div> : null}
+        </fieldset>
         {zoneError ? <p role="alert" className="text-sm text-destructive">{zoneError}</p> : null}
-        <Button onClick={saveSettings}>Save settings</Button>
+        <Button disabled={Boolean(pendingExclusion)} onClick={saveSettings}>Save settings</Button>
       </DialogContent>
     </Dialog>
     <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) closeDetails(); }}>
