@@ -62,7 +62,7 @@ All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-r
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| Dev / UAT / Production | `project-af9bfbd3-d6ea-4043-aea` | same | same | same |
+| Dev / UAT / Production | `hushh-gemini-bridge` | same | same | same |
 
 The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
 

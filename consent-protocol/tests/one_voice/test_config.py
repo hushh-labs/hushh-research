@@ -68,7 +68,7 @@ def test_voice_uses_shared_uat_project_ignoring_retired_override(monkeypatch):
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "retired-project")
-    assert OneVoiceLiveConfig.from_environment().vertex_project == "project-af9bfbd3-d6ea-4043-aea"
+    assert OneVoiceLiveConfig.from_environment().vertex_project == "hushh-gemini-bridge"
 
 
 def test_limits_must_be_positive_integers(monkeypatch):

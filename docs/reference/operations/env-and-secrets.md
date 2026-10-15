@@ -239,7 +239,7 @@ It checks that:
 
 Hosted text, Live Voice, research and embedding targets come from
 `consent-protocol/config/managed-ai-runtime.json`. Dev, UAT and production select
-`project-af9bfbd3-d6ea-4043-aea`; their Cloud Run, SQL, identity and secret projects
+`hushh-gemini-bridge`; their Cloud Run, SQL, identity and secret projects
 remain separate. The checked-in text model is `gemini-3.6-flash`. Hosted clients
 ignore local model and project overrides; local mode retains explicit overrides.
 
