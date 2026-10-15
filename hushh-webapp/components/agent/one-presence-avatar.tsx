@@ -9,12 +9,13 @@ export type OnePresenceState = "connected" | "thinking" | "working" | "answering
 type PresenceRequest = { state: OnePresenceState };
 
 /** Presentation only: observe running work, never infer intent from text. */
-export function resolveOnePresenceState({ drafting, answering, thinking }: {
+export function resolveOnePresenceState({ working = false, drafting, answering, thinking }: {
+  working?: boolean;
   drafting: boolean;
   answering: boolean;
   thinking: boolean;
 }): OnePresenceState {
-  if (drafting) return "working";
+  if (working || drafting) return "working";
   if (answering) return "answering";
   return thinking ? "thinking" : "connected";
 }
