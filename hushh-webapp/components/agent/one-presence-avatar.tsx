@@ -23,14 +23,14 @@ const portrait = {
   connected: "/one-presence/profile-hd.png",
   working: "/one-presence/drafting-hd.png",
   thinking: "/one-presence/thinking-hd.png",
-  answering: "/one-presence/answering-poster.png",
+  answering: "/one-presence/answering-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
-// Every embedded animation image is 128px; larger backing buffers add work,
-// not image detail. The loading/reduced-motion portraits remain separate.
-const nativeFrameSize = 128;
+// HD exports embed one 1254px texture each. Limit backing memory while covering
+// the 224px panel and larger 256px presentations at three device pixels/CSS px.
+const maxDrawingSurfaceSize = 768;
 
-/** Native Rive Solo timelines preserve the authored 72-frame, 24 FPS loops. */
+/** HD portrait motion runs in native Rive with 72-frame, 24 FPS loops. */
 export function OnePresenceAvatar({ state, className, presentation = "compact" }: {
   state: OnePresenceState;
   className?: string;
@@ -100,7 +100,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
   onReady?: (request: PresenceRequest) => void;
 }) {
   const state = request.state;
-  const portraitSize = state === "answering" ? 128 : 1254;
+  const portraitSize = 1254;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const posterRef = useRef<HTMLImageElement>(null);
   const onReadyRef = useRef({ request, onReady });
@@ -168,12 +168,13 @@ function OnePresencePlayback({ request, presentation, onReady }: {
       if (!instance || !ready) return;
       const { width, height } = canvas.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      // Rive truncates its canvas dimensions. A 0.01px backing-pixel bias
-      // absorbs fractional square bounds while both axes still truncate to
-      // at most 128px (the largest scaled dimension is only 128.01px).
-      const ratio = Math.min(window.devicePixelRatio || 1, (nativeFrameSize + 0.01) / Math.max(width, height));
-      const pixelWidth = Math.min(nativeFrameSize, Math.floor(width * ratio));
-      const pixelHeight = Math.min(nativeFrameSize, Math.floor(height * ratio));
+      // Absorb fractional square bounds without clearing a painted buffer
+      // when the same physical pixel budget still applies.
+      const edge = Math.max(width, height);
+      const target = Math.min(maxDrawingSurfaceSize, Math.ceil(edge * (window.devicePixelRatio || 1) - 0.001));
+      const ratio = (target + 0.01) / edge;
+      const pixelWidth = Math.min(maxDrawingSurfaceSize, Math.floor(width * ratio));
+      const pixelHeight = Math.min(maxDrawingSurfaceSize, Math.floor(height * ratio));
       // Rive can resize itself at device DPR after a hidden surface returns.
       // Actual pixel bounds own this image-backed surface; changing CSS size
       // with the same target buffer must not clear an already-painted frame.
@@ -247,10 +248,10 @@ function OnePresencePlayback({ request, presentation, onReady }: {
           runtime.RuntimeLoader.setWasmFallbackUrl(null);
           instance = new runtime.Rive({
             canvas,
-            src: `/one-presence/${state}.riv`,
+            src: `/one-presence/hd/${state}.riv`,
             enableRiveAssetCDN: false,
-            // Let Rive redraw changed frames; the idle loop holds one image
-            // for most of its timeline, so continuous bitmap redraws add work.
+            // Quantized native timelines change poses at 24 FPS; let Rive
+            // skip bitmap redraws when no pose changed.
             stateMachine,
             shouldDisableRiveListeners: true,
             autoplay: false,

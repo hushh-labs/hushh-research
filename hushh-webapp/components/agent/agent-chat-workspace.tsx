@@ -8769,7 +8769,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="inline-flex size-13 shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none md:size-22"
+                    className="inline-flex size-full shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none"
                   >
                     <OnePresenceAvatar state={onePresenceState} className="size-full shrink-0" />
                   </button>

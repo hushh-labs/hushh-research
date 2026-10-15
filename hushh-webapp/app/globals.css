@@ -9347,6 +9347,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   outline-offset: 2px;
 }
 .agent-chat-header[data-one-centered-header="true"] {
+  --one-header-artwork-size: 104px;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   grid-template-rows: 120px 44px;
@@ -9370,15 +9371,18 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   grid-row: 1;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 0;
   text-align: center;
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-  width: 88px;
-  height: 88px;
+  width: var(--one-header-artwork-size);
+  height: var(--one-header-artwork-size);
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
   max-width: 100%;
+  /* Use the portraits' transparent lower inset for the name, keeping the
+     feet clear in all four native poses and their loading portraits. */
+  margin-top: calc(var(--one-header-artwork-size) * -0.1);
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
   justify-content: center;
@@ -9439,13 +9443,13 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 @media (max-width: 767px) {
   .agent-chat-header[data-one-centered-header="true"] {
     --one-phone-control-gap: clamp(0px, calc((100vw - 360px) / 4), 8px);
-    grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
-    grid-template-rows: 52px;
+    --one-header-artwork-size: clamp(52px, calc(100vw - 268px), 64px);
+    grid-template-columns: minmax(0, 1fr) var(--one-header-artwork-size) minmax(0, 1fr);
+    grid-template-rows: var(--one-header-artwork-size);
     gap: 0;
-    height: calc(94px + var(--agent-chat-header-safe-top));
-    /* At 320px, reserve 132px for the trailing 44px touch controls beside
-       the centered 52px artwork. Wider phones keep their existing gutter. */
-    padding: calc(8px + var(--agent-chat-header-safe-top)) min(clamp(6px, calc(5vw - 10px), 16px), calc((100vw - 316px) / 2)) 34px;
+    height: calc(var(--one-header-artwork-size) + 36px + var(--agent-chat-header-safe-top));
+    /* Preserve three trailing 44px touch targets even on a 320px screen. */
+    padding: calc(8px + var(--agent-chat-header-safe-top)) min(clamp(6px, calc(5vw - 10px), 16px), calc((100vw - var(--one-header-artwork-size) - 264px) / 2)) 28px;
   }
   .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control {
     grid-column: 1;
@@ -9460,8 +9464,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     grid-column: 2;
     grid-row: 1;
     position: relative;
-    width: 52px;
-    height: 52px;
+    width: var(--one-header-artwork-size);
+    height: var(--one-header-artwork-size);
     flex-direction: row;
     justify-content: center;
     gap: 0;
@@ -9469,20 +9473,15 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     text-align: center;
     transform: none;
   }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-    width: 52px;
-    height: 52px;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
-    width: 52px;
-    height: 52px;
-  }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
     position: absolute;
-    top: calc(100% + 2px);
+    /* A long saved name must also clear the adjacent 44px touch controls. */
+    top: max(90%, calc(50% + 22px));
     left: 50%;
     width: max-content;
     min-width: 0;
+    max-width: calc(100vw - 32px);
+    margin-top: 0;
     transform: translateX(-50%);
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
