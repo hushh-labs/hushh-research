@@ -4,7 +4,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { nativeDrawerIsolation } from "./native-drawers";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
-import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
@@ -207,6 +207,20 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     document.addEventListener("visibilitychange", invalidateConfirmations);
     const handles: PluginListenerHandle[] = [];
     let removeScroll: (() => void) | undefined;
+    let removePrivacyObservation: (() => void) | undefined;
+    const reconcilePrivacyAdmission = (event: NativeSessionPrivacyState) => {
+      if (cancelled) return;
+      invalidateConfirmations();
+      if (event.shielded || !event.appIsActive) {
+        releasedPrivacyGeneration = undefined;
+        scrollDelivery.current?.update(null);
+      } else if (releasedPrivacyGeneration !== event.generation) {
+        releasedPrivacyGeneration = event.generation;
+        // Retry only presentation admission, never a choice. Validation can
+        // release the cover through its completion without a listener event.
+        setPrivacyAdmissionRevision(value => value + 1);
+      }
+    };
     const retain = async (pending: Promise<PluginListenerHandle>) => {
       const handle = await pending;
       if (cancelled) await handle.remove(); else handles.push(handle);
@@ -244,20 +258,11 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
                 travel: bottomChromeScrollTravel(checkedHeight(nativeBottomContentHeight)) } : null);
           }));
         }
-        await retain(subscribeNativeSessionPrivacy(event => {
-          if (cancelled) return;
-          invalidateConfirmations();
-          if (event.shielded || !event.appIsActive) {
-            releasedPrivacyGeneration = undefined;
-            scrollDelivery.current?.update(null);
-          } else if (releasedPrivacyGeneration !== event.generation) {
-            releasedPrivacyGeneration = event.generation;
-            // A state sent during inactivity can be refused by native admission.
-            // Rebind the latest presentation after validation releases privacy,
-            // even when routes/props did not change. Never replay a choice.
-            setPrivacyAdmissionRevision(value => value + 1);
-          }
-        }));
+        removePrivacyObservation = subscribeNativePrivacyObservation(() => {
+          const { state } = nativePrivacyObservation();
+          if (state) reconcilePrivacyAdmission(state);
+        });
+        await retain(subscribeNativeSessionPrivacy(reconcilePrivacyAdmission));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
           const state = current.current;
           if (!state?.visible || !state.interactionEnabled || overlays.size > 0 || event.documentId !== state.documentId ||
@@ -313,6 +318,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       cancelled = true;
       document.removeEventListener("visibilitychange", invalidateConfirmations);
       handles.forEach((handle) => { void handle.remove(); });
+      removePrivacyObservation?.();
       removeScroll?.(); scrollDelivery.current?.stop(); scrollDelivery.current = null;
       nativeScrollFollowing = false;
       const state = current.current;

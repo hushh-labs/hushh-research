@@ -7,6 +7,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 import { NativeNavigationScrollDelivery } from "@/lib/capacitor/native-navigation-scroll";
 import { onScroll, resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { completeNativeSessionPrivacyValidation } from "@/lib/capacitor/session-privacy";
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => true) }));
 
 const bridge = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const bridge = vi.hoisted(() => ({
   setState: vi.fn(), getCapabilities: vi.fn(), setScroll: vi.fn(),
   confirmSelection: vi.fn(), sequence: 0,
   regions: vi.fn(),
+  completeSessionValidation: vi.fn(),
 }));
 vi.mock("@/lib/capacitor/native-presentation-regions", () => ({
   syncNativePresentationRegions: bridge.regions,
@@ -30,6 +32,7 @@ vi.mock("@capacitor/core", () => ({
     setState: bridge.setState,
     setScroll: bridge.setScroll,
     confirmSelection: bridge.confirmSelection,
+    completeSessionValidation: bridge.completeSessionValidation,
     addListener: async (name: string, callback: (event: unknown) => void) => {
       bridge.callbacks.set(name, callback);
       return { remove: async () => { bridge.callbacks.delete(name); } };
@@ -54,6 +57,9 @@ describe("native navigation presentation boundary", () => {
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
+    bridge.completeSessionValidation.mockReset().mockResolvedValue({
+      released: true, generation: 1, cause: "inactive", shielded: false, appIsActive: true,
+    });
     bridge.regions.mockReset().mockResolvedValue(true);
     bridge.setScroll.mockReset().mockResolvedValue({ applied: true });
     resetKaiBottomChromeVisibility();
@@ -340,7 +346,9 @@ describe("native navigation presentation boundary", () => {
     const priorRevision = lastState().revision;
     const privacy = bridge.callbacks.get("privacyStateChanged")!;
     act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: true, appIsActive: false }));
-    act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: false, appIsActive: true }));
+    // Native completion may release the cover without broadcasting a listener
+    // event. Observe the existing authoritative completion, not a fake event.
+    await act(async () => { await completeNativeSessionPrivacyValidation(1); });
     await waitFor(() => expect(lastState().revision).toBeGreaterThan(priorRevision));
     expect(lastState().interactionEnabled).toBe(true);
     const admittedRevision = lastState().revision;
