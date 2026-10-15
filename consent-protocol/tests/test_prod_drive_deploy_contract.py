@@ -437,6 +437,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         *old_paths,
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
+        "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ops/verify-env-secrets-parity.py",
         *(f"deploy/drive/{name}" for name in tools),
     ]
