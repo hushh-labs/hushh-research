@@ -54,6 +54,29 @@ for initial pane arrival before measuring its unchanged centering contract;
 allowance. All four affected geometry cases pass across Chromium and WebKit.
 Serialization still requires exact-source CI verification; no release is claimed.
 
+The next headless counterpart run authenticated and unlocked normally, but its
+strict network guard refused automatic encrypted Memory writes before any
+reviewer action. No rejected write was forwarded. The correction applies the
+existing reviewer policy at source-projection, checkpoint-recovery, onboarding
+and ticker-sync entry points. Reads and in-memory rendering remain available;
+ordinary explicit saves retain their existing authority. Optional effect fences
+also protect deferred recovery and onboarding work. This does not establish
+cancellation of independently running upgrades.
+
+The focused regression pack passed 197 cases, the extended persistence/port
+pack passed 139 and Back passed 460. Against the previous implementation, 13
+restricted-policy cases fail while the authorized positive control passes.
+Independent review qualifies exactly seven existing module spans with source
+hashes; architecture budgets and unrelated ceilings remain unchanged. Final
+core, CI and deployed reviewer acceptance remain required. The interrupted core
+on `6eee8ca0f6e1` was superseded and is not a passing candidate receipt.
+
+Read-only checks at `2026-10-15T03:18Z` still find the primary without a paired
+OpenAI deployment/environment/role or eligible information-access payout account;
+the counterpart remains ready. Funding, capital, backing and balanced liabilities
+are unchanged. The existing shared Chrome transport remains connected. No new
+financial action or Dev promotion occurred in this correction.
+
 The existing Chrome process and shared tabs are preserved. Before an interrupted
 turn, a task-owned background page proved the primary's ordinary Firebase owner,
 visible cold vault challenge, unlock and same-session Saved/Add and information-

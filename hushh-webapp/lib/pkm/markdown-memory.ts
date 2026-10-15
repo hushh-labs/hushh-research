@@ -629,6 +629,7 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
   };
   const assertCurrent = async () => {
     checkCurrent();
+    if (params.recoveryKey) await params.beforeEffect?.();
     await assertReceiptWriteFence({ ...params, receiptGeneration });
     checkCurrent();
   };
@@ -662,6 +663,7 @@ export async function stageMarkdownMemoryFacts(params: AppendParams & { recovery
 /** Decrypt pending device checkpoints once at unlock, then replay with fresh authority. */
 export function recoverMarkdownMemorySync(params: {
   userId: string; vaultKey: string; vaultOwnerToken: string;
+  beforeEffect?: () => Promise<void>;
 }): Promise<void> {
   const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
@@ -669,6 +671,7 @@ export function recoverMarkdownMemorySync(params: {
   const existing = recoveryLoads.get(key);
   if (existing) return existing;
   const assertCurrent = async () => {
+    await params.beforeEffect?.();
     if (!isVaultSessionEpochCurrent(epoch) || !owner || owner.userId !== params.userId || !isValidatedAuthSessionOwnerCurrent(owner))
       throw new DOMException("Memory recovery session changed", "AbortError");
   };

@@ -6,6 +6,7 @@ import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtim
 import { loadMarkdownMemory, MARKDOWN_MEMORY_DOMAIN, markdownFactsFromCards, peekMarkdownMemory, recoverMarkdownMemorySync, stageMarkdownMemoryFacts } from "@/lib/pkm/markdown-memory";
 import { isNonPersistableCredentialKind, planSecretCaptures } from "@/lib/pkm/secret-span-guard";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 export const KYC_IDENTITY_PKM_DOMAIN = "identity" as const;
 
@@ -100,7 +101,8 @@ export class KycIdentityProfilePkmService {
     const memory = await loadMarkdownMemory(params);
     await guard.assertCurrent();
     if (!memory) throw new Error("Private memory unavailable.");
-    await recoverMarkdownMemorySync(params);
+    if (!shouldSkipReviewerBackgroundWritesForAutomation()) await recoverMarkdownMemorySync({ ...params,
+      beforeEffect: async () => { if (shouldSkipReviewerBackgroundWritesForAutomation()) throw new DOMException("Background memory recovery cancelled", "AbortError"); } });
     await guard.assertCurrent();
     const current = peekMarkdownMemory(params.userId) ?? memory;
     if (current.kycIntakeCompletedAt) return true;

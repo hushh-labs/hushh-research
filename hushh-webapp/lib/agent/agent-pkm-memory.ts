@@ -2,6 +2,7 @@
 
 import { requestPkmMemoryPreparation, enrichPrivateMemorySharingImpact, type AgentPkmPreparationInput } from "@/lib/agent/agent-pkm-memory-preparation";
 import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import type { AgentPkmReservedOffer } from "@/lib/pkm/reserved-offer";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
@@ -949,7 +950,8 @@ export async function loadAgentPkmContext(params: {
         return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
       }
       if (markdownMemory) {
-        await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken });
+        if (!shouldSkipReviewerBackgroundWritesForAutomation()) await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
+          beforeEffect: async () => { if (shouldSkipReviewerBackgroundWritesForAutomation()) throw new DOMException("Background memory recovery cancelled", "AbortError"); } });
         if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
           return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
         // Settings ride in the closed style field, never as recalled identity.

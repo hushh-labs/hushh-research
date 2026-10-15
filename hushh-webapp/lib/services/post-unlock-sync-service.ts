@@ -14,6 +14,7 @@ export class PostUnlockSyncService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
+    beforeEffect?: () => Promise<void>;
   }): Promise<{ onboardingSynced: boolean }> {
     // Callers decide whether this is a best-effort background warm-up or the
     // mandatory Finish setup transaction. Never convert an encrypted-write
@@ -23,6 +24,7 @@ export class PostUnlockSyncService {
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
     });
 
     return {

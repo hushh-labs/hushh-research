@@ -118,7 +118,9 @@ export class KaiProfileSyncService {
     vaultOwnerToken?: string;
     pendingState?: KaiProfilePendingSyncState;
     baseFullBlob?: Record<string, unknown>;
+    beforeEffect?: () => Promise<void>;
   }): Promise<{ synced: boolean; reason?: string }> {
+    await params.beforeEffect?.();
     if (AppBackgroundTaskService.hasRunningTask(params.userId, "portfolio_save")) {
       return {
         synced: false,
@@ -155,6 +157,7 @@ export class KaiProfileSyncService {
         if (attempt > 0) {
           await new Promise((r) => setTimeout(r, retryDelays[attempt]));
         }
+        await params.beforeEffect?.();
         await KaiProfileService.syncOnboardingAndNavState({
           userId: params.userId,
           vaultKey: params.vaultKey,
@@ -162,6 +165,7 @@ export class KaiProfileSyncService {
           baseFullBlob: params.baseFullBlob,
           onboarding: pendingState.onboardingPayload,
           navTour: pendingState.navPayload,
+          beforeEffect: params.beforeEffect,
         });
         lastError = undefined;
         break;
@@ -176,6 +180,7 @@ export class KaiProfileSyncService {
     if (lastError) {
       throw lastError;
     }
+    await params.beforeEffect?.();
 
     const pendingOnboarding = pendingState.pendingOnboarding;
     if (

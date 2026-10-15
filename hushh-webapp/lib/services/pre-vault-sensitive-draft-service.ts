@@ -212,6 +212,7 @@ export class PreVaultSensitiveDraftService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
+    beforeEffect?: () => Promise<void>;
   }): Promise<void> {
     const previous = finalizeInFlight.get(params.userId);
     const commit = (async () => {
@@ -226,6 +227,7 @@ export class PreVaultSensitiveDraftService {
           // deliberate retry and must still get a chance to persist the draft.
         }
       }
+      await params.beforeEffect?.();
       await this.finalizeCurrentDrafts(params);
     })();
 
@@ -241,6 +243,7 @@ export class PreVaultSensitiveDraftService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
+    beforeEffect?: () => Promise<void>;
   }): Promise<void> {
     if (
       !geminiDrafts.has(params.userId) &&
@@ -280,6 +283,7 @@ export class PreVaultSensitiveDraftService {
         }
 
         for (const [credentialRef, secret] of secretRefs) {
+          await params.beforeEffect?.();
           if (wasCancelled()) return;
           if (geminiDrafts.get(params.userId) !== geminiDraft) {
             continue commitLoop;
@@ -292,12 +296,14 @@ export class PreVaultSensitiveDraftService {
               credentialRef,
               secret,
               confirmation,
+              beforeEffect: params.beforeEffect,
             },
           );
           assertStored(result);
         }
 
         if (wasCancelled()) return;
+        await params.beforeEffect?.();
         if (geminiDrafts.get(params.userId) === geminiDraft) {
           this.clearGeminiRuntime(params.userId);
         } else {
@@ -308,6 +314,7 @@ export class PreVaultSensitiveDraftService {
       if (wasCancelled()) return;
       const savedLocationDraft = savedLocationDrafts.get(params.userId);
       if (savedLocationDraft) {
+        await params.beforeEffect?.();
         const locationGeneration = currentCounter(
           savedLocationGenerations,
           params.userId,
@@ -335,6 +342,7 @@ export class PreVaultSensitiveDraftService {
         }
 
         if (wasCancelled()) return;
+        await params.beforeEffect?.();
         if (
           currentCounter(savedLocationGenerations, params.userId) !==
             locationGeneration ||
