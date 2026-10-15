@@ -2567,7 +2567,9 @@ describe("ProfileReceiptsPage", () => {
       items: [makeReceipt(1, "Stored Shop")], page: 1, per_page: 6, total: 2, has_more: true,
       next_cursor: "page-two", coverage: makeLiveCoverage(1),
     })).mockImplementationOnce(() => pendingOlder);
-    gmailView.disconnectGmail.mockResolvedValue({
+    gmailView.disconnectGmail.mockImplementation(async () => {
+      clearCachedGmailReceipts("user-123");
+      return {
       configured: true,
       connected: false,
       status: "disconnected",
@@ -2577,9 +2579,11 @@ describe("ProfileReceiptsPage", () => {
       revoked: true,
       latest_run: null,
       google_email: "akshat@example.com",
+      };
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
 
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,

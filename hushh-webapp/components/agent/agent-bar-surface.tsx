@@ -11,6 +11,12 @@ type BarPress = ComponentPropsWithRef<"div">["onPointerDown"];
 type VoiceSeat = { host: HTMLDivElement | null; registerPress: (handler: BarPress) => () => void };
 const VoiceSeatContext = createContext<VoiceSeat | undefined>(undefined);
 
+/** Voice adapters retain their layout wrapper, but the persistent shell alone
+ * owns the measured dock frame while they render into its authored seat. */
+export function useRetainedAgentBarFrame(): boolean {
+  return useContext(VoiceSeatContext) !== undefined;
+}
+
 /** The shell owns the presentation lifetime; changing the voice backend must
  * not replace Chat's portal target, textarea, selection or undo history. Voice
  * owners project only their controls here, and retain their own panels/actions. */

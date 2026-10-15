@@ -470,8 +470,8 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
     const content = page.locator("[data-vault-flow-content]");
     await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
     await settleIdle(page);
-    const passphrase = page.getByLabel("Vault passphrase");
-    const visibility = page.getByRole("button", { name: "Show passphrase", exact: true });
+    const passphrase = page.getByLabel("Vault password");
+    const visibility = page.getByRole("button", { name: "Show password", exact: true });
     const inputTarget = await passphrase.boundingBox();
     const visibilityTarget = await visibility.boundingBox();
     expect({
@@ -486,7 +486,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
     await expect(passphrase).toBeFocused();
     await visibility.click({ position: { x: 4, y: 4 } });
     await expect(passphrase).toHaveAttribute("type", "text");
-    await page.getByRole("button", { name: "Hide passphrase", exact: true }).click();
+    await page.getByRole("button", { name: "Hide password", exact: true }).click();
     await expect(passphrase).toHaveAttribute("type", "password");
     await expect(passphrase).toHaveValue("");
     const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
@@ -535,13 +535,17 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       if (overflows) {
         // Negative control: programmatic reveal would pass overflow:hidden.
         // A real wheel inside the scrollport must not pass that broken state.
+        // Optional account-recovery actions can overflow even when the two
+        // quiet escape controls already fit. A blocked wheel must preserve
+        // their initial geometry, not necessarily leave them offscreen.
+        const beforeBlockedWheel = await recoveryGeometry();
         await content.evaluate((node) => { node.style.overflowY = "hidden"; });
         await page.mouse.wheel(0, 1000);
         await page.evaluate(() => new Promise<void>((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
         }));
         await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
-        expect((await recoveryGeometry()).contained).toBe(false);
+        expect(await recoveryGeometry()).toEqual(beforeBlockedWheel);
         await content.evaluate((node) => { node.style.overflowY = ""; });
         // Synchronize the fixture's deliberate overflow mutation before the
         // next wheel. WebKit failed without this paint boundary.
@@ -558,7 +562,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       }).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
       await recovery.click();
       await expect(content).toHaveAttribute("data-vault-flow-step", "recovery");
-      await page.getByRole("button", { name: "Passphrase", exact: true }).click();
+      await page.getByRole("button", { name: "Password", exact: true }).click();
       await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
     }
   });

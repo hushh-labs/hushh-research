@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { AudioLines, Send, X, ChevronUp } from "@/components/icons";
-import { AgentBarSurface } from "./agent-bar-surface";
+import { AgentBarSurface, useRetainedAgentBarFrame } from "./agent-bar-surface";
 import { useAgentDockSurface } from "./agent-dock";
 import { useNativeDockPort } from "./native-dock-port";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
@@ -29,6 +29,7 @@ export function CommandAgentBar({
 }: {
   layout?: "fixed" | "slot";
 }) {
+  const retainedFrame = useRetainedAgentBarFrame();
   const {
     view,
     user,
@@ -108,7 +109,7 @@ export function CommandAgentBar({
   } : null);
   return (
     <div
-      data-agent-bar-shell
+      data-agent-bar-shell={retainedFrame ? undefined : true}
       data-command-active={active || undefined}
       data-ui-role="talk-to-one"
       data-agent-bar-layout={layout}

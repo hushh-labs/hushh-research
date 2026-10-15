@@ -31,3 +31,9 @@ export const getNativeUiTestVaultPassphrase = () => null;
 export const isNativeUiTestSession = () => false;
 export const preferPassphraseUnlockForAutomation = () => false;
 export const shouldSkipGeneratedVaultUnlockForAutomation = () => false;
+// Layout rehearsals never contact telemetry, send welcome mail, hydrate a real
+// identity or write to the shared reviewer fixture.
+export const shouldDisableExternalTelemetryForAutomation = () => true;
+export const shouldSkipFirstWelcomeForAutomation = () => true;
+export const shouldSkipAmbientIdentityHydrationForAutomation = () => true;
+export const shouldSkipReviewerBackgroundWritesForAutomation = () => true;

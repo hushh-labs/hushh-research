@@ -168,6 +168,7 @@ describe("OneVoiceControl", () => {
     const view = render(<Dock chat={false} />);
     const bar = screen.getByTestId("one-voice-agent-bar");
     const frame = view.container.querySelector("[data-agent-bar-shell]");
+    expect(view.container.querySelectorAll("[data-agent-bar-shell]")).toHaveLength(1);
     expect(measuredFrame).toBe(frame);
     fireEvent.click(screen.getByRole("button", { name: "Type instead" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Type to One" }), { target: { value: "Voice-owned synthetic draft" } });

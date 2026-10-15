@@ -33,7 +33,7 @@ import { usePathname } from "next/navigation";
 import { AudioLines, Keyboard, Send, X } from "@/components/icons";
 
 import { useVoiceSession } from "@/components/one-voice/voice-session-provider";
-import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { AgentBarSurface, useRetainedAgentBarFrame } from "@/components/agent/agent-bar-surface";
 import { useAgentDockSurface } from "@/components/agent/agent-dock";
 import { useNativeDockPort } from "@/components/agent/native-dock-port";
 import { useAuth } from "@/hooks/use-auth";
@@ -80,6 +80,7 @@ export function OneVoiceControl({
 }: {
   layout?: "fixed" | "slot";
 }) {
+  const retainedFrame = useRetainedAgentBarFrame();
   const session = useVoiceSession();
   const state = useVoiceSessionState();
   const pathname = usePathname();
@@ -195,7 +196,7 @@ export function OneVoiceControl({
   return (
     <div
       ref={stackRef}
-      data-agent-bar-shell
+      data-agent-bar-shell={retainedFrame ? undefined : true}
       data-command-active={engaged || undefined}
       data-ui-role="talk-to-one"
       data-agent-bar-layout={layout}

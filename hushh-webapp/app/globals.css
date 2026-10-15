@@ -6524,6 +6524,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .agent-chat-composer-surface {
   border-radius: 1.5rem;
 }
+/* Uniform rows align as a group, not per-row: a title-only sibling in a
+ * group with supporting copy must share the same title baseline. Groups
+ * containing only titles retain centered icons, titles and trailing actions. */
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout] [data-slot="settings-row-main"] {
+  align-self: stretch;
+}
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout] [data-slot="settings-row-copy"] {
+  align-self: flex-start;
+}
+
 .agent-chat-composer-compact {
   padding: 0.25rem 0.375rem 0.25rem 1rem;
 }
@@ -8072,6 +8084,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   html:not(.native-reserved-chrome) .profile-pane-sheet[data-slot="sheet-content"],
   html:not(.native-reserved-chrome) [data-profile-preview],
   html:not(.native-reserved-chrome) [data-agent-history-drawer],
+  html:not(.native-reserved-chrome) [data-chat-detail-pane][data-app-side-pane],
   html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is([data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]) {
     --app-side-pane-right-inset: 0px;
     --app-side-pane-left-inset: 0px;
@@ -8088,6 +8101,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
     border-radius: 0 !important;
   }
   html:not(.native-reserved-chrome) [data-agent-history-drawer],
+  html:not(.native-reserved-chrome) [data-chat-detail-pane][data-app-side-pane],
   html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
     left: 0 !important;
   }
@@ -8095,7 +8109,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 @media (max-width: 639px), (pointer: coarse) {
   html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-header,
   html.native-full-window-overlays .profile-pane-sheet .profile-pane-header {
-    padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+    padding-top: calc(16px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
     padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(68px, calc(52px + env(safe-area-inset-right, 0px))) !important;
   }
@@ -8105,15 +8119,15 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   }
   html:not(.native-reserved-chrome) .profile-pane-sheet .profile-pane-close,
   html.native-full-window-overlays .profile-pane-sheet .profile-pane-close {
-    top: calc(17px + env(safe-area-inset-top, 0px)) !important;
+    top: calc(17px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
     right: max(16px, env(safe-area-inset-right, 0px)) !important;
   }
 }
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
   html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"],
   html.native-full-window-overlays [data-agent-history-sidebar="drawer"] {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-top: var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px));
+    padding-bottom: var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px));
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }

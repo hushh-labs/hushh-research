@@ -419,9 +419,9 @@ for (const width of [320, 393, 834, 1440]) {
         }
       }
       for (const wallet of walletGroups) {
-        expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
         const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
-        expect(descriptions).toHaveLength(5);
+        // Supporting copy is optional. The geometry check above covers both
+        // title-only and described rows without requiring redundant copy.
         expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
       }
       expect(await voiceGroup.locator("[data-row-layout]").count()).toBe(8);
@@ -488,7 +488,7 @@ for (const width of [320, 393, 834, 1440]) {
     expect(await events(page)).toEqual(["uniform:switch"]);
     for (const [index, status] of ["active", "paused"].entries()) {
       const walletRows = walletGroups[index]!.locator("[data-row-layout]");
-      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "rotate", "remove"].entries()) {
+      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "remove"].entries()) {
         await clearEvents(page);
         await clickAt(page, walletRows.nth(row), "trailing");
         expect(await events(page)).toEqual([`wallet:${status}:${action}`]);

@@ -24,9 +24,18 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `21359dae22`, preserving the compact shared header and native draft ports
+through `3f769bc691`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
 the shared Live Memory preview.
+
+The ordinary Capacitor/React renderer remains the default for custom controls.
+Development qualification uses `HUSHH_NATIVE_SHELL_QUALIFICATION` (or the
+existing Debug-only launch opt-in); neither changes React's route, draft,
+permission or operation authority. Shared frontend changes still need their
+own regression proof: the first combined-head CI at `1231e70ead` failed, despite
+its green local core. Fixture reconciliation, uniform-row alignment and mobile
+detail/safe-area corrections are being verified before another push. No main
+landing or release acceptance is implied by the experimental flag.
 
 The core Feed scroll rehearsal passes on the signed simulator at `45de35508d`:
 three down/reverse cycles, paired displacement, unchanged WebView, keyboard

@@ -22,7 +22,7 @@ const read = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: () => undefined,
 }));
 vi.mock("@/components/ria/use-ria-client-workspace-state", () => ({
