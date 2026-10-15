@@ -850,9 +850,11 @@ final class NativeSupportTests: XCTestCase {
         let controller = NativeDrawerPresentationController(root)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         var closeFrame = CGRect.zero
+        var rowFrames = [String: CGRect]()
         controller.loadViewIfNeeded()
         controller.host.rootView = NativeDrawerContent(model: controller.model, profileRowObserver: { row, frame, _ in
-            if row == "profile-close" { closeFrame = frame }
+            if row == "profile-close", !frame.isEmpty { closeFrame = frame }
+            rowFrames[row] = frame
         })
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
@@ -877,9 +879,17 @@ final class NativeSupportTests: XCTestCase {
             }, object: nil)], timeout: 3)
         }
         await requireClose()
+        func requireRow(_ id: String) async {
+            await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let frame = rowFrames[id] else { return false }
+                return !frame.isEmpty && window.bounds.contains(frame)
+            }, object: nil)], timeout: 3)
+        }
+        await requireRow("row-handle")
         let host = controller.host
         controller.update(account)
         await requireClose()
+        await requireRow("edit-name")
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1, "An inner push must not move Profile offscreen")
         XCTAssertEqual(controller.model.navigationPath, ["account"])
@@ -902,6 +912,7 @@ final class NativeSupportTests: XCTestCase {
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
         await requireClose()
+        await requireRow("row-handle")
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
         account = privateDrawerState(update: 5, backEnabled: true)

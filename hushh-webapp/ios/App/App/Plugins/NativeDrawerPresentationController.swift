@@ -169,7 +169,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         }
     }
     var closeDiagnostic: String {
-        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission)"
+        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission);drawerProjectedDepth=\(model.projection.profileStack?.count ?? -1);drawerPathDepth=\(model.navigationPath.count);drawerChoicePending=\(model.choicePending)"
     }
     #endif
     var leadingHeaderFrame: (() -> CGRect?)?
@@ -869,6 +869,7 @@ private struct NativeProfileRowMeasurement: ViewModifier {
                         .onAppear { observe(row, frame, enabled) }
                         .onChange(of: frame) { _, next in observe(row, next, enabled) }
                         .onChange(of: enabled) { _, next in observe(row, frame, next) }
+                        .onDisappear { observe(row, .zero, false) }
                 }
             }
         } else { content }

@@ -209,6 +209,11 @@ final class AppUITests: XCTestCase {
                let depth = Int(fields["profileHistoryDepth"] ?? ""), (0...10000).contains(depth) {
                 print("PROFILE_CLOSE_BOUNDARY stage=\(stage) open=\(fields["drawerOpen"]!) interactive=\(fields["drawerInteractive"]!) awaiting=\(fields["drawerAwaiting"]!) query_open=\(fields["profileQueryOpen"]!) depth=\(depth)")
             }
+            if let projected = Int(fields["drawerProjectedDepth"] ?? ""), (-1...1).contains(projected),
+               let path = Int(fields["drawerPathDepth"] ?? ""), (0...1).contains(path),
+               let pending = fields["drawerChoicePending"], ["true", "false"].contains(pending) {
+                print("PROFILE_STACK_BOUNDARY projected=\(projected) path=\(path) pending=\(pending)")
+            }
             let bits = ["hLayout", "hPending", "hEnabled", "hDocument", "hPrivacy", "hViewport", "hAdmitted", "hAllowed", "hIsolated", "hPane", "hHidden", "hTouchBlocked", "hAXHidden"]
             if fields["hActive"] == "1", fields["hAvailable"] == "1",
                let sequence = Int(fields["hSeq"] ?? ""), (1...1_000_000).contains(sequence),
@@ -3802,7 +3807,10 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(root) else { XCTFail("PROFILE_NAME_ACCOUNT_UNAVAILABLE"); return }
         root.tap()
         let row = app.buttons["native-profile-row-account-name"].firstMatch
-        guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_EDIT_UNAVAILABLE"); return }
+        guard waitForAdmittedControl(row) else {
+            printCoherentPresentationAdmission(app)
+            XCTFail("PROFILE_NAME_EDIT_UNAVAILABLE"); return
+        }
         var originalName: String? // Private equality only; no screenshots or value diagnostics.
         for cycle in 0..<10 {
             if cycle > 0 { root.tap() }
