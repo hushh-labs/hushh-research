@@ -13,6 +13,38 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Menu tap acknowledgement stability — 2026-10-14
+
+Profile and One-profile roster rows no longer apply SwiftUI `disabled` to
+every row while a choice awaits bridge acknowledgement. Only authored row
+availability and actual operation-busy state change disabled appearance.
+Pending acknowledgement instead quarantines hit testing and accessibility
+interaction; the existing model/lease one-shot guards remain authoritative.
+No renderer, host, route, material or transition is replaced by this change.
+
+Product `a901ae4a9e` builds and is installed on the physical iPhone as
+UAT-backed Debug 1.4.0 (69), native-shell qualification enabled. Executable
+SHA-256: `e49d4c76a48523215d86692e352041cb828807d5036ba352749903808e47c8b8`;
+sealed-resource manifest SHA-256:
+`d16ebef5afd1f41b55c3de9a4443561ccc4a634ed54e80dbf58c1447ab075fa3`.
+Strict app/runner signatures, bundled assets, UAT target and native static/Siri
+contracts pass. Configured reviewer passphrase unlock passes without account
+or vault changes.
+
+Two focused tests pass on the physical iPhone. The new regression attaches the
+actual shared SwiftUI menu to a native window with public synthetic content,
+measures its row and enabled environment, and compares row pixels across choice
+and settlement. Duplicate choices remain rejected, the next settled action is
+accepted, and authored unavailability still reaches the rendered row. Restoring
+the old pending-disabled expressions fails specifically at the enabled-environment
+assertion. The initial offscreen pixel test was superseded because its disabled
+negative control could not distinguish states; it is not visual evidence.
+
+These receipts prove removal of tap-driven disabled-state churn and synthetic
+row-paint stability, not attribution of every reported visual artifact or full
+accessibility/Release-performance qualification. Other native Profile families
+remain at their separately documented implementation and acceptance states.
+
 ### Writing Style functional candidate — 2026-10-14
 
 The complete private Writing Style sheet is implemented behind the iPhone
