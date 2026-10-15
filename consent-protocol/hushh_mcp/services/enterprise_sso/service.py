@@ -34,6 +34,7 @@ from .firebase_identity import (
     FirebaseUserInfo,
 )
 from .workos_adapter import (
+    SsoProfile,
     WorkOSConfig,
     WorkOSOrganization,
     WorkOSPort,
@@ -59,6 +60,22 @@ def _normalize_email(value: str | None) -> str:
 def _email_domain(email: str) -> str:
     local, _, domain = email.rpartition("@")
     return domain if local and domain else ""
+
+
+def _profile_display_name(profile: SsoProfile) -> str | None:
+    """The person's name from the IdP, held to the same rules as the name editor in the app
+    (2-60 characters, no links or handles). A name is optional: one that does not pass is
+    dropped and sign-in carries on without it."""
+    raw = " ".join(part for part in (profile.first_name, profile.last_name) if part) or profile.name
+    if not raw:
+        return None
+    # Imported here because that service pulls in the database layer, which this module must not.
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+    try:
+        return ActorIdentityService.validate_display_name(raw)
+    except ValueError:
+        return None
 
 
 def sso_uid(workos_org_id: str, workos_user_id: str) -> str:
@@ -165,7 +182,10 @@ class EnterpriseSsoService:
             raise EnterpriseSsoError("sso_domain_not_verified", 403)
 
         uid, is_new = await self._resolve_account(
-            org_id=org.id, workos_user_id=profile.id, email=email
+            org_id=org.id,
+            workos_user_id=profile.id,
+            email=email,
+            display_name=_profile_display_name(profile),
         )
         token = await self._firebase.mint_token(
             uid, {"auth_provider": SSO_AUTH_PROVIDER, "workos_org_id": org.id}
@@ -178,13 +198,14 @@ class EnterpriseSsoService:
         }
 
     async def _resolve_account(
-        self, *, org_id: str, workos_user_id: str, email: str
+        self, *, org_id: str, workos_user_id: str, email: str, display_name: str | None = None
     ) -> tuple[str, bool]:
         mine = sso_uid(org_id, workos_user_id)
         user = await self._firebase.get_user(mine)
         if user:
             self._assert_signable(user, org_id=org_id, workos_user_id=workos_user_id)
             await self._ensure_claims(user, org_id, workos_user_id, ORIGIN_CREATED)
+            await self._fill_display_name(user, display_name)
             return user.uid, False
 
         # First sign-in. Link an existing Hussh account only when its email is verified
@@ -195,17 +216,29 @@ class EnterpriseSsoService:
                 raise EnterpriseSsoError("sso_email_conflict", 409)
             self._assert_signable(existing, org_id=org_id, workos_user_id=workos_user_id)
             await self._ensure_claims(existing, org_id, workos_user_id, ORIGIN_LINKED)
+            await self._fill_display_name(existing, display_name)
             return existing.uid, False
 
         # Never recreate an account the person deleted: its tombstone would reject it anyway.
         if await asyncio.to_thread(self._is_tombstoned, mine):
             raise EnterpriseSsoError("sso_account_deleted", 403)
-        await self._firebase.create_user(mine, email)
+        await self._firebase.create_user(mine, email, display_name)
         await self._firebase.merge_claims(
             mine,
             {CLAIM_ORG: org_id, CLAIM_USER: workos_user_id, CLAIM_ORIGIN: ORIGIN_CREATED},
         )
         return mine, True
+
+    async def _fill_display_name(self, user: FirebaseUserInfo, display_name: str | None) -> None:
+        """Give an account the IdP's name only when it has none. A name the person chose, or one a
+        Google or Apple sign-in already gave the account, is never replaced. The name is cosmetic,
+        so failing to save it must not stop the person signing in."""
+        if not display_name or user.display_name:
+            return
+        try:
+            await self._firebase.set_display_name(user.uid, display_name)
+        except Exception as exc:  # noqa: BLE001 - provider SDK errors are opaque; the name is optional
+            logger.warning("enterprise_sso.display_name_not_set error=%s", type(exc).__name__)
 
     @staticmethod
     def _assert_signable(user: FirebaseUserInfo, *, org_id: str, workos_user_id: str) -> None:
