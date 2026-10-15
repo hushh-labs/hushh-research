@@ -12,6 +12,7 @@ import {
   type LiveMirrorOverall,
   type LiveMirrorSource,
   type LiveMirrorSourceState,
+  type LiveMirrorSourceRoute,
 } from "@/lib/pkm/live-mirror-contract";
 import { LIVING_SOURCE_FACT_FIELDS } from "@/lib/pkm/living-source-fact-index";
 
@@ -398,4 +399,13 @@ export function liveMirrorPreviewRows(facts: readonly LiveMirrorFact[]): LiveMir
     .sort((left, right) => changedAt(right) - changedAt(left))
     .map((row): LiveMirrorPreviewRow => ({ key: row.key, title: row.ref, description: row.summary, state: row.state }));
   return [...named, ...newest].slice(0, PREVIEW_LIMIT);
+}
+
+/**
+ * Where the owner corrects or removes a source's values, for "Fix at source".
+ * Null until a kind has a reachable authority surface. Never a mirror write path.
+ */
+export function liveMirrorSourceRoute(kind: LiveMirrorKind): LiveMirrorSourceRoute | null {
+  void kind;
+  return null;
 }
