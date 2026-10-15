@@ -1,10 +1,17 @@
 \set ON_ERROR_STOP on
 SET statement_timeout = '5min';
+\if :{?expected_fence_count}
+SELECT set_config('hushh.expected_release_fence_count', :'expected_fence_count', false);
+\endif
 
 -- This verifier is safe to run while UAT is serving: it inspects catalog state
 -- and uses statement-level, zero-row DELETE probes only.
 DO $verify$
 DECLARE
+  expected_fence_count integer := COALESCE(
+    NULLIF(current_setting('hushh.expected_release_fence_count', true), '')::integer,
+    2
+  );
   enabled_fence_count integer;
   enabled_tombstone_trigger_count integer;
   event_trigger_enabled "char";
@@ -25,6 +32,11 @@ DECLARE
   identity_column_name text;
   missing_presence_count bigint;
 BEGIN
+  IF expected_fence_count NOT IN (0, 2) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '22023',
+      MESSAGE = 'expected account deletion fence count must be zero or two';
+  END IF;
   IF to_regclass('public.account_deletion_tombstones') IS NULL
      OR to_regclass('public.account_identity_presence') IS NULL THEN
     RAISE EXCEPTION USING
@@ -42,10 +54,10 @@ BEGIN
      AND trigger_state.tgname = 'trg_block_account_deletion_during_release'
      AND trigger_state.tgenabled = 'O'
      AND NOT trigger_state.tgisinternal;
-  IF enabled_fence_count <> 2 THEN
+  IF enabled_fence_count <> expected_fence_count THEN
     RAISE EXCEPTION USING
       ERRCODE = '55000',
-      MESSAGE = 'account deletion release fence is not enabled on both roots';
+      MESSAGE = 'account deletion release fence count does not match expected state';
   END IF;
 
   SELECT count(*)
@@ -244,29 +256,43 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  BEGIN
-    DELETE FROM public.actor_profiles WHERE false;
-    RAISE EXCEPTION USING
-      ERRCODE = 'P0001',
-      MESSAGE = 'actor_profiles account deletion release fence did not fire';
-  EXCEPTION WHEN SQLSTATE '55000' THEN
-    NULL;
-  END;
+  IF expected_fence_count = 2 THEN
+    BEGIN
+      DELETE FROM public.actor_profiles WHERE false;
+      RAISE EXCEPTION USING
+        ERRCODE = 'P0001',
+        MESSAGE = 'actor_profiles account deletion release fence did not fire';
+    EXCEPTION WHEN SQLSTATE '55000' THEN
+      NULL;
+    END;
 
-  BEGIN
+    BEGIN
+      DELETE FROM public.vault_keys WHERE false;
+      RAISE EXCEPTION USING
+        ERRCODE = 'P0001',
+        MESSAGE = 'vault_keys account deletion release fence did not fire';
+    EXCEPTION WHEN SQLSTATE '55000' THEN
+      NULL;
+    END;
+  ELSE
+    -- A zero-row statement still fires statement triggers. It must succeed
+    -- when deletion is meant to remain available during a routine rollout.
+    DELETE FROM public.actor_profiles WHERE false;
     DELETE FROM public.vault_keys WHERE false;
-    RAISE EXCEPTION USING
-      ERRCODE = 'P0001',
-      MESSAGE = 'vault_keys account deletion release fence did not fire';
-  EXCEPTION WHEN SQLSTATE '55000' THEN
-    NULL;
-  END;
+  END IF;
 END;
 $verify$;
 
 SELECT json_build_object(
-  'status', 'ready_for_bridge_activation',
-  'fence_triggers', 2,
+  'status', CASE
+    WHEN current_setting('hushh.expected_release_fence_count', true) = '0'
+      THEN 'active_v201_verified'
+    ELSE 'ready_for_bridge_activation'
+  END,
+  'fence_triggers', COALESCE(
+    NULLIF(current_setting('hushh.expected_release_fence_count', true), '')::integer,
+    2
+  ),
   'tombstone_triggers', 2,
   'identity_ddl_guard', 'enabled'
 ) AS account_deletion_release_boundary;

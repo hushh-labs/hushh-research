@@ -4,8 +4,10 @@
 
 ```mermaid
 flowchart LR
-  build[Build immutable backend] --> fence[Pause account deletion]
-  fence --> schema[Apply and verify schema]
+  build[Build immutable backend] --> qualify[Check v201 revisions, changed paths and DB guards]
+  qualify -->|Unproven boundary| fence[Pause account deletion]
+  qualify -->|Verified routine rollout| schema[Apply and verify schema]
+  fence --> schema
   schema --> candidate[Verify candidate and frontend]
   candidate --> drain[Prove cleanup worker and retire legacy revisions]
   drain --> enable[Re-enable account deletion]
@@ -16,6 +18,19 @@ form one compatibility boundary. Applying the migration before the runtime is
 necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
+
+Once every retained backend revision carries the v201 contract, ordinary
+rollouts keep account deletion available. The deploy first verifies the live
+unfenced database, including both tombstone triggers, the DDL guard, every UID
+write guard and the identity-presence backfill. It runs the same verifier after
+migrations and still proves a fresh cleanup-scheduler drain before reporting a
+healthy release. Migration 350 is the sole reviewed unrelated exception: its
+Circle chat SQL files must match pinned hashes and the manifest must add only
+that migration. The verifier change in this release is also pinned to its
+reviewed hash. A changed account-deletion path, any other migration change,
+an older revision, a stale fence, or failed verification takes the fenced path.
+The same decision applies in UAT and production. A failed routine rollout to a
+v201 revision does not install a new fence during rollback.
 
 ## Forward rollout authority gate
 
@@ -68,17 +83,18 @@ backend deploy does these steps in order:
    this SHA into the production registry instead of rebuilding (see
    [CI: deploy image pipeline](./ci.md#deploy-image-pipeline)); the pin and every
    later check are unchanged.
-2. Install the deletion fence on `hushh-pda:us-central1:hushh-vault-db`
-   (database `hushh_vault`).
-3. Install the fence again, run the production release migrations, then verify
-   the migration 201 boundary and record the tombstone count.
+2. Qualify the unfenced path against every retained backend revision, changed
+   files and the live database. If any proof fails, install the deletion fence
+   on `hushh-pda:us-central1:hushh-vault-db` (database `hushh_vault`).
+3. Reassert any required fence, run the production release migrations, then
+   verify the migration 201 boundary and record the tombstone count.
 4. Deploy that exact digest with no traffic, tagged
    `account-deletion-<run id>`, and check the candidate's `v201` label, image,
    SHA, and health before promotion.
 5. Only after the release is classified healthy, configure and verify the
    Scheduler job, run it, and wait for a fresh HTTP 2xx `AttemptFinished` log.
    Then retire every pre-v201 backend revision, verify the boundary again, and
-   remove the fence.
+   remove a fence if this release required one.
 
 The workflow does all of this itself. The step names and their order are
 pinned by `consent-protocol/tests/test_account_deletion_release_workflow.py`.
@@ -102,10 +118,10 @@ Production facts:
   setup script also needs its `iam.serviceAccounts.get` to describe the
   account instead of trying to create it.
 
-A production release reports `healthy` only when activation succeeds. If a
-backend release is blocked or rolled back, the fence stays installed and
-account deletion keeps failing closed (SQLSTATE `55000`) until the next healthy
-backend release activates it.
+A production release reports `healthy` only when activation succeeds. A failed
+fenced transition keeps deletion closed (SQLSTATE `55000`) until a proven
+recovery. A routine verified v201 rollout keeps deletion available even if its
+candidate fails and traffic rolls back to v201.
 
 ### Recovery when a failed deploy leaves the fence installed
 
