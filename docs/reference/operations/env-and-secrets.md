@@ -332,14 +332,20 @@ Used by:
 | `DB_HOST` | same | Yes | |
 | `DB_PORT` | same | No (default 5432) | |
 | `DB_NAME` | same | No (default postgres) | |
+| `WORKOS_SSO_ENABLED` | `hushh_mcp/runtime_settings.py` | No (default off) | Flag for WorkOS enterprise SSO routes; off means every SSO route answers 404 |
+| `WORKOS_API_KEY` | `hushh_mcp/services/enterprise_sso/workos_adapter.py` | Only when SSO is on | Secret. Also the root the SSO `state` signing key is derived from |
+| `WORKOS_CLIENT_ID` | same | Only when SSO is on | Not secret; kept beside the key |
+| `WORKOS_WEBHOOK_SECRET` | same | Only when SSO is on | Secret. Verifies `WorkOS-Signature` on `/api/webhooks/workos` |
+| `WORKOS_REDIRECT_URI` | same | Only when SSO is on | Server-side configuration, never client input; must match a Redirect registered in the WorkOS dashboard |
+| `WORKOS_REDIRECT_ORIGINS` | `hushh_mcp/services/enterprise_sso/workos_adapter.py` | No | Comma-separated https origins SSO may return to. The app is served on several hostnames per environment, and the callback must return to the one the person started on. Anything not listed falls back to `WORKOS_REDIRECT_URI`. Each `<origin>/login` must also be registered as a redirect in WorkOS |
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod CORS fallback) | |
 | `CORS_ALLOWED_ORIGINS` | `server.py` | Yes (prod recommended) | Explicit comma-separated CORS allowlist |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes (auth) | Canonical Firebase Admin and Workspace DWD credential. Approved Workspace client ID: `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`; do not introduce for new config. |
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Must be `vertex_adc`; hosted API-key mode is rejected. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Explicit `developer_api_key` compatibility mode only; never a hosted secret. |
-| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex routing metadata. Hosted text uses `global` so both Gemini 3.5 Flash and Gemini 3.1 Flash-Lite resolve; credentials come from Cloud Run workload ADC. |
-| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered same-model failover candidates for managed Vertex ADC. Use the approved shared set `global,us,eu`; candidates never change the model or authorization behavior. |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Project metadata hosted; location override local only | Hosted text locations come from the packaged `config/managed-ai-runtime.json` profile; credentials come from workload ADC. `GOOGLE_CLOUD_LOCATION` is a local compatibility override, not a required hosted mount. |
+| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | Local only | Local ordered same-model failover override. Hosted text locations come from the packaged environment profile; candidates never change model or authorization authority. |
 | `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes (One Location maps) | Server-side Google Maps Platform key for Places New, Geocoding, and Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON`; only use by approved exception. |
@@ -433,6 +439,21 @@ secret, or a client-visible model credential. `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMP
 is presentation-only public configuration and must never carry any of those
 values.
 
+Receipt logo configuration is a Next.js build-time value. A Cloud Run runtime
+variable alone cannot change an already compiled client. An approved Logo.dev
+publishable token can use this exact template in the deployment build environment:
+
+```text
+NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE=https://img.logo.dev/{domain}?token=APPROVED_PUBLISHABLE_TOKEN&size=128&format=png&fallback=404&redirect=404
+```
+
+Replace only the token placeholder through the approved deployment configuration;
+never commit the real value or put it in source/env examples. Leave the optional
+resource absent until an approved publishable token exists. The existing UAT
+build lane is described in [UAT receipt-logo build configuration](#uat-receipt-logo-build-configuration);
+provisioning the resource does not authorize a rollout. The `404` options preserve
+category/generic fallback for missing or redirected logos.
+
 **Migrations/scripts:** Use **DB_*** only (same as runtime). `db/migrate.py` uses `db.connection.get_database_url()` and `get_database_ssl()`. No `DATABASE_URL` anywhere.
 
 ### Frontend (hushh-webapp)
@@ -440,12 +461,12 @@ values.
 | Variable | Where read | Required | Notes |
 |----------|------------|----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | `lib/api/consent.ts`, `lib/config.ts`, api routes, etc. | Yes | Prod build: from Secret Manager `BACKEND_URL` |
-| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. Never place a provider secret here. |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template uses the category or generic receipt icon. UAT image builds resolve the optional same-named Secret Manager resource; other hosted environments leave it unset. Never place a provider secret here. |
 | `NEXT_PUBLIC_FIREBASE_*` (6 base keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `lib/notifications/fcm-service.ts` | Yes (prod build) | Web FCM token registration; from Firebase Console. See [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md). |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `lib/observability/env.ts` | Recommended | Active GA4 measurement ID for the deployed environment |
 | `NEXT_PUBLIC_GTM_ID` | `app/layout.tsx`, `lib/observability/env.ts` | Recommended | Active GTM container for the deployed environment |
-| `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` | `lib/one-location/maps-config.ts` | Required when Your Map is enabled | Browser-only Maps JavaScript key, restricted to the exact Hussh web origins. It is public build config, never the server Maps key. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` | `lib/one-location/maps-config.ts` | Required when Your Map is enabled | Browser-only Maps JavaScript key, restricted to the exact Hussh web origins. UAT must authorize both `https://uat.one.hussh.ai/*` and its legacy `https://uat.one.hushh.ai/*` alias while both hosts serve the app; a hostname redirect does not authorize the final browser referrer. Preserve API service restrictions when adding an origin. It is public build config, never the server Maps key. |
 | `NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY` | `lib/one-location/maps-config.ts`, native archive scripts | Required for iOS Your Map | iOS Maps SDK key restricted to the Hussh bundle identifier. It is bundled only into the iOS archive. |
 | `NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY` | `lib/one-location/maps-config.ts`, Android archive scripts | Required for Android Your Map | Android Maps SDK key restricted to the Hussh package and signing certificate fingerprints. It is bundled only into the Android archive. |
 | `NEXT_PUBLIC_APP_ENV` | `lib/app-env.ts`, `lib/observability/env.ts`, `app/page.tsx` | Recommended | Canonical frontend environment key (`development`, `uat`, `production`) |
@@ -460,6 +481,37 @@ values.
 | `MAIL_API_ENDPOINT` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | `hushh-mail-api` origin. Plain env var, set from `_MAIL_API_ENDPOINT` in `deploy/frontend.cloudbuild.yaml`; not used for account notices. |
 | `MAIL_API_KEY` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For user-requested SOS mail | Server-only. This is not used for One support or account notices. |
 
+### UAT receipt-logo build configuration
+
+`deploy/frontend-image.cloudbuild.yaml` and the combined frontend build resolve
+`NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` from `hushh-pda-uat` Secret Manager only
+when constructing a UAT image. It is optional: precise `NOT_FOUND` leaves the
+variable unset before `next build`; permission/authentication errors and invalid
+configured values fail without printing the value. It is not a Cloud Run runtime
+binding. Changing the resource requires a new reviewed frontend build and the
+normal governed deployment; an existing pinned image is never reconfigured.
+
+The accepted value is the exact Logo.dev HTTPS domain template with one
+`{domain}` placeholder, a publishable `pk_` token, and `fallback=404&redirect=404`.
+The latter flags preserve the category/generic fallback for missing or redirected
+brands. Secret `sk_` API keys are prohibited. The existing reviewed merchant
+registry owns domain selection; no merchant names or receipt content enter the URL.
+
+Obtain the publishable token through the approved provider/deployment credential
+workflow before creating the resource. Validate the complete template with
+`scripts/ops/validate_receipt_logo_template.py` over stdin, then use the existing
+`scripts/ops/upsert_gcp_secret.py --project hushh-pda-uat --secret
+NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memory;
+do not put them in command arguments, logs, source, environment examples or files.
+Secret provisioning grants no deploy or traffic authority. Never copy this UAT
+credential to another environment.
+
+Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
+reject these requests, so the approved publishable token must support that existing
+policy. Do not change the component's referrer policy to enable a restricted token.
+See [Logo.dev API keys](https://www.logo.dev/docs/platform/api-keys) and
+[Logo CDN parameters](https://www.logo.dev/docs/api-reference/logo-cdn/get-a-logo).
+
 ---
 
 ## Backend (consent-protocol) — reference
@@ -473,13 +525,19 @@ values.
 | `DB_HOST` | Yes | No | Local: `.env`; Prod: Cloud Run env | Pooler host |
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
 | `DB_NAME` | No | No | Local: `.env`; Prod: Cloud Run env (default postgres) | |
+| `WORKOS_SSO_ENABLED` | No | No | Local: `.env`; Deployed: Cloud Run env, set by the deploy from `_WORKOS_SSO_ENABLED` (UAT: GitHub variable `WORKOS_SSO_UAT_ENABLED`, default `false`) | Default off |
+| `WORKOS_API_KEY` | Only when SSO is on | Yes | Local: `.env`; Deployed: Secret Manager secret named exactly `WORKOS_API_KEY` | Never in `NEXT_PUBLIC_*`. `deploy/sso/bind_workos.sh` binds it only if the secret exists in the deploy project |
+| `WORKOS_CLIENT_ID` | Only when SSO is on | No | Local: `.env`; Deployed: Secret Manager secret named exactly `WORKOS_CLIENT_ID` | Same optional binding |
+| `WORKOS_WEBHOOK_SECRET` | Only when SSO is on | Yes | Local: `.env`; Deployed: Secret Manager secret named exactly `WORKOS_WEBHOOK_SECRET` | Same optional binding. Each environment's webhook endpoint in WorkOS has its own signing secret |
+| `WORKOS_REDIRECT_URI` | Only when SSO is on | No | Local: `.env`; Deployed: Cloud Run env from `_WORKOS_REDIRECT_URI` (UAT: `https://uat.one.hushh.ai/login`) | Must match a Redirect registered in the WorkOS dashboard |
+| `WORKOS_REDIRECT_ORIGINS` | No | No | Deployed: Cloud Run env from `_WORKOS_REDIRECT_ORIGINS`, built by the UAT workflow from the passkey alias list (`hushh-webapp/lib/vault/passkey-domain-aliases.json`) | Every hostname the environment is served on |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment aliases |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |
 | `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment aliases; unregistered or cross-environment hosts are rejected by the sync/parity contracts |
 | `HUSHH_GENAI_AUTH_MODE` | Optional local | Yes | Local: `.env`; Prod: Cloud Run env | Hosted value is `vertex_adc`; local API-key compatibility must be selected explicitly. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional local | No | Local: `.env` only | Used only with `developer_api_key`; prohibited as hosted Gemini credentials. |
-| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Yes | Local: env; Prod: Cloud Run env | Vertex routing; authentication comes from ADC. |
+| `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Project metadata hosted; location local only | Local: env; hosted: packaged managed AI profile | Hosted region selection ignores the legacy location override; authentication comes from workload ADC. |
 | `GOOGLE_MAPS_API_KEY` | Yes (One Location maps) | Yes | Local: `.env`; Prod: Secret Manager | Server-side Places New, Geocoding, and Routes key; never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes (Gmail connection and live receipt reads) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
@@ -619,6 +677,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | Variable | Required | Secret | Where set | Notes |
 |----------|----------|--------|-----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | Yes | No | Local: `.env.local`; Prod build: Secret Manager (BACKEND_URL) | Baked at build time |
+| `NEXT_PUBLIC_WORKOS_SSO_ENABLED` | No | No | Local: `.env.local`; build-time public config | Presentation only: shows "Continue with SSO" on web sign-in. Unset means off. The backend `WORKOS_SSO_ENABLED` flag stays the authority (every SSO route answers 404 while it is off). The UAT web build passes it from the GitHub variable `WORKOS_SSO_UAT_ENABLED` (default `false`) through the `_WORKOS_SSO_ENABLED` substitution; dev and production builds keep it off. Never carries a WorkOS key |
 | `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | No | No | Local/build-time public config | Optional HTTPS template with exactly one `{domain}` placeholder. It must contain no secret; unset configuration uses the public DuckDuckGo domain icon endpoint; an explicitly empty or invalid template falls back to a category or generic receipt icon. |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Yes | No | Local: `.env.local`; CI: dummy; Prod: build-arg | Public |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Yes | No | Same as above | |
@@ -708,7 +767,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | `HUSHH_PROD_PHONE_TEST_NUMBERS` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CODE` | `HUSHH_PROD_PHONE_TEST_CODE` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
-**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
+**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`. Hosted text locations and model failover come from the packaged managed AI profile; `GOOGLE_CLOUD_LOCATION` and `HUSHH_VERTEX_LOCATIONS` remain local compatibility overrides, not hosted mount requirements.
 
 **Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
 

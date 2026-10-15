@@ -5,6 +5,8 @@ import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
+import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
+import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -150,20 +152,25 @@ export function CalendarAgentPage({
   identityRef.current = identity;
   const statusRequestRef = useRef(0);
   const [statusSnapshot, setStatusSnapshot] = useState<{
-    identity: symbol; value: GoogleCalendarStatus | null;
-  }>({ identity, value: null });
+    identity: symbol; value: GoogleCalendarStatus | null; error: string | null;
+  }>({ identity, value: null, error: null });
   const status = statusSnapshot.identity === identity ? statusSnapshot.value : null;
+  const statusError = statusSnapshot.identity === identity ? statusSnapshot.error : null;
   // A verified connect/disconnect supersedes any earlier status request.
   const setStatus = (value: GoogleCalendarStatus | ((current: GoogleCalendarStatus | null) => GoogleCalendarStatus)) => {
     statusRequestRef.current += 1;
     setStatusSnapshot((current) => ({
       identity,
+      error: null,
       value: typeof value === "function"
         ? value(current.identity === identity ? current.value : null) : value,
     }));
   };
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyState] = useState(false);
+  const busyRef = useRef(false);
+  const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value); };
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
+  const disconnectTriggerRef = useRef<HTMLButtonElement | null>(null);
   // Google's opener policy can sever the popup's WindowProxy, so
   // `popup.closed` is not evidence of anything. The shared handler settles on
   // the exact callback, an explicit Cancel sign-in, or bounded expiry.
@@ -194,15 +201,25 @@ export function CalendarAgentPage({
     const request = ++statusRequestRef.current;
     const isCurrent = () => identityRef.current === identity &&
       statusRequestRef.current === request && activeOwnerIdRef.current === operationOwnerId;
+    setStatusSnapshot((current) => ({
+      identity,
+      value: current.identity === identity ? current.value : null,
+      error: null,
+    }));
     try {
       const idToken = await currentUser.getIdToken();
       if (!isCurrent()) return null;
       const next = await GoogleCalendarService.status(idToken, operationOwnerId);
       if (!isCurrent()) return null;
-      setStatusSnapshot({ identity, value: next });
+      setStatusSnapshot({ identity, value: next, error: null });
       return next;
     } catch (error) {
       if (!isCurrent()) return null;
+      setStatusSnapshot((current) => ({
+        identity,
+        value: current.identity === identity ? current.value : null,
+        error: "Calendar connection couldn’t load. Try again.",
+      }));
       throw error;
     }
   }, [connectionPending, renderedOwnerId, identity]);
@@ -284,8 +301,10 @@ export function CalendarAgentPage({
     }
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read") => {
-    if (!user) return;
+  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false) => {
+    if (!user || busyRef.current) return;
+    if (status?.connected && status.access_level === "manage") accessLevel = "manage";
+    includeCalendarList = includeCalendarList || status?.calendar_list_access === true;
     const operationOwnerId = user.uid;
     statusRequestRef.current += 1;
     const native = Capacitor.isNativePlatform();
@@ -314,24 +333,27 @@ export function CalendarAgentPage({
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
+          ...(includeCalendarList ? { includeCalendarList: true } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const nativeResult = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
+          ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
           idToken,
           userId: operationOwnerId,
-          accessLevel,
+          accessLevel: start.access_level,
           serverAuthCode: nativeResult.serverAuthCode,
           state: start.state,
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (
-          !completed.connected ||
-          (accessLevel === "manage" && completed.access_level !== "manage")
+          !completed.connected || completed.status === "needs_reauth" ||
+          (accessLevel === "manage" && completed.access_level !== "manage") ||
+          (includeCalendarList && completed.calendar_list_access !== true)
         ) {
           throw new Error(
             accessLevel === "manage"
@@ -442,7 +464,7 @@ export function CalendarAgentPage({
   };
 
   const disconnect = async () => {
-    if (!user) return;
+    if (!user || busyRef.current) return;
     const operationOwnerId = user.uid;
     statusRequestRef.current += 1;
     setBusy(true);
@@ -498,8 +520,8 @@ export function CalendarAgentPage({
     ? "View events and availability with One."
     : "View availability and manage meetings with One.";
   const needsReauth = status?.status === "needs_reauth";
-  const checkingConnection = connectionPending || loading || !status;
-  // Keep the illustration from first paint; only a verified connection swaps it.
+  const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
+  // Unknown connection evidence is a loading state, never a disconnected state.
   const showConnectHero = !connected;
 
   const popupWaitingNotice = popupWaiting ? (
@@ -533,6 +555,70 @@ export function CalendarAgentPage({
     navigateToAgentChat();
   };
 
+  const disconnectDialog = (
+      <AlertDialog
+        open={disconnectConfirmOpen}
+        onOpenChange={setDisconnectConfirmOpen}
+      >
+        <AlertDialogContent size="sm" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+          <AlertDialogHeader className="text-center">
+            <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This disconnects Calendar only. Your Mail connection will be preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row justify-center gap-2">
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault();
+                void disconnect().catch(() => undefined);
+              }}
+            >
+              {busy ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : null}
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+  );
+
+  const connectMail = async () => {
+    if (!user || busyRef.current) return;
+    const attemptIdentity = identity;
+    const cancel = new AbortController();
+    popupCancelRef.current = cancel;
+    const started = connectGmailInPlace({
+      owner: user, purpose: "send", signal: popupLifetimeRef.current?.signal,
+      cancelSignal: cancel.signal,
+      isCurrent: () => identityRef.current === attemptIdentity && activeOwnerIdRef.current === user.uid,
+    });
+    setBusy(true); setPopupWaiting(started.surface === "window");
+    try {
+      const outcome = await started.result;
+      if (identityRef.current !== attemptIdentity) return;
+      if (outcome !== "connected") throw new Error("Mail sending was not enabled. Your draft is still here.");
+      morphyToast.success("Mail sending enabled. Review your message again.");
+    } finally {
+      if (identityRef.current === attemptIdentity) { setBusy(false); setPopupWaiting(false); }
+    }
+  };
+
+  if (connected && journeyVariant === "workspace" && user && status) {
+    return <>
+      <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
+        onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
+        onChat={prompt => openChat(prompt?.trim() || "Summarize my calendar events and help me plan meetings")}
+        onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
+        onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
+      {disconnectDialog}
+    </>;
+  }
+
   return (
     <AppPageShell
       width="reading"
@@ -543,7 +629,7 @@ export function CalendarAgentPage({
         marker: "native-route-calendar",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
         dataState:
-          connectionPending || loading
+          checkingConnection
             ? "loading"
             : status === null
               ? "unavailable-valid"
@@ -553,7 +639,23 @@ export function CalendarAgentPage({
       }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
-        {showConnectHero ? (
+        {checkingConnection && !connected ? (
+          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {connectionPending ? "Finishing Calendar connection…" : "Checking Calendar connection…"}
+          </div>
+        ) : !status && statusError ? (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p role="status" className="text-sm text-muted-foreground">{statusError}</p>
+            <Button
+              type="button"
+              size="compact"
+              onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again."))}
+            >
+              Try again
+            </Button>
+          </div>
+        ) : showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
@@ -569,7 +671,7 @@ export function CalendarAgentPage({
             </div>
 
             <div className="space-y-[var(--page-header-copy-gap)]">
-              <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
+              <h2 className="text-2xl sm:text-[26px] font-semibold tracking-tight text-foreground">
                 {connected ? "Google Calendar" : "Connect Google Calendar"}
               </h2>
 
@@ -633,7 +735,7 @@ export function CalendarAgentPage({
                         </AskOneButton>
                         <button
                           type="button"
-                          className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                          className="min-h-11 text-xs font-medium text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline"
                           disabled={busy}
                           onClick={() => setDisconnectConfirmOpen(true)}
                         >
@@ -695,35 +797,7 @@ export function CalendarAgentPage({
         ) : null}
       </AppPageContentRegion>
 
-      <AlertDialog
-        open={disconnectConfirmOpen}
-        onOpenChange={setDisconnectConfirmOpen}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader className="text-center">
-            <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
-            <AlertDialogDescription>
-              One won’t be able to access your calendar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-row justify-center gap-2">
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                void disconnect();
-              }}
-            >
-              {busy ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : null}
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {disconnectDialog}
     </AppPageShell>
   );
 }

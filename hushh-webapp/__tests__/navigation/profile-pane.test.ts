@@ -28,6 +28,7 @@ import {
 } from "@/lib/navigation/profile-pane";
 import {
   buildProfileRoute,
+  buildProfileWorldModelRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
 
@@ -44,6 +45,28 @@ describe("Profile pane navigation state", () => {
     expect(state).toEqual({ open: true, location: { panel, detail: null } });
     expect(profilePaneParentLocation(state.location)).toEqual({ panel: null, detail: null });
     expect(buildProfilePaneHref("/one/feed", null, state.location)).toBe(`/one/feed?profile_pane=1&profile_panel=${panel}`);
+  });
+
+  it("sends pane addresses for the model to its own page with the claim it carries", () => {
+    // The pane is outside the provider that prepares the model, so a pane
+    // address naming it lands on the full page, keeping the invitation.
+    const pane = "view=people&profile_pane=1&profile_panel=world-model&claim=synthetic-token&unlock_vault=1";
+    expect(resolveProfilePaneUrlState(pane).location).toEqual({ panel: "world-model", detail: null });
+    const href = buildProfileWorldModelRoute(pane);
+    expect(href).toBe("/one/profile/world-model?claim=synthetic-token");
+    expect(resolveProfileRouteState(href)).toEqual({ panel: "world-model", detail: null });
+    expect(buildProfileWorldModelRoute("profile_pane=1&profile_panel=world-model&handoff=h1&draft_id=d1")).toBe(
+      "/one/profile/world-model?handoff=h1&draft_id=d1",
+    );
+    expect(buildProfileWorldModelRoute("profile_pane=1&profile_panel=world-model", "#claim=synthetic-token")).toBe(
+      "/one/profile/world-model#claim=synthetic-token",
+    );
+    // Negative control: the row tap carries nothing, and pane keys never reach the page.
+    expect(buildProfileWorldModelRoute()).toBe("/one/profile/world-model");
+    expect(buildProfileWorldModelRoute(pane, "#")).not.toContain("profile_pane");
+    expect(buildProfileRoute({ panel: "world-model", searchParams: "from=%2Fone%2Ffeed" })).toBe(
+      "/one/profile/world-model?from=%2Fone%2Ffeed",
+    );
   });
 
   beforeEach(() => {

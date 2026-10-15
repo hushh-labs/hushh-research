@@ -1,9 +1,11 @@
 "use client";
 
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { useState } from "react";
-import { ProfilePaneCopyIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
+import { ProfilePaneCopyIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import { WalletCardQrActions } from "@/components/wallet-card/wallet-card-qr-actions";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 import {
   copyWalletCardLink,
@@ -72,23 +74,17 @@ export function WalletReferralCardDetails({
     <SettingsPresentationProvider separatorInset density="compact">
     <section aria-label="Referral card details" className={`${profileStyles.walletContent} space-y-4`}>
       <SettingsGroup title="Your referral QR">
-        <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-          <div className="mx-auto w-full max-w-[220px]">
-            <WalletCardQr value={summary.link} label="Your referral QR code" />
-          </div>
-          <p className="break-all rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">{summary.link}</p>
-          <div className="flex flex-wrap gap-2">
+        <WalletCardQrActions qr={<WalletCardQr value={summary.link} label="Your referral QR code" />}>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
-              <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />Add to Apple Wallet
+              <AppleWalletIcon />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
             <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"))}>
               <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
-          </div>
           <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[13px] text-primary underline-offset-4 hover:underline">Preview referral page</a>
-        </div>
+        </WalletCardQrActions>
       </SettingsGroup>
       <SettingsGroup title="Referral activity">
         <SettingsRow density="compact" title="Link opens" trailing={<span data-testid="wallet-referral-opens">{summary.link_open_count?.toLocaleString() ?? "—"}</span>} />
@@ -108,7 +104,7 @@ export function WalletReferralCardDetails({
       <WalletCardConfirmDialog
         open={confirmRevoke}
         title="Revoke referral QR access?"
-        body="The current referral QR and shared link stop accepting new opens. A new QR is created with zero opens. Your earned referrals and existing referral progress stay unchanged. Add your pass to Apple Wallet again to update its QR."
+        body="Replace the referral QR and reset opens; earned referrals stay."
         confirmLabel="Revoke access"
         destructive
         busy={busy !== null}

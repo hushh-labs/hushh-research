@@ -272,5 +272,81 @@ def test_payload_never_reaches_argv() -> None:
     """A response with no upper bound must not be spawned as an argument, whatever its size today."""
     source = GATE.read_text(encoding="utf-8")
     spawn = next(line for line in source.splitlines() if line.startswith("python3 -"))
-    assert "$PAYLOAD_FILE" in spawn
-    assert "$PAYLOAD" not in spawn.replace("$PAYLOAD_FILE", "")
+    assert "$PAYLOAD_DIR" in spawn
+    assert "$PAYLOAD" not in spawn.replace("$PAYLOAD_DIR", "")
+
+
+_GITHUB_CURL = r"""#!/usr/bin/env python3
+# Serves check runs the way GitHub does: newest first, per_page/page windows,
+# and an exact-match check_name filter.
+import json, os, sys, urllib.parse
+args, out, params, url, i = sys.argv[1:], None, {}, "", 0
+while i < len(args):
+    if args[i] == "-o":
+        out = args[i + 1]; i += 2; continue
+    if args[i] == "--data-urlencode":
+        key, _, value = args[i + 1].partition("="); params[key] = value; i += 2; continue
+    if args[i] == "-H":
+        i += 2; continue
+    if args[i].startswith("https://"):
+        url = args[i]
+    i += 1
+params.update(dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query)))
+runs = json.loads(open(os.environ["CHECK_RUNS"]).read())
+if "check_name" in params:
+    runs = [run for run in runs if run["name"] == params["check_name"]]
+per_page, page = int(params.get("per_page", 30)), int(params.get("page", 1))
+with open(out, "w") as stream:
+    json.dump({"total_count": len(runs), "check_runs": runs[(page - 1) * per_page : page * per_page]}, stream)
+"""
+
+
+def _run_gate_against_github(tmp_path: Path, check_runs: list[dict], accepted: str):
+    """Execute the real gate against a curl stub that answers like GitHub's API."""
+    runs_file = tmp_path / "check-runs.json"
+    runs_file.write_text(json.dumps(check_runs), encoding="utf-8")
+    stub_dir = tmp_path / "github-stub"
+    stub_dir.mkdir()
+    (stub_dir / "git").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (stub_dir / "curl").write_text(_GITHUB_CURL, encoding="utf-8")
+    for stub in ("git", "curl"):
+        (stub_dir / stub).chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        {
+            "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
+            "CHECK_RUNS": str(runs_file),
+            "REQUIRED_BRANCH": "main",
+            "REQUIRE_CI_SUCCESS": "1",
+            "REQUIRED_CHECK_NAME": accepted,
+            "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+            "GITHUB_TOKEN": "stub-token",
+        }
+    )
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell=True, hermetic stub PATH
+        ["bash", str(GATE), TARGET_SHA], capture_output=True, text=True, env=env, cwd=str(REPO_ROOT)
+    )
+
+
+@pytest.mark.parametrize(("conclusion", "passes"), [("success", True), ("failure", False)])
+def test_gate_finds_the_smoke_gate_behind_more_than_a_page_of_newer_checks(
+    tmp_path: Path, conclusion: str, passes: bool
+) -> None:
+    """An idle main head gathers Capacity Maintenance checks hourly, all newer than the push-time
+    smoke gate. GitHub returns 100 per page, newest first, so an unfiltered first page loses it."""
+    smoke = {**_check_run("Main Post-Merge Smoke Gate", conclusion, 0), "pull_requests": []}
+    newer = [
+        {**_check_run(name, "success", index), "pull_requests": []}
+        for index in range(1, 151)
+        for name in ("Verify due cleanup without cloud credentials",)
+    ]
+    runs = newer + [smoke]  # newest first, as GitHub lists them
+    # Guard the guard: the first unfiltered page really does omit the smoke gate.
+    assert all(run["name"] != smoke["name"] for run in runs[:100])
+    result = _run_gate_against_github(tmp_path, runs, ACCEPTED)
+    if passes:
+        assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        assert "Main Post-Merge Smoke Gate" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert "is successful" in result.stderr

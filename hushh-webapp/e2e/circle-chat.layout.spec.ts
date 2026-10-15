@@ -297,7 +297,7 @@ for (const width of [320, 393, 1440]) {
     });
     expect(geometry.fontSize).toBe("20px");
     expect(geometry.lineHeight).toBe("24px");
-    expect(geometry.weight).toBe("700");
+    expect(geometry.weight).toBe("600");
     expect(geometry.headerHeight).toBe(68);
     expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
     expect(geometry.titleLeft).toBe(18);

@@ -16,6 +16,13 @@ const mocks = vi.hoisted(() => ({
   authLoading: false,
   popup: null as Window | null,
   popupAttempt: "",
+  vaultOwnerToken: null as string | null,
+}));
+
+// Connection/OAuth owner tests use the workspace composition seam; its real
+// event, keyboard and attendance behavior is covered in the connected suite.
+vi.mock("@/components/calendar/calendar-connected-workspace", () => ({
+  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -37,7 +44,7 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: mocks.ownerId
-      ? { uid: mocks.ownerId, getIdToken: mocks.getIdToken }
+      ? { uid: mocks.ownerId, email: `${mocks.ownerId}@example.com`, displayName: "Calendar owner", getIdToken: mocks.getIdToken }
       : null,
     loading: mocks.authLoading,
   }),
@@ -56,6 +63,7 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), promise: vi.fn() } }));
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 
 describe("CalendarAgentPage", () => {
   beforeEach(() => {
@@ -65,6 +73,8 @@ describe("CalendarAgentPage", () => {
     mocks.authLoading = false;
     mocks.ownerId = "calendar-user";
     mocks.popupAttempt = "";
+    mocks.vaultOwnerToken = null;
+    useOneConversationSession.getState().clearSession();
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(
       () =>
@@ -121,7 +131,7 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
   });
 
-  it("keeps a healthy Calendar connection focused on chat and disconnect", async () => {
+  it("opens the connected workspace with the existing chat and disconnect handlers", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
       connected: true,
@@ -133,7 +143,7 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
 
-    await screen.findByText("Connected");
+    await screen.findByText("owner@example.com");
     const chat = screen.getByRole("button", {
       name: "Try Calendar Agent with One",
     });
@@ -160,7 +170,7 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
 
-    await screen.findByText(/View events and availability/);
+    await screen.findByText("owner@example.com");
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
     expect(
@@ -172,6 +182,41 @@ describe("CalendarAgentPage", () => {
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     );
     expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
+  });
+
+  it("uses the existing One session without presenting Calendar credentials", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", google_email: "owner@example.com", access_level: "read", scope_csv: "" });
+    mocks.vaultOwnerToken = "existing-one-owner-token";
+    render(<CalendarAgentPage />);
+    expect(await screen.findByText("Calendar reads authorized")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Unlock/i })).toBeNull();
+    expect(mocks.status).toHaveBeenCalledOnce();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("accepts shared session recovery without a Calendar unlock action", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", google_email: "owner@example.com", access_level: "read", scope_csv: "" });
+    const view = render(<CalendarAgentPage />);
+    expect(await screen.findByText("Calendar session unavailable")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Unlock/i })).toBeNull();
+    mocks.vaultOwnerToken = "recovered-one-owner-token";
+    view.rerender(<CalendarAgentPage />);
+    expect(screen.getByText("Calendar reads authorized")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
+  });
+
+  it("hands the selected Calendar window to One without replacing it with the generic prompt", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", google_email: "owner@example.com", access_level: "read", scope_csv: "" });
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask with current window" }));
+
+    expect(useOneConversationSession.getState().pendingHandoff).toMatchObject({ reason: "user_requested", transcript: "Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes." });
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
     expect(mocks.startConnect).not.toHaveBeenCalled();
   });
 
@@ -235,15 +280,17 @@ describe("CalendarAgentPage", () => {
     );
   });
 
-  it.each(["disconnected", "connected"] as const)("keeps the illustration on first paint until status resolves to %s", async (connectionState) => {
+  it.each([
+    ["workspace", "disconnected"], ["workspace", "connected"],
+    ["onboarding", "disconnected"], ["onboarding", "connected"],
+  ] as const)("keeps %s neutral until status resolves to %s", async (journeyVariant, connectionState) => {
     let resolveStatus!: (value: unknown) => void;
     mocks.status.mockImplementationOnce(() => new Promise((resolve) => { resolveStatus = resolve; }));
-    render(<CalendarAgentPage journeyVariant="onboarding" />);
-    const initialHero = screen.getByTestId("calendar-connect-hero");
-    const connect = screen.getByRole("button", { name: "Connect your calendar" });
-    expect(connect).toBeDisabled();
+    render(<CalendarAgentPage journeyVariant={journeyVariant} />);
+    expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Connect Google Calendar" })).toBeNull();
-    fireEvent.click(connect);
     await waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
     expect(mocks.startConnect).not.toHaveBeenCalled();
     expect(mocks.startNativeConnect).not.toHaveBeenCalled();
@@ -251,37 +298,78 @@ describe("CalendarAgentPage", () => {
     await act(async () => resolveStatus({ configured: true, connected: connectionState === "connected", status: connectionState, access_level: "read", scope_csv: "" }));
     if (connectionState === "connected") {
       expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
-      expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: journeyVariant === "workspace" ? "Calendar" : "Google Calendar" })).toBeTruthy();
       expect(screen.getByText("Connected")).toBeTruthy();
     } else {
-      expect(screen.getByTestId("calendar-connect-hero")).toBe(initialHero);
-      expect(connect).toBeEnabled();
+      expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Connect your calendar" })).toBeEnabled();
     }
   });
 
-  it.each([true, false])("keeps the illustration disabled without a signed-in owner (auth loading=%s)", (authLoading) => {
+  it.each([true, false])("waits for auth or disables connection without an owner (auth loading=%s)", (authLoading) => {
     mocks.ownerId = null;
     mocks.authLoading = authLoading;
     render(<CalendarAgentPage />);
-    expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
-    const connect = screen.getByRole("button", { name: "Connect your calendar" });
-    expect(connect).toBeDisabled();
+    if (authLoading) {
+      expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+      expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
+    } else {
+      expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
+      const connect = screen.getByRole("button", { name: "Connect your calendar" });
+      expect(connect).toBeDisabled();
+      fireEvent.click(connect);
+    }
     expect(screen.queryByRole("heading", { name: "Connect Google Calendar" })).toBeNull();
-    fireEvent.click(connect);
     expect(mocks.startConnect).not.toHaveBeenCalled();
     expect(mocks.startNativeConnect).not.toHaveBeenCalled();
   });
 
-  it("retains the illustration while an OAuth callback saves the connection", async () => {
+  it("waits neutrally while an OAuth callback saves the connection", async () => {
     const view = render(<CalendarAgentPage connectionPending />);
-    const initialHero = screen.getByTestId("calendar-connect-hero");
-    const connect = screen.getByRole("button", { name: "Connect your calendar" });
-    expect(connect).toBeDisabled();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("Finishing Calendar connection…");
+    expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
     expect(mocks.status).not.toHaveBeenCalled();
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
     view.rerender(<CalendarAgentPage />);
-    await waitFor(() => expect(connect).toBeEnabled());
-    expect(screen.getByTestId("calendar-connect-hero")).toBe(initialHero);
+    await waitForConnectButton();
+    expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
+  });
+
+  it("does not flash setup when returning to an already connected calendar", async () => {
+    const connectedStatus = { configured: true, connected: true, status: "connected", access_level: "read", scope_csv: "" };
+    mocks.status.mockResolvedValueOnce(connectedStatus);
+    const firstVisit = render(<CalendarAgentPage />);
+    await screen.findByText("Connected");
+    firstVisit.unmount();
+    let resolveStatus!: (value: unknown) => void;
+    mocks.status.mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    render(<CalendarAgentPage />);
+    expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+    await act(async () => resolveStatus(connectedStatus));
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+  });
+
+  it("offers retry for a failed connection check without showing setup", async () => {
+    mocks.status.mockRejectedValueOnce(new Error("Request failed"));
+    render(<CalendarAgentPage />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByText("Calendar connection couldn’t load. Try again.")).toBeTruthy();
+    expect(screen.queryByText("Checking Calendar connection…")).toBeNull();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    let resolveStatus!: (value: unknown) => void;
+    mocks.status.mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    fireEvent.click(retry);
+    expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+    await act(async () => resolveStatus({ configured: true, connected: true, status: "connected", access_level: "read", scope_csv: "" }));
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
   });
 
   it("retains Skip before connection and Finish after verified onboarding connection", async () => {
@@ -559,17 +647,37 @@ describe("CalendarAgentPage", () => {
     view.rerender(<CalendarAgentPage />);
     expect(screen.queryByText("old@example.com")).toBeNull();
     expect(screen.queryByText("Connected")).toBeNull();
-    expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Connect your calendar" })).toBeDisabled();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+    expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
     await act(async () => finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" }));
     expect(screen.queryByText("old@example.com")).toBeNull();
   });
 
-  it("does not let a delayed status refresh replace a verified connection", async () => {
+  it("keeps the new owner checking when an old owner's status request fails", async () => {
+    let rejectOld!: (error: Error) => void;
+    let resolveNew!: (value: unknown) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+    mocks.status.mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve; }));
+    const view = render(<CalendarAgentPage />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
+    mocks.ownerId = "new-owner";
+    view.rerender(<CalendarAgentPage />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+    await act(async () => rejectOld(new Error("Old request failed")));
+    expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    await act(async () => resolveNew({ configured: true, connected: true, status: "connected", access_level: "read", scope_csv: "" }));
+    expect(screen.getByText("Connected")).toBeTruthy();
+  });
+
+  it.each(["resolve", "reject"] as const)("does not let a delayed status refresh %s replace a verified connection", async (settlement) => {
     let finish!: (value: unknown) => void;
+    let fail!: (error: Error) => void;
     mocks.status.mockResolvedValueOnce({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
-    mocks.status.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    mocks.status.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
     mocks.startConnect.mockResolvedValue({ authorize_url: "https://accounts.google.com/authorize", redirect_uri: "http://localhost/return", expires_at: "2026-10-09" });
     const view = render(<CalendarAgentPage />);
     await waitForConnectButton();
@@ -585,10 +693,12 @@ describe("CalendarAgentPage", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull());
     view.rerender(<CalendarAgentPage connectionPending />);
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
-    await act(async () => finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" }));
+    expect(screen.getByRole("heading", { name: "Calendar", exact: true })).toBeTruthy();
+    await act(async () => settlement === "resolve"
+      ? finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" })
+      : fail(new Error("Stale request failed")));
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Calendar", exact: true })).toBeTruthy();
   });
 
 });

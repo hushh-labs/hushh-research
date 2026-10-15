@@ -3,6 +3,7 @@
 
 This command is read only. The default pre-deploy phase reserves one new
 revision of each configured database-using service during deployment overlap.
+Scoped releases may name only the services that will create a new revision.
 Use --phase post-release to check retained capacity without another hypothetical
 candidate. Both phases include retained revisions, jobs and administrative reserve.
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +26,19 @@ POOL_KEYS = (
     "DB_SQLALCHEMY_POOL_SIZE",
     "DB_SQLALCHEMY_MAX_OVERFLOW",
 )
+FRONTEND_SERVICE = "hushh-webapp"
+FRONTEND_DB_ENV = re.compile(
+    r"^(?:DB|DATABASE|POSTGRES|PG|CLOUD_SQL|CLOUDSQL|SQLALCHEMY|JDBC)"
+)
+FRONTEND_DB_VALUE = re.compile(
+    r"(?:postgres(?:ql)?://|/cloudsql/|hushh-uat-pg|cloudsql-instances)", re.I
+)
+FRONTEND_ALLOWED_PROJECT_ROLES = frozenset({
+    "roles/secretmanager.secretAccessor",
+    "roles/logging.logWriter",
+    "roles/monitoring.metricWriter",
+    "roles/cloudtrace.agent",
+})
 
 
 class BudgetError(ValueError):
@@ -83,6 +98,50 @@ def env_values(container: dict[str, Any], label: str) -> dict[str, str]:
     return result
 
 
+def revision_workers(
+    container: dict[str, Any], settings: dict[str, Any], name: str
+) -> int:
+    """Count the actual launcher workers; conflicting declarations fail closed."""
+    command = container.get("command") or []
+    if command and Path(command[0]).name in {"sh", "bash", "dash", "zsh"}:
+        raise BudgetError(f"{name}: uninspectable explicit shell launcher")
+    declarations: list[int] = []
+    for item in container.get("env", []):
+        if item.get("name") == "WEB_CONCURRENCY":
+            if "value" not in item:
+                raise BudgetError(f"{name}: WEB_CONCURRENCY must be inspectable")
+            declarations.append(positive_int(item["value"], f"{name} WEB_CONCURRENCY"))
+    args = [*(container.get("command") or []), *(container.get("args") or [])]
+    for index, argument in enumerate(args):
+        if argument in {"-w", "--workers"}:
+            if index + 1 >= len(args):
+                raise BudgetError(f"{name}: malformed worker count")
+            declarations.append(positive_int(args[index + 1], f"{name} workers"))
+        elif isinstance(argument, str) and argument.startswith("--workers="):
+            declarations.append(
+                positive_int(argument.split("=", 1)[1], f"{name} workers")
+            )
+        elif (
+            isinstance(argument, str)
+            and argument.startswith("-w")
+            and len(argument) > 2
+        ):
+            declarations.append(positive_int(argument[2:], f"{name} workers"))
+        elif isinstance(argument, str) and (
+            re.search(r"(?:^|[\s\'\"])(?:--workers(?:=|\b)|-w)", argument)
+        ):
+            raise BudgetError(f"{name}: uninspectable shell worker override")
+    if len(set(declarations)) > 1:
+        raise BudgetError(f"{name}: conflicting worker declarations")
+    return (
+        declarations[0]
+        if declarations
+        else positive_int(
+            settings["workers_per_instance"], f"{name} reviewed image default workers"
+        )
+    )
+
+
 def revision_connections(
     revision: dict[str, Any],
     service: str,
@@ -112,20 +171,7 @@ def revision_connections(
         )
         for key in POOL_KEYS
     ]
-    workers = positive_int(settings["workers_per_instance"], f"{service} workers")
-    # Drive workers specify -w in the revision command; check that the profile
-    # cannot silently undercount a changed command line.
-    args = container.get("args") or []
-    if "-w" in args:
-        index = args.index("-w")
-        if index + 1 >= len(args):
-            raise BudgetError(f"{name}: malformed worker count")
-        workers = positive_int(args[index + 1], f"{name} workers")
-    elif "--workers" in args:
-        index = args.index("--workers")
-        if index + 1 >= len(args):
-            raise BudgetError(f"{name}: malformed worker count")
-        workers = positive_int(args[index + 1], f"{name} workers")
+    workers = revision_workers(container, settings, name)
     return {
         "name": name,
         "max_instances": maximum,
@@ -161,6 +207,75 @@ def candidate_connections(service: str, settings: dict[str, Any]) -> dict[str, A
         "workers_per_instance": workers,
         "connections_per_worker": sum(pools),
         "connections": maximum * workers * sum(pools),
+    }
+
+
+def inherited_candidate_connections(
+    service: str,
+    settings: dict[str, Any],
+    service_doc: dict[str, Any],
+    revisions: list[dict[str, Any]],
+    database_connection_name: str,
+) -> dict[str, Any]:
+    """Reserve the largest of policy, the service template, and serving revision.
+
+    A service update that changes only image and selected env vars inherits the
+    live template's scale and DB pools. The serving revision is a second bound
+    for scale, pool, or explicit worker-argument drift from that template.
+    """
+    template = (service_doc.get("spec") or {}).get("template")
+    if not isinstance(template, dict):
+        raise BudgetError(f"{service}: service template unavailable")
+    template_row = revision_connections(
+        {
+            "metadata": {
+                "name": f"{service}-candidate-template",
+                "annotations": (template.get("metadata") or {}).get("annotations"),
+            },
+            "spec": template.get("spec"),
+        },
+        service,
+        settings,
+        database_connection_name,
+    )
+    traffic = (service_doc.get("status") or {}).get("traffic")
+    if not isinstance(traffic, list):
+        raise BudgetError(f"{service}: service traffic unavailable")
+    serving = [
+        target.get("revisionName")
+        for target in traffic
+        if positive_int(
+            target.get("percent", 0), f"{service} traffic percent", zero_ok=True
+        ) > 0
+    ]
+    if len(serving) != 1 or not isinstance(serving[0], str) or sum(
+        positive_int(
+            target.get("percent", 0), f"{service} traffic percent", zero_ok=True
+        )
+        for target in traffic
+    ) != 100:
+        raise BudgetError(f"{service}: inherited candidate needs one 100% serving revision")
+    matching = [
+        revision
+        for revision in revisions
+        if (revision.get("metadata") or {}).get("name") == serving[0]
+    ]
+    if len(matching) != 1:
+        raise BudgetError(f"{service}: serving revision inventory is ambiguous")
+    serving_row = revision_connections(
+        matching[0], service, settings, database_connection_name
+    )
+    policy_row = candidate_connections(service, settings)
+    largest = max(
+        (policy_row, template_row, serving_row),
+        key=lambda row: row["connections"],
+    )
+    return {
+        **policy_row,
+        "max_instances": largest["max_instances"],
+        "workers_per_instance": largest["workers_per_instance"],
+        "connections_per_worker": largest["connections_per_worker"],
+        "connections": largest["connections"],
     }
 
 
@@ -299,6 +414,134 @@ def connection_policy(
     return policy
 
 
+def verify_frontend_without_sql(
+    workload: dict[str, Any], *, name: str, template: bool, project: str
+) -> None:
+    """Check the frontend's declared Cloud Run configuration for SQL bindings.
+
+    This is an incremental admission check. It is deliberately restricted to
+    the reviewed web runtime identity and never classifies arbitrary jobs as
+    database-free.
+    """
+    metadata = workload.get("metadata") or {}
+    if not template and metadata.get("name") != name:
+        raise BudgetError(f"{name}: frontend revision identity is ambiguous")
+    annotations = metadata.get("annotations") or {}
+    if not isinstance(annotations, dict) or any(
+        "cloudsql" in str(key).lower() or "cloud-sql" in str(key).lower()
+        for key in annotations
+    ):
+        raise BudgetError(f"{name}: frontend Cloud SQL attachment is present or uninspectable")
+    spec = workload.get("spec") or {}
+    expected_account = f"hushh-webapp-runtime@{project}.iam.gserviceaccount.com"
+    if spec.get("serviceAccountName") != expected_account:
+        raise BudgetError(f"{name}: frontend runtime identity differs from reviewed identity")
+    containers = spec.get("containers")
+    if not isinstance(containers, list) or len(containers) != 1:
+        raise BudgetError(f"{name}: frontend container inventory is unavailable")
+    if spec.get("volumes"):
+        raise BudgetError(f"{name}: frontend volumes require a database access review")
+    env = containers[0].get("env")
+    if not isinstance(env, list):
+        raise BudgetError(f"{name}: frontend environment inventory is unavailable")
+    for item in env:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise BudgetError(f"{name}: frontend environment inventory is malformed")
+        secret_ref = ((item.get("valueFrom") or {}).get("secretKeyRef") or {})
+        if (
+            FRONTEND_DB_ENV.match(item["name"])
+            or FRONTEND_DB_VALUE.search(str(item.get("value", "")))
+            or FRONTEND_DB_ENV.match(str(secret_ref.get("name", "")))
+        ):
+            raise BudgetError(f"{name}: frontend database configuration is present")
+
+
+def verify_frontend_project_iam(project: str) -> None:
+    """Reject direct project grants beyond the web runtime's reviewed roles."""
+    policy = gcloud_json("projects", "get-iam-policy", project)
+    bindings = policy.get("bindings")
+    if not isinstance(bindings, list):
+        raise BudgetError("frontend project IAM inventory is unavailable")
+    member = f"serviceAccount:hushh-webapp-runtime@{project}.iam.gserviceaccount.com"
+    for binding in bindings:
+        if not isinstance(binding, dict) or not isinstance(binding.get("members"), list):
+            raise BudgetError("frontend project IAM inventory is malformed")
+        if member in binding["members"] and binding.get("role") not in FRONTEND_ALLOWED_PROJECT_ROLES:
+            raise BudgetError("frontend runtime identity has an unreviewed project IAM role")
+
+
+def frontend_only_report(
+    profile: dict[str, Any], environment: str, *, candidate_revision: str | None = None
+) -> dict[str, Any]:
+    """Admit a reviewed web-only release by its zero declared SQL demand.
+
+    A web release does not create a database service revision. Global SQL
+    inventory, including unrelated temporary jobs, is therefore not an
+    admission dependency for this narrow lane. Backend/all releases retain the
+    full fail-closed capacity calculation.
+    """
+    if environment != "uat":
+        raise BudgetError("frontend-only incremental admission is limited to UAT")
+    policy = connection_policy(profile, environment)
+    config = profile["environments"][environment]
+    if FRONTEND_SERVICE not in config.get("non_database_services", ()):
+        raise BudgetError("frontend service lacks reviewed non-database classification")
+    project, region = config["project"], profile["region"]
+    verify_frontend_project_iam(project)
+    opts = (f"--project={project}", f"--region={region}")
+    service = gcloud_json("run", "services", "describe", FRONTEND_SERVICE, *opts)
+    template = (service.get("spec") or {}).get("template")
+    if not isinstance(template, dict):
+        raise BudgetError("frontend service template is unavailable")
+    verify_frontend_without_sql(
+        template, name=f"{FRONTEND_SERVICE} template", template=True, project=project
+    )
+    status = service.get("status") or {}
+    traffic = status.get("traffic")
+    if not isinstance(traffic, list) or not traffic:
+        raise BudgetError("frontend serving traffic is unavailable")
+    revision_names: set[str] = set()
+    serving_percent = 0
+    for target in traffic:
+        revision_name = target.get("revisionName")
+        percent = positive_int(
+            target.get("percent", 0), "frontend traffic percent", zero_ok=True
+        )
+        if not isinstance(revision_name, str) or not revision_name.startswith(
+            f"{FRONTEND_SERVICE}-"
+        ):
+            raise BudgetError("frontend traffic revision identity is invalid")
+        serving_percent += percent
+        if percent or target.get("tag"):
+            revision_names.add(revision_name)
+    if serving_percent != 100:
+        raise BudgetError("frontend serving traffic is not exactly 100%")
+    latest = status.get("latestReadyRevisionName")
+    if not isinstance(latest, str) or not latest.startswith(f"{FRONTEND_SERVICE}-"):
+        raise BudgetError("frontend latest ready revision is unavailable")
+    revision_names.add(latest)
+    if candidate_revision is not None:
+        if not re.fullmatch(r"hushh-webapp-[a-z0-9-]+", candidate_revision):
+            raise BudgetError("frontend candidate revision identity is invalid")
+        revision_names.add(candidate_revision)
+    for revision_name in sorted(revision_names):
+        revision = gcloud_json("run", "revisions", "describe", revision_name, *opts)
+        verify_frontend_without_sql(
+            revision, name=revision_name, template=False, project=project
+        )
+    return {
+        "environment": environment,
+        "phase": "pre-deploy",
+        "project": project,
+        "admission_mode": "frontend-only-incremental",
+        "projected_connections": 0,
+        "incremental_connections": 0,
+        "admission_limit": policy["admission_limit"],
+        "admitted": True,
+        "verified_frontend_revisions": sorted(revision_names),
+    }
+
+
 def sql_alert_thresholds(
     profile: dict[str, Any], project: str, instance: str
 ) -> dict[str, int]:
@@ -319,11 +562,19 @@ def evaluate(
     inventory: dict[str, Any],
     *,
     phase: CapacityPhase = "pre-deploy",
+    candidate_services: frozenset[str] | None = None,
+    inherited_candidate_services: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     if phase not in CAPACITY_PHASES:
         raise BudgetError(f"unsupported capacity phase: {phase}")
     policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
+    if candidate_services is None:
+        candidate_services = frozenset(config["services"])
+    if candidate_services - config["services"].keys():
+        raise BudgetError("candidate service is not in the capacity profile")
+    if inherited_candidate_services - candidate_services:
+        raise BudgetError("inherited candidate must be a reserved candidate service")
     maximum = policy["database_max_connections"]
     limit = policy["admission_limit"]
     reserve = policy["administrative_reserve"]
@@ -359,8 +610,22 @@ def evaluate(
                     connection_name,
                 )
             )
-        if phase == "pre-deploy":
-            service_rows.append(candidate_connections(name, settings))
+        if phase == "pre-deploy" and name in candidate_services:
+            if name in inherited_candidate_services:
+                if name not in inventory["services"]:
+                    raise BudgetError(f"{name}: inherited candidate has no live service")
+                service = inventory["services"][name]
+                service_rows.append(
+                    inherited_candidate_connections(
+                        name,
+                        settings,
+                        service["service"],
+                        service["revisions"],
+                        connection_name,
+                    )
+                )
+            else:
+                service_rows.append(candidate_connections(name, settings))
     if set(inventory["jobs"]) != set(config["jobs"]):
         extra = set(inventory["jobs"]) - set(config["jobs"])
         missing = set(config["jobs"]) - set(inventory["jobs"])
@@ -496,6 +761,31 @@ def main() -> int:
         help="Reserve the next deployment candidate, or check only retained capacity",
     )
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
+    candidates = parser.add_mutually_exclusive_group()
+    candidates.add_argument(
+        "--candidate-service",
+        action="append",
+        help="Reserve a new revision of this service (repeat for each deployed service)",
+    )
+    candidates.add_argument(
+        "--inherit-candidate-service",
+        action="append",
+        help="Reserve a candidate inheriting this live service's template (repeatable)",
+    )
+    candidates.add_argument(
+        "--no-candidates",
+        action="store_true",
+        help="Audit the global database budget without reserving a new service revision",
+    )
+    candidates.add_argument(
+        "--frontend-only",
+        action="store_true",
+        help="Verify UAT web service has zero incremental SQL demand without auditing unrelated jobs",
+    )
+    parser.add_argument(
+        "--frontend-revision",
+        help="Also verify this exact frontend candidate revision before traffic promotion",
+    )
     parser.add_argument(
         "--report-only",
         action="store_true",
@@ -505,14 +795,43 @@ def main() -> int:
     args = parser.parse_args()
     try:
         profile = json.loads(args.profile.read_text())
-        report = evaluate(
-            profile, args.environment, collect(profile, args.environment), phase=args.phase
-        )
+        if args.frontend_only:
+            if args.phase != "pre-deploy":
+                raise BudgetError("frontend-only admission requires the pre-deploy phase")
+            report = frontend_only_report(
+                profile, args.environment, candidate_revision=args.frontend_revision
+            )
+        else:
+            if args.frontend_revision:
+                raise BudgetError("frontend revision verification requires --frontend-only")
+            candidate_services = (
+                frozenset()
+                if args.no_candidates
+                else frozenset(args.candidate_service)
+                if args.candidate_service is not None
+                else frozenset(args.inherit_candidate_service)
+                if args.inherit_candidate_service is not None
+                else None
+            )
+            report = evaluate(
+                profile,
+                args.environment,
+                collect(profile, args.environment),
+                phase=args.phase,
+                candidate_services=candidate_services,
+                inherited_candidate_services=frozenset(args.inherit_candidate_service or ()),
+            )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)
         return 2
     if args.output == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
+    elif args.frontend_only:
+        print(
+            f"{args.environment}: frontend-only incremental Cloud SQL demand 0 "
+            "(service template and reachable revisions verified without SQL bindings)"
+        )
+        print("ADMIT")
     else:
         capacity_label = "projected" if args.phase == "pre-deploy" else "current"
         print(

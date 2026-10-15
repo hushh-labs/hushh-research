@@ -140,7 +140,7 @@ async function signInAsReviewer(page: Page) {
   if (await unlockInput.isVisible().catch(() => false)) {
     await unlockInput.fill(process.env.REVIEWER_VAULT_PASSPHRASE ?? "");
     await page
-      .getByRole("button", { name: /unlock with passphrase/i })
+      .getByRole("button", { name: /unlock with password/i })
       .first()
       .click({ noWaitAfter: true });
   }

@@ -971,7 +971,7 @@ class MainActivity : BridgeActivity() {
                             if (!fallbackButton) {
                               fallbackButton = buttons.find(function(button) {
                                 var text = (button.textContent || "").trim().toLowerCase();
-                                return text === "use passphrase instead";
+                                return text === "use password instead";
                               });
                             }
                             if (fallbackButton && !fallbackButton.disabled) {
@@ -1004,7 +1004,7 @@ class MainActivity : BridgeActivity() {
                             var currentButtons = Array.prototype.slice.call(document.querySelectorAll("button"));
                             var unlockButton = currentButtons.find(function(button) {
                               var text = (button.textContent || "").trim().toLowerCase();
-                              return text === "unlock with passphrase";
+                              return text === "unlock with password";
                             });
                             if (unlockButton && !unlockButton.disabled) {
                               bridge._vaultUnlockButtonClicked = true;

@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useMemo, useState, type ReactNode } from "react";
+import { useShortcutIconMotion } from "@/lib/morphy-ux/hooks/use-shortcut-icon-motion";
+import shortcutMotion from "@/components/icons/ui/shortcut-icon-motion.module.css";
 import {
-  Unplug as PlugIcon,
-  ClipboardCheck,
+  ConnectorsShortcutIcon,
+  TodoListIcon,
   CheckIcon as Check,
-  Download as DownloadIcon,
+  DownloadAppIcon,
   MessageSquareIcon as MessageSquare,
   DotsThreeIcon as MoreHorizontal,
   Loader2Icon as Loader2,
@@ -39,6 +41,7 @@ import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { SidePanelMotionBody } from "@/components/app-ui/side-panel-motion";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
 import { cn } from "@/lib/utils";
@@ -196,6 +199,7 @@ export function AgentHistorySidebar({
   onRenameConversation,
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
+  const shortcutInteraction = useShortcutIconMotion();
   const isMobileMode = mode === "mobile";
   // Neutral on the default path, owned when the other agent is on screen.
   const listTitle = surface === "puppy" ? "Puppy chats" : "Chats";
@@ -309,6 +313,7 @@ export function AgentHistorySidebar({
       <div
         key={conversation.id}
         data-agent-history-row
+        data-state={active ? "active" : undefined}
         role="listitem"
         className={cn(
           "group relative rounded-[12px] transition-colors motion-reduce:transition-none duration-150",
@@ -325,7 +330,7 @@ export function AgentHistorySidebar({
             <Input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
-              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-medium text-foreground focus-visible:ring-0"
+              className={cn("h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-normal text-foreground focus-visible:ring-0", isMobileMode && "h-11 text-[13px]")}
               maxLength={160}
               autoFocus
               disabled={pending}
@@ -338,7 +343,7 @@ export function AgentHistorySidebar({
               type="submit"
               variant="ghost"
               size="icon-xs"
-              className="h-6 w-6 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 dark:text-emerald-400"
+              className={isMobileMode ? "h-11 w-11 text-[color:var(--app-accent)] hover:bg-[color:var(--one-chat-field)]" : "h-6 w-6 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 dark:text-emerald-400"}
               disabled={pending || !normalizeTitle(renameValue)}
               aria-label="Save chat name"
             >
@@ -348,7 +353,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon-xs"
-              className="h-6 w-6 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+              className={cn("h-6 w-6 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground", isMobileMode && "h-11 w-11")}
               onClick={cancelRename}
               disabled={pending}
               aria-label="Cancel rename"
@@ -363,7 +368,7 @@ export function AgentHistorySidebar({
             <button
               type="button"
               className={cn(
-                "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                "relative isolate overflow-hidden block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
                 // Keep a compact baseline; hover and AX retain the full title.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
@@ -394,6 +399,7 @@ export function AgentHistorySidebar({
                 </time>
               ) : null}
               </span>
+              {isMobileMode ? <MaterialRipple variant="none" effect="fade" disabled={disabled || pending} disableHover className="z-10" /> : null}
             </button>
 
             <div
@@ -426,6 +432,7 @@ export function AgentHistorySidebar({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   data-one-chat-surface
+                  data-app-pane-material={isMobileMode ? "profile" : undefined}
                   // Beside the row on desktop, as in the reference; in the
                   // phone drawer there is no room to the right, so below it.
                   side={isMobileMode ? "bottom" : "right"}
@@ -433,9 +440,7 @@ export function AgentHistorySidebar({
                   sideOffset={isMobileMode ? 6 : 10}
                   alignOffset={isMobileMode ? 0 : -6}
                   collisionPadding={12}
-                  // Opaque and borderless, lifted by a soft shadow only, as in
-                  // the reference. The fallback keeps it opaque even if the
-                  // chat tokens are missing, so rows can never show through.
+                  // Drawer menus share Profile's material even through a portal.
                   className="min-w-[12.5rem] rounded-[20px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1.5 text-foreground shadow-[0_16px_44px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_48px_-8px_rgba(0,0,0,0.75),0_2px_8px_rgba(0,0,0,0.4)]"
                 >
                   <DropdownMenuItem
@@ -527,7 +532,7 @@ export function AgentHistorySidebar({
                 ><AnimatedMenuCrossIcon isOpen /></ShellActionSurface>}</span>
               ) : null}
               <div className="flex min-w-0 items-center gap-2">
-                <h2 data-agent-history-title className="truncate text-[20px] font-bold leading-[23px] tracking-[-0.025em] text-foreground">
+                <h2 data-agent-history-title className="truncate text-[20px] font-semibold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (
@@ -719,8 +724,11 @@ export function AgentHistorySidebar({
                 onClick={onOpenTodoList}
                 aria-label="Open To-do List"
                 title={railMode ? "To-do List" : undefined}
+                {...shortcutInteraction}
               >
-                <ClipboardCheck className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <span className={shortcutMotion.paperStage}>
+                  <TodoListIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                </span>
                 {railMode ? null : <span data-agent-history-row-title className="truncate">To-do List</span>}
               </ShellActionSurface>
             ) : null}
@@ -737,8 +745,9 @@ export function AgentHistorySidebar({
                 aria-haspopup="dialog"
                 aria-expanded={getAppOpen}
                 title={railMode ? "Get the app" : undefined}
+                {...shortcutInteraction}
               >
-                <DownloadIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <DownloadAppIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Get the app</span>}
               </ShellActionSurface>
             ) : null}
@@ -752,8 +761,9 @@ export function AgentHistorySidebar({
                 onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
                 title={railMode ? "Connectors" : undefined}
+                {...shortcutInteraction}
               >
-                <PlugIcon className={cn("shrink-0 text-muted-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
+                <ConnectorsShortcutIcon className={cn("shrink-0 text-foreground", isMobileMode ? "size-[22px]" : "size-[18px]")} aria-hidden="true" />
                 {railMode ? null : <span data-agent-history-row-title className="truncate">Connectors</span>}
               </ShellActionSurface>
             ) : null}

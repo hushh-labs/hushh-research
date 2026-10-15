@@ -2,13 +2,14 @@
 
 import * as Phosphor from "@phosphor-icons/react";
 import { forwardRef } from "react";
+import { AccentedKeyIcon } from "./ui/accented-key-icon";
 import type { Icon, IconProps, IconWeight } from "@phosphor-icons/react";
 
 /**
  * Compatibility facade for legacy component names. Every export renders the
- * equivalent official Phosphor icon. Capability aliases keep the canonical
- * duotone default; utility aliases opt into regular so they never paint a
- * secondary fill that reads like a background.
+ * equivalent official Phosphor icon. Outline geometry is the shared default,
+ * without a translucent secondary fill inside the glyph. Key aliases share
+ * the neutral outline and blue pinpoint used by password fields.
  * strokeWidth is accepted for source compatibility but intentionally ignored;
  * Phosphor owns the rendered geometry and weight.
  */
@@ -20,7 +21,7 @@ export type LucideIcon = React.ForwardRefExoticComponent<CanonicalIconProps>;
 
 function createCanonicalIcon(
   icon: Icon,
-  defaultWeight: IconWeight = "duotone",
+  defaultWeight: IconWeight = "regular",
 ): LucideIcon {
   const CanonicalIcon = icon;
   const ForwardedCanonicalIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
@@ -148,9 +149,9 @@ export const ImageIcon = createCanonicalIcon(Phosphor.Image);
 export const Inbox = createCanonicalIcon(Phosphor.Tray);
 export const Info = createCanonicalIcon(Phosphor.Info);
 export const Italic = createCanonicalIcon(Phosphor.TextItalic);
-export const Key = createCanonicalIcon(Phosphor.Key);
+export const Key = AccentedKeyIcon;
 export const Keyboard = createCanonicalIcon(Phosphor.Keyboard);
-export const KeyRound = createCanonicalIcon(Phosphor.Key);
+export const KeyRound = AccentedKeyIcon;
 export const Landmark = createCanonicalIcon(Phosphor.Bank);
 export const Laptop = createCanonicalIcon(Phosphor.Laptop);
 export const Layers = createCanonicalIcon(Phosphor.Stack);

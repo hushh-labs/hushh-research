@@ -107,11 +107,13 @@ class ProfileResearchJobs:
         lease_seconds=None,
         preserve_budget_on_identity_change=False,
         review_ids=False,
+        progressive=False,
     ):
         self.store = store or ProfileResearchJobStore()
         self.offer = offer or offer_profile_research
         self.check = check or admission
         self.review_ids = review_ids
+        self.progressive = progressive
         self.clock = clock
         self.preserve_budget_on_identity_change = preserve_budget_on_identity_change
         self.max_attempts = max_attempts
@@ -147,9 +149,9 @@ class ProfileResearchJobs:
 
     @staticmethod
     def exhausted(state: dict[str, Any]) -> bool:
-        return (
-            state["status"] == "unavailable"
-            and state.get("result", {}).get("retry_exhausted") is True
+        return state["status"] == "unavailable" and (
+            state.get("result", {}).get("retry_exhausted") is True
+            or state.get("result", {}).get("research_exhausted") is True
         )
 
     async def status(self, user_id: str, consent_token: str) -> dict[str, Any]:
@@ -176,6 +178,8 @@ class ProfileResearchJobs:
             return pending(restart=True)
         if state["status"] in {"disabled", "not_ready", "saved", "insufficient_identity"}:
             return state["result"]
+        if self.progressive and state["status"] == "paused":
+            return state["result"]
         if not self.reusable(state):
             return pending(restart=True)
         # A failed dependency gets a bounded cooldown and fresh-authority retry,
@@ -186,7 +190,9 @@ class ProfileResearchJobs:
             else state["result"]
         )
 
-    async def start(self, user_id: str, consent_token: str) -> dict[str, Any]:
+    async def start(
+        self, user_id: str, consent_token: str, *, inputs: dict | None = None
+    ) -> dict[str, Any]:
         # Slow setup/identity/provider admission belongs to the bounded worker,
         # not the initiating exchange. Exact owner authority still gates even
         # the encrypted checkpoint claim; no model runs before full admission.
@@ -194,8 +200,10 @@ class ProfileResearchJobs:
             raise PermissionError("Owner session ended")
         if not one_profile_research_enabled():
             return {"status": "disabled", "pkm_written": False}
+        context = await self.job_context(user_id, consent_token)
         state = await self.store.get(user_id)
-        if state and self.reusable(state):
+        same_context = all((state or {}).get(key) == value for key, value in context.items())
+        if state and same_context and self.reusable(state):
             if state["status"] == "pending":
                 return pending()
             # Database waits must not turn a pre-read admission into stale
@@ -247,7 +255,24 @@ class ProfileResearchJobs:
                 "discovery_started_at", (state or {}).get("started_at", self.clock())
             ),
         }
+        if (
+            self.progressive
+            and same_context
+            and state
+            and (
+                self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
+                and state["status"] in {"pending", "paused", "unavailable"}
+            )
+        ):
+            next_state["work"] = state.get("work", {})
+            next_state["job_id"] = state["job_id"]
+        # Caller-supplied model inputs stay sealed with the job and carry across
+        # resumes; they never change the reuse context above.
+        carried = (state or {}).get("inputs") if inputs is None else inputs
+        if carried:
+            next_state["inputs"] = carried
         # Reserve before the awaited CAS, including contenders for other owners.
+        next_state.update(context)
         self.active += 1
         dispatched = False
         try:
@@ -286,6 +311,12 @@ class ProfileResearchJobs:
         self.tasks.discard(task)
         self.active -= 1
 
+    async def job_context(self, user_id, consent_token):
+        return {}
+
+    def committed(self):
+        pass
+
     async def _run(
         self,
         user_id: str,
@@ -310,6 +341,9 @@ class ProfileResearchJobs:
                         "identity_binding": original_binding,
                         "attempted_combinations": used,
                     }
+                    if self.progressive and state.get("resume_binding") != original_binding:
+                        # Paid slots survive identity changes, private evidence does not.
+                        state.pop("work", None)
                     if not used:
                         state["discovery_started_at"] = self.clock()
                     if refused:
@@ -317,7 +351,8 @@ class ProfileResearchJobs:
                     else:
                         # Charge only research, not setup/policy reads. Commit
                         # that charge before the provider call, under this lease.
-                        state = {**state, "starts": [*state["starts"], self.clock()]}
+                        if not (self.progressive and state.get("work")):
+                            state = {**state, "starts": [*state["starts"], self.clock()]}
                         charged = await self.store.write(user_id, state, revision)
                         if charged is None:
                             return
@@ -347,11 +382,32 @@ class ProfileResearchJobs:
                                 raise PermissionError("Discovery lease changed")
                             state, revision = charged_state, charged_revision
 
+                        async def checkpoint_progress(work: dict) -> None:
+                            nonlocal state, revision
+                            if (
+                                await validate_first_party_owner_token(user_id, consent_token)
+                                is None
+                            ):
+                                raise PermissionError("Owner session ended")
+                            # Detached snapshot: later tool mutations cannot alter the
+                            # state associated with an already-issued CAS revision.
+                            progressed = {**state, "work": json.loads(json.dumps(work))}
+                            next_revision = await self.store.write(user_id, progressed, revision)
+                            if next_revision is None:
+                                raise PermissionError("Discovery lease changed")
+                            state, revision = progressed, next_revision
+
                         result = await self.offer(
                             user_id=user_id,
                             consent_token=consent_token,
                             attempts_used=tuple(used),
                             on_attempts_start=charge_combinations,
+                            **(
+                                {"work": state.get("work", {}), "on_progress": checkpoint_progress}
+                                if self.progressive
+                                else {}
+                            ),
+                            **({"inputs": state["inputs"]} if state.get("inputs") else {}),
                         )
                         stage = "release"
                         refused, binding = await self.check(user_id, consent_token)
@@ -386,7 +442,13 @@ class ProfileResearchJobs:
                 result = {"status": "unavailable", "pkm_written": False}
             # Never persist token/key. A lost CAS means a new lease superseded
             # this run; discard the draft rather than overwriting its result.
-            if self.review_ids and result["status"] == "offered":
+            if self.review_ids and (
+                result["status"] == "offered"
+                or (
+                    self.progressive
+                    and result["status"] in {"unavailable", "insufficient_identity"}
+                )
+            ):
                 result = {**result, "draft_id": state["job_id"]}
             terminal = {
                 **state,
@@ -394,8 +456,10 @@ class ProfileResearchJobs:
                 "result": result,
                 "finished_at": self.clock(),
             }
-            await self.store.write(user_id, terminal, revision)
-            logger.info("one.magic_discovery_finished status=%s", result["status"])
+            committed = await self.store.write(user_id, terminal, revision)
+            if committed is not None:
+                self.committed()
+                logger.info("one.magic_discovery_finished status=%s", result["status"])
         except asyncio.CancelledError:
             # The checkpoint remains pending. Fresh owner auth can reclaim its
             # expired lease; never resume automatically with saved credentials.

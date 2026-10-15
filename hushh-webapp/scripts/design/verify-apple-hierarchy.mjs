@@ -96,29 +96,30 @@ for (const repoPath of [
 for (const [token, value] of [
   ["--type-large-page-title-size", "28px"],
   ["--type-large-page-title-line", "34px"],
-  ["--type-large-page-title-weight", "700"],
+  ["--type-large-page-title-weight", "600"],
   ["--type-large-page-title-tracking", "normal"],
   ["--type-page-title-size", "28px"],
   ["--type-page-title-line", "34px"],
-  ["--type-page-title-weight", "700"],
+  ["--type-page-title-weight", "600"],
   ["--type-page-title-tracking", "normal"],
   ["--type-agent-title-size", "28px"],
   ["--type-agent-title-line", "34px"],
-  ["--type-agent-title-weight", "700"],
+  ["--type-agent-title-weight", "600"],
   ["--type-agent-title-tracking", "normal"],
   ["--type-major-section-title-size", "20px"],
   ["--type-major-section-title-line", "25px"],
   ["--type-major-section-title-weight", "600"],
   ["--type-major-section-title-tracking", "normal"],
+  ["--type-section-title-weight", "600"],
   ["--type-card-title-size", "20px"],
   ["--type-card-title-line", "25px"],
-  ["--type-card-title-weight", "600"],
+  ["--type-card-title-weight", "400"],
   ["--type-card-title-tracking", "normal"],
   ["--type-page-subtitle-size", "15px"],
   ["--type-page-subtitle-line", "20px"],
   ["--type-section-label-size", "15px"],
   ["--type-section-label-line", "20px"],
-  ["--type-section-label-weight", "500"],
+  ["--type-section-label-weight", "600"],
   ["--type-section-label-tracking", "normal"],
   ["--type-row-label-size", "17px"],
   ["--type-row-label-line", "22px"],
@@ -135,10 +136,10 @@ for (const [token, value] of [
   ["--type-legal-text-line", "15px"],
   ["--type-tab-label-size", "11px"],
   ["--type-tab-label-line", "13px"],
-  ["--type-tab-label-weight", "500"],
+  ["--type-tab-label-weight", "550"],
   ["--type-agent-tab-label-size", "15px"],
   ["--type-agent-tab-label-line", "20px"],
-  ["--type-agent-tab-label-weight", "500"],
+  ["--type-agent-tab-label-weight", "550"],
   ["--type-agent-tab-label-tracking", "normal"],
   ["--app-card-radius-compact", "16px"],
   ["--app-card-radius-standard", "18px"],
@@ -163,12 +164,30 @@ if (!globals.includes(".app-page-shell")) {
 
 expectIncludes(
   "app/globals.css",
-  '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
-  "product UI must use Inter only",
+  '--font-family-product: "Plus Jakarta Sans", system-ui, sans-serif;',
+  "product UI must use Plus Jakarta Sans",
 );
+expectIncludes(
+  "app/globals.css",
+  "--font-app-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;",
+  "uppercase metadata and code must use the system monospace stack",
+);
+expectIncludes(
+  "tailwind.config.ts",
+  'mono: ["var(--font-app-mono)"]',
+  "Tailwind monospace must resolve to the product mono token",
+);
+for (const weight of [400, 600, 700]) {
+  for (const style of ["normal", "italic"]) {
+    const fontPath = `public/fonts/PlusJakartaSans/plus-jakarta-sans-latin-${weight}-${style}.woff2`;
+    if (!fs.existsSync(path.join(repoRoot, fontPath))) {
+      failures.push(`${fontPath}: shipped product font face is missing`);
+    }
+  }
+}
 expectNotIncludes(
   "app/globals.css",
-  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans"',
   "product UI must not prefer the Apple/system font stack",
 );
 

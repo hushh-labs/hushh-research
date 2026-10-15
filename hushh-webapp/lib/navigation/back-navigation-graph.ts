@@ -132,7 +132,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Mail";
   if (panel === "legal") return "Legal";
-  if (panel === "regulatory") return "Regulatory profile";
+  if (panel === "world-model") return "Personal World Model";
   return null;
 }
 
@@ -285,6 +285,11 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         ],
       };
     },
+  },
+  {
+    id: "one-initial-welcome",
+    resolve: (pathname) => pathname === ROUTES.ONE_WELCOME
+      ? { backHref: ROUTES.HOME, hideBack: true, items: [] } : undefined,
   },
   {
     id: "one-wallet",

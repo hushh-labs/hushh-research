@@ -28,7 +28,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -76,7 +76,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
       "nextRoute": "/one",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -89,7 +89,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Agents dashboard is an application root."
+      "reason": "Agents dashboard is an application root. Query-backed Profile panes own their internal history; Reset/Delete confirmations dismiss before that pane history moves, verified by e2e/profile-confirmation-back.spec.ts."
     }
   },
   {
@@ -127,6 +127,52 @@
       ],
       "kind": "redirect",
       "reason": "Compatibility-only redirect to the canonical root Chat workspace."
+    }
+  },
+  {
+    "route": "/one/welcome",
+    "mode": "standard",
+    "persistentChrome": "none",
+    "shellVerification": {
+      "file": "components/onboarding/initial-contacts-welcome.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.welcome",
+      "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+      "screen": "one_welcome",
+      "entryCue": "Your welcome is ready. Review it and continue when you like.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+        "cancelled": "Respect source cancellation and keep the welcome available.",
+        "failed": "Show only confirmed results and offer explicit retry.",
+        "timeout": "Keep Continue available without claiming empty contacts.",
+        "callbackError": "Ignore late callbacks outside the owner signup session.",
+        "routeMismatch": "Stay within the registered welcome surface."
+      },
+      "completionBoundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
+      "outOfScopeBehavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+    },
+    "backVerification": {
+      "kind": "surface-owned",
+      "reason": "Back acknowledges the optional welcome; active selection and roster layers unwind first.",
+      "cases": [
+        {
+          "href": "/one/welcome",
+          "expected": null
+        }
+      ]
     }
   },
   {
@@ -261,7 +307,7 @@
     "route": "/circle/join",
     "mode": "hidden",
     "persistentChrome": "none",
-    "exemptionReason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
+    "exemptionReason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow.",
     "voicePlaybook": {
       "playbookId": "route.circle.join",
       "purpose": "Help the person understand and use the circle join screen through its generated controls.",
@@ -292,7 +338,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow."
+      "reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow."
     }
   },
   {
@@ -1636,12 +1682,11 @@
     "route": "/one/calendar",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/calendar/calendar-agent-page.tsx",
+      "file": "components/calendar/calendar-connected-workspace.tsx",
       "includes": [
         "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
         "PageHeader",
+        "TopShellTabs",
         "SurfaceCard"
       ]
     },
@@ -1662,7 +1707,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+      "completionBoundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5998,7 +6043,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.referrals",
-      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share One opens WhatsApp, SMS and More sharing bubbles beneath the button; Back closes them and restores focus. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
       "screen": "one_referrals",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7320,7 +7365,7 @@
       "allowedFamilies": []
     },
     "shellVerification": {
-      "file": "components/profile/personal-world-model-page.tsx",
+      "file": "app/profile/profile-workspace-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
@@ -7331,7 +7376,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.world_model",
-      "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Explicit Build starts public research; the owner checks exact statements and sources before saving. Invitation claiming verifies a contact and grants no sharing.",
+      "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares the model automatically; the owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
       "screen": "profile_world_model",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7372,5 +7417,81 @@
         }
       ]
     }
+  },
+  {
+    "route": "/world-model/invite",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "exemptionReason": "Public invitation keeps its claim capability in the browser through authentication and vault setup.",
+    "voicePlaybook": {
+      "playbookId": "route.world_model.invite",
+      "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
+      "screen": "app",
+      "entryCue": "Check your invitation, then continue when ready.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+      "nextRoute": "/one/profile/world-model",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/world-model/invite",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public invitation owns its navigation; verified claiming continues through the protected recipient flow."
+    }
+  },
+  {
+    "route": "/calendar/reschedule",
+    "mode": "hidden",
+    "exemptionReason": "Standalone recipient capability reader has no signed-in shell or booking authority.",
+    "voicePlaybook": {
+      "playbookId": "route.calendar.reschedule",
+      "purpose": "Review offered alternatives and reply to the sender without login or booking.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the offered availability could not be checked.",
+        "cancelled": "Keep the meeting unchanged.",
+        "failed": "Ask the sender for another link without claiming any free time.",
+        "timeout": "Offer to check the same reviewed alternatives again.",
+        "callbackError": "No sign-in callback is required; ask the sender for a valid link.",
+        "routeMismatch": "Use only this capability reader; never open the logged-in Calendar homepage."
+      },
+      "completionBoundary": "The organizer updates the invitation after an email reply; this page never changes a meeting.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/calendar/reschedule",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "External recipient browser entry owns its own return path."
+    },
+    "persistentChrome": "none"
   }
 ]

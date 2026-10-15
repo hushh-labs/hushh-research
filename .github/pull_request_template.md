@@ -29,6 +29,14 @@ production-code proof, and a title/body that match the diff.
   - [ ] None
   - [ ] Listed below:
 
+- Live Memory source impact (every feature):
+  - [ ] No durable owner data is created, changed, or deleted; reason listed below
+  - [ ] Existing admitted source covers the data; kind, change signal, and focused test listed below
+  - [ ] New source is declared in `docs/reference/architecture/live-memory-source-contract.md` with authority, complete bounded read, owner fence, deletion rule, exposure, retention, and focused test
+  - [ ] Data should remain outside Live Memory; reason and owner-facing behavior listed below
+  <!-- For existing/new: kind: profile; signal: committed identity change; test: hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts. Otherwise explain the no-impact/exclusion reason in at least one concrete sentence. -->
+  - Live Memory evidence (source kind and test, or no-impact reason):
+
 - Mobile parity impacts:
   - [ ] None
   - [ ] Listed below:

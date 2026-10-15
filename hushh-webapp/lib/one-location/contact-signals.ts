@@ -178,6 +178,7 @@ export async function syncOneLocationContactSignals({
   signal,
   source,
   onInviteCandidates,
+  context,
 }: {
   /** Existing callers may provide an already-resolved Firebase token. */
   idToken?: string;
@@ -205,6 +206,8 @@ export async function syncOneLocationContactSignals({
   source?: MarketplaceContactSource;
   /** Client-only, session-scoped recipients. Never part of the API/result object. */
   onInviteCandidates?: (candidates: InviteCandidate[]) => void;
+  /** Initial signup never reopens a disconnected relationship. */
+  context?: "signup";
 }): Promise<OneLocationContactSignalResult> {
   // The web Contact Picker requires transient user activation. Its own read
   // reports availability, so avoid any async bridge/auth work before select().
@@ -286,6 +289,7 @@ export async function syncOneLocationContactSignals({
           idToken: resolvedIdToken,
           lookups: batch,
           signal,
+          ...(context ? { context } : {}),
         });
         break;
       } catch (error) {

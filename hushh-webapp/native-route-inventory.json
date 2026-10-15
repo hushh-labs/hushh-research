@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-13",
-  "total_routes": 132,
-  "native_required_routes": 110,
-  "excluded_routes": 22,
+  "generated_at": "2026-10-15",
+  "total_routes": 135,
+  "native_required_routes": 112,
+  "excluded_routes": 23,
   "routes": [
     {
       "route": "/wallet/open",
@@ -1541,6 +1541,34 @@
         "empty-valid",
         "unavailable-valid"
       ]
+    },
+    {
+      "route": "/one/welcome",
+      "classification": "native-required-functional",
+      "initialRoute": "/one/welcome",
+      "expectedMarker": "native-route-one-welcome",
+      "expectedRoute": "/one/welcome",
+      "autoReviewerLogin": true,
+      "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
+    },
+    {
+      "route": "/world-model/invite",
+      "classification": "native-required-functional",
+      "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedMarker": "native-route-pwm-invite",
+      "expectedRoute": "/world-model/invite",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ],
+      "reason": "Public PWM preview and verified-recipient handoff."
+    },
+    {
+      "route": "/calendar/reschedule",
+      "classification": "excluded-web-only",
+      "reason": "External recipients use this anonymous browser capability link; it requires no app install and grants no booking or native workspace authority."
     }
   ]
 }

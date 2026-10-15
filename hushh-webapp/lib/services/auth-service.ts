@@ -4,7 +4,7 @@
  * Production-grade authentication service that handles:
  * - iOS: Native Google Sign-In and Sign in with Apple via HushhAuth plugin
  * - Android: Native Google Sign-In and Firebase OAuthProvider for Apple
- * - Web: Firebase signInWithPopup for both providers
+ * - Web: Firebase provider popups; initial Google signup uses GIS credential exchange
  * - Credential sync: Native tokens synced with Firebase for consistent UIDs
  *
  * IMPORTANT: This is the single source of truth for authentication.
@@ -18,6 +18,7 @@ import {
   type ApplicationVerifier,
   type ConfirmationResult,
   GoogleAuthProvider,
+  getAdditionalUserInfo,
   getAuth,
   inMemoryPersistence,
   OAuthProvider,
@@ -42,11 +43,33 @@ import {
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
 import { toast } from "sonner";
+import { GOOGLE_CONTACTS_READ_SCOPE } from "@/lib/contacts/initial-contact-onboarding-config";
+import { resolveAppEnvironment } from "@/lib/app-env";
+import { googleSignupConfigured, requestGoogleSignupToken } from "@/lib/auth/google-signup-token";
+
+export type GoogleSignInOptions = {
+  purpose?: "authentication" | "initial_contacts";
+  includeContacts?: boolean;
+  signal?: AbortSignal;
+  onCredentialExchange?: () => void;
+};
+
+export type InitialGoogleContactsGrant = {
+  accessToken: string;
+  authority: "firebase-signup" | "ios-sdk-grant" | "android-contacts-only";
+  googleSubject?: string;
+  grantedScopes?: string[];
+  expiresAt?: number | null;
+};
 
 export interface AuthResult {
   user: User;
   idToken: string;
   accessToken?: string;
+  isNewUser?: boolean;
+  /** Invocation-local; consumed by the initial reader, never persisted. */
+  contactsGrant?: InitialGoogleContactsGrant;
+  contactsUnavailable?: boolean;
 }
 
 export interface PhoneVerificationStartResult {
@@ -466,6 +489,11 @@ export class AuthService {
     return "";
   }
 
+  /** Public signup must stay usable until Contacts OAuth verification completes. */
+  static canRequestInitialGoogleContacts(): boolean {
+    return resolveAppEnvironment() !== "production";
+  }
+
   /**
    * Sign in with Google using the appropriate method for the current platform.
    *
@@ -474,12 +502,38 @@ export class AuthService {
    *
    * @returns Firebase User object (consistent on both platforms)
    */
-  static async signInWithGoogle(): Promise<AuthResult> {
+  static async signInWithGoogle(options?: GoogleSignInOptions): Promise<AuthResult> {
+    // Contacts is still awaiting public OAuth verification. Keep production
+    // authentication usable; new-account welcome enrollment remains independent.
+    const effectiveOptions: GoogleSignInOptions | undefined =
+      options?.purpose === "initial_contacts" && !this.canRequestInitialGoogleContacts()
+        ? { ...options, purpose: "authentication" }
+        : options;
     if (Capacitor.isNativePlatform()) {
-      return this.nativeGoogleSignIn();
+      return this.nativeGoogleSignIn(effectiveOptions);
     } else {
-      return this.webGoogleSignIn();
+      return this.webGoogleSignIn(effectiveOptions);
     }
+  }
+
+  /** Source routing only; never infer a native sign-in from linked JS providers. */
+  static async initialContactsSignInProvider(user: User, isCurrent: () => boolean): Promise<string | null> {
+    if (!isCurrent()) throw new Error("session_changed");
+    if (!Capacitor.isNativePlatform()) {
+      const result = await user.getIdTokenResult();
+      if (!isCurrent()) throw new Error("session_changed");
+      return result.signInProvider;
+    }
+    let metadata: Awaited<ReturnType<typeof FirebaseAuthentication.getIdTokenResult>> | null = null;
+    try { metadata = await FirebaseAuthentication.getIdTokenResult(); } catch { /* Older shells use the owner-checked native token fallback. */ }
+    if (metadata) {
+      if (!isCurrent() || String(metadata.claims.sub ?? metadata.claims.user_id ?? "") !== user.uid) throw new Error("session_changed");
+      return metadata.signInProvider;
+    }
+    const token = (await HushhAuth.getIdToken()).idToken ?? "";
+    if (!isCurrent() || !this.idTokenBelongsToUser(token, user.uid)) throw new Error("session_changed");
+    const firebase = this.decodeJwtPayload(token)?.firebase as { sign_in_provider?: string } | undefined;
+    return typeof firebase?.sign_in_provider === "string" ? firebase.sign_in_provider : null;
   }
 
   /** Existing One session; the server resolves the linked delivery identity. */
@@ -826,7 +880,7 @@ export class AuthService {
     });
   }
 
-  private static async nativeGoogleSignIn(): Promise<AuthResult> {
+  private static async nativeGoogleSignIn(options?: GoogleSignInOptions): Promise<AuthResult> {
     this.debugLog(
       "🍎 [AuthService] Starting native Google Sign-In via FirebaseAuthentication",
     );
@@ -849,13 +903,17 @@ export class AuthService {
       >;
       let idToken = "";
       let accessToken: string | undefined;
+      let isNewUser: boolean | undefined;
       if (Capacitor.getPlatform() === "android") {
         const result = await this.boundedAndroidGoogleSignIn();
         nativeAuthUser = result.user;
         idToken = result.idToken;
         accessToken = result.accessToken;
+        isNewUser = result.isNewUser;
       } else {
-        const result = await FirebaseAuthentication.signInWithGoogle();
+        const result = options?.purpose === "initial_contacts"
+          ? await FirebaseAuthentication.signInWithGoogle({ scopes: [GOOGLE_CONTACTS_READ_SCOPE] })
+          : await FirebaseAuthentication.signInWithGoogle();
         if (!result.user) {
           throw new Error("Invalid response from native sign-in");
         }
@@ -865,6 +923,7 @@ export class AuthService {
         idToken =
           nativeIdTokenResult.token || result.credential?.idToken || "";
         accessToken = result.credential?.accessToken;
+        isNewUser = result.additionalUserInfo?.isNewUser;
       }
 
       this.debugLog("✅ [AuthService] Native sign-in returned result");
@@ -883,16 +942,15 @@ export class AuthService {
       // The native plugin already signed in to Firebase on the native layer.
       // We usually want the JS layer to also know about it for consistency.
       let firebaseUser = auth.currentUser;
+      const nativeUid = this.getNativeUserField(nativeAuthUser as unknown as Record<string, unknown>, ["uid", "id"]);
+      const staleJsOwner = Boolean(firebaseUser && firebaseUser.uid !== nativeUid);
+      if (staleJsOwner) firebaseUser = null;
 
-      if (!firebaseUser) {
+      if (!firebaseUser && !staleJsOwner && idToken && accessToken) {
         this.debugLog("🔄 [AuthService] Syncing with Firebase JS SDK...");
 
         // We need a credential to sign in the JS SDK.
         // We have the Google ID Token and Access Token from the native result.
-        if (!idToken || !accessToken) {
-          throw new Error("Missing Google credential tokens for JS SDK sync");
-        }
-
         const credential = GoogleAuthProvider.credential(idToken, accessToken);
 
         try {
@@ -926,10 +984,29 @@ export class AuthService {
 
       toast.success("Signed in successfully", { id: toastId });
 
+      // Contacts authorization is separate from a successful Firebase login.
+      // Android's legacy accessToken alias is deliberately never used here.
+      let contactsGrant: InitialGoogleContactsGrant | undefined;
+      let contactsUnavailable = false;
+      if (options?.purpose === "initial_contacts" && isNewUser !== false) {
+        try {
+          const grant = await HushhAuth.authorizeGoogleContacts({ expectedUserId: user.uid });
+          if (!grant.accessToken || !grant.grantedScopes.includes(GOOGLE_CONTACTS_READ_SCOPE)) {
+            throw new Error("contacts_not_granted");
+          }
+          contactsGrant = grant;
+        } catch {
+          // Older shells, cancellation and source failures do not undo login.
+          contactsUnavailable = true;
+        }
+      }
       return {
         user,
         idToken,
         accessToken,
+        isNewUser,
+        contactsGrant,
+        contactsUnavailable,
       };
     } catch (error: unknown) {
       const errorMessage =
@@ -956,7 +1033,7 @@ export class AuthService {
           "⚠️ [AuthService] Native plugin not available, falling back to web auth",
         );
         toast.dismiss(toastId); // Dismiss loading before switching
-        return this.webGoogleSignIn();
+        return this.webGoogleSignIn(options);
       }
 
       toast.error("Sign in failed: " + errorMessage, { id: toastId });
@@ -1016,13 +1093,15 @@ export class AuthService {
         liveTokenProvider(Boolean(forceRefresh)),
       getIdTokenResult: async () => {
         const liveToken = await liveTokenProvider();
+        const claims = this.decodeJwtPayload(liveToken) ?? {};
+        const firebase = claims.firebase as { sign_in_provider?: string } | undefined;
         return {
           token: liveToken,
-          claims: {},
+          claims,
           authTime: "",
           issuedAtTime: "",
           expirationTime: "",
-          signInProvider: providerId,
+          signInProvider: firebase?.sign_in_provider ?? providerId,
           signInSecondFactor: null,
         };
       },
@@ -1035,16 +1114,53 @@ export class AuthService {
 
   /**
    * Web Google Sign-In flow
-   * Uses Firebase signInWithPopup directly (for web browsers)
-   * This is ALSO the fallback for native if the native plugin fails
+   * Initial web signup exchanges a GIS token directly when its identity client
+   * is configured. The existing Firebase popup remains the compatibility path.
    */
-  private static async webGoogleSignIn(): Promise<AuthResult> {
+  private static async webGoogleSignIn(options?: GoogleSignInOptions): Promise<AuthResult> {
     this.debugLog(
-      "🌐 [AuthService] Starting web Google Sign-In (Firebase popup)",
+      "🌐 [AuthService] Starting web Google Sign-In",
     );
 
     try {
+      if (options?.purpose && googleSignupConfigured()) {
+        // A hosted Firebase popup can close after Google's successful consent
+        // without delivering its auth event to the application. Exchange the
+        // same browser-held Google token directly; Firebase still authenticates
+        // the identity and owns both the UID and new-account determination.
+        const grant = await requestGoogleSignupToken({
+          includeContacts: options?.purpose === "initial_contacts" && options.includeContacts !== false,
+          signal: options?.signal,
+        });
+        const requireActiveAttempt = () => {
+          if (options?.signal?.aborted) {
+            throw new DOMException("Google sign-in was cancelled.", "AbortError");
+          }
+        };
+        requireActiveAttempt();
+        options?.onCredentialExchange?.();
+        requireActiveAttempt();
+        const credential = GoogleAuthProvider.credential(null, grant.accessToken);
+        const result = await signInWithCredential(auth, credential);
+        // This exchange commits Firebase persistence and cannot be cancelled.
+        // Preserve its result so legal/onboarding settlement can finish even
+        // when the originating screen has gone away in the meantime.
+        const idToken = await result.user.getIdToken();
+        return {
+          user: result.user,
+          idToken,
+          accessToken: grant.accessToken,
+          isNewUser: getAdditionalUserInfo(result)?.isNewUser,
+          ...(grant.contactsGranted
+            ? { contactsGrant: { accessToken: grant.accessToken, authority: "firebase-signup" as const } }
+            : {}),
+        };
+      }
       const provider = this.createWebProvider("google");
+      if (options?.purpose === "initial_contacts" && options.includeContacts !== false) {
+        provider.addScope(GOOGLE_CONTACTS_READ_SCOPE);
+        provider.setCustomParameters({ prompt: "select_account", include_granted_scopes: "false" });
+      }
 
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -1062,6 +1178,10 @@ export class AuthService {
         user: result.user,
         idToken,
         accessToken,
+        isNewUser: getAdditionalUserInfo(result)?.isNewUser,
+        ...(options?.purpose === "initial_contacts" && options.includeContacts !== false && accessToken
+          ? { contactsGrant: { accessToken, authority: "firebase-signup" as const } }
+          : {}),
       };
     } catch (error) {
       if (!this.isExpectedPopupClose(error)) {
@@ -1191,6 +1311,7 @@ export class AuthService {
         user,
         idToken,
         accessToken: result.accessToken,
+        isNewUser: result.isNewUser,
       };
     } catch (error: unknown) {
       const errorMessage =
@@ -1256,6 +1377,7 @@ export class AuthService {
       return {
         user: result.user,
         idToken,
+        isNewUser: getAdditionalUserInfo(result)?.isNewUser,
       };
     } catch (error) {
       if (!this.isExpectedPopupClose(error)) {

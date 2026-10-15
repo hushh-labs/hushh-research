@@ -133,7 +133,7 @@ if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-backgro
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(connections-drawer\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_check "Connections web boundary" npm run test:connections-web
   run_check "Connections mounted browser layout" npm run test:connections-layout
   ran=1
@@ -156,6 +156,13 @@ if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|com
   if has_match '^hushh-webapp/(components/one-voice/|lib/one-voice/(mail-open|directives|session-reducer)\.ts|e2e/one-voice-mail-open\.layout\.spec\.ts|e2e/fixtures/one-voice-mail-open)'; then
     run_check "One Voice mail open layout" npm run test:one-voice-mail-open-layout
   fi
+  ran=1
+fi
+
+# Calendar owns a transport-backed fixture for connected Schedule. Keep this
+# explicitly registered; the general layout script enumerates its own specs.
+if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+  run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1
 fi
 

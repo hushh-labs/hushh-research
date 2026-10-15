@@ -425,6 +425,7 @@ function UnlockedDocumentReview({
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
+  const openedPricePackageKey = useRef<string | null>(null);
   const [allowError, setAllowError] = useState<string | null>(null);
   // Deny is irreversible: a second tap confirms, as on the Feed row.
   const denyConfirm = useArmedAction();
@@ -812,6 +813,9 @@ function UnlockedDocumentReview({
 
   const review = snapshot?.review;
   const agentPackage = snapshot?.status.direction === "incoming" ? review?.agentPackage : undefined;
+  const packageDecisionKey = agentPackage
+    ? `${agentPackage.revision}:${agentPackage.digest ?? ""}`
+    : null;
   const removal = snapshot?.revocation;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
@@ -944,11 +948,15 @@ function UnlockedDocumentReview({
   useEffect(() => {
     if (!ownerDecision) setPriceOpen(false);
   }, [ownerDecision]);
-  // A new exact package needs a fresh owner decision, even if both are ready.
+  // Keep an opened sheet tied to its exact package. A newly loaded package must
+  // not close a sheet that the owner just opened for that same package.
   useEffect(() => {
-    setPriceOpen(false);
-    setAllowError(null);
-  }, [agentPackage?.revision, agentPackage?.digest]);
+    if (priceOpen && openedPricePackageKey.current !== packageDecisionKey) {
+      setPriceOpen(false);
+      setAllowError(null);
+    }
+  }, [packageDecisionKey, priceOpen]);
+  useEffect(() => setAllowError(null), [packageDecisionKey]);
   const locked = activity !== "idle" && activity !== "finding_files";
   const canApprove =
     !finding &&
@@ -1007,6 +1015,7 @@ function UnlockedDocumentReview({
   };
   const openPriceSheet = () => {
     denyConfirm.disarm();
+    openedPricePackageKey.current = packageDecisionKey;
     setAllowError(null);
     setPriceOpen(true);
   };
@@ -1332,7 +1341,7 @@ function UnlockedDocumentReview({
           {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
           {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
           </dl>
-        {agentPackage.confidenceScore !== null ? <HelperText>The score is your private agent&apos;s assessment, not a measured probability of correctness.</HelperText> : null}
+        {agentPackage.confidenceScore !== null ? <HelperText>Agent One&apos;s assessment is not a measured probability of correctness.</HelperText> : null}
         {agentPackage.priceReason ? <HelperText className="[overflow-wrap:anywhere]">{agentPackage.priceReason}</HelperText> : null}
         </details>
         {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
@@ -1344,20 +1353,19 @@ function UnlockedDocumentReview({
         : review.preparationError === "payment_not_ready" ?
           <BodyText>Current access could not be verified. Checkout is paused.</BodyText>
         : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
-          <BodyText>Background Drive access is off. Enable it so your private agent can prepare this package.</BodyText>
-          <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after you allow the package, any required payment completes, and Google Drive confirms access.</HelperText>
+          <BodyText>Turn on background access so Agent One can prepare this packet.</BodyText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>{agentPackage.status === "preparing"
-          ? "Your private agent is evaluating files and preparing this package. You can return later."
+          ? "Agent One is preparing this packet."
           : agentPackage.status === "allowed"
             ? review.paymentRequired ? "The requester pays before this approved package is shared." : "Your approved package is being shared."
           : agentPackage.status === "ready"
-            ? "Allow approves this exact package. You can edit the suggested price before confirming."
+            ? "Allow this packet at the suggested price, or edit it."
           : agentPackage.status === "no_match"
-            ? "Your private agent could not prepare a matching package. Nothing has been shared."
+            ? "Agent One found no matching packet."
           : agentPackage.status === "stale"
-            ? "The files or request changed. A fresh assessment is needed before you can allow this package."
-            : "Your private agent could not finish evaluating this request. Nothing has been shared."}</HelperText>}
+            ? "This packet needs a fresh assessment."
+            : "Agent One couldn’t finish checking this request."}</HelperText>}
         {snapshot && UNDECIDED.has(snapshot.status.status) && agentPackage.status !== "allowed" ? <FlowActionGroup
           primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => allow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
           secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
@@ -1448,8 +1456,7 @@ function UnlockedDocumentReview({
         {review.preparationError === "date_range_required" ? (
           <BodyText>This request needs exact start and end dates. Ask the requester to send a new request with both dates.</BodyText>
         ) : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
-          <BodyText>Background Drive access is off. This request is paused and will resume automatically when you turn it on.</BodyText>
-          <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after Google Drive confirms access.</HelperText>
+          <BodyText>Turn on background access so Agent One can resume this request.</BodyText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
           Matching files are found and shared automatically. You can close this window; the requester sees each original only after Google Drive confirms access.

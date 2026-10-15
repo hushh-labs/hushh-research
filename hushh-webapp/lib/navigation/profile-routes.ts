@@ -6,6 +6,7 @@ export type ProfilePanel =
   | "account"
   | "my-data"
   | "payouts"
+  | "world-model"
   | "request-pricing"
   | "connected-systems"
   | "connectors"
@@ -67,6 +68,7 @@ export function normalizeProfilePanel(
     value === "account" ||
     value === "my-data" ||
     value === "payouts" ||
+    value === "world-model" ||
     value === "request-pricing" ||
     value === "connected-systems" ||
     value === "connectors" ||
@@ -254,6 +256,28 @@ function normalizePathname(pathname: string): string {
   return withoutQuery.replace(/\/+$/, "") || "/";
 }
 
+/** What a Personal World Model link names: an invitation or a ready draft. */
+const WORLD_MODEL_LINK_QUERY_KEYS = ["claim", "handoff", "draft_id"] as const;
+
+/**
+ * The Personal World Model page, keeping the invitation or draft a link
+ * named. The model is always this full page, never a Profile pane panel: the
+ * pane is mounted outside the provider that prepares and resumes research.
+ */
+export function buildProfileWorldModelRoute(
+  searchParams?: SearchParamReader | URLSearchParams | string | null,
+  hash = "",
+): string {
+  const carried = toSearchParams(searchParams);
+  const href = appendQuery(
+    ROUTES.PROFILE_WORLD_MODEL,
+    Object.fromEntries(
+      WORLD_MODEL_LINK_QUERY_KEYS.map((key) => [key, carried.get(key)]),
+    ),
+  );
+  return hash.length > 1 && hash.startsWith("#") ? `${href}${hash}` : href;
+}
+
 export function buildProfileRoute(params?: {
   panel?: ProfilePanel | null;
   detail?: ProfileDetail | null;
@@ -272,6 +296,10 @@ export function buildProfileRoute(params?: {
       {},
       params?.searchParams,
     );
+  }
+
+  if (panel === "world-model") {
+    return appendQuery(ROUTES.PROFILE_WORLD_MODEL, {}, params?.searchParams);
   }
 
   if (panel === "account") {
@@ -494,6 +522,10 @@ export function resolveProfileRouteState(
 
   if (normalizedPath === ROUTES.PROFILE_MY_DATA) {
     return { panel: "my-data", detail: null };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_WORLD_MODEL) {
+    return { panel: "world-model", detail: null };
   }
   if (normalizedPath === ROUTES.PROFILE_MY_DATA_DOMAIN) {
     const domainKey = query.get("key");

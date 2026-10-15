@@ -140,7 +140,7 @@ for (const viewport of VIEWPORTS) {
       };
     });
     expect(layout.headingSize).toBe("28px");
-    expect(layout.headingWeight).toBe("700");
+    expect(layout.headingWeight).toBe("600");
     expect(layout.titleSizes).toEqual(["17px", "17px", "17px"]);
     expect(layout.bodySizes).toEqual(["15px", "15px", "15px"]);
     expect(layout.overflow).toBe(false);
@@ -226,6 +226,12 @@ for (const width of [320, 390, 1440]) {
     expect(await banner.getByRole("heading").evaluate(node => getComputedStyle(node).fontSize)).toBe("17px");
     expect(await banner.evaluate(node => ({ radius: getComputedStyle(node).borderRadius, overflow: node.scrollWidth > node.clientWidth + 1 }))).toEqual({ radius: "18px", overflow: false });
     await expect(page.getByRole("button", { name: "Save a place" })).toBeVisible();
+    const saveBox = (await page.getByRole("button", { name: "Save a place" }).boundingBox())!;
+    const bannerBox = (await banner.boundingBox())!;
+    expect(saveBox.height).toBeGreaterThanOrEqual(44);
+    expect(bannerBox.height).toBeLessThanOrEqual(width >= 640 ? 74 : 124);
+    expect(await banner.evaluate(node => getComputedStyle(node).paddingTop)).toBe(width >= 640 ? "12px" : "10px");
+    expect(saveBox.x + saveBox.width <= box.x || saveBox.y >= box.y + box.height).toBe(true);
     await banner.screenshot({ path: testInfo.outputPath("places-banner.png") });
     await dismiss.click();
     await expect(banner).toHaveCount(0);

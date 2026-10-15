@@ -1121,12 +1121,13 @@
         "google_provider_connections",
         "google_service_grants",
         "google_oauth_attempts",
-        "google_calendar_action_proposals"
+        "google_calendar_action_proposals",
+        "calendar_attendance_reviews"
       ],
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger"
     },
     {
       "data_class": "audit_regulated",
@@ -1275,6 +1276,48 @@
       "lifecycle_status": "legacy_migration",
       "owner": "security-audit",
       "primary_access_path": "bounded legacy-to-PKM compatibility and account deletion cleanup only"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "live_memory_connector_streams",
+        "live_memory_connector_events"
+      ],
+      "id": "live_memory_connector_journal",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional trigger on operator-owned OAuth connection row changes and owner-token GET /api/one/source-journal/connectors. Events are change hints; the owner client rereads the curated connector overview before encrypted projection."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "live_memory_hosted_pilot_grants"
+      ],
+      "id": "live_memory_hosted_pilot_review",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-token GET/POST/DELETE /api/one/hosted-memory/pilot. Pending intent only; there is no active worker or capture authorization."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "live_memory_hosted_source_envelopes"
+      ],
+      "id": "live_memory_hosted_scoped_source_envelope",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-token PUT/GET /api/one/hosted-memory/pilot/envelope stages and reads exact AES-GCM ciphertext for one selected curated OAuth connector status. No worker lease, checkpoint, result or key-release path exists."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "live_memory_source_streams",
+        "live_memory_source_events"
+      ],
+      "id": "live_memory_source_journal",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional triggers on selected profile, consent, connection, document-payment and owner-earning source tables; owner-token GET /api/one/source-journal/events returns metadata hints and requires verified authoritative snapshots."
     },
     {
       "data_class": "reference",
@@ -1666,7 +1709,7 @@
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
     },
     {
-      "data_class": "workflow_state",
+      "data_class": "personal_encrypted",
       "exact_tables": [
         "pwm_claim_invitations"
       ],
@@ -1683,7 +1726,18 @@
       "id": "pwm_provider_budget",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Atomic monthly provider credit charge before dispatch."
+      "primary_access_path": "Legacy Tavily aggregate accounting retained for history; native PWM has no active writer to this table."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pwm_research_preferences",
+        "pwm_completion_events"
+      ],
+      "id": "pwm_research_lifecycle",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases."
     },
     {
       "data_class": "workflow_state",
@@ -2134,6 +2188,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.wallet.card.public.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "pathname": "/calendar/reschedule",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.calendar.reschedule"
       }
     },
     {
@@ -5634,6 +5711,29 @@
     },
     {
       "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "pathname": "/one/welcome",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.welcome"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [
         {
           "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
@@ -6342,15 +6442,38 @@
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pwm-invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "pathname": "/world-model/invite",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.world_model.invite"
+      }
     }
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "8b3aba3024ee630e40a020a20364089e1a3cbd769c3a81151dcd6a904b7e16a3",
-    "agent_registry": "2dee6ce61ea25a330e1113534e0ebabcd5f83c788a08d9c1ed4a0a7c77971e96",
-    "cache_manifest": "7d51e72dedd470a6129e4d61e606803bbfd4c320989c64db46614c1928f7a400",
-    "data_plane": "ac2a6429207505ad69b4921427e80eff567d0244f96d0bda3c7abf0634f7988f",
+    "action_gateway": "2e7014392fdaac58bc20ddbdbeb5ddee9f4320ff607347db8990ab0b5cfdb737",
+    "agent_registry": "1d52a84047a9d586dd97523aeff3c1a5ca1c3b36b8557f4561a477c95643dbb1",
+    "cache_manifest": "5d9690804dbb56234b716f40dc17d639f91363aee846ce28280cdfb63648f229",
+    "data_plane": "e7145582266f31c5cee40c8cd1e65ab956e43117752e1c3b209a34e90a0ba9da",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
     "route_index": "335300eb4fa1c0c28f7dd651b477ba9e2182d94fa223330432c78bc2977d52eb",
@@ -6361,7 +6484,7 @@
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 246,
+    "actions": 257,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,

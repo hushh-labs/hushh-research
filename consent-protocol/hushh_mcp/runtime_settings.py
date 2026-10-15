@@ -71,7 +71,6 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
-    "pwm_tavily_api_key": "PWM_TAVILY_API_KEY",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
     "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
@@ -141,6 +140,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
     "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "workos_sso_enabled": "WORKOS_SSO_ENABLED",
     "one_career_enabled": "ONE_CAREER_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
@@ -484,6 +484,13 @@ def one_wallet_card_enabled() -> bool:
     return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
 
 
+def workos_sso_enabled() -> bool:
+    """Feature flag: WorkOS enterprise SSO (``/api/auth/sso/*`` and
+    ``/api/webhooks/workos``). Defaults off; while off every one of those routes
+    answers as if it did not exist, and Firebase sign-in is untouched."""
+    return _bool_from_value(_clean_env("WORKOS_SSO_ENABLED"), default=False)
+
+
 def one_career_enabled() -> bool:
     """Feature flag: the Career Agent's resume parsing route
     (``/api/one/career/resume/parse``). Defaults off; while off the route answers
@@ -621,11 +628,6 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
-
-
-def pwm_tavily_api_key() -> str:
-    hydrate_runtime_environment()
-    return str(os.getenv("PWM_TAVILY_API_KEY", "")).strip()
 
 
 @dataclass(frozen=True)

@@ -458,6 +458,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const readScope = user && selectedRouteKey
     ? JSON.stringify([user.uid, selectedRouteKey]) : null;
   const isCurrentRead = readScope !== null && settledReadScopes.includes(readScope);
+  // Reuse the owner-bound read admission for main's loading/status UI. A
+  // second route-only completion key could re-admit another owner's thread.
+  const pendingSelection = resolvingSelection || loadingThread || (selectedRouteKey !== null && !isCurrentRead);
   const isCurrentInbox = Boolean(user && storedInbox?.ownerId === user.uid);
   const inboxItems = useMemo(() => isCurrentInbox ? storedInbox!.items : [], [isCurrentInbox, storedInbox]);
   // React can render the new owner/selection before effect cleanup runs. Keep
@@ -804,7 +807,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         );
         settleReadScope(requestScope);
       } finally {
-        if (generation === loadGeneration.current) setLoadingThread(false);
+        if (generation === loadGeneration.current) {
+          setLoadingThread(false);
+        }
       }
     },
     [requestedConversationId, requestedPersonRef, resolvingSelection, settleReadScope, user],
@@ -1607,7 +1612,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     />
                     <div className={styles.threadTitle}>
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
-                      <p className={styles.threadStatus}>{loadingThread ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
+                      <p className={styles.threadStatus}>{pendingSelection ? "Connecting…" : thread.canSend ? "Connected" : "Messaging unavailable"}</p>
                     </div>
                   </div>
                   <div className={styles.threadHeaderActions}>
@@ -1675,7 +1680,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 }}
                 aria-label={`${selectedLabel} message feed`}
               >
-                {loadingThread && messages.length === 0 ? (
+                {pendingSelection ? (
                   <p className={styles.loading}>Loading messages…</p>
                 ) : null}
                 {threadError && messages.length === 0 && !thread.disconnectedNotice ? (
@@ -1709,13 +1714,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <p>No messages match “{messageSearchQuery.trim()}”.</p>
                   </div>
                 ) : null}
-                {!resolvingSelection && !loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
+                {!pendingSelection && messages.length === 0 && thread.disconnectedNotice ? (
                   <div className={styles.emptyThread} role="status">
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
                     <p>{thread.disconnectedNotice}</p>
                   </div>
                 ) : null}
-                {!loadingThread && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
+                {!pendingSelection && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
                   <div className={styles.emptyThread}>
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
                     <p>Start the conversation with {selectedLabel}.</p>

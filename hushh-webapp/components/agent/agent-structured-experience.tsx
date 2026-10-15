@@ -46,9 +46,8 @@ import {
   scopeItemsFromRequestable,
 } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { EditRowIcon } from "@/components/icons/agents";
-import { ROUTES } from "@/lib/navigation/routes";
 import { describeOwnerStyleProposal, stageOwnerStyleProposal } from "@/lib/agent/owner-style-settings";
 import {
   ArrowUpRight,
@@ -209,7 +208,6 @@ export function AgentStructuredExperienceView({
  */
 function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOfferExperience }) {
   const { user } = useAuth();
-  const router = useRouter();
   const ownerId = user?.uid ?? null;
   return (
     <ExperienceShell experienceType={experience.type} label="Writing style" title="Change how One writes to you"
@@ -218,14 +216,14 @@ function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOffer
         {describeOwnerStyleProposal(experience.proposed).map((row) => (
           <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 py-2">
             <dt className="text-sm text-muted-foreground">{row.label}</dt>
-            <dd className="min-w-0 truncate text-sm font-medium text-foreground">{row.value}</dd>
+            <dd className="min-w-0 truncate text-sm font-normal text-foreground">{row.value}</dd>
           </div>
         ))}
       </dl>
       <MorphyButton type="button" size="sm" className="mt-4" disabled={!ownerId} onClick={() => {
         if (!ownerId) return;
         stageOwnerStyleProposal(ownerId, experience.proposed);
-        router.push(ROUTES.PROFILE_PREFERENCES);
+        openProfilePane(window.location.pathname, window.location.search, { panel: "preferences", detail: null }, { returnsToOrigin: true });
       }}>Review in Settings</MorphyButton>
     </ExperienceShell>
   );

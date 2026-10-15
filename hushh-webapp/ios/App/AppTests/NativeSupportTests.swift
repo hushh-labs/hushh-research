@@ -849,6 +849,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
         let controller = NativeDrawerPresentationController(root)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        var closeFrame = CGRect.zero
+        controller.loadViewIfNeeded()
+        controller.host.rootView = NativeDrawerContent(model: controller.model, profileRowObserver: { row, frame, _ in
+            if row == "profile-close" { closeFrame = frame }
+        })
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
@@ -862,15 +867,13 @@ final class NativeSupportTests: XCTestCase {
         controller.activateInitialPresentation()
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
         await fulfillment(of: [admitted], timeout: 2)
-        func navigation(in parent: UIViewController) -> UINavigationController? {
-            if let navigation = parent as? UINavigationController { return navigation }
-            return parent.children.lazy.compactMap { navigation(in: $0) }.first
-        }
         func requireClose() async {
             // Mount the real SwiftUI stack. Model/host-presence assertions did
             // not catch a toolbar attached outside the navigation content.
+            // SwiftUI does not promise a UINavigationController child; measure
+            // its rendered authored control, not a private containment detail.
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                navigation(in: controller)?.navigationBar.topItem?.rightBarButtonItems?.isEmpty == false
+                closeFrame.width >= 44 && closeFrame.height >= 44 && window.bounds.contains(closeFrame)
             }, object: nil)], timeout: 3)
         }
         await requireClose()

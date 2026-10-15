@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 151,
-    "physical_page_count": 150,
-    "route_contract_count": 151,
-    "surface_map_count": 151,
+    "total_screens": 154,
+    "physical_page_count": 153,
+    "route_contract_count": 154,
+    "surface_map_count": 154,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 59,
-      "hidden flow": 20,
+      "vault-backed": 60,
+      "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
@@ -236,6 +236,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/c/[token]",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/calendar/reschedule",
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/calendar/reschedule",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5666,6 +5711,52 @@
       ]
     },
     {
+      "route": "/one/welcome",
+      "page_file": "app/one/welcome/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/welcome",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": true,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source",
+        "loader detected; verify warm cache path avoids blocking loader"
+      ]
+    },
+    {
       "route": "/people/[personRef]",
       "page_file": "app/people/[personRef]/page.tsx",
       "route_contract_mode": "standard",
@@ -6786,7 +6877,52 @@
       "findings": [
         "no local cache primitive detected in page/contract source"
       ]
+    },
+    {
+      "route": "/world-model/invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": true
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     }
   ],
-  "content_sha256": "e74a397dbb36045973d7e6e6376a4a4045f9bba5ddfeb6629fa67292b2e6fdae"
+  "content_sha256": "47768e04b849d9c200edb61bce51a458c173daa6868529bba4b44b7eb9507433"
 }

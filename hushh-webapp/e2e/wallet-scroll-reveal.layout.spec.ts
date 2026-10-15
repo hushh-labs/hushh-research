@@ -20,6 +20,7 @@ const BOUNDARY_MODULES = [
   "@/lib/referral/use-referral-stream",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
@@ -258,19 +259,22 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await page.waitForTimeout(400);
   const initialGeometry = await layers.evaluateAll(nodes => {
     const first = nodes[0].querySelector('[data-agent-card]')!.getBoundingClientRect();
+    const details = nodes[0].querySelector('[data-stack-details]')!.getBoundingClientRect();
     const edges = nodes.slice(1, 3).map(node => {
       const box = node.getBoundingClientRect();
       const hit = document.elementFromPoint(box.x + box.width / 2, box.top + 6);
       return { top:box.top, hitOwnCard:hit?.closest('[data-gesture-card]') === node };
     });
-    return { first:{ top:first.top, bottom:first.bottom, width:first.width }, edges,
+    return { first:{ top:first.top, bottom:first.bottom, width:first.width }, firstRowBottom: details.bottom, edges,
       dockTop:document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
       zoom:window.visualViewport?.scale ?? 1 };
   });
   expect(initialGeometry.zoom).toBe(1);
   expect(initialGeometry.first.width).toBeGreaterThanOrEqual(260);
   expect(initialGeometry.first.bottom).toBeLessThan(initialGeometry.dockTop - 8);
-  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeGreaterThanOrEqual(44);
+  expect(initialGeometry.firstRowBottom).toBeLessThan(initialGeometry.dockTop - 8);
+  expect(initialGeometry.edges[0].top - initialGeometry.firstRowBottom).toBeGreaterThanOrEqual(-1);
+  expect(initialGeometry.edges[0].top - initialGeometry.firstRowBottom).toBeLessThanOrEqual(37);
   expect(initialGeometry.edges[1].top - initialGeometry.edges[0].top).toBeGreaterThanOrEqual(11.9);
   expect(initialGeometry.edges[1].top + 12).toBeLessThanOrEqual(initialGeometry.dockTop - 7);
   expect(initialGeometry.edges.every(edge => edge.hitOwnCard)).toBe(true);
@@ -295,10 +299,18 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
     return boxes.slice(1).every((box,i) => box.top >= boxes[i].bottom + 15 && Math.abs(box.left - boxes[0].left) < 1 && Math.abs(box.right - boxes[0].right) < 1);
   })).toBe(true);
   expect(await scrollRoot.evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true);
-  // WebKit can report 43.99997 after transform composition; CSS still owns 44px.
-  expect(await stack.locator('[data-stack-details] button').evaluateAll(buttons => buttons.every(button => parseFloat(getComputedStyle(button).height) >= 44 && Math.round(button.getBoundingClientRect().height) >= 44))).toBe(true);
-  await expect(stack.locator('[data-card-details-label]')).toHaveCount(3 + (viewport.savedCards ?? 0));
-  expect(await stack.locator('[data-card-details-label]').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height <= 28))).toBe(true);
+  const cardTargets = stack.locator('button[aria-pressed]');
+  await expect(cardTargets).toHaveCount(3 + (viewport.savedCards ?? 0));
+  expect(await cardTargets.evaluateAll(buttons => buttons.every(button => {
+    const box = button.getBoundingClientRect();
+    return box.width >= 44 && box.height >= 44;
+  }))).toBe(true);
+  const detailsLinks = stack.locator('[data-stack-details] button');
+  await expect(detailsLinks).toHaveCount(3 + (viewport.savedCards ?? 0));
+  for (const link of await detailsLinks.all()) {
+    await expect(link).toBeVisible();
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
   await page.screenshot({ path: test.info().outputPath("wallet-unfolded.png") });
   const card = layers.nth(1);
   await card.scrollIntoViewIfNeeded();
@@ -322,13 +334,13 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(card.locator('[data-controls-open="false"]')).toBeVisible();
   await page.mouse.wheel(170, 0);
   await expect(card.locator('[data-controls-open="true"]')).toBeVisible();
-  await expect(card.locator('[data-card-controls]').getByText("Username", { exact:true })).toBeVisible();
+  await expect(card.locator('[data-card-controls]').getByText("Name", { exact:true })).toBeVisible();
   await expect(card.locator('[data-card-controls]').getByRole("button", { name:"View details", exact:true })).toHaveCount(0);
   await card.getByRole("button", { name:"Back to card", exact:true }).click();
-  await card.getByRole("button", { name:"View details for Agent One Referral", exact:true }).click();
+  await card.getByRole("button", { name:"Agent One Referral", exact:true }).click();
   await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
   expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
-  await page.getByRole("button", { name:"All cards", exact:true }).click();
+  await page.getByRole("button", { name:"Back", exact:true }).click();
   await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
 });
 

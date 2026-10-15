@@ -146,10 +146,13 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
     </section>
   );
 
-  return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
+  return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 pb-4`} data-testid="wallet-sharing-content">
     {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : null}
     {cardDetails || !getHistoryContext ? (!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)) : null}
-    {!cardDetails && owner && getHistoryContext ? <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} /> : null}
+    {!cardDetails && owner && getHistoryContext ? <>
+      <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} />
+      <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} direction="received" />
+    </> : null}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[420px]" onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>
         <DialogHeader><DialogTitle>{selection?.active ? "Manage access" : "Review request"}</DialogTitle><DialogDescription>{selection?.active ? "See what is shared and stay in control." : "Check every detail before sharing."}</DialogDescription></DialogHeader>

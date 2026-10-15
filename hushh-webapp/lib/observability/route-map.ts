@@ -15,6 +15,7 @@ export const ROUTE_ID_VALUES = [
   "privacy_policy",
   "terms_of_use",
   "one_setup",
+  "one_welcome",
   "developers",
   "founder_profile",
   "research",
@@ -51,6 +52,7 @@ export const ROUTE_ID_VALUES = [
   "founder_profile_manish",
   "profile_google_oauth_return",
   "one_calendar",
+  "calendar_reschedule",
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
@@ -67,6 +69,7 @@ export const ROUTE_ID_VALUES = [
   "pkm_location_detail",
   "connected_systems",
   "profile_world_model",
+  "world_model_invite",
   "profile_pkm",
   "profile_pkm_agent_lab",
   "profile_receipts",
@@ -154,6 +157,8 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
+  if (pathname === ROUTES.WORLD_MODEL_INVITE) return "world_model_invite";
+  if (pathname === ROUTES.ONE_WELCOME) return "one_welcome";
   if (pathname === ROUTES.HOME) return "chat";
   if (pathname === ROUTES.ONE_HOME || pathname === ROUTES.WELCOME) {
     return "one_dashboard";
@@ -230,6 +235,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_google_oauth_return";
   }
   if (pathname === ROUTES.CALENDAR) return "one_calendar";
+  if (pathname === "/calendar/reschedule") return "calendar_reschedule";
   if (pathname === ROUTES.PROFILE_GMAIL) return "profile_gmail";
   if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
     return "profile_gmail_connection";

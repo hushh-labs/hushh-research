@@ -19,7 +19,9 @@ import {
   OWNER_STYLE_DOMAIN,
   OWNER_STYLE_PROPOSAL_EVENT,
   ownerStyleFromBranch,
-  takeOwnerStyleProposal,
+  readOwnerStyleProposal,
+  clearOwnerStyleProposal,
+  type OwnerStyleProposal,
   type OwnerStyleSettings,
 } from "@/lib/agent/owner-style-settings";
 import { saveOwnerStyleSettings } from "@/lib/agent/owner-style-settings-writer";
@@ -60,6 +62,7 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
   const revision = useRef(0);
   const draftRef = useRef(draft);
   const savedRef = useRef(saved);
+  const appliedProposal = useRef<OwnerStyleProposal | null>(null);
   const pending = useRef<{ owner: typeof owner; revision: number } | null>(null);
   const ownerMatches = stateOwner === owner;
   const ready = ownerMatches && loaded && unlocked;
@@ -83,6 +86,7 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
     setLoaded(false);
     setSaved(null);
     savedRef.current = null;
+    appliedProposal.current = null;
     replaceDraft({});
     setSuggested(false);
     setSaving(false);
@@ -101,7 +105,8 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
         if (cancelled || !isCurrent()) return;
         const stored = ownerStyleFromBranch(snapshot?.data?.[OWNER_STYLE_BRANCH]);
         // A chat offer is applied over what is stored, and only shown here.
-        const proposal = takeOwnerStyleProposal(owner.userId!);
+        const proposal = readOwnerStyleProposal(owner.userId!);
+        appliedProposal.current = proposal;
         savedRef.current = stored;
         setSaved(stored);
         replaceDraft(proposal ? { ...stored, ...proposal } : stored);
@@ -122,8 +127,9 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
     if (!owner.userId || !ready || saved === null) return;
     const apply = () => {
       if (!isCurrent()) return;
-      const proposal = takeOwnerStyleProposal(owner.userId!);
+      const proposal = readOwnerStyleProposal(owner.userId!);
       if (!proposal) return;
+      appliedProposal.current = proposal;
       replaceDraft({ ...draftRef.current, ...proposal });
       setSuggested(true);
     };
@@ -150,7 +156,7 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
     if (pending.current) return "busy";
     if (!ready || loadFailed || savedRef.current === null || sameSettings(savedRef.current, draftRef.current) || !owner.userId) return "refused";
     const settings = ownerStyleFromBranch(draftRef.current);
-    const ticket = { owner, revision: revision.current };
+    const ticket = { owner, revision: revision.current, proposal: appliedProposal.current };
     pending.current = ticket;
     setSaving(true);
     setError(null);
@@ -159,6 +165,8 @@ export function useCommunicationPreferencesEditor({ userId, vaultKey, vaultOwner
         vaultOwnerToken: credentials.current.vaultOwnerToken, settings });
       if (!isCurrent()) return "stale";
       if (!ok) throw new Error("save failed");
+      if (ticket.proposal) clearOwnerStyleProposal(owner.userId, ticket.proposal);
+      if (appliedProposal.current === ticket.proposal) appliedProposal.current = null;
       savedRef.current = settings;
       setSaved(settings);
       if (revision.current === ticket.revision) { replaceDraft(settings); setSuggested(false); }

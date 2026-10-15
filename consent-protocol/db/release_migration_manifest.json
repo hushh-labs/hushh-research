@@ -300,8 +300,17 @@
     "332_drive_collection_sync.sql",
     "333_drive_document_pages.sql",
     "334_drive_reusable_packets.sql",
-    "335_pwm_provider_budget.sql",
-    "336_pwm_claim_invitations.sql"
+    "335_drive_collection_defaults.sql",
+    "336_pwm_claim_invitations.sql",
+    "337_initial_contacts_onboarding.sql",
+    "338_one_referral_usd_catalogue.sql",
+    "339_calendar_attendance_reviews.sql",
+    "340_pwm_provider_budget.sql",
+    "341_pwm_research_lifecycle.sql",
+    "342_live_memory_connector_journal.sql",
+    "343_hosted_memory_pilot_review.sql",
+    "344_hosted_memory_scoped_source_envelope.sql",
+    "345_live_memory_source_journal.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -467,8 +476,10 @@
       "324_wallet_sharing_recipient_index.sql",
       "325_wallet_sharing_audit_index.sql",
       "330_wallet_share_longer_durations.sql",
-      "335_pwm_provider_budget.sql",
-      "336_pwm_claim_invitations.sql"
+      "336_pwm_claim_invitations.sql",
+      "337_initial_contacts_onboarding.sql",
+      "340_pwm_provider_budget.sql",
+      "341_pwm_research_lifecycle.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -637,7 +648,16 @@
     "332_drive_collection_sync.sql": "rollback/332_drive_collection_sync.rollback.sql",
     "333_drive_document_pages.sql": "rollback/333_drive_document_pages.rollback.sql",
     "334_drive_reusable_packets.sql": "rollback/334_drive_reusable_packets.rollback.sql",
-    "335_pwm_provider_budget.sql": "rollback/335_pwm_provider_budget.rollback.sql",
-    "336_pwm_claim_invitations.sql": "rollback/336_pwm_claim_invitations.rollback.sql"
+    "335_drive_collection_defaults.sql": "rollback/335_drive_collection_defaults.rollback.sql",
+    "336_pwm_claim_invitations.sql": "rollback/336_pwm_claim_invitations.rollback.sql",
+    "337_initial_contacts_onboarding.sql": "rollback/337_initial_contacts_onboarding.rollback.sql",
+    "338_one_referral_usd_catalogue.sql": "rollback/338_one_referral_usd_catalogue.rollback.sql",
+    "339_calendar_attendance_reviews.sql": "rollback/339_calendar_attendance_reviews.rollback.sql",
+    "340_pwm_provider_budget.sql": "rollback/340_pwm_provider_budget.rollback.sql",
+    "341_pwm_research_lifecycle.sql": "rollback/341_pwm_research_lifecycle.rollback.sql",
+    "342_live_memory_connector_journal.sql": "rollback/342_live_memory_connector_journal.rollback.sql",
+    "343_hosted_memory_pilot_review.sql": "rollback/343_hosted_memory_pilot_review.rollback.sql",
+    "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql",
+    "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql"
   }
 }

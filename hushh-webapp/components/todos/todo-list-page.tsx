@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ClipboardCheck,
+  Clock,
   ExternalLink,
   Lock,
   Mail,
@@ -29,6 +30,15 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { SurfaceCard } from "@/components/app-ui/surfaces";
+import {
+  CaptionText,
+  HelperText,
+  MediumRowLabel,
+  RowLabel,
+  SectionLabel,
+} from "@/components/app-ui/typography";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -242,8 +252,7 @@ function CircularCheckbox({
   onChange: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <ShellActionSurface
       role="checkbox"
       aria-checked={checked}
       aria-label={label}
@@ -253,15 +262,14 @@ function CircularCheckbox({
         onChange();
       }}
       className={cn(
-        "grid size-9 shrink-0 place-items-center rounded-full border transition-[transform,colors,box-shadow] duration-200 motion-reduce:transition-none",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50",
+        "h-11 w-11 disabled:cursor-wait",
         checked
-          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-white shadow-[0_3px_10px_color-mix(in_oklab,var(--app-accent)_28%,transparent)]"
-          : "border-border/80 bg-background text-[color:var(--app-accent)] hover:border-[color:var(--app-accent)]",
+          ? "!bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]"
+          : "!text-[color:var(--app-accent)]",
       )}
     >
-      <Check className="size-4" aria-hidden="true" />
-    </button>
+      <Check className="size-5" aria-hidden="true" />
+    </ShellActionSurface>
   );
 }
 
@@ -327,83 +335,98 @@ function TodoRow({
     onDelete: () => onDelete(task),
   });
   const source = task.sourceAgent;
+  const time = task.time
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(`1970-01-01T${task.time}:00`))
+    : source === "calendar" && task.date
+      ? "All day"
+      : null;
 
   return (
-    <div
-      data-no-route-swipe
-      className="flex min-h-[72px] touch-pan-y items-start gap-3 px-4 py-3.5"
-      {...swipe}
-    >
-      <div className="min-w-0 flex-1 pt-0.5">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p
-            className={cn(
-              "min-w-0 break-words text-[15px] font-medium leading-5 tracking-[-0.01em]",
-              task.status === "done" && "text-muted-foreground line-through",
-            )}
+    <SurfaceCard data-todo-item={task.id}>
+      <div
+        data-no-route-swipe
+        className="grid touch-pan-y grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-4 py-3 sm:gap-x-4 sm:px-5 sm:py-4"
+        {...swipe}
+      >
+        <RowLabel
+          as="h3"
+          className={cn(
+            "self-center break-words [overflow-wrap:anywhere]",
+            task.status === "done" && "text-muted-foreground line-through",
+          )}
+        >
+          {task.title}
+        </RowLabel>
+        <div className="flex shrink-0 items-center gap-1">
+          <CircularCheckbox
+            checked={task.status === "done"}
+            disabled={saving}
+            label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
+            onChange={() => onToggle(task, task.status !== "done")}
+          />
+          <ShellActionSurface
+            className="h-11 w-11 hover:text-destructive"
+            aria-label={`Delete ${task.title}`}
+            onClick={(event) => onDelete(task, event.currentTarget)}
+            disabled={saving}
           >
-            {task.title}
-          </p>
+            <Trash2 className="size-4" aria-hidden="true" />
+          </ShellActionSurface>
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-4 text-muted-foreground">
-          {task.date ? (
-            <span
-              className={
-                isOverdue(task) ? "font-medium text-destructive" : undefined
-              }
-            >
-              {formatDateLabel(task.date)}
-              {task.time
-                ? ` · ${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`))}`
-                : ""}
-            </span>
-          ) : null}
-          {source ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--app-accent-deep)]">
-              {source === "calendar" ? (
-                <Calendar className="size-3" aria-hidden="true" />
-              ) : (
-                <Mail className="size-3" aria-hidden="true" />
-              )}
-              {source === "calendar" ? "Calendar" : "Gmail"}
-            </span>
-          ) : null}
-          {task.link ? (
-            <a
-              href={task.link}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex min-h-6 items-center gap-1 font-medium text-[color:var(--app-accent)] underline-offset-2 hover:underline"
-              onClick={(event) => event.stopPropagation()}
-            >
-              Join
-              <ExternalLink className="size-3" aria-hidden="true" />
-            </a>
-          ) : null}
-        </div>
+        {time || source || task.link ? (
+          <div className="col-span-2 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {time ? (
+              <CaptionText
+                className={cn(
+                  "inline-flex items-center gap-1.5 tabular-nums !text-[color:var(--app-secondary-label)]",
+                  isOverdue(task) && "!text-destructive",
+                )}
+              >
+                <Clock className="size-3.5" aria-hidden="true" />
+                {time}
+              </CaptionText>
+            ) : null}
+            {source ? (
+              <CaptionText className="inline-flex items-center gap-1.5 !text-[color:var(--app-secondary-label)]">
+                {source === "calendar" ? (
+                  <Calendar className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <Mail className="size-3.5" aria-hidden="true" />
+                )}
+                {source === "calendar" ? "Calendar" : "Gmail"}
+              </CaptionText>
+            ) : null}
+            {task.link ? (
+              <Button
+                asChild
+                variant="none"
+                effect="fade"
+                size="compact"
+                className="ml-auto !px-2 !text-[color:var(--app-accent)]"
+              >
+                <a
+                  href={task.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`${source === "gmail" ? "Open" : "Join"} ${task.title}`}
+                >
+                  {source === "gmail" ? "Open" : "Join"}
+                  <ExternalLink className="ml-1 size-3.5" aria-hidden="true" />
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {task.notes ? (
-          <p className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+          <HelperText as="p" className="col-span-2 mt-1 line-clamp-2">
             {task.notes}
-          </p>
+          </HelperText>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <CircularCheckbox
-          checked={task.status === "done"}
-          disabled={saving}
-          label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
-          onChange={() => onToggle(task, task.status !== "done")}
-        />
-        <ShellActionSurface
-          className="text-destructive hover:text-destructive"
-          aria-label={`Delete ${task.title}`}
-          onClick={(event) => onDelete(task, event.currentTarget)}
-          disabled={saving}
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </ShellActionSurface>
-      </div>
-    </div>
+    </SurfaceCard>
   );
 }
 
@@ -412,35 +435,30 @@ function TodoRows({
   savingTaskId,
   onToggle,
   onDelete,
-  contained = false,
 }: {
   tasks: TodoItem[];
   savingTaskId: string | null;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
-  contained?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        !contained &&
-          "overflow-hidden rounded-2xl border border-border/55 bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]",
-      )}
-    >
-      {groupByDate(tasks).map((group, groupIndex) => (
-        <div
+    <div className="space-y-6" data-no-auto-fade="true">
+      {groupByDate(tasks).map((group) => (
+        <section
           key={group.id}
-          className={cn(groupIndex > 0 && "border-t border-border/50")}
+          aria-label={group.overdue ? `${group.label}, overdue` : group.label}
         >
-          <div
-            className={cn(
-              "px-4 pb-1 pt-3 text-[12px] font-semibold",
-              group.overdue ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            {group.overdue ? `${group.label} · Overdue` : group.label}
+          <div className="mb-2 flex items-center justify-between gap-3 px-1">
+            <SectionLabel as="h2" compact>
+              <span className={group.overdue ? "text-destructive" : undefined}>
+                {group.overdue ? `${group.label} · Overdue` : group.label}
+              </span>
+            </SectionLabel>
+            <CaptionText className="tabular-nums !text-[color:var(--app-secondary-label)]">
+              {group.tasks.length}
+            </CaptionText>
           </div>
-          <div className="divide-y divide-border/45">
+          <div className="space-y-2.5">
             {group.tasks.map((task) => (
               <TodoRow
                 key={task.id}
@@ -451,7 +469,7 @@ function TodoRows({
               />
             ))}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   );
@@ -472,6 +490,7 @@ function TodoAddItemSheet({
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -479,6 +498,7 @@ function TodoAddItemSheet({
     setDate("");
     setTime("");
     setNotes("");
+    setNotesOpen(false);
   }, [open]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -502,7 +522,7 @@ function TodoAddItemSheet({
     >
       <SheetContent
         side="bottom"
-        className="mx-auto max-w-xl gap-0 rounded-t-[24px] border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[24px]"
+        className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
         showCloseButton={!saving}
       >
         <form onSubmit={(event) => void submit(event)}>
@@ -510,13 +530,15 @@ function TodoAddItemSheet({
             <SheetTitle className="text-xl tracking-[-0.02em]">
               Add item
             </SheetTitle>
-            <SheetDescription>
+            <SheetDescription className="sr-only">
               This stays encrypted in your private agent.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 px-5 pb-2">
             <div className="space-y-1.5">
-              <Label htmlFor="todo-title">Title</Label>
+              <Label htmlFor="todo-title" className="sr-only">
+                Title
+              </Label>
               <Input
                 id="todo-title"
                 autoFocus
@@ -529,12 +551,7 @@ function TodoAddItemSheet({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="todo-date">
-                  Date{" "}
-                  <span className="font-normal text-muted-foreground">
-                    optional
-                  </span>
-                </Label>
+                <Label htmlFor="todo-date">Date</Label>
                 <Input
                   id="todo-date"
                   type="date"
@@ -544,12 +561,7 @@ function TodoAddItemSheet({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="todo-time">
-                  Time{" "}
-                  <span className="font-normal text-muted-foreground">
-                    optional
-                  </span>
-                </Label>
+                <Label htmlFor="todo-time">Time</Label>
                 <Input
                   id="todo-time"
                   type="time"
@@ -559,29 +571,39 @@ function TodoAddItemSheet({
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="todo-notes">
-                Notes{" "}
-                <span className="font-normal text-muted-foreground">
-                  optional
-                </span>
-              </Label>
-              <Textarea
-                id="todo-notes"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
+            {notesOpen ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="todo-notes">Notes</Label>
+                <Textarea
+                  id="todo-notes"
+                  autoFocus
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  disabled={saving}
+                  placeholder="Add a detail"
+                  maxLength={1200}
+                  className="min-h-22 resize-none"
+                />
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="compact"
+                className="!px-0"
                 disabled={saving}
-                placeholder="Add a detail"
-                maxLength={1200}
-                className="min-h-22 resize-none"
-              />
-            </div>
+                onClick={() => setNotesOpen(true)}
+              >
+                Add a note
+              </Button>
+            )}
           </div>
           <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
             <Button
               type="button"
               variant="none"
-              effect="glass"
+              effect="fill"
               disabled={saving}
               onClick={() => onOpenChange(false)}
             >
@@ -589,6 +611,7 @@ function TodoAddItemSheet({
             </Button>
             <Button
               type="submit"
+              size="prominent"
               disabled={saving || !title.trim()}
               loading={saving}
             >
@@ -611,16 +634,15 @@ function AddItemButton({
   buttonRef: Ref<HTMLButtonElement>;
 }) {
   return (
-    <button
+    <Button
       ref={buttonRef}
-      type="button"
+      size="compact"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full bg-[color:var(--app-accent-surface)] px-4 text-[15px] font-medium text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <Plus className="size-4" aria-hidden="true" />
+      <Plus className="mr-1.5 size-4" aria-hidden="true" />
       Add item
-    </button>
+    </Button>
   );
 }
 
@@ -640,6 +662,12 @@ export function TodoListPage() {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
+  useEffect(() => {
+    if (writeReady) return;
+    setEditorOpen(false);
+    setDeleteRequest(null);
+    deleteTriggerRef.current = null;
+  }, [writeReady]);
   const idTokenProvider = useCallback(
     () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
@@ -688,6 +716,11 @@ export function TodoListPage() {
     [upcoming.events, tasks],
   );
   const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
+  const today = localDateKey(new Date());
+  const doneToday = completed.filter((task) => task.date === today).length;
+  const totalToday =
+    doneToday + pending.filter((task) => task.date === today).length;
+
   const requireSaved = <T extends { success: boolean; message?: string }>(
     result: T,
   ): T => {
@@ -696,7 +729,7 @@ export function TodoListPage() {
   };
 
   const saveTask = async (input: EditableTodoFields) => {
-    if (!userId || !vaultKey || !vaultOwnerToken) return;
+    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
     setSavingTaskId("new-item");
 
     const operation = createTodo(
@@ -720,7 +753,7 @@ export function TodoListPage() {
   };
 
   const toggleTask = async (task: TodoItem, complete: boolean) => {
-    if (!userId || !vaultKey || !vaultOwnerToken) return;
+    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
     const nextStatus: "pending" | "done" = complete ? "done" : "pending";
     const optimistic: TodoItem = {
       ...task,
@@ -761,7 +794,7 @@ export function TodoListPage() {
   };
 
   const deleteTask = async (task: TodoItem) => {
-    if (!userId || !vaultKey || !vaultOwnerToken) return;
+    if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
     const tombstone: TodoItem = {
       ...task,
       status: "deleted",
@@ -819,7 +852,8 @@ export function TodoListPage() {
       as="main"
       width="reading"
       headerContentSpacing="compact"
-      className="min-h-full bg-transparent pb-16"
+      fitContent
+      className="bg-transparent"
       nativeTest={{
         routeId: "/one/todos",
         marker: "native-route-one-todos",
@@ -834,91 +868,101 @@ export function TodoListPage() {
       }}
     >
       <AppPageHeaderRegion>
-        <div className="flex items-end justify-between gap-4 px-1 sm:px-0">
-          <div>
-            <p className="text-[13px] font-medium text-muted-foreground">
-              {new Intl.DateTimeFormat(undefined, {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              }).format(new Date())}
-            </p>
-            <h1 className="mt-1 text-4xl font-bold tracking-[-0.04em] text-foreground sm:text-[42px]">
-              To-do list
-            </h1>
-          </div>
-          <AddItemButton
-            buttonRef={addItemRef}
-            disabled={!writeReady || itemsLoading}
-            onClick={openCreate}
-          />
-        </div>
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion className="space-y-9 pb-28 pt-0">
-        {!writeReady ? (
-          <div className="flex items-start gap-3 rounded-2xl border border-border/50 bg-[color:var(--app-card-surface-default-solid)] px-4 py-4 text-sm shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]">
-            <Lock
-              className="mt-0.5 size-5 text-muted-foreground"
-              aria-hidden="true"
+        <PageHeader
+          eyebrow={new Intl.DateTimeFormat(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          }).format(new Date())}
+          title="Your tasks"
+          actionsInlineMobile
+          actions={
+            <AddItemButton
+              buttonRef={addItemRef}
+              disabled={!writeReady || itemsLoading}
+              onClick={openCreate}
             />
-            <div>
-              <p className="font-medium">
-                Unlock your vault to manage your list
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                Your items stay encrypted in your private agent.
-              </p>
+          }
+        />
+        {writeReady && !itemsLoading && totalToday > 0 ? (
+          <div className="mt-5 flex items-center gap-4" aria-live="polite">
+            <CaptionText className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
+              {doneToday} of {totalToday} done today
+            </CaptionText>
+            <div
+              role="progressbar"
+              aria-label="Today's completion"
+              aria-valuemin={0}
+              aria-valuemax={totalToday}
+              aria-valuenow={doneToday}
+              aria-valuetext={`${doneToday} of ${totalToday} tasks completed`}
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-[color:var(--app-accent-surface)]"
+            >
+              <div
+                className="h-full origin-left rounded-full bg-[color:var(--app-accent)] transition-transform duration-150 motion-reduce:transition-none"
+                style={{ transform: `scaleX(${doneToday / totalToday})` }}
+              />
             </div>
           </div>
         ) : null}
+      </AppPageHeaderRegion>
 
-        {itemsLoading ? (
-          <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
-            <RefreshCw className="size-4 animate-spin" /> Loading your list…
-          </div>
-        ) : null}
-
-        <section aria-labelledby="items-heading">
-          <div className="mb-3 px-1">
-            <h2
-              id="items-heading"
-              className="text-xl font-semibold tracking-[-0.025em]"
-            >
-              Today
-            </h2>
-          </div>
-          <div className="overflow-hidden rounded-2xl border border-border/55 bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]">
-            {pending.length > 0 ? (
-              <TodoRows
-                tasks={pending}
-                savingTaskId={savingTaskId}
-                onToggle={toggleTask}
-                onDelete={requestDelete}
-                contained
+      <AppPageContentRegion className="space-y-6 pb-6">
+        {!writeReady ? (
+          <SurfaceCard>
+            <div className="flex items-center gap-3 px-4 py-5">
+              <Lock
+                className="size-5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
               />
-            ) : (
-              <div className="flex items-start gap-3 px-4 py-5 text-sm text-muted-foreground">
-                <ClipboardCheck className="mt-0.5 size-5" aria-hidden="true" />{" "}
-                {calendar.connected
-                  ? "Your list is clear. Scheduled meetings will appear here."
-                  : "Your list is clear. Add an item or connect Calendar."}
-              </div>
-            )}
+              <HelperText as="p">
+                Unlock your vault to see your list.
+              </HelperText>
+            </div>
+          </SurfaceCard>
+        ) : itemsLoading ? (
+          <div role="status" className="flex items-center gap-2 px-1">
+            <RefreshCw
+              className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            <HelperText>Loading your list…</HelperText>
           </div>
-        </section>
+        ) : pending.length > 0 ? (
+          <TodoRows
+            tasks={pending}
+            savingTaskId={savingTaskId}
+            onToggle={toggleTask}
+            onDelete={requestDelete}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <ClipboardCheck
+              className="mb-1 size-7 text-[color:var(--app-accent)]"
+              aria-hidden="true"
+            />
+            <MediumRowLabel as="h2">All clear</MediumRowLabel>
+            <HelperText as="p">
+              {calendar.connected
+                ? "Your next meeting will appear here."
+                : "Add something for your day."}
+            </HelperText>
+          </div>
+        )}
 
-        {completed.length > 0 ? (
+        {writeReady && !itemsLoading && completed.length > 0 ? (
           <section aria-labelledby="completed-heading">
             <button
               type="button"
               onClick={() => setCompletedOpen((open) => !open)}
+              aria-expanded={completedOpen}
+              aria-controls="todo-completed-items"
               className="flex min-h-11 w-full items-center justify-between px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
             >
               <span>
                 <span
                   id="completed-heading"
-                  className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  className="app-metadata-label text-[12px] uppercase tracking-[0.12em] text-muted-foreground"
                 >
                   Completed
                 </span>
@@ -934,63 +978,71 @@ export function TodoListPage() {
                 aria-hidden="true"
               />
             </button>
-            {completedOpen ? (
-              <div className="mt-2">
+            <div
+              id="todo-completed-items"
+              className="mt-2"
+              hidden={!completedOpen}
+            >
+              {completedOpen ? (
                 <TodoRows
                   tasks={completed}
                   savingTaskId={savingTaskId}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
                 />
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </section>
         ) : null}
       </AppPageContentRegion>
 
-      <TodoAddItemSheet
-        open={editorOpen}
-        saving={savingTaskId !== null}
-        onOpenChange={setEditorOpen}
-        onSave={saveTask}
-      />
-      <AlertDialog
-        open={deleteRequest !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteRequest(null);
-        }}
-      >
-        <AlertDialogContent
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            const trigger = deleteTriggerRef.current;
-            if (trigger?.isConnected && !trigger.hasAttribute("disabled")) {
-              trigger.focus();
-            } else {
-              addItemRef.current?.focus();
-            }
+      {writeReady ? (
+        <TodoAddItemSheet
+          open={editorOpen}
+          saving={savingTaskId !== null}
+          onOpenChange={setEditorOpen}
+          onSave={saveTask}
+        />
+      ) : null}
+      {writeReady ? (
+        <AlertDialog
+          open={deleteRequest !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteRequest(null);
           }}
         >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete item?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes “{deleteRequest?.title}” from your to-do list. Calendar
-              events and emails stay in place.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                if (deleteRequest) void deleteTask(deleteRequest);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <AlertDialogContent
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              const trigger = deleteTriggerRef.current;
+              if (trigger?.isConnected && !trigger.hasAttribute("disabled")) {
+                trigger.focus();
+              } else {
+                addItemRef.current?.focus();
+              }
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete item?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes “{deleteRequest?.title}” from your to-do list.
+                Calendar events and emails stay in place.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  if (deleteRequest) void deleteTask(deleteRequest);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </AppPageShell>
   );
 }

@@ -454,7 +454,7 @@ test("hands the vault stage to the interactive unlock screen", async ({ page }) 
   const surface = page.locator("[data-boot-surface]");
   await expect(surface).toHaveAttribute("aria-hidden", "true");
   await expect(surface).toHaveCSS("pointer-events", "none");
-  const passphrase = page.getByLabel("Vault passphrase");
+  const passphrase = page.getByLabel("Vault password");
   const target = await passphrase.boundingBox();
   expect(target!.height).toBeGreaterThanOrEqual(44);
   await passphrase.click();

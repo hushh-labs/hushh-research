@@ -11,6 +11,8 @@ const m = vi.hoisted(() => ({
   refreshMemoryDocument: vi.fn(),
   syncLivingSources: vi.fn(),
   domainChangeListener: null as ((detail: { userId: string; domain: string; operation: string }) => void) | null,
+  connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
+  payoutChangeListener: null as ((detail: { kinds: string[] }) => void) | null,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -59,6 +61,20 @@ vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
 vi.mock("@/lib/consent/consent-events", () => ({
   CONSENT_STATE_CHANGED_EVENT: "consent-state-changed",
 }));
+vi.mock("@/lib/connections/connection-graph-events", () => ({
+  subscribeToConnectionGraphChanges: (listener: (detail: { userId: string }) => void) => {
+    m.connectionChangeListener = listener;
+    return () => { m.connectionChangeListener = null; };
+  },
+}));
+vi.mock("@/lib/payouts/payout-events", () => ({
+  subscribePayoutStateChanged: (listener: (detail: { kinds: string[] }) => void) => {
+    m.payoutChangeListener = listener;
+    return () => { m.payoutChangeListener = null; };
+  },
+  payoutChangeTouches: (detail: { kinds: string[] }, kinds: string[]) =>
+    detail.kinds.some((kind) => kinds.includes(kind)),
+}));
 vi.mock("@/lib/agent/agent-chat-history-events", () => ({
   AGENT_CHAT_HISTORY_INVALIDATED_EVENT: "agent-chat-history-invalidated",
 }));
@@ -90,6 +106,8 @@ describe("LivingMemoryBridge", () => {
     m.vaultKey = "fixture-vault-key";
     m.vaultOwnerToken = "fixture-owner-token";
     m.domainChangeListener = null;
+    m.connectionChangeListener = null;
+    m.payoutChangeListener = null;
     m.token.mockResolvedValue("fixture-id-token");
     m.getMetadata.mockResolvedValue({ domains: [{ key: "identity" }, { key: "professional" }] });
     m.syncLivingSources.mockResolvedValue(undefined);
@@ -158,5 +176,108 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
+  });
+
+  it("wakes for the current owner's connection graph only", async () => {
+    render(<LivingMemoryBridge />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    m.syncLivingSources.mockClear();
+    act(() => m.connectionChangeListener?.({ userId: "other" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    act(() => m.connectionChangeListener?.({ userId: "owner-a" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceConnections: true }),
+    );
+  });
+
+  it("wakes payout activity on bank changes and both sources on earnings changes", async () => {
+    render(<LivingMemoryBridge />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    m.syncLivingSources.mockClear();
+    act(() => m.payoutChangeListener?.({ kinds: ["bank_payouts"] }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forcePayoutActivity: true, forceDocumentEarnings: false,
+        forceDocumentRequestPayments: false }),
+    );
+    m.syncLivingSources.mockClear();
+    act(() => m.payoutChangeListener?.({ kinds: ["earnings"] }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceDocumentEarnings: true, forcePayoutActivity: true }),
+    );
+  });
+
+  it("forces consent and curated OAuth reads for their change hints", async () => {
+    render(<LivingMemoryBridge />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    m.syncLivingSources.mockClear();
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", {
+      detail: { userId: "other" },
+    })));
+    await act(async () => { await Promise.resolve(); });
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", {
+      detail: { userId: "owner-a" },
+    })));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceConsent: true, forceDocumentRequestPayments: true }),
+    );
+    m.syncLivingSources.mockClear();
+    act(() => window.dispatchEvent(new CustomEvent("hushh:native-connector-return", {
+      detail: { attemptId: "attempt", outcome: "ready" },
+    })));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forceCuratedConnectors: true }),
+    );
+  });
+
+  it("retries an incomplete encrypted source scan on the next owner wake", async () => {
+    m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
+    render(<LivingMemoryBridge />);
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
   });
 });

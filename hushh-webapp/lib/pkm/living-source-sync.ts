@@ -1,10 +1,32 @@
 "use client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { DocumentPayoutService } from "@/lib/services/document-payout-service";
+import { PayoutActivityService, type PayoutActivityItem } from "@/lib/services/payout-activity-service";
+import {
+  DocumentRequestPaymentSourceCapacityError,
+  DocumentRequestPaymentSourceService,
+} from "@/lib/services/document-request-payment-source-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
+  isSourceJournalCursor,
+  SOURCE_JOURNAL_KINDS,
+  SourceJournalService,
+  type SourceJournalKind,
+} from "@/lib/services/source-journal-service";
+import {
+  appendVerifiedLivingSourceChanges,
   reconcileLivingSources,
+  DOCUMENT_EARNINGS_FRESHNESS_MS,
+  PAYOUT_ACTIVITY_FRESHNESS_MS,
+  DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
+  CONNECTION_FRESHNESS_MS,
+  CONSENT_FRESHNESS_MS,
+  CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
   type LivingSourceInput,
+  type LivingSourceHistory,
   type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import {
@@ -13,16 +35,443 @@ import {
 } from "@/lib/vault/session-epoch";
 
 export const LIVING_SOURCE_DOMAIN = "one_living_sources";
+const CONNECTION_PAGE_LIMIT = 100;
+const MAX_CONNECTION_RECORDS = 5_000;
+const MAX_CONNECTOR_CATALOG_ROWS = 500;
+const MAX_RETAINED_CURATED_OAUTH_CONNECTORS = 1_000;
+const MAX_DOCUMENT_EARNINGS = 5_000;
+const PAYOUT_ACTIVITY_PAGE_LIMIT = 50;
+const MAX_PAYOUT_ACTIVITY_RECORDS = 5_000;
+const MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS = 10_000;
+const MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS = 5_000;
+const MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS = 10_000;
+const MAX_RETAINED_CONNECTION_RECORDS = 10_000;
+const MAX_RETAINED_DOCUMENT_EARNINGS = 10_000;
+const MAX_CONSENT_SCAN_ROWS = 5_000;
+const MAX_CONSENT_PAGE_READS = 100;
+const MAX_RETAINED_CONSENT_RECORDS = 10_000;
+type CompletedScan = { epoch: number; verifiedAt: string; completedAt: string };
+const lastDocumentEarningsScan = new Map<string, CompletedScan>();
+const lastPayoutActivityScan = new Map<string, CompletedScan>();
+const lastDocumentRequestPaymentsScan = new Map<string, CompletedScan>();
+const lastConnectionScan = new Map<string, CompletedScan>();
+const lastConsentScan = new Map<string, CompletedScan>();
+const lastCuratedConnectorScan = new Map<string, CompletedScan>();
+const lastConsentOverflow = new Map<string, { epoch: number; at: string }>();
+const lastDocumentRequestPaymentOverflow = new Map<string, { epoch: number; at: string }>();
+
+type JournalCursors = { connectors: string; events: string };
+
+function readJournalCursors(value: unknown): {
+  cursors: JournalCursors;
+  invalidConnectors: boolean;
+  invalidEvents: boolean;
+} {
+  const stored = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  return {
+    cursors: {
+      connectors: isSourceJournalCursor(stored.connectors) ? stored.connectors : "0",
+      events: isSourceJournalCursor(stored.events) ? stored.events : "0",
+    },
+    invalidConnectors: stored.connectors !== undefined && !isSourceJournalCursor(stored.connectors),
+    invalidEvents: stored.events !== undefined && !isSourceJournalCursor(stored.events),
+  };
+}
+
+function nextJournalCursor(previous: string, head: string | null, reset: boolean): string {
+  if (head === null) return previous;
+  return reset || BigInt(head) > BigInt(previous) ? head : previous;
+}
+
+class ConsentSourceCapacityError extends Error {}
+
+function canReuseVerifiedScan(params: {
+  userId: string;
+  epoch: number;
+  previousAt?: string;
+  observedAt: string;
+  maxAge: number;
+  forced?: boolean;
+  cache: Map<string, CompletedScan>;
+}): boolean {
+  const cached = params.cache.get(params.userId);
+  const age = params.previousAt
+    ? Date.parse(params.observedAt) - Date.parse(params.previousAt)
+    : Infinity;
+  const cooldownAge = cached
+    ? Date.parse(params.observedAt) - Date.parse(cached.completedAt)
+    : Infinity;
+  return !params.forced && cached?.epoch === params.epoch &&
+    cached.verifiedAt === params.previousAt && age >= 0 &&
+    (age < params.maxAge || (cooldownAge >= 0 && cooldownAge < params.maxAge));
+}
+
+/** The owner-vault earnings API uses a stable (createdAt, requestId) keyset.
+ * Scan both mode partitions twice; any gap, duplicate, shift or overflow keeps
+ * earlier records and forbids a deletion inference. */
+async function collectDocumentEarnings(vaultOwnerToken: string): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const entries: LivingSourceInput[] = [];
+    const ids = new Set<string>();
+    for (const mode of ["live", "test"] as const) {
+      let cursor: string | undefined;
+      const seenCursors = new Set<string>();
+      for (;;) {
+        const response = await DocumentPayoutService.earnings(vaultOwnerToken, cursor, mode);
+        if (response.currency !== "USD" || response.mode !== mode ||
+            !Array.isArray(response.transactions) || response.transactions.length > 20 ||
+            !(response.nextCursor === null || typeof response.nextCursor === "string") ||
+            (response.nextCursor !== null &&
+              (response.transactions.length !== 20 ||
+                response.nextCursor !== response.transactions.at(-1)?.requestId ||
+                seenCursors.has(response.nextCursor))))
+          throw new Error("Document earnings page could not be verified");
+        for (const row of response.transactions) {
+          if (
+            !row || typeof row.requestId !== "string" || !row.requestId ||
+            ids.has(row.requestId) ||
+            (mode === "live" ? row.stripeMode !== "live" :
+              row.stripeMode !== "test" && row.stripeMode !== "legacy") ||
+            typeof row.status !== "string" || !row.status ||
+            !Number.isSafeInteger(row.grossAmountCents) || row.grossAmountCents < 0 ||
+            (row.refundAmountCents !== null &&
+              (!Number.isSafeInteger(row.refundAmountCents) || row.refundAmountCents < 0)) ||
+            (row.netAmountCents !== null &&
+              (!Number.isSafeInteger(row.netAmountCents) || row.netAmountCents < 0)) ||
+            typeof row.createdAt !== "string" ||
+            !Number.isFinite(Date.parse(row.createdAt)) ||
+            (row.transferredAt !== null &&
+              (typeof row.transferredAt !== "string" ||
+                !Number.isFinite(Date.parse(row.transferredAt)))) ||
+            (row.settlementMethod !== undefined &&
+              !["stripe_transfer", "hashcoins"].includes(row.settlementMethod))
+          ) throw new Error("Document earning row could not be verified");
+          ids.add(row.requestId);
+          entries.push({
+            kind: "document_earning",
+            id: row.requestId,
+            createdAt: row.createdAt,
+            updatedAt: null,
+            value: {
+              requestId: row.requestId,
+              stripeMode: row.stripeMode,
+              status: row.status,
+              grossCents: row.grossAmountCents,
+              refundCents: row.refundAmountCents,
+              netCents: row.netAmountCents,
+              createdAt: row.createdAt,
+              transferredAt: row.transferredAt,
+              settlementMethod: row.settlementMethod ?? null,
+            },
+          });
+        }
+        if (entries.length > MAX_DOCUMENT_EARNINGS ||
+            (entries.length === MAX_DOCUMENT_EARNINGS && response.nextCursor !== null))
+          throw new Error("Document earnings inventory exceeds its safe bound");
+        if (response.nextCursor === null) break;
+        seenCursors.add(response.nextCursor);
+        cursor = response.nextCursor;
+      }
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Document earnings changed during pagination; retry required");
+  return second;
+}
+
+/** Activity IDs can contain a provider deposit ID. Keep only a stable opaque
+ * fingerprint in the encrypted inventory; the receipt service remains the
+ * authority for any detail the owner chooses to open. */
+async function payoutActivitySourceId(mode: "live" | "test", itemId: string): Promise<string> {
+  const encoded = new TextEncoder().encode(`payout_activity.v1\0${mode}\0${itemId}`);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoded));
+  return `${mode}:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function payoutActivityValue(item: Exclude<PayoutActivityItem, { kind: "earning" }>): Record<string, unknown> {
+  const common = {
+    kind: item.kind,
+    mode: item.test ? "test" : "live",
+    occurredAt: item.occurredAt,
+    updatedAt: item.updatedAt,
+    amountCents: item.amountCents,
+    coinsDelta: item.coinsDelta,
+  };
+  if (item.kind === "redemption")
+    return { ...common, status: item.status, reversalStatus: item.reversalStatus };
+  if (item.kind === "deposit")
+    return { ...common, status: item.status, expectedArrivalAt: item.expectedArrivalAt };
+  return { ...common, type: item.type };
+}
+
+/** Read both owner activity partitions twice. A failed or shifting page never
+ * licenses deletion of an earlier encrypted record. */
+async function collectPayoutActivity(vaultOwnerToken: string): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const entries: LivingSourceInput[] = [];
+    const seenItems = new Set<string>();
+    let scannedRows = 0;
+    for (const mode of ["live", "test"] as const) {
+      let cursor: string | undefined;
+      const seenCursors = new Set<string>();
+      for (;;) {
+        const page = await PayoutActivityService.list(vaultOwnerToken, {
+          kind: "all", mode, limit: PAYOUT_ACTIVITY_PAGE_LIMIT, cursor,
+        }, { sourceRead: true });
+        if (page.mode !== mode || page.kind !== "all" || page.reset ||
+            page.items.length > PAYOUT_ACTIVITY_PAGE_LIMIT ||
+            (page.nextCursor !== null &&
+              (page.items.length !== PAYOUT_ACTIVITY_PAGE_LIMIT ||
+                seenCursors.has(page.nextCursor))))
+          throw new Error("Payout activity page could not be verified");
+        scannedRows += page.items.length;
+        if (scannedRows > MAX_PAYOUT_ACTIVITY_RECORDS ||
+            (scannedRows === MAX_PAYOUT_ACTIVITY_RECORDS && page.nextCursor !== null))
+          throw new Error("Payout activity inventory exceeds its safe bound");
+        for (const item of page.items) {
+          const sourceKey = `${mode}:${item.id}`;
+          if (seenItems.has(sourceKey) || item.test !== (mode === "test"))
+            throw new Error("Payout activity row could not be verified");
+          seenItems.add(sourceKey);
+          // Earnings already have the dedicated document_earning projection.
+          if (item.kind === "earning") continue;
+          entries.push({
+            kind: "payout_activity",
+            id: await payoutActivitySourceId(mode, item.id),
+            createdAt: item.occurredAt,
+            updatedAt: item.updatedAt,
+            value: payoutActivityValue(item),
+          });
+        }
+        if (page.nextCursor === null) break;
+        seenCursors.add(page.nextCursor);
+        cursor = page.nextCursor;
+      }
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Payout activity changed during pagination; retry required");
+  return second;
+}
+
+/** This is the requester's own paid document flow. A server-certified bounded
+ * snapshot is read twice so an intervening payment change cannot tombstone a
+ * previously verified record. No document, provider or raw counterpart ID is copied. */
+async function collectDocumentRequestPayments(
+  vaultOwnerToken: string,
+  userId: string,
+): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const rows = await DocumentRequestPaymentSourceService.snapshot(vaultOwnerToken, userId);
+    if (rows.length > MAX_DOCUMENT_REQUEST_PAYMENT_RECORDS)
+      throw new DocumentRequestPaymentSourceCapacityError("Document request payment inventory exceeds its safe bound");
+    const entries: LivingSourceInput[] = [];
+    for (const row of rows) {
+      entries.push({
+        kind: "document_request_payment",
+        id: row.requestId,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        value: {
+          counterpartRef: row.counterpartRef,
+          mode: row.mode,
+          status: row.status,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          paidAt: row.paidAt,
+          refundStatus: row.refundStatus,
+          refundAmountCents: row.refundAmountCents,
+          reconciliationRequired: row.reconciliationRequired,
+        },
+      });
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Document request payments changed during verification; retry required");
+  return second;
+}
+
+/** The owner-token endpoint returns its complete, unpaginated catalog and
+ * owner credential statuses. Strict source-read mode rejects malformed 2xx
+ * responses while allowing a genuinely empty catalog. */
+async function collectConnectorStatuses(vaultOwnerToken: string): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const overview = await ExternalConnectorService.overview(vaultOwnerToken, {
+      sourceRead: true,
+    });
+    const rows = overview.connectors;
+    if (!Array.isArray(rows) || rows.length > MAX_CONNECTOR_CATALOG_ROWS)
+      throw new Error("Connector catalog completeness unverified");
+    const ids = new Set<string>();
+    const entries: LivingSourceInput[] = [];
+    for (const row of rows) {
+      if (
+        !row || typeof row.connectorId !== "string" || !row.connectorId ||
+        ids.has(row.connectorId) ||
+        !["oauth", "api_key"].includes(row.authStyle) ||
+        !["not_connected", "connected", "verifying", "needs_reauth", "revoked", "error"].includes(row.status) ||
+        (row.connectedAt != null &&
+          (typeof row.connectedAt !== "string" ||
+            !Number.isFinite(Date.parse(row.connectedAt))))
+      ) throw new Error("Connector catalog row could not be verified");
+      ids.add(row.connectorId);
+      if (row.authStyle !== "oauth" || row.status === "not_connected" ||
+          (row.curatedOAuth !== true && row.connectorId !== "google_drive")) continue;
+      entries.push({
+        kind: "curated_oauth_connector",
+        id: row.connectorId,
+        createdAt: row.connectedAt ?? null,
+        updatedAt: null,
+        value: {
+          provider: row.connectorId,
+          status: row.status,
+          connectedAt: row.connectedAt ?? null,
+          authStyle: row.authStyle,
+        },
+      });
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Connector statuses changed during read; retry required");
+  return second;
+}
+
+/** Offset pagination has no revision fence. Only matching complete scans may
+ * authorize deletion; a concurrent change during either scan fails closed. */
+async function collectConnections(params: {
+  userId: string;
+  idToken: string;
+}): Promise<LivingSourceInput[]> {
+  const scan = async () => {
+    const entries: LivingSourceInput[] = [];
+    const connectionIds = new Set<string>();
+    const counterpartIds = new Set<string>();
+    let expectedCount: number | null = null;
+    for (let page = 1; ; page += 1) {
+      const response = await ConnectionsService.listConnectionsPage({
+        idToken: params.idToken,
+        page,
+        limit: CONNECTION_PAGE_LIMIT,
+        audience: "all",
+        sourceRead: true,
+      });
+      if (
+        response.page !== page || response.audience !== "all" ||
+        !Number.isSafeInteger(response.totalCount) || response.totalCount < 0 ||
+        response.totalCount > MAX_CONNECTION_RECORDS ||
+        (expectedCount !== null && response.totalCount !== expectedCount) ||
+        !Array.isArray(response.items) ||
+        response.items.length > CONNECTION_PAGE_LIMIT ||
+        typeof response.hasMore !== "boolean"
+      ) throw new Error("Connection page could not be verified");
+      expectedCount = response.totalCount;
+      for (const item of response.items) {
+        if (
+          !item || typeof item.connectionId !== "string" || !item.connectionId ||
+          typeof item.userId !== "string" || !item.userId ||
+          item.userId === params.userId ||
+          connectionIds.has(item.connectionId) ||
+          counterpartIds.has(item.userId) ||
+          typeof item.connectedFromContacts !== "boolean" ||
+          (item.createdAt !== null &&
+            (typeof item.createdAt !== "string" ||
+              !Number.isFinite(Date.parse(item.createdAt))))
+        ) throw new Error("Connection row could not be verified");
+        connectionIds.add(item.connectionId);
+        counterpartIds.add(item.userId);
+        entries.push({
+          kind: "connection",
+          id: item.connectionId,
+          createdAt: item.createdAt,
+          updatedAt: null,
+          value: {
+            counterpartId: item.userId,
+            establishedAt: item.createdAt,
+            connectedFromContacts: item.connectedFromContacts,
+          },
+        });
+      }
+      if (entries.length > expectedCount ||
+          response.hasMore !== (entries.length < expectedCount) ||
+          (response.hasMore && response.items.length === 0))
+        throw new Error("Connection pagination incomplete");
+      if (!response.hasMore) break;
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const first = await scan();
+  const second = await scan();
+  if (JSON.stringify(first) !== JSON.stringify(second))
+    throw new Error("Connections changed during pagination; retry required");
+  return second;
+}
+
 export async function syncLivingSources(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
   idToken: string;
+  forceDocumentEarnings?: boolean;
+  forcePayoutActivity?: boolean;
+  forceDocumentRequestPayments?: boolean;
+  forceConnections?: boolean;
+  forceConsent?: boolean;
+  forceCuratedConnectors?: boolean;
 }): Promise<void> {
   const epoch = snapshotVaultSessionEpoch();
-  const observedAt = new Date().toISOString();
+  const readStartedAt = new Date().toISOString();
+  let storedSnapshotAt = readStartedAt;
   let incomplete = false;
-  const fetchSources = async () => {
+  let earningsScanned = false;
+  let payoutActivityScanned = false;
+  let documentRequestPaymentsScanned = false;
+  let connectionsScanned = false;
+  let consentScanned = false;
+  let curatedConnectorsScanned = false;
+  let earningsVerifiedAt: string | undefined;
+  let payoutActivityVerifiedAt: string | undefined;
+  let documentRequestPaymentsVerifiedAt: string | undefined;
+  let connectionVerifiedAt: string | undefined;
+  let consentVerifiedAt: string | undefined;
+  let curatedConnectorsVerifiedAt: string | undefined;
+  let consentOverflowed = false;
+  let documentRequestPaymentOverflowed = false;
+  let documentRequestPaymentOverflowCleared = false;
+  const fetchSources = async (
+    previous: LivingSourceInventory | undefined,
+    replayKinds: ReadonlySet<SourceJournalKind>,
+    connectorChanged: boolean,
+  ) => {
+    // A coordinator conflict can run build again. Only the final attempt may
+    // publish verification and cooldown state.
+    earningsScanned = false;
+    payoutActivityScanned = false;
+    documentRequestPaymentsScanned = false;
+    connectionsScanned = false;
+    consentScanned = false;
+    curatedConnectorsScanned = false;
+    earningsVerifiedAt = undefined;
+    payoutActivityVerifiedAt = undefined;
+    documentRequestPaymentsVerifiedAt = undefined;
+    connectionVerifiedAt = undefined;
+    consentVerifiedAt = undefined;
+    curatedConnectorsVerifiedAt = undefined;
+    consentOverflowed = false;
+    documentRequestPaymentOverflowed = false;
+    documentRequestPaymentOverflowCleared = false;
     const inputs: LivingSourceInput[] = [];
     const successful: string[] = [];
     const unavailable: string[] = [];
@@ -49,13 +498,27 @@ export async function syncLivingSources(params: {
     } catch {
       unavailable.push("profile");
     }
-    try {
+    const overflow = lastConsentOverflow.get(params.userId);
+    const overflowAge = overflow ? Date.parse(readStartedAt) - Date.parse(overflow.at) : Infinity;
+    if (!params.forceConsent && !replayKinds.has("consent") && previous?.unavailable?.includes("consent") &&
+        overflow?.epoch === epoch &&
+        overflowAge >= 0 && overflowAge < CONSENT_FRESHNESS_MS) {
+      unavailable.push("consent");
+    } else if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.consent,
+      maxAge: CONSENT_FRESHNESS_MS,
+      forced: params.forceConsent || replayKinds.has("consent"),
+      cache: lastConsentScan,
+    })) try {
       const startFence = await ConsentCenterService.sourceFence(
         params.idToken,
         params.userId,
       );
       const collectConsent = async () => {
         const entries = new Map<string, LivingSourceInput>();
+        let scannedRows = 0;
+        let pageReads = 0;
         for (const surface of ["pending", "active", "previous"] as const) {
           for (const requestView of (surface === "pending"
             ? ["received", "sent"]
@@ -72,6 +535,10 @@ export async function syncLivingSources(params: {
                 force: true,
                 sourceRead: true,
               });
+              pageReads++;
+              if (pageReads > MAX_CONSENT_PAGE_READS ||
+                  !Array.isArray(response.items) || response.items.length > 100)
+                throw new ConsentSourceCapacityError("Consent source scan exceeds its safe bound");
               if (response.source_read_verified !== true)
                 throw new Error("Source completeness unverified");
               if (response.user_id !== params.userId)
@@ -82,6 +549,9 @@ export async function syncLivingSources(params: {
               if (seenPages.has(pageSignature) && response.items.length)
                 throw new Error("Repeated source page");
               seenPages.add(pageSignature);
+              scannedRows += response.items.length;
+              if (scannedRows > MAX_CONSENT_SCAN_ROWS)
+                throw new ConsentSourceCapacityError("Consent source scan exceeds its safe bound");
               for (const entry of response.items) {
                 // Presentation fields only: tokens, request payloads and provider metadata never enter memory.
                 const expired =
@@ -125,8 +595,136 @@ export async function syncLivingSources(params: {
         throw new Error("Consent changed during pagination; retry required");
       inputs.push(...second);
       successful.push("consent");
-    } catch {
+      consentScanned = true;
+      consentVerifiedAt = new Date().toISOString();
+    } catch (error) {
+      consentOverflowed = error instanceof ConsentSourceCapacityError;
       unavailable.push("consent");
+    }
+    if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.connection,
+      maxAge: CONNECTION_FRESHNESS_MS,
+      forced: params.forceConnections || replayKinds.has("connection"),
+      cache: lastConnectionScan,
+    })) {
+      try {
+        inputs.push(...await collectConnections(params));
+        successful.push("connection");
+        connectionsScanned = true;
+        connectionVerifiedAt = new Date().toISOString();
+      } catch {
+        unavailable.push("connection");
+      }
+    }
+    if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.curated_oauth_connector,
+      maxAge: CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
+      forced: params.forceCuratedConnectors || connectorChanged,
+      cache: lastCuratedConnectorScan,
+    })) {
+      try {
+        inputs.push(...await collectConnectorStatuses(params.vaultOwnerToken));
+        successful.push("curated_oauth_connector");
+        curatedConnectorsScanned = true;
+        curatedConnectorsVerifiedAt = new Date().toISOString();
+      } catch {
+        unavailable.push("curated_oauth_connector");
+      }
+    }
+    if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.document_earning,
+      maxAge: DOCUMENT_EARNINGS_FRESHNESS_MS,
+      forced: params.forceDocumentEarnings || replayKinds.has("document_earning"),
+      cache: lastDocumentEarningsScan,
+    })) {
+      try {
+        inputs.push(...await collectDocumentEarnings(params.vaultOwnerToken));
+        successful.push("document_earning");
+        earningsScanned = true;
+        earningsVerifiedAt = new Date().toISOString();
+      } catch {
+        unavailable.push("document_earning");
+      }
+    }
+    if (!canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.payout_activity,
+      maxAge: PAYOUT_ACTIVITY_FRESHNESS_MS,
+      forced: params.forcePayoutActivity || replayKinds.has("payout_activity"),
+      cache: lastPayoutActivityScan,
+    })) {
+      try {
+        inputs.push(...await collectPayoutActivity(params.vaultOwnerToken));
+        successful.push("payout_activity");
+        payoutActivityScanned = true;
+        payoutActivityVerifiedAt = new Date().toISOString();
+      } catch {
+        unavailable.push("payout_activity");
+      }
+    }
+    const paymentOverflow = lastDocumentRequestPaymentOverflow.get(params.userId);
+    const paymentOverflowAge = paymentOverflow
+      ? Date.parse(readStartedAt) - Date.parse(paymentOverflow.at) : Infinity;
+    if (!params.forceDocumentRequestPayments && !replayKinds.has("document_request_payment") &&
+        previous?.unavailable?.includes("document_request_payment") &&
+        paymentOverflow?.epoch === epoch && paymentOverflowAge >= 0 &&
+        paymentOverflowAge < DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS) {
+      unavailable.push("document_request_payment");
+    } else if (previous?.unavailable?.includes("document_request_payment") || !canReuseVerifiedScan({
+      userId: params.userId, epoch, observedAt: readStartedAt,
+      previousAt: previous?.verifiedAt?.document_request_payment,
+      maxAge: DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
+      forced: params.forceDocumentRequestPayments || replayKinds.has("document_request_payment"),
+      cache: lastDocumentRequestPaymentsScan,
+    })) {
+      try {
+        inputs.push(...await collectDocumentRequestPayments(params.vaultOwnerToken, params.userId));
+        successful.push("document_request_payment");
+        documentRequestPaymentsScanned = true;
+        documentRequestPaymentsVerifiedAt = new Date().toISOString();
+      } catch (error) {
+        documentRequestPaymentOverflowed = error instanceof DocumentRequestPaymentSourceCapacityError;
+        documentRequestPaymentOverflowCleared = !documentRequestPaymentOverflowed;
+        unavailable.push("document_request_payment");
+      }
+    }
+    // Tombstones are retained for owner provenance. Refuse a source update
+    // before its encrypted retained history grows beyond its declared bound.
+    for (const [kind, limit] of [
+      ["connection", MAX_RETAINED_CONNECTION_RECORDS],
+      ["document_earning", MAX_RETAINED_DOCUMENT_EARNINGS],
+      ["payout_activity", MAX_RETAINED_PAYOUT_ACTIVITY_RECORDS],
+      ["document_request_payment", MAX_RETAINED_DOCUMENT_REQUEST_PAYMENT_RECORDS],
+      ["curated_oauth_connector", MAX_RETAINED_CURATED_OAUTH_CONNECTORS],
+      ["consent", MAX_RETAINED_CONSENT_RECORDS],
+    ] as const) {
+      const retained = new Set(
+        (previous?.records ?? []).filter((record) => record.kind === kind)
+          .map((record) => record.id),
+      );
+      for (const input of inputs) if (input.kind === kind) retained.add(input.id);
+      if (retained.size <= limit) continue;
+      for (let index = inputs.length - 1; index >= 0; index--) {
+        if (inputs[index]?.kind === kind) inputs.splice(index, 1);
+      }
+      const successfulIndex = successful.indexOf(kind);
+      if (successfulIndex >= 0) successful.splice(successfulIndex, 1);
+      if (!unavailable.includes(kind)) unavailable.push(kind);
+      if (kind === "connection") connectionsScanned = false;
+      if (kind === "document_earning") earningsScanned = false;
+      if (kind === "payout_activity") payoutActivityScanned = false;
+      if (kind === "document_request_payment") {
+        documentRequestPaymentsScanned = false;
+        documentRequestPaymentOverflowed = true;
+      }
+      if (kind === "consent") {
+        consentScanned = false;
+        consentOverflowed = true;
+      }
+      if (kind === "curated_oauth_connector") curatedConnectorsScanned = false;
     }
     return { inputs, successful, unavailable };
   };
@@ -144,23 +742,106 @@ export async function syncLivingSources(params: {
         throw new Error("Vault session changed");
     },
     build: async (context) => {
-      const { inputs, successful, unavailable } = await fetchSources();
-      incomplete = unavailable.length > 0;
-      if (!isVaultSessionEpochCurrent(epoch))
-        throw new Error("Vault session changed");
       const current = context.currentDomainData ?? {};
       const privateData = (current._private ?? {}) as Record<string, unknown>;
       const previous = privateData.inventory as
         LivingSourceInventory | undefined;
+      // Read replay cursors from this CAS-consistent decrypted domain, never
+      // from device storage. A competing tab may have advanced them already.
+      const persisted = readJournalCursors(privateData.journal_cursors);
+      let connectorChanged = persisted.invalidConnectors;
+      let connectorHead: string | null = null;
+      let connectorReset = false;
+      const replayKinds = new Set<SourceJournalKind>(
+        persisted.invalidEvents ? SOURCE_JOURNAL_KINDS : [],
+      );
+      let eventsHead: string | null = null;
+      let eventsReset = false;
+      try {
+        const connector = await SourceJournalService.connectorHead(
+          params.vaultOwnerToken, persisted.cursors.connectors,
+        );
+        connectorHead = connector.headCursor;
+        connectorChanged ||= connector.changed || connector.resetRequired;
+        connectorReset = connector.resetRequired;
+      } catch {
+        // A failed hint read cannot advance a cursor. Periodic authoritative
+        // verification remains available while this journal is unavailable.
+      }
+      try {
+        const changes = await SourceJournalService.sourceChanges(
+          params.vaultOwnerToken, persisted.cursors.events,
+        );
+        eventsHead = changes.headCursor;
+        eventsReset = changes.resetRequired;
+        if (eventsReset) for (const kind of SOURCE_JOURNAL_KINDS) replayKinds.add(kind);
+        for (const kind of changes.changedKinds) replayKinds.add(kind);
+      } catch {
+        // Retry this cursor on the next wake. Never infer a source value from
+        // an unavailable or malformed journal page.
+      }
+      const { inputs, successful, unavailable } = await fetchSources(
+        previous, replayKinds, connectorChanged,
+      );
+      incomplete = unavailable.length > 0;
+      if (!isVaultSessionEpochCurrent(epoch))
+        throw new Error("Vault session changed");
+      // A long keyset read is fresh when it finishes. Timestamping the start
+      // would immediately trigger another full scan if it exceeded five minutes.
+      storedSnapshotAt = new Date().toISOString();
       const inventory = reconcileLivingSources(
         previous ?? null,
         inputs,
         successful,
         unavailable,
-        observedAt,
+        storedSnapshotAt,
+        {
+          connection: connectionVerifiedAt,
+          document_earning: earningsVerifiedAt,
+          payout_activity: payoutActivityVerifiedAt,
+          document_request_payment: documentRequestPaymentsVerifiedAt,
+          consent: consentVerifiedAt,
+          curated_oauth_connector: curatedConnectorsVerifiedAt,
+        },
       );
+      incomplete = !inventory.complete;
+      // Only verified source revisions enter the encrypted observed history.
+      // Journal hints choose scans and never become facts themselves.
+      const history = appendVerifiedLivingSourceChanges(
+        (privateData.observed_history as LivingSourceHistory | undefined) ?? null,
+        previous ?? null,
+        inventory,
+      );
+      const journalCursors = inventory.complete ? {
+        connectors: nextJournalCursor(
+          persisted.cursors.connectors, connectorHead, connectorReset,
+        ),
+        events: nextJournalCursor(
+          persisted.cursors.events, eventsHead, eventsReset,
+        ),
+      } : privateData.journal_cursors;
+      const unchanged = Boolean(previous) && JSON.stringify({
+        records: previous?.records,
+        complete: previous?.complete,
+        unavailable: previous?.unavailable,
+        verifiedAt: previous?.verifiedAt,
+        history: privateData.observed_history,
+        journalCursors: privateData.journal_cursors,
+      }) === JSON.stringify({
+        records: inventory.records,
+        complete: inventory.complete,
+        unavailable: inventory.unavailable,
+        verifiedAt: inventory.verifiedAt,
+        history,
+        journalCursors,
+      });
       return {
-        domainData: { ...current, _private: { ...privateData, inventory } },
+        unchanged,
+        domainData: {
+          ...current,
+          _private: { ...privateData, inventory, observed_history: history,
+            ...(inventory.complete ? { journal_cursors: journalCursors } : {}) },
+        },
         summary: {
           item_count: inventory.records.length,
           source_projection_complete: inventory.complete,
@@ -170,6 +851,40 @@ export async function syncLivingSources(params: {
   });
   if (!result.success)
     throw new Error("Encrypted source projection not stored");
+  if (earningsScanned)
+    lastDocumentEarningsScan.set(params.userId, {
+      epoch, verifiedAt: earningsVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (payoutActivityScanned)
+    lastPayoutActivityScan.set(params.userId, {
+      epoch, verifiedAt: payoutActivityVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (documentRequestPaymentsScanned)
+    lastDocumentRequestPaymentsScan.set(params.userId, {
+      epoch, verifiedAt: documentRequestPaymentsVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (documentRequestPaymentsScanned || documentRequestPaymentOverflowCleared)
+    lastDocumentRequestPaymentOverflow.delete(params.userId);
+  if (documentRequestPaymentOverflowed)
+    lastDocumentRequestPaymentOverflow.set(params.userId, {
+      epoch, at: storedSnapshotAt,
+    });
+  if (connectionsScanned)
+    lastConnectionScan.set(params.userId, {
+      epoch, verifiedAt: connectionVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (consentScanned)
+    lastConsentScan.set(params.userId, {
+      epoch, verifiedAt: consentVerifiedAt!, completedAt: storedSnapshotAt,
+    });
+  if (consentScanned) lastConsentOverflow.delete(params.userId);
+  if (consentOverflowed) lastConsentOverflow.set(params.userId, {
+    epoch, at: storedSnapshotAt,
+  });
+  if (curatedConnectorsScanned)
+    lastCuratedConnectorScan.set(params.userId, {
+      epoch, verifiedAt: curatedConnectorsVerifiedAt!, completedAt: storedSnapshotAt,
+    });
   if (incomplete)
     throw new Error("Source inventory incomplete; retry required");
 }

@@ -507,6 +507,7 @@ vi.mock("@/lib/one-location/service", () => ({
 }));
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
+  LOCATION_PKM_DOMAIN: "location",
   DuplicateSavedLocationError: class extends Error {},
   addSavedLocation: mockAddSavedLocation,
   loadSavedLocations: mockLoadSavedLocations,
@@ -4979,18 +4980,25 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("opens the optional saved-place modal only after the Now banner is tapped", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     expect(await screen.findByTestId("saved-places-banner")).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: "Turn location on" })).toHaveAttribute("aria-checked", "false");
     fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    // The open modal correctly hides the underlying hub from accessibility.
+    expect(screen.getByRole("switch", { hidden: true })).toHaveAttribute("aria-checked", "true");
+    expect(mockAddSavedLocation).not.toHaveBeenCalled();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(screen.queryByTestId("one-location-onboarding")).toBeNull();
   });
 
   it("persists banner dismissal and explains where to save later", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
     const view = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss saved places reminder" }));
@@ -5005,6 +5013,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps banner acquisition retryable after a real denial", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     const denied = Object.assign(new Error("Location permission is blocked for this site."), { name: "LocationPermissionDeniedError" });
@@ -5019,6 +5028,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("cancels a banner acquisition without reopening its modal when the fix arrives late", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     const release = holdNextCapture();
@@ -5031,7 +5041,45 @@ describe("OneLocationAgentPage", () => {
     expect(mockAddSavedLocation).not.toHaveBeenCalled();
   });
 
+  it("does not let a late banner capture reverse a newer Location turn-off", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    const { updateOneLocationControlState } = await import("@/lib/one-location/location-control-state");
+    updateOneLocationControlState("user_a", (current) => ({ ...current, paused: false, selfPreviewEnabled: true }));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await screen.findByRole("button", { name: "Save a place" });
+    const release = holdNextCapture();
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await act(async () => { release(); });
+    expect(screen.getByRole("switch", { name: "Turn location on" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save a place" })).toBeEnabled();
+  });
+
+  it("keeps a pending toggle and banner acquisition coherent when capture fails", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    let rejectCapture!: (error: Error) => void;
+    const capture = new Promise((_, reject) => { rejectCapture = reject; });
+    mockCaptureCurrentPosition.mockReturnValue(capture);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await screen.findByRole("button", { name: "Save a place" });
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Save a place" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2));
+    await act(async () => { rejectCapture(new Error("Device location unavailable")); });
+    expect(screen.getByRole("switch", { name: "Turn location on" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Save a place" })).toBeEnabled();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+  });
+
   it("ignores a banner denial after the active account changes", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
     const view = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     let rejectCapture!: (error: Error) => void;
@@ -5051,6 +5099,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("saves the banner place securely and turns the Location preview on", async () => {
+    mockLoadSavedLocations.mockResolvedValue([]);
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -5070,6 +5119,52 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByTestId("saved-places-banner")).toBeNull();
     expect(screen.queryByTestId("one-location-onboarding")).toBeNull();
     expect(screen.getByRole("switch", { name: "Turn location off" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("hides the places reminder for an owner with an existing saved address", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockLoadSavedLocations).toHaveBeenCalledWith({
+      userId: "user_a", vaultKey: "vault-key", vaultOwnerToken: "vault-token",
+    }));
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("waits for saved-place truth before showing an empty-owner reminder", async () => {
+    let finish!: (places: []) => void;
+    mockLoadSavedLocations.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    await act(async () => { finish([]); });
+    expect(await screen.findByTestId("saved-places-banner")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a failed saved-place read as an empty address list", async () => {
+    mockLoadSavedLocations.mockRejectedValueOnce(new Error("Places unavailable"));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await act(async () => undefined);
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+  });
+
+  it("discards an empty-place response after the active owner changes", async () => {
+    let finish!: (places: []) => void;
+    mockLoadSavedLocations.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const priorAuth = mockUseRequireAuth.mock.results.at(-1)!.value;
+    window.localStorage.setItem("one_location_onboarding_v2:user_b", "1");
+    mockUseRequireAuth.mockReturnValue({ ...priorAuth, userId: "user_b", user: { ...priorAuth.user, uid: "user_b" } });
+    view.rerender(<OneLocationAgentPage />);
+    await waitFor(() => expect(mockLoadSavedLocations).toHaveBeenCalledWith({
+      userId: "user_b", vaultKey: "vault-key", vaultOwnerToken: "vault-token",
+    }));
+    await act(async () => { finish([]); });
+    expect(screen.queryByTestId("saved-places-banner")).toBeNull();
   });
 
   it.each(["v1", "v2"])(

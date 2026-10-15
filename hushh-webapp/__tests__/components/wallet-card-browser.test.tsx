@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { registerBackLayer, unwindBackLayer } from "@/lib/navigation/back-layers";
 import { describe, expect, it, vi } from "vitest";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -27,7 +27,7 @@ describe("Wallet card browser", () => {
       root.scrollTop = 0;
     });
     const view = render(<WalletCardBrowser cards={[]} selectedCardId={null} onSelect={() => {}} onOverview={() => {}} onAdd={() => {}} onRemove={() => {}} busyCardId={null} details={null} dockHost={null} />, { container: root });
-    fireEvent.click(screen.getByRole("button", { name: "View details for Agent One Profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agent One Profile" }));
     root.scrollTop = 450;
     committedPages.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "Next card" }));
@@ -39,6 +39,14 @@ describe("Wallet card browser", () => {
   it("unwinds the selected card before leaving Wallet and releases the handler when inactive", () => {
     const { dock, host, unmount, rerender, props } = setup();
     fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    const childBack = vi.fn(() => true);
+    const releaseChild = registerBackLayer({ pathname: "/one/wallet", depth: 2, back: childBack });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
+      expect(childBack).toHaveBeenCalledOnce();
+      expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+      expect(screen.getByText("Live profile controls")).toBeVisible();
+    } finally { releaseChild(); }
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
     expect(screen.queryByText("Live profile controls")).toBeNull();

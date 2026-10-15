@@ -321,6 +321,14 @@ describe("DirectMessagesPage", () => {
     return { create, revoke, enterViewport };
   }
 
+  it("does not render an empty conversation before the selected person's history resolves", () => {
+    mocks.getConversationWithPerson.mockReturnValueOnce(new Promise(() => {}));
+    renderConnectionThread();
+    expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Messaging unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading messages…")).toBeInTheDocument();
+  });
+
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));

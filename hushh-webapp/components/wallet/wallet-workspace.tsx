@@ -102,6 +102,7 @@ type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
 const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]";
+const WALLET_TAB_PANEL = "space-y-3.5 px-[var(--page-inline-gutter-standard)] pt-4 sm:pt-5";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -919,7 +920,7 @@ export function WalletWorkspace() {
             heightMode="active"
             holdHeightDuringTransition={false}
           >
-          <div className="space-y-2 px-[var(--page-inline-gutter-standard)] sm:space-y-3.5">
+          <div className={WALLET_TAB_PANEL}>
           {view.kind === "disabled" ? (
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
@@ -958,7 +959,6 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><ProfilePaneSearchIcon aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
             <div className="relative mx-auto w-full max-w-[820px]">
               <ProfilePaneSearchIcon
@@ -1002,7 +1002,7 @@ export function WalletWorkspace() {
             />
           ) : null}
           </div>
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
+          <div className={WALLET_TAB_PANEL}>
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
@@ -1080,7 +1080,7 @@ export function WalletWorkspace() {
             </div>
           ) : null}
           </div>
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
+          <div className={WALLET_TAB_PANEL} data-testid="one-wallet-sharing">
             {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
@@ -1121,7 +1121,7 @@ export function WalletWorkspace() {
             onOpenChange={setUnlockOpen}
             onSuccess={() => setUnlockOpen(false)}
             title="Unlock your wallet"
-            description="Enter your vault passphrase to see your cards."
+            description="Enter your vault password to see your cards."
             allowVaultCreation={false}
           />
         ) : null}

@@ -62,6 +62,7 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
 }
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  if (path === "world-model/source-reviews") return 170_000;
   if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;

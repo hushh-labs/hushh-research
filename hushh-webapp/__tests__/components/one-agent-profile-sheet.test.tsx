@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { CacheService } from "@/lib/services/cache-service";
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   identityOwner: "viewer",
   preferredName: "Love",
   native: false,
+  revision: 0,
+  refresh: vi.fn(),
   list: vi.fn(),
   markRead: vi.fn(),
   push: vi.fn(),
@@ -26,8 +29,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: mocks.unlocked ? "fixture-key" : null, vaultOwnerToken: mocks.unlocked ? "fixture-token" : null }),
 }));
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  usePkmDomainResource: () => ({ data: { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } }),
+  usePkmDomainResource: () => ({ refresh: mocks.refresh, data: { key: { userId: mocks.identityOwner }, data: { communication_preferences: { preferred_name: mocks.preferredName } } } }),
 }));
+vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({ usePkmDomainChangeRevision: () => mocks.revision }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: { list: mocks.list, markRead: mocks.markRead },
@@ -49,6 +53,8 @@ const item = (id: string, event_type: string) => ({
 describe("One agent profile feed preview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.revision = 0;
+    mocks.refresh.mockResolvedValue(null);
     mocks.unlocked = true;
     mocks.identityOwner = "viewer";
     mocks.preferredName = "Love";
@@ -64,6 +70,29 @@ describe("One agent profile feed preview", () => {
       next_cursor: null,
       unread_count: 3,
     });
+  });
+
+  it("updates the header name and clears it on lock or owner mismatch", () => {
+    const { result, rerender } = renderHook(() => useOneDisplayName());
+    expect(result.current).toBe("Love");
+    mocks.preferredName = "Roopmann";
+    mocks.revision = 1;
+    rerender();
+    expect(result.current).toBe("Roopmann");
+    expect(mocks.refresh).toHaveBeenCalledWith({ force: true });
+    mocks.identityOwner = "another-owner";
+    rerender();
+    expect(result.current).toBe("One");
+    mocks.identityOwner = "viewer";
+    mocks.refresh.mockClear();
+    mocks.unlocked = false;
+    rerender();
+    expect(result.current).toBe("One");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    mocks.unlocked = true;
+    mocks.preferredName = "";
+    rerender();
+    expect(result.current).toBe("One");
   });
 
   it("shows only the unlocked current owner's preferred name", async () => {

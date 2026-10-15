@@ -76,25 +76,71 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-triggered after a verified healthy deployment and checked by the existing 15-minute timer. Maintenance
+hourly and independently of deployment events. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
 The authority job verifies the source repository, workflow, governed actor and
-healthy release artifact before cloud authentication. No-op runs skip cleanup.
-Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
-`uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
-the maximum request timeout plus 60 seconds has elapsed. The backend still
-supports 3,600-second requests. No runner sleeps through that grace period.
-Traffic/generation or release changes invalidate the saved clock; missing or
-expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
-the actual last-known-good revisions remain protected.
+release artifact before cloud authentication. Deployment observations never authorize deletion.
+The helper independently selects a
+completed, healthy source and verifies live provenance. The narrow passkey-association
+failure case may use its proven serving backend and the immediately preceding
+healthy UAT release's frontend after verifying both against live revision
+provenance. A UAT run that passed every release gate and failed solely while
+retiring old tags may use its healthy artifact after job and live revision
+provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
+Maintenance runs hourly or by explicit governed manual request; no deployment
+event starts it. GitHub delivered only 3-6 of the 24 daily runs of its former
+minute-17 cron on 2026-10-12..14, so **Capacity Maintenance Clock** is now its only
+schedule: each clock run checks both environments without cloud credentials, sends
+one repository dispatch only when maintenance is due, scoped to the due environments
+(`capacity-maintenance-tick`, `-tick-uat` or `-tick-production`), and re-arms itself
+after a 60-minute wait in the `capacity-maintenance-clock` environment (a wait timer,
+so no runner is held). A tick has exactly the scheduled pass's authority within its
+scope. Quiet hours add no maintenance run, and a scoped pass's title lets the other
+environment's checkpoint guard skip it without reading its jobs. Scheduled requests and
+ticks coalesce without cancelling active work, and manual requests keep independent
+identities. Cancelling the clock's waiting run stops it until its next delivered
+cron. Each mutation pass verifies
+its source against live traffic, removes unused tags, and saves drain evidence in
+`uat-retention-state` or `production-retention-state`. A later hourly pass deletes
+only eligible revisions after the maximum request timeout plus 60 seconds. A backend
+with 3,600-second requests therefore keeps its approximately 61-minute drain without
+occupying a sleeping runner. Settled and unchanged future deadlines skip cloud setup,
+including a second due check under the environment lock.
+
+Cleanup execution is bounded to 300 seconds, with teardown/checkpoint time reserved.
+Partial progress remains due; uncertain provider outcomes keep sanitized intent in the
+same receipt and block conflicting deployments until observation establishes completion.
+If the intended revision still exists after an uncertain delete, do not retry blindly:
+operator reconciliation is required. Traffic, service incarnation, expanded candidates
+or protected-set changes invalidate the clock; expired evidence cannot authorize deletion.
+Current, latest, predeploy rollback and actual last-known-good revisions stay protected.
 
 Only a short maintenance pass shares its environment's rollout/rollback lock; all
-participants queue without replacing pending deployments. Admission checks
-conservatively count every retained UAT database revision while cleanup is
-deferred, so overlapping drains cannot silently exceed the database budget.
-The capacity gate can still reject an unsafe release.
+participants queue without replacing pending deployments. Backend and paired-release admission checks conservatively count every retained UAT database revision while cleanup is deferred, so overlapping drains cannot silently exceed the database budget. A frontend-only release is classified as zero incremental SQL demand only when the live web runtime and new candidate have no declared database bindings; this is checked under the deploy lock and again before candidate smoke and traffic promotion. Unverifiable web configuration blocks the release. This is a reviewed application contract: runtime configuration checks cannot prove arbitrary image code will never access a database. The frontend identity should ultimately have access only to its own named secrets.
+
+Both UAT deploy workflows poll capacity for at most five minutes, including
+query and final-verification time, before taking
+the `deploy-uat` mutation lock. A backend request (including One chat and `auto`)
+waits in the backend request group; an explicit `scope=frontend` request uses a
+separate group and can proceed while backend revisions drain. GitHub's
+`queue: max` holds at most 100 pending runs per group; a further run is canceled.
+For backend admission, an exact job inventory drift with extra unprofiled jobs and no missing profiled jobs is retried within the five-minute check. Exhaustion returns `DEFERRED_CAPACITY`
+with the original SHA/scope for a governed operator retry; it does not dispatch
+an automatic release or produce a healthy release receipt. The check never admits while that drift
+persists and reports the extra names if it times out. Missing profiled jobs,
+authentication and query errors, and malformed reports fail immediately. Once
+admitted, the deployment rechecks the exact SHA,
+actor, scope, and connection budget under the mutation lock before any writes.
+
+The UAT deploy request promptly wakes a verified Capacity Maintenance first pass;
+later short scheduled passes can free old revisions after drainage. If no eligible source
+is found, a governed operator should verify the live healthy release run and dispatch `capacity-maintenance.yml`
+for `environment=uat`, that `healthy_release_run_id`, and `apply=true`. The
+maintenance workflow verifies the source and live traffic before deletion. If
+there is no eligible source or capacity remains blocked after the bounded wait,
+escalate for capacity review; do not bypass the admission gate.
 
 Production's source-only selection skips cloud authentication after a settled
 pass, or while every retained drain deadline is still in the future. A completion
@@ -109,6 +155,11 @@ readiness. Failed maintenance artifacts still cannot restore drain authority.
 This reuses the existing workflow and timer, with no new cron runs.
 
 The default capacity phase reserves the next deployment's candidate revisions.
+UAT resolves deployment scope before admission: a frontend-only release reserves
+no new database service revisions, while a backend release reserves both the
+backend and Drive worker candidates. All retained database revisions and jobs
+remain counted in either case.
+The exceptional One chat backend-only lane reserves only its backend candidate.
 Post-release reporting uses `--phase post-release`, which counts current retained
 revisions, jobs and the administrative reserve without adding another hypothetical
 deployment. Actual over-budget capacity remains blocking in both phases.
@@ -233,3 +284,34 @@ records without treating them as current prerequisites. Follow the
 [command runtime contract](../docs/reference/one/one-voice-runtime-architecture.md)
 for checkpoint, receipt and rollback requirements. Provider access and physical
 device acceptance remain release evidence, not conclusions from a static build.
+
+### Capacity scaling acceptance
+
+Configured connection exposure is not the number of active database sessions.
+The admission report accounts for actual worker overrides, both pools, retained
+revisions, scoped candidates, jobs and administrative reserve. Cleanup success and
+capacity admission are reported separately. Unprofiled database jobs remain a
+blocking inventory gap until their owner registers or reconciles them.
+
+Scaling changes require measured traffic/latency/session/pool/CPU/memory evidence,
+a matching live/profile connection budget and a priced cost projection. The approved
+2026-10-13 activity has a US$2,000 incremental monthly ceiling including verification,
+UAT stays zonal, and production regional HA is scheduled for 2026-10-14 22:00–23:00
+America/Los_Angeles after backup, recovery and verification prerequisites pass.
+This is an execution window, not evidence that HA has been enabled.
+
+Use the existing read-only UAT load probe at 5, 10 and 20 requests/s, then 40
+requests/s for five minutes, with at most 40 workers and no live model calls.
+Require no server errors/pool acquire timeouts, p95 <=2s, p99 <=5s, sufficient
+generator throughput, sustained CPU <70% and memory <80%. Stop at the first
+failing stage. UAT evidence does not establish production's maximum throughput.
+
+The 2026-10-13 UAT baseline on `consent-protocol-02115-faq` completed 3,000
+read-only requests at 5 requests/s with no server errors, but its steady memory
+utilization remained 86.9–87.85% of 4 GiB. UAT therefore selects 6 GiB at unchanged
+2 CPU, five maximum instances and existing connection pools. This is a candidate
+working-set adjustment, not passing burst evidence. Repeat the same 5 requests/s
+stage before increasing load. Maximum incremental RAM allocation at all five
+instances for 730 hours is US$52.56/month at current Tier 1 instance-based list
+pricing; actual allocation and the remaining verification resources must be
+reconciled against the approved ceiling. Production memory remains unchanged.

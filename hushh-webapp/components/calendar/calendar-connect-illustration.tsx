@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { CSSProperties } from "react";
+import { GoogleCalendarMark } from "./google-calendar-mark";
 
 /**
  * Decorative collage for the Calendar connect screen: a sample schedule card
@@ -12,8 +13,8 @@ import type { CSSProperties } from "react";
  *
  * Responsive without any layout code: the wrapper is a size container and
  * every length inside is in `em`, with 1em = 1/42 of the container width. The
- * collage therefore scales as one picture, never reflows, and is capped at its
- * 420px design width on wide screens.
+ * collage therefore scales as one picture, never reflows, and is capped at
+ * 420px on mobile and 480px on desktop.
  */
 
 const TILE_BASE =
@@ -83,25 +84,7 @@ function Chevron({ direction }: { direction: "left" | "right" }) {
 function GoogleCalendarTile() {
   return (
     <div className={`${TILE_BASE} left-0 top-[8.8em] rotate-[-10deg]`}>
-      <svg viewBox="12 12 40 40" fill="none" className="size-[4.5em]">
-        <rect x="13" y="13" width="38" height="38" rx="8" fill="white" />
-        <path d="M43 13H51V51H43V13Z" fill="#EA4335" />
-        <path d="M13 43H51V51H13V43Z" fill="#34A853" />
-        <path d="M13 13H21V51H13V13Z" fill="#4285F4" />
-        <path d="M13 13H51V21H13V13Z" fill="#1A73E8" />
-        <path d="M43 43H51V51H43V43Z" fill="#FBBC04" />
-        <text
-          x="32"
-          y="41"
-          textAnchor="middle"
-          fill="#1A73E8"
-          fontSize="20"
-          fontWeight="700"
-          fontFamily="inherit"
-        >
-          31
-        </text>
-      </svg>
+      <GoogleCalendarMark className="size-[4.5em]" />
     </div>
   );
 }
@@ -226,7 +209,7 @@ export function CalendarConnectIllustration() {
     <div
       aria-hidden="true"
       data-testid="calendar-connect-illustration"
-      className="pointer-events-none mx-auto w-full max-w-[420px] select-none [container-type:inline-size]"
+      className="pointer-events-none mx-auto w-full max-w-[420px] select-none [container-type:inline-size] md:max-w-[480px]"
     >
       <div className="relative w-full py-[2.4em]" style={SCALE_STYLE}>
         <GoogleCalendarTile />

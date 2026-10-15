@@ -79,7 +79,20 @@ export const HUSHH_AUTH_TOKEN_ERROR_CODE = {
 export type HushhAuthTokenErrorCode =
   (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
 
+export interface NativeGoogleContactsAuthorization {
+  accessToken: string;
+  googleSubject: string;
+  grantedScopes: string[];
+  authority: "ios-sdk-grant" | "android-contacts-only";
+  expiresAt: number | null;
+}
+
 export interface HushhAuthPlugin {
+  /** One invocation, bound to the selected signup account; no Firebase exchange. */
+  authorizeGoogleContacts(options: {
+    expectedUserId: string;
+    requestMissingScope?: boolean;
+  }): Promise<NativeGoogleContactsAuthorization>;
   /** Fresh Google proof for the current Firebase user; never replaces sign-in. */
   reauthenticateGoogleIdentity(options: {
     expectedUserId: string;
@@ -93,6 +106,7 @@ export interface HushhAuthPlugin {
     idToken: string;
     accessToken: string;
     user: AuthUser;
+    isNewUser?: boolean;
   }>;
 
   /**
@@ -117,6 +131,7 @@ export interface HushhAuthPlugin {
   connectCalendar(options: {
     serverClientId: string;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;
@@ -167,6 +182,7 @@ export interface HushhAuthPlugin {
    * Note: Apple may return hidden email (relay address) if user chose to hide it
    */
   signInWithApple(): Promise<{
+    isNewUser?: boolean;
     idToken: string;
     accessToken?: string;
     rawNonce?: string; // iOS only - needed for JS SDK sync if required

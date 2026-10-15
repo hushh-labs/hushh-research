@@ -328,11 +328,30 @@ async def _everything(world, owner="owner", *, mode="live", kind="all", limit=50
         page = await world.activity.activity(
             user_id=owner, mode=mode, kind=kind, cursor=cursor, limit=limit
         )
+        assert page["sourceItemCount"] == len(page["items"])
         items.extend(page["items"])
         cursor = page["nextCursor"]
         if cursor is None:
             return items, page
     raise AssertionError("pagination did not finish")
+
+
+@pytest.mark.asyncio
+async def test_activity_reports_a_source_row_skipped_before_final_page(world):
+    _map_account(world, "owner", "live", LIVE_ACCOUNT)
+    payout_id = _deposit(world, LIVE_ACCOUNT)
+    with world.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE stripe_connect_bank_payouts SET stripe_payout_id='po_bad!' "
+                "WHERE stripe_payout_id=:id"
+            ),
+            {"id": payout_id},
+        )
+    page = await world.activity.activity(user_id="owner", mode="live")
+    assert page["items"] == []
+    assert page["nextCursor"] is None
+    assert page["sourceItemCount"] == 1
 
 
 @pytest.mark.asyncio

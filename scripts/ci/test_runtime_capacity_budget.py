@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -59,11 +60,152 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_frontend_only_admits_zero_incremental_sql_without_job_inventory(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        account = "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+        current = "hushh-webapp-current"
+        ready = "hushh-webapp-ready"
+        candidate = "hushh-webapp-candidate"
+
+        def workload(name: str) -> dict:
+            return {
+                "metadata": {"name": name, "annotations": {}},
+                "spec": {"serviceAccountName": account, "containers": [{"env": []}]},
+            }
+
+        service = {
+            "spec": {"template": workload("template")},
+            "status": {
+                "traffic": [{"revisionName": current, "percent": 100}],
+                "latestReadyRevisionName": ready,
+            },
+        }
+        revisions = {name: workload(name) for name in (current, ready, candidate)}
+        project_policy = {"bindings": [{
+            "role": "roles/secretmanager.secretAccessor",
+            "members": [f"serviceAccount:{account}"],
+        }]}
+
+        def inventory(*args: str) -> dict:
+            if args[:3] == ("projects", "get-iam-policy", "hushh-pda-uat"):
+                return copy.deepcopy(project_policy)
+            if args[:3] == ("run", "services", "describe"):
+                self.assertEqual(args[3], "hushh-webapp")
+                return copy.deepcopy(service)
+            if args[:3] == ("run", "revisions", "describe"):
+                return copy.deepcopy(revisions[args[3]])
+            raise AssertionError(f"Unexpected global capacity inventory: {args[:3]}")
+
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            report = budget.frontend_only_report(
+                profile, "uat", candidate_revision=candidate
+            )
+        self.assertEqual(report["admission_mode"], "frontend-only-incremental")
+        self.assertEqual(report["projected_connections"], 0)
+        self.assertEqual(report["verified_frontend_revisions"], sorted(revisions))
+        self.assertTrue(report["admitted"])
+
+        # The narrow lane must fail closed on a SQL-capable template or any
+        # candidate, even though it intentionally does not inspect jobs.
+        for change, expected in (
+            (lambda: service["spec"]["template"]["metadata"]["annotations"].update(
+                {"run.googleapis.com/cloudsql-instances": CONNECTION}
+            ), "Cloud SQL attachment"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "PGSSLMODE", "value": "redacted"}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "GENERIC_ENDPOINT", "value": "postgresql://redacted"}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"]["containers"][0]["env"].append(
+                {"name": "GENERIC_SECRET", "valueFrom": {
+                    "secretKeyRef": {"name": "DB_PASSWORD", "key": "latest"}
+                }}
+            ), "database configuration"),
+            (lambda: revisions[candidate]["spec"].update({"volumes": [{"name": "db"}]}),
+             "volumes require"),
+            (lambda: revisions[candidate]["spec"].update(
+                {"serviceAccountName": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"}
+            ), "runtime identity"),
+        ):
+            with self.subTest(expected=expected):
+                clean_service = copy.deepcopy(service)
+                clean_revisions = copy.deepcopy(revisions)
+                change()
+                with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+                    with self.assertRaisesRegex(budget.BudgetError, expected):
+                        budget.frontend_only_report(
+                            profile, "uat", candidate_revision=candidate
+                        )
+                service = clean_service
+                revisions = clean_revisions
+
+        project_policy["bindings"].append({
+            "role": "roles/cloudsql.client",
+            "members": [f"serviceAccount:{account}"],
+        })
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            with self.assertRaisesRegex(budget.BudgetError, "unreviewed project IAM role"):
+                budget.frontend_only_report(profile, "uat")
+        project_policy["bindings"].pop()
+
+        with mock.patch.object(budget, "gcloud_json", side_effect=inventory):
+            with self.assertRaisesRegex(budget.BudgetError, "limited to UAT"):
+                budget.frontend_only_report(profile, "production")
+            with self.assertRaisesRegex(budget.BudgetError, "candidate revision identity"):
+                budget.frontend_only_report(
+                    profile, "uat", candidate_revision="consent-protocol-123"
+                )
+
+    def test_worker_override_counts_connections_and_conflicts_fail_closed(self) -> None:
+        row = revision("consent-protocol-test")
+        container = row["spec"]["containers"][0]
+        container["env"].append({"name": "WEB_CONCURRENCY", "value": "3"})
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)[
+                "connections"
+            ],
+            105,
+        )
+        container["args"] = ["--workers=3"]
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)[
+                "workers_per_instance"
+            ],
+            3,
+        )
+        for args in (
+            ["--workers", "2"],
+            ["-w0"],
+            ["gunicorn --workers 5"],
+            ["exec gunicorn server:app -w 5"],
+            ["exec gunicorn server:app -w${OTHER_WORKERS}"],
+            ["exec gunicorn server:app '-w' 5"],
+        ):
+            with self.subTest(args=args):
+                container["args"] = args
+                with self.assertRaises(budget.BudgetError):
+                    budget.revision_connections(
+                        row, "consent-protocol", SETTINGS, CONNECTION
+                    )
+        container["args"] = []
+        container["args"] = ["-w", "3", "--worker-tmp-dir", "/tmp"]
+        self.assertEqual(
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)["workers_per_instance"],
+            3,
+        )
+        container["command"] = ["gunicorn", "--workers", "5"]
+        with self.assertRaises(budget.BudgetError):
+            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)
+
     def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        # UAT admits up to 900 projected (reserve included) of 1000 since
+        # 2026-10-15: measured num_backends peaked at 256 over 7 days (median
+        # 86), and a fully maxed 862 still fits under max_connections.
         self.assertEqual(budget.connection_policy(profile, "uat"), {
             "database_max_connections": 1000,
-            "admission_limit": 800,
+            "admission_limit": 900,
             "administrative_reserve": 100,
         })
         self.assertEqual(budget.connection_policy(profile, "production"), {
@@ -115,6 +257,8 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-older-drain"),
         ]
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        # Multiple older generations may still hold admitted requests. Neither
+        # a zero minimum instance count nor aggregate SQL peaks prove drainage.
         for environment in ("uat", "production"):
             for configured in profile["environments"][environment]["services"].values():
                 with self.subTest(environment=environment, container=configured["container"]):
@@ -195,6 +339,21 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
         self.assertEqual(len(current["services"]), 3)
         self.assertTrue(current["admitted"])
+        frontend_only = budget.evaluate(
+            profile,
+            "production",
+            inventory,
+            candidate_services=frozenset(),
+        )
+        self.assertEqual(frontend_only["projected_connections"], current["projected_connections"])
+        self.assertTrue(frontend_only["admitted"])
+        with self.assertRaisesRegex(budget.BudgetError, "candidate service"):
+            budget.evaluate(
+                profile,
+                "production",
+                inventory,
+                candidate_services=frozenset({"unprofiled-service"}),
+            )
         with self.assertRaisesRegex(budget.BudgetError, "unsupported capacity phase"):
             budget.evaluate(profile, "production", inventory, phase="unknown")
 
@@ -211,6 +370,7 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
 
         self.assertEqual(cli([])[0], 1)
         self.assertEqual(cli(["--phase", "post-release"])[0], 0)
+        self.assertEqual(cli(["--no-candidates"])[0], 0)
         # A larger pool on a draining revision remains a real capacity violation.
         revisions[-1]["spec"]["containers"][0]["env"][2]["value"] = "2"
         code, excess = cli(["--phase", "post-release"])
@@ -255,6 +415,95 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(
             budget.candidate_connections("app", SETTINGS)["connections"], 70
         )
+
+    def test_inherited_candidate_reserves_live_template_and_serving_ceiling(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        config = profile["environments"]["uat"]
+        config["services"] = {"consent-protocol": config["services"]["consent-protocol"]}
+        config["jobs"] = {}
+        serving = revision("consent-protocol-current")
+        template = {
+            "metadata": {
+                "annotations": copy.deepcopy(serving["metadata"]["annotations"])
+            },
+            "spec": copy.deepcopy(serving["spec"]),
+        }
+        inventory = {
+            "database_max_connections": 1000,
+            "services": {
+                "consent-protocol": {
+                    "service": {
+                        "spec": {"template": template},
+                        "status": {
+                            "traffic": [
+                                {"revisionName": "consent-protocol-current", "percent": 100}
+                            ]
+                        },
+                    },
+                    "revisions": [serving],
+                }
+            },
+            "jobs": {},
+        }
+
+        def evaluate_inherited() -> dict:
+            return budget.evaluate(
+                profile,
+                "uat",
+                inventory,
+                candidate_services=frozenset({"consent-protocol"}),
+                inherited_candidate_services=frozenset({"consent-protocol"}),
+            )
+
+        self.assertEqual(evaluate_inherited()["projected_connections"], 240)
+        template["spec"]["containers"][0]["env"][1]["value"] = "4"
+        result = evaluate_inherited()
+        self.assertEqual(result["services"][-1]["connections"], 80)
+        self.assertEqual(result["projected_connections"], 250)
+        serving["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "6"
+        result = evaluate_inherited()
+        self.assertEqual(result["services"][-1]["connections"], 84)
+        self.assertEqual(result["projected_connections"], 268)
+        config["services"]["consent-protocol"]["candidate"]["max_instances"] = 7
+        self.assertEqual(evaluate_inherited()["services"][-1]["connections"], 98)
+
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            profile_path = Path(temporary) / "profile.json"
+            profile_path.write_text(json.dumps(profile))
+            argv = [
+                str(MODULE_PATH), "--environment", "uat", "--output", "json",
+                "--profile", str(profile_path),
+                "--inherit-candidate-service", "consent-protocol",
+            ]
+            with (
+                mock.patch.object(budget, "collect", return_value=inventory),
+                mock.patch.object(budget.sys, "argv", argv),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(budget.main(), 0)
+        self.assertEqual(json.loads(output.getvalue())["services"][-1]["connections"], 98)
+
+        del template["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"]
+        with self.assertRaisesRegex(budget.BudgetError, "revision max instances"):
+            evaluate_inherited()
+        template["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "5"
+        traffic = inventory["services"]["consent-protocol"]["service"]["status"]["traffic"]
+        traffic[0]["percent"] = 50
+        with self.assertRaisesRegex(budget.BudgetError, "one 100% serving revision"):
+            evaluate_inherited()
+        traffic[0]["percent"] = 100
+        template["spec"]["containers"][0]["env"].pop()
+        with self.assertRaisesRegex(budget.BudgetError, "DB_SQLALCHEMY_MAX_OVERFLOW"):
+            evaluate_inherited()
+        with self.assertRaisesRegex(budget.BudgetError, "reserved candidate service"):
+            budget.evaluate(
+                profile,
+                "uat",
+                inventory,
+                candidate_services=frozenset(),
+                inherited_candidate_services=frozenset({"consent-protocol"}),
+            )
 
     def test_missing_revision_max_or_pool_fails_closed(self) -> None:
         source = revision("app-serving")

@@ -15,10 +15,10 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
   // Only face fields belong in the export. Never retain the rest of the profile.
   const identity = useMemo(() => ({
     ownerId: profile.ownerId, displayName: profile.displayName,
-    cardPayload: { username: profile.cardPayload?.username },
+    cardPayload: { full_name: profile.cardPayload?.full_name },
     memberSince: profile.memberSince, walletId: profile.walletId,
     shareUrl: profile.shareUrl, referralUrl: profile.referralUrl,
-  }), [profile.ownerId, profile.displayName, profile.cardPayload?.username, profile.memberSince, profile.walletId, profile.shareUrl, profile.referralUrl]);
+  }), [profile.ownerId, profile.displayName, profile.cardPayload?.full_name, profile.memberSince, profile.walletId, profile.shareUrl, profile.referralUrl]);
   const key = JSON.stringify([kind, identity]);
   const [prepared, setPrepared] = useState<{ key: string; file: File | null; failed?: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);

@@ -8,6 +8,7 @@ import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner }
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { DrivePacketService, type DrivePacket, type PacketGuard } from "@/lib/services/drive-packet-service";
@@ -34,15 +35,15 @@ export function useDrivePacketSession(scope: string) {
   return { key, guard, token: isVaultUnlocked && userId ? vaultOwnerToken : null };
 }
 
-export function DrivePacketCatalog({ ownerPersonRef, refreshKey = 0 }: { ownerPersonRef?: string; refreshKey?: number }) {
+export function DrivePacketCatalog({ ownerPersonRef, refreshKey = 0, preparationPaused = false }: { ownerPersonRef?: string; refreshKey?: number; preparationPaused?: boolean }) {
   const session = useDrivePacketSession(ownerPersonRef ?? "owner-packets");
   if (!session.token) return null;
   return <PacketList key={session.key} token={session.token} guard={session.guard}
-    ownerPersonRef={ownerPersonRef} refreshKey={refreshKey} />;
+    ownerPersonRef={ownerPersonRef} refreshKey={refreshKey} preparationPaused={preparationPaused} />;
 }
 
-function PacketList({ token, guard, ownerPersonRef, refreshKey }: {
-  token: string; guard: PacketGuard; ownerPersonRef?: string; refreshKey: number;
+function PacketList({ token, guard, ownerPersonRef, refreshKey, preparationPaused }: {
+  token: string; guard: PacketGuard; ownerPersonRef?: string; refreshKey: number; preparationPaused: boolean;
 }) {
   const [packets, setPackets] = useState<DrivePacket[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -63,15 +64,15 @@ function PacketList({ token, guard, ownerPersonRef, refreshKey }: {
     finally { try { current(); setBusy(false); } catch { /* Superseded private view. */ } }
   }, [guard, ownerPersonRef, token]);
   useEffect(() => { void load(); return () => { serial.current += 1; }; }, [load, refreshKey]);
-  return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"} className="space-y-3">
-    <h3 className="text-sm font-semibold">{ownerPersonRef ? "Available packets" : "Prepared packets"}</h3>
-    {!ownerPersonRef && <p className="text-xs text-muted-foreground">Allow a summary to appear to your connections. Each buyer still needs your approval.</p>}
+  return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"}>
+    <SettingsGroup density="compact" title={ownerPersonRef ? "Available packets" : "Prepared packets"}>
     {packets.map(packet => <PacketCard key={`${packet.packetId}:${packet.version}:${packet.listingRevision}`} packet={packet}
       owner={!ownerPersonRef} token={token} guard={guard} onChanged={() => void load()} />)}
-    {loaded && !packets.length && !error && <p className="text-sm text-muted-foreground">{ownerPersonRef ? "No packets are available to you yet. You can still request files." : "Your private agent will prepare packets as documents are indexed."}</p>}
-    {error && <p role="status" className="text-sm">Couldn’t load packets. <Button variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry packets</Button></p>}
-    {busy && <p role="status" className="text-xs text-muted-foreground">Loading packets…</p>}
+    {loaded && !packets.length && !error && <SettingsRow title={ownerPersonRef ? "No packets available yet" : preparationPaused ? "Preparation paused" : "Agent One is preparing your packets."} />}
+    {error && <SettingsRow title="Couldn’t load packets." trailing={<Button variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry packets</Button>} />}
+    {busy && !loaded && <SettingsRow title="Loading packets…" />}
     {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>More packets</Button>}
+    </SettingsGroup>
   </section>;
 }
 
@@ -80,6 +81,7 @@ function PacketCard({ packet, owner, token, guard, onChanged }: {
 }) {
   const { user } = useAuth();
   const [price, setPrice] = useState((packet.priceCents / 100).toFixed(2));
+  const [editingPrice, setEditingPrice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [needsGoogle, setNeedsGoogle] = useState(false);
@@ -123,25 +125,30 @@ function PacketCard({ packet, owner, token, guard, onChanged }: {
   };
   const state = packet.freshness === "paused" ? "Paused" : packet.freshness === "stale" ? "Update needed" :
     packet.state === "ready" ? "Ready" : packet.state === "incomplete" ? "Incomplete" : "Unable to verify";
-  return <article className="min-w-0 space-y-3 rounded-xl border border-border p-3 text-sm">
-    <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="min-w-0 break-words font-medium">{packet.title}</h4><span className="shrink-0 text-xs text-muted-foreground">{state}</span></div>
-    <p className="break-words">{packet.coverageSummary}</p>
-    <p className="text-xs text-muted-foreground">{packet.documentCount} {packet.documentCount === 1 ? "document" : "documents"} · {packet.verifiedAt ? `Verified ${new Date(packet.verifiedAt).toLocaleString()}` : "Not yet verified"}</p>
-    {packet.gaps.length > 0 && <ul className="list-inside list-disc text-xs text-muted-foreground">{packet.gaps.map((gap, index) => <li key={index} className="break-words">{gap}</li>)}</ul>}
+  return <article className="min-w-0 text-sm">
+    <SettingsRow title={packet.title} description={`${packet.coverageSummary} · ${packet.documentCount} ${packet.documentCount === 1 ? "document" : "documents"}`}
+      trailing={<span className="font-semibold tabular-nums">{formatDocumentRequestPrice(owner && amount !== null ? amount : packet.priceCents)}</span>} />
+    <div className="space-y-2 px-4 pb-2">
+    {(state !== "Ready" || packet.gaps.length > 0) && <p className="text-xs text-muted-foreground">{state}{packet.gaps.length > 0 ? ` · ${packet.gaps[0]}` : ""}</p>}
     {owner ? <>
-      <label className="block text-xs text-muted-foreground">Suggested price · edit if needed
+      {editingPrice && <label className="block text-xs font-semibold text-muted-foreground">Price
         <div className="mt-1 flex items-center gap-2"><span aria-hidden="true">$</span><Input aria-label={`Price for ${packet.title}`} inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} disabled={busy} className="min-h-11 max-w-40" /></div>
-      </label>
+      </label>}
       {amount === null && <p className="text-xs" role="status">Enter $0.50–$500, up to two decimal places.</p>}
       <div className="flex flex-wrap gap-2"><Button size="compact" disabled={busy || !packet.canList || amount === null} onClick={() => void act("allow")}>Allow</Button>
-        <Button size="compact" variant="outline" disabled={busy} onClick={() => void act("deny")}>Deny</Button></div>
-      {packet.listingEnabled && <p className="text-xs text-muted-foreground">Summary visible to your connections.</p>}
+        <Button size="compact" variant="outline" disabled={busy} onClick={() => void act("deny")}>Deny</Button>
+        <Button size="compact" variant="ghost" disabled={busy} aria-expanded={editingPrice} onClick={() => setEditingPrice(value => !value)}>Edit price</Button></div>
     </> : request ? <Button asChild size="compact" variant="outline"><Link href={buildConsentCenterHref("pending", { requestId: `document_share_request:${request.requestId}`, requestView: "sent" })}>{request.existingAccess ? "View access" : "View request"}</Link></Button> :
       <Button size="compact" disabled={busy || !packet.canRequest} onClick={() => void act()}>{busy ? "Requesting…" : needsGoogle ? "Add Google account" : `Request packet · ${formatDocumentRequestPrice(packet.priceCents)}`}</Button>}
     <details className="text-xs text-muted-foreground"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
-      <p className="break-words">{packet.description}</p><p>Model assessment {packet.assessmentScore}/100 · Importance {packet.importance}/500</p>
+      <p className="break-words">{packet.description}</p>
+      <p>{packet.verifiedAt ? `Verified ${new Date(packet.verifiedAt).toLocaleString()}` : "Not yet verified"} · {state}</p>
+      {packet.gaps.length > 0 && <ul className="list-inside list-disc">{packet.gaps.map((gap, index) => <li key={index} className="break-words">{gap}</li>)}</ul>}
+      <p>Agent One assessment {packet.assessmentScore}/100 · Importance {packet.importance}/500</p>
       <p>The assessment is not a measured probability of correctness.</p>
+      {owner && <p>{packet.listingEnabled ? "Summary visible to your connections." : "Allow makes this summary visible to your connections."} Each buyer needs your approval.</p>}
     </details>
     {message && <p role="status" className="text-xs">{message}</p>}
+    </div>
   </article>;
 }

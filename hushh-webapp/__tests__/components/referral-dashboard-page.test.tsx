@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -90,6 +90,17 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
+  it("keeps the invitation gift and agent glyphs free of interior shading", async () => {
+    const { container } = render(<ReferralDashboardPage />);
+    await screen.findByRole("button", { name: "Invite & earn $" });
+    const gift = container.querySelector(".referral-share-gift svg");
+    expect(gift).not.toBeNull();
+    expect(gift!.querySelector('[opacity="0.2"]')).toBeNull();
+    const agents = container.querySelectorAll(".referral-agent-example svg, .referral-orbit-upright svg");
+    expect(agents).toHaveLength(18);
+    for (const icon of agents) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+  });
+
   it("hides incompatible backend rewards until the new catalogue is active", async () => {
     mocks.getMilestones.mockResolvedValue({
       lifetime_qualified_count: 0,
@@ -137,20 +148,26 @@ describe("ReferralDashboardPage", () => {
   });
 
   it("closes sharing before route Back and releases the layer when its pane is inactive or unmounted", async () => {
-    const { unmount } = render(<ReferralDashboardPage />);
-    const share = await screen.findByRole("button", { name: "Share", expanded: false });
-    expect(screen.queryByRole("button", { name: "Copy invite link" })).toBeNull();
+    let unmount!: () => void;
+    await act(async () => { ({ unmount } = render(<ReferralDashboardPage />)); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $", expanded: false });
+    expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Share on WhatsApp" })).toBeNull();
 
     fireEvent.click(share);
     expect(screen.getByRole("button", { name: "Close share options", expanded: true })).toBeInTheDocument();
+    // The menu must share the trigger's scroll/clipping context. A body portal
+    // used to leave floating actions behind or flip them when the page moved.
+    expect(screen.getByRole("group", { name: "Share your invite link" })).toContainElement(
+      screen.getByRole("link", { name: "Share on WhatsApp" }),
+    );
     expect(screen.getByRole("link", { name: "Share by SMS" })).toHaveAttribute(
       "href", `sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${SUMMARY.link}`)}`,
     );
     const navigate = ({ href }: { href: string }) => mocks.push(href);
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
-    expect(screen.getByRole("button", { name: "Share", expanded: false })).toHaveFocus();
-    expect(screen.queryByRole("button", { name: "Copy invite link" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "More share options" })).toBeNull();
     expect(mocks.push).not.toHaveBeenCalled();
     act(() => { navigateTopShellBack({ pathname: "/one/referrals", navigate }); });
     expect(mocks.push).toHaveBeenCalledWith("/one");
@@ -159,15 +176,15 @@ describe("ReferralDashboardPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Ranking" }));
     expect(unwindBackLayer("/one/referrals")).toBe(false);
     fireEvent.click(screen.getByRole("tab", { name: "You" }));
-    expect(screen.getByRole("button", { name: "Share", expanded: false })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite & earn $", expanded: false })).toBeInTheDocument();
     fireEvent.click(share);
     unmount();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
-  it("restores focus to Share when Escape hides a focused sharing action", async () => {
-    render(<ReferralDashboardPage />);
-    const share = await screen.findByRole("button", { name: "Share" });
+  it("restores focus to Invite & earn $ when Escape hides a focused sharing action", async () => {
+    await act(async () => { render(<ReferralDashboardPage />); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $" });
     fireEvent.click(share);
     const sms = screen.getByRole("link", { name: "Share by SMS" });
     sms.focus();
@@ -175,6 +192,17 @@ describe("ReferralDashboardPage", () => {
     expect(share).toHaveFocus();
     expect(share).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("link", { name: "Share by SMS" })).toBeNull();
+    expect(unwindBackLayer("/one/referrals")).toBe(false);
+  });
+
+  it("preserves outside focus when the sharing bubbles are dismissed", async () => {
+    await act(async () => { render(<ReferralDashboardPage />); });
+    const share = await screen.findByRole("button", { name: "Invite & earn $" });
+    fireEvent.click(share);
+    const ranking = screen.getByRole("tab", { name: "Ranking" });
+    act(() => { ranking.focus(); });
+    await waitFor(() => expect(share).toHaveAttribute("aria-expanded", "false"));
+    expect(ranking).toHaveFocus();
     expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
@@ -206,7 +234,14 @@ describe("ReferralDashboardPage", () => {
     [10000, null, null], [12000, null, null],
   ] as const)("selects the correct reward at %s qualified referrals", async (count, title, threshold) => {
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: count, earned: [], next_milestone: null,
+      lifetime_qualified_count: count,
+      earned: [
+        { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
+        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds" },
+        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods" },
+        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
+      ].filter((entry) => count >= entry.threshold).map((entry) => ({ ...entry, earned_at: "2026-10-01T00:00:00Z" })),
+      next_milestone: null,
       available_milestones: [
         { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
         { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
@@ -214,7 +249,7 @@ describe("ReferralDashboardPage", () => {
         { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
       ],
     });
-    render(<ReferralDashboardPage />);
+    await act(async () => { render(<ReferralDashboardPage />); });
     await screen.findByText("Weekly challenge ends in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
@@ -228,6 +263,36 @@ describe("ReferralDashboardPage", () => {
       expect(within(screen.getByRole("region", { name: "Rewards" })).queryByRole("progressbar")).toBeNull();
     }
     expect(screen.queryByText("hushh_tee")).toBeNull();
+  });
+
+  it("preserves historical rewards after a catalogue revision and waits for recorded awards", async () => {
+    mocks.getMilestones.mockResolvedValue({
+      lifetime_qualified_count: 10000,
+      earned: [
+        { milestone_key: "voucher_10", reward: "₹250 Amazon voucher", earned_at: "2026-10-01T00:00:00Z" },
+        { milestone_key: "earbuds_100", reward: "Wireless earbuds", earned_at: "2026-10-01T00:00:00Z" },
+        { milestone_key: "airpods_500", reward: "Apple AirPods, worth ₹30,000", earned_at: "2026-10-01T00:00:00Z" },
+      ],
+      next_milestone: { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone", progress: 10000 },
+      available_milestones: [
+        { milestone_key: "voucher_10", threshold: 10, reward: "$25 Amazon voucher" },
+        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds" },
+        { milestone_key: "airpods_500", threshold: 500, reward: "Apple Watch" },
+        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
+      ],
+    });
+    await act(async () => { render(<ReferralDashboardPage />); });
+    await screen.findByText("Weekly challenge ends in");
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+    const rewards = within(screen.getByRole("region", { name: "Rewards" }));
+    expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" })).toBeInTheDocument();
+    expect(rewards.queryByText("Apple Watch")).not.toBeInTheDocument();
+    expect(rewards.getByRole("img", { name: "Apple AirPods" })).toHaveAttribute("src", "/referrals/product-airpods.svg");
+    expect(rewards.getByText("3 of 4 unlocked")).toBeInTheDocument();
+    expect(rewards.getByRole("heading", { level: 4, name: "iPhone" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "next");
+    expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "earned");
+    expect(rewards.getByText("Your reward is being confirmed.")).toBeInTheDocument();
+    expect(rewards.queryByText("All rewards unlocked")).not.toBeInTheDocument();
   });
 
   beforeEach(() => {
@@ -345,13 +410,9 @@ describe("ReferralDashboardPage", () => {
   it("keeps the reference colours through a route-scoped accent override", async () => {
     render(<ReferralDashboardPage />);
 
-    const clockHeadline = await screen.findByText("Weekly challenge ends in");
-    const clockCard = clockHeadline.closest("div") as HTMLElement;
-    expect(clockCard.style.background).toBe("rgb(23, 35, 51)");
+    await screen.findByText("Weekly challenge ends in");
 
-    fireEvent.click(screen.getByRole("button", { name: "Share" }));
-    const copyButton = screen.getByRole("button", { name: "Copy invite link" });
-    expect(copyButton.style.background).toBe("var(--app-accent)");
+    const inviteButton = screen.getByRole("button", { name: "Invite & earn $" });
     // The shared token is deliberately overridden at this route, so a saved
     // account accent cannot recolour the approved referral design.
     const css = readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
@@ -359,7 +420,7 @@ describe("ReferralDashboardPage", () => {
     routeStyle.textContent = css.match(/^\.referral-dashboard(?:\s*,\s*\[data-referral-introduction="true"\])?\s*\{[^}]*\}/m)?.[0] ?? "";
     document.head.appendChild(routeStyle);
     try {
-      const dashboard = copyButton.closest(".referral-dashboard")!;
+      const dashboard = inviteButton.closest(".referral-dashboard")!;
       expect(getComputedStyle(dashboard).getPropertyValue("--app-accent").trim()).toBe("#007aff");
     } finally {
       routeStyle.remove();

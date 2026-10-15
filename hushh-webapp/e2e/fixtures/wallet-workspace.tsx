@@ -1,6 +1,5 @@
 import React from "react";
 import { PublicWalletCardView, normalizePublicWalletCard } from "../../components/wallet-card/public-card-view";
-import { WalletCardPassPreview } from "../../components/wallet-card/wallet-card-pass-preview";
 import { createRoot } from "react-dom/client";
 
 import { WalletWorkspace } from "../../components/wallet/wallet-workspace";
@@ -47,10 +46,9 @@ function VisitorPreview() {
     skills: ["Product design", "Research", "Strategy"], website: "https://example.com", avatarUrl: visitor?.photo,
   })!;
   const profileUrl = "https://one.hushh.ai/c/abcdefghijklmnop";
-  return <main className="mx-auto max-w-2xl space-y-4 p-4">
+  return <AppPageShell width="agent" fitContent><AppPageContentRegion>
     <PublicWalletCardView card={card} embedded profileUrl={profileUrl} />
-    <WalletCardPassPreview fullName={card.fullName!} headline={card.headline!} organisation={card.organisation!} locationLabel={card.locationLabel!} shareUrl={profileUrl} />
-  </main>;
+  </AppPageContentRegion></AppPageShell>;
 }
 let revision = 0;
 window.__walletRemount = () => root.render(<WalletWorkspace key={++revision} />);

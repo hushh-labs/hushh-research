@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { VaultMethod, VaultWrapper } from "@/lib/services/vault-service";
 
 export function vaultMethodLabel(wrapper: VaultWrapper, biometricLabel?: string, localBiometricId?: string | null) {
-  if (wrapper.method === "passphrase") return "Passphrase";
+  if (wrapper.method === "passphrase") return "Password";
   if (wrapper.method === "generated_default_native_biometric") {
     return (wrapper.wrapperId ?? "default") === localBiometricId ? biometricLabel || "Biometrics" : "Device biometrics";
   }
@@ -64,7 +64,7 @@ export function VaultMethodsPanel({ wrappers, primaryMethod, primaryWrapperId, b
         <SettingsRow key={id} icon={FingerprintProfileIcon} iconTone="capability" title={label}
           chevron disabled={busy} onClick={() => setSelected(id)}
           trailing={isPrimary(wrapper) ? <CheckIcon className="size-4 text-[color:var(--app-accent)]" aria-label="Default unlock" /> : undefined} />)}
-      <SettingsRow icon={PassphraseRowIcon} iconTone="capability" title="Change passphrase"
+      <SettingsRow icon={PassphraseRowIcon} iconTone="capability" title="Change password"
         chevron disabled={disabled} onClick={onChangePassphrase} />
     <SettingsDetailPanel open={!!detail} onOpenChange={(open) => { if (!open) setSelected(null); }}
       title={detail?.label ?? "Unlock method"} mobilePresentation="sheet" headerTextOverflow="wrap">

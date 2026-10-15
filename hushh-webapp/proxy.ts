@@ -95,7 +95,8 @@ function routeRequest(request: NextRequest) {
     // /one/profile/connectors/oauth/return) are deploy-enforced addresses and
     // must render where the provider sends them. Never redirect them.
     !pathname.includes("oauth/return") &&
-    pathname.replace(/\/$/, "") !== ROUTES.PROFILE_WORLD_MODEL
+    !(pathname.replace(/\/$/, "") === ROUTES.PROFILE_WORLD_MODEL &&
+      request.nextUrl.searchParams.has("claim"))
   ) {
     const rawSubpath = pathname
       .replace(/^\/one\/profile\/?/, "")

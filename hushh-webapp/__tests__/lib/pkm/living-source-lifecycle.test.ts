@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendVerifiedLivingSourceChanges,
+  MAX_RETAINED_LIVING_SOURCE_CHANGES,
   reconcileLivingSources,
   type LivingSourceInput,
 } from "@/lib/pkm/living-source-records";
@@ -53,6 +55,34 @@ it("retains source identity and creation time, increments edits and is replay st
       T3,
     ).records,
   ).toEqual(b.records);
+});
+
+it("keeps verified corrections and deletion in an encrypted-domain history without duplicate replay", () => {
+  const first = reconcileLivingSources(null, [profile("Ankit Kumar Singh")], ["profile"], [], T1);
+  const changed = reconcileLivingSources(first, [profile("Ankit")], ["profile"], [], T2);
+  const removed = reconcileLivingSources(changed, [], ["profile"], [], T3);
+  const a = appendVerifiedLivingSourceChanges(null, null, first);
+  const b = appendVerifiedLivingSourceChanges(a, first, changed);
+  const c = appendVerifiedLivingSourceChanges(b, changed, removed);
+  expect(c.changes.map(({ sequence, revision, operation, value }) => ({ sequence, revision, operation, value })))
+    .toEqual([
+      { sequence: 1, revision: 1, operation: "upsert", value: profile("Ankit Kumar Singh").value },
+      { sequence: 2, revision: 2, operation: "upsert", value: profile("Ankit").value },
+      { sequence: 3, revision: 3, operation: "delete", value: {} },
+    ]);
+  expect(appendVerifiedLivingSourceChanges(c, removed, removed)).toEqual(c);
+});
+
+it("declares a retention gap when the bounded owner history rolls over", () => {
+  const inputs = Array.from({ length: MAX_RETAINED_LIVING_SOURCE_CHANGES + 1 }, (_, i): LivingSourceInput => ({
+    ...consent, id: `grant-${i}`,
+  }));
+  const inventory = reconcileLivingSources(null, inputs, ["consent"], [], T1);
+  const history = appendVerifiedLivingSourceChanges(null, null, inventory);
+  expect(history.changes).toHaveLength(MAX_RETAINED_LIVING_SOURCE_CHANGES);
+  expect(history.firstRetainedSequence).toBe(2);
+  expect(history.nextSequence).toBe(MAX_RETAINED_LIVING_SOURCE_CHANGES + 2);
+  expect(history.truncatedAt).toBe(T1);
 });
 it("does not delete unavailable sources, then tombstones after full verified readback", () => {
   const a = reconcileLivingSources(

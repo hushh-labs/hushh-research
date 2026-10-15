@@ -50,7 +50,7 @@
   :global(.profile-pane-scroll-root) .paneAccess :global(p.text-sm.font-medium.text-foreground),
   :global(.profile-pane-scroll-root) .paneAccess :global([data-slot="card-title"]) {
     font-size: 13px !important;
-    font-weight: 500 !important;
+    font-weight: 400 !important;
     line-height: 1.22 !important;
   }
 

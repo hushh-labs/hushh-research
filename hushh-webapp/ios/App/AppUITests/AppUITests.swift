@@ -868,7 +868,7 @@ final class AppUITests: XCTestCase {
                 return
             }
         }
-        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "That passphrase did not match")).firstMatch
+        let rejected = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "That passphrase did not match", "That password did not match")).firstMatch
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !unlock.exists || rejected.exists
         }, object: web)
@@ -1633,7 +1633,7 @@ final class AppUITests: XCTestCase {
         if !open.waitForExistence(timeout: 120) {
             let vaultLockVisible = webView.buttons["Unlock"].exists
             let rejected = webView.staticTexts.matching(NSPredicate(
-                format: "label CONTAINS[c] %@", "That passphrase did not match"
+                format: "label CONTAINS[c] %@", "That password did not match"
             )).firstMatch.exists
             XCTFail("Signed-in Chat did not load from the local build. Vault lock visible: \(vaultLockVisible) auth_rejected=\(rejected)")
             return
@@ -3827,7 +3827,9 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [dismissed], timeout: 10) == .completed else {
                 XCTFail("PROFILE_NAME_DISMISSAL_DID_NOT_RESTORE_TOUCH"); return
             }
-            XCTAssertEqual(hosts.count, 1, "The ordinary form must not introduce another WebView")
+            // Native Profile intentionally AX-hides its covered WebView. A
+            // zero accessible count here is isolation, not host destruction.
+            XCTAssertEqual(hosts.count, 0, "Native Profile must isolate covered web content")
             XCTAssertFalse(web.textFields.matching(NSPredicate(format: "label == %@", "Display name")).firstMatch.exists,
                            "The native form cannot reveal an interactive DOM duplicate")
             guard waitForAdmittedControl(back) else { XCTFail("PROFILE_NAME_BACK_UNAVAILABLE"); return }
@@ -3841,6 +3843,7 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(close) else { XCTFail("PROFILE_NAME_CLOSE_UNAVAILABLE"); return }
         close.tap()
         guard waitForAdmittedControl(editor) else { XCTFail("PROFILE_NAME_CHAT_RETURN_UNAVAILABLE"); return }
+        XCTAssertEqual(hosts.count, 1, "The same single web workspace returns after native Profile closes")
         XCTAssertTrue((editor.value as? String) == initialDraft, "Profile editing must preserve the Chat draft")
         print("PROFILE_NAME_SCENE_CONTINUITY cycles=10 cancelled=true single_host=true")
     }
@@ -4570,7 +4573,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue with Apple"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["Unable to verify setup progress. Please retry."].exists)
         XCTAssertFalse(app.secureTextFields["Enter vault key"].exists)
-        XCTAssertFalse(app.secureTextFields["Enter your passphrase"].exists)
+        XCTAssertFalse(app.secureTextFields["Enter your password"].exists)
         XCUIDevice.shared.press(.home)
         app.activate()
         _ = try waitForSatisfiedStatus(app, route: route, timeout: 30)
@@ -5027,7 +5030,7 @@ final class AppUITests: XCTestCase {
         let exactLabels = [
             "Don\u{2019}t Allow",
             "Don't Allow",
-            "Not now, continue with passphrase",
+            "Not now, continue with password",
             "Not now",
             "Skip",
             "Skip tour",
@@ -5225,7 +5228,7 @@ final class AppUITests: XCTestCase {
         }
 
         let unlockControls = app.buttons.matching(NSPredicate(
-            format: "label IN %@", ["Unlock", "Unlock with passphrase"]
+            format: "label IN %@", ["Unlock", "Unlock with passphrase", "Unlock with password"]
         ))
         let hosts = app.webViews.matching(identifier: "native-webview")
         guard hosts.count == 1 else {
@@ -5238,8 +5241,8 @@ final class AppUITests: XCTestCase {
         ]
         let authoredField = NSPredicate(
             format: "label IN %@ OR placeholderValue IN %@ OR identifier IN %@",
-            ["Vault passphrase", "Enter vault key", "Enter your passphrase"],
-            ["Enter passphrase", "Enter vault key", "Enter your passphrase"],
+            ["Vault password", "Vault passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
+            ["Enter password", "Enter passphrase", "Enter vault key", "Enter your password", "Enter your passphrase"],
             ["unlock-passphrase", "vault-key"]
         )
         let hasAuthoredField = {
@@ -5249,7 +5252,7 @@ final class AppUITests: XCTestCase {
         // is chosen. Existing passphrase entry must not trigger another choice.
         if !hasAuthoredField() {
             let methods = hosts.firstMatch.buttons.matching(NSPredicate(
-                format: "label IN %@", ["Passphrase", "Use passphrase instead", "Vault Key"]
+                format: "label IN %@", ["Password", "Use password instead", "Passphrase", "Use passphrase instead", "Vault Key"]
             ))
             guard hosts.count == 1, methods.count == 1, methods.firstMatch.isEnabled,
                   methods.firstMatch.isHittable else {
@@ -6598,7 +6601,7 @@ final class AppUITests: XCTestCase {
                 perfSettle(1.5)
                 return tapFirst(labelled("Open Profile"))
             }
-            let gateField = NSPredicate(format: "label == %@ OR placeholderValue == %@ OR label == %@", "Vault passphrase", "Enter passphrase", "Passphrase")
+            let gateField = NSPredicate(format: "label == %@ OR placeholderValue == %@ OR label == %@", "Vault password", "Enter password", "Password")
             func unlockOffCamera() throws {
                 pauseCapture("passphrase")
                 try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
@@ -7126,7 +7129,7 @@ final class AppUITests: XCTestCase {
                 }
             }
             if shellOptional && attempts > 0 {
-                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
                 let rejected = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
                 if !gateField.exists && !rejected {
                     if let since = fieldGoneSince {
@@ -7154,9 +7157,9 @@ final class AppUITests: XCTestCase {
                     continue
                 }
             }
-            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault password", "Enter password")).firstMatch
             if !field.exists && attempts == 0 && !passphrase.isEmpty {
-                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
+                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Password")).firstMatch
                 if reveal.exists {
                     reveal.tap()
                     perfSettle(0.8)

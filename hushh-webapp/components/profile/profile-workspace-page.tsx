@@ -66,6 +66,7 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
@@ -147,12 +148,12 @@ import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
+  buildProfileWorldModelRoute,
   resolveProfileRouteState,
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
-  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
@@ -486,7 +487,7 @@ function readableMethod(method: VaultMethod | null): string {
     return "Device biometric";
   if (method === "generated_default_native_passkey_prf") return "Passkey";
   if (method === "generated_default_web_prf") return "Passkey";
-  if (method === "passphrase") return "Passphrase";
+  if (method === "passphrase") return "Password";
   return "Unknown";
 }
 
@@ -515,6 +516,7 @@ function profileRouteRequiresUnlockedVault(
   if (
     panel === "my-data" ||
     panel === "payouts" ||
+    panel === "world-model" ||
     panel === "request-pricing" ||
     panel === "connected-systems" ||
     panel === "connectors" ||
@@ -823,6 +825,23 @@ function ProfilePageContent({
     router.replace(legacyProfileRedirectHref, { scroll: false });
   }, [legacyProfileRedirectHref, router]);
 
+  // A pane address naming the model (a deep link, an invitation, a ready
+  // draft) lands on its full page with the claim, handoff or draft it carries.
+  // The pane is outside the provider that prepares the model, so it never
+  // shows it. Only while the pane's URL is live: a closing pane holds its last
+  // location, which must not redirect a second time.
+  const paneWorldModelRedirect =
+    isPanePresentation &&
+    activePanel === "world-model" &&
+    resolveProfilePaneUrlState(searchParams).open;
+  useEffect(() => {
+    if (!paneWorldModelRedirect) return;
+    router.replace(
+      buildProfileWorldModelRoute(searchParams, window.location.hash),
+      { scroll: false },
+    );
+  }, [paneWorldModelRedirect, router, searchParams]);
+
   useEffect(() => {
     if (!supportRouteKind || supportRouteKind === supportKind) return;
     setSupportKind(supportRouteKind);
@@ -1079,6 +1098,17 @@ function ProfilePageContent({
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
         };
+        if (isPanePresentation && nextLocation.panel === "world-model") {
+          // The model is a full page: the pane sits outside the provider that
+          // prepares it. Leaving the pane's URL closes it; Back returns here.
+          const href = buildProfileWorldModelRoute();
+          if (mode === "push") {
+            router.push(href, { scroll: false });
+          } else {
+            router.replace(href, { scroll: false });
+          }
+          return;
+        }
         if (isPanePresentation) {
           if (mode === "push") {
             pushProfilePaneLocation(pathname, searchParams, nextLocation);
@@ -1859,6 +1889,7 @@ function ProfilePageContent({
       ProfilePanel,
       | "my-data"
       | "payouts"
+      | "world-model"
       | "request-pricing"
       | "connected-systems"
       | "connectors"
@@ -2081,7 +2112,7 @@ function ProfilePageContent({
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change passphrase.");
+      toast.info("Unlock your vault to change password.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2398,7 +2429,7 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
-        : activePanel === "payouts" || activePanel === "request-pricing"
+        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2409,6 +2440,8 @@ function ProfilePageContent({
       ? [
           activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2442,7 +2475,7 @@ function ProfilePageContent({
           ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
-      activePanel === "payouts" || activePanel === "request-pricing"
+      activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
         ? []
         : activePanel === "gmail"
           ? [
@@ -2477,7 +2510,7 @@ function ProfilePageContent({
                         vaultAccess.needsVaultCreation
                           ? "Create your vault"
                           : "Unlock vault",
-                        "Change passphrase",
+                        "Change password",
                         "Delete account",
                       ]
                     : [
@@ -2489,7 +2522,9 @@ function ProfilePageContent({
     return {
       surfaceDefinition: {
         screenId:
-          activePanel === "request-pricing"
+          activePanel === "world-model"
+            ? "profile_world_model"
+          : activePanel === "request-pricing"
             ? "profile_request_pricing"
             : activePanel
               ? `profile_${activePanel}`
@@ -2497,6 +2532,8 @@ function ProfilePageContent({
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2772,8 +2809,15 @@ function ProfilePageContent({
         { panel: activePanel, detail: activeDetail },
       );
     } else {
+      // Keep the one-time invitation through unlock; only remove the unlock marker.
+      const claimQuery = activePanel === "world-model" && searchParams.has("claim")
+        ? new URLSearchParams(searchParams.toString())
+        : null;
+      claimQuery?.delete("unlock_vault");
       router.replace(
-        buildProfileRoute({ panel: activePanel, detail: activeDetail }),
+        claimQuery
+          ? `${pathname}?${claimQuery.toString()}`
+          : buildProfileRoute({ panel: activePanel, detail: activeDetail }),
         { scroll: false },
       );
     }
@@ -2799,8 +2843,10 @@ function ProfilePageContent({
     // Stripe returns to Payouts with a short callback marker. Keep that route
     // while the owner unlocks so an expired Connect link can be refreshed.
     const documentPayoutReturn = searchParams.get("documentPayouts");
+    const worldModelClaim = activePanel === "world-model" && searchParams.has("claim");
     if (
       activePanel &&
+      !worldModelClaim &&
       documentPayoutReturn !== "refresh" &&
       documentPayoutReturn !== "done"
     ) {
@@ -3644,7 +3690,7 @@ function ProfilePageContent({
           icon={FingerprintProfileIcon}
           iconTone="capability"
           title="Vault methods"
-          description="Passphrase, passkey, and unlock method."
+          description="Password, passkey, and unlock method."
           chevron
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
@@ -3914,7 +3960,7 @@ function ProfilePageContent({
                 icon={VaultRowIcon}
                 iconTone="capability"
                 title="Unlock vault"
-                description="Change methods or passphrase."
+                description="Change methods or password."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
@@ -4124,6 +4170,24 @@ function ProfilePageContent({
           )}
         >
           <DocumentHashcoinPayouts />
+        </div>
+      ),
+    });
+  } else if (
+    !routeBlockedByVault &&
+    !isPanePresentation &&
+    activePanel === "world-model"
+  ) {
+    // Route only: a pane address naming the model redirects to this page.
+    profileStackEntries.push({
+      key: "panel:world-model",
+      title: "Personal World Model",
+      content: (
+        <div className="space-y-4">
+          <PersonalWorldModelPage
+            embedded
+            onManageDetails={() => openVaultBackedPanel("my-data")}
+          />
         </div>
       ),
     });
@@ -4425,11 +4489,7 @@ function ProfilePageContent({
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
     "my-data": () => openVaultBackedPanel("my-data"),
-    "world-model": () => {
-      const from = normalizeInternalRouteHref(searchParams.get("from")) ??
-        (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
-      router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
-    },
+    "world-model": () => openVaultBackedPanel("world-model"),
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),
@@ -4588,7 +4648,7 @@ function ProfilePageContent({
           open={showVaultCreation}
           onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
-          description="Set up a passphrase to secure your saved details."
+          description="Set up a password to secure your saved details."
           onSuccess={() => {
             vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
@@ -4622,22 +4682,22 @@ function ProfilePageContent({
         onOpenChange={setPassphraseDialogOpen}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
-          <DialogTitle>Change passphrase</DialogTitle>
+          <DialogTitle>Change password</DialogTitle>
           <DialogDescription>
-            Set a new passphrase for Vault unlock. Your passkey and biometric
+            Set a new password for Vault unlock. Your passkey and biometric
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
             <Input
               type="password"
-              placeholder="New passphrase (min 8 characters)"
+              placeholder="New password (min 8 characters)"
               autoComplete="new-password"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
-              placeholder="Confirm passphrase"
+              placeholder="Confirm password"
               autoComplete="new-password"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
@@ -4663,7 +4723,7 @@ function ProfilePageContent({
                 }
                 onClick={() => void changePassphrase()}
               >
-                {switchingVaultMethod ? "Saving..." : "Save new passphrase"}
+                {switchingVaultMethod ? "Saving..." : "Save new password"}
               </Button>
             </div>
           </div>
@@ -4681,7 +4741,7 @@ function ProfilePageContent({
             <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the saved passkey from One. It may still remain in
-              your password manager, and passphrase unlock will stay available.
+              your password manager, and password unlock will stay available.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {passkeyRemovalTarget ? (
@@ -4717,6 +4777,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
             isPanePresentation && accountStyles.dangerDialog,
           )}
@@ -4729,7 +4790,7 @@ function ProfilePageContent({
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -4759,6 +4820,7 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
             isPanePresentation && accountStyles.accountDialog,
           )}
           overlayClassName={
@@ -4770,7 +4832,7 @@ function ProfilePageContent({
               <Icon icon={RefreshCw} size="md" />
               {resetDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {resetDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>

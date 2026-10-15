@@ -136,6 +136,90 @@ Hussh Coins balances derive from immutable delivery-settled credits and compensa
 entries. A sandbox redemption never updates a live balance or an old payout.
 See [the document payment contract](../operations/drive-request-stripe-paywall.md).
 
+### Living source connector change journal
+
+`GET /api/one/source-journal/connectors?after=0&limit=100` requires the
+`VAULT_OWNER` token and returns `private, no-store`. `after` is a nonnegative
+decimal cursor and `limit` is 1–100. All cursor and sequence fields are decimal
+strings so native and JavaScript clients retain PostgreSQL `BIGINT` precision.
+The response contains `events` with `eventId`, `sequence`, `sourceId`,
+`operation` (`changed` or `deleted`), `schemaVersion` and `occurredAt`, plus
+`nextCursor`, `headCursor`, `earliestCursor`, `hasMore` and `resetRequired`.
+`earliestCursor` is the oldest cursor from which continuous replay is possible;
+at most 2,048 hints per owner are retained. An old, future or discontinuous
+cursor returns no events and `resetRequired:true`; the client must verify a
+complete authoritative connector overview before checkpointing `headCursor`.
+An account reset erases event content and advances a persistent cursor barrier,
+including when that owner had no prior journal row. Full account erasure removes
+the journal and suppresses later source writes for the deleted identity.
+Hints carry no status, credential, account label, scope or provider payload,
+and neither authorize sharing nor update encrypted memory on their own.
+Invalid cursors and limits return a private 422; unavailable storage returns a
+private 503. Web uses the existing `/api/one` catch-all proxy; native clients
+use the same backend route.
+
+### Hosted Live Memory pilot review intent
+
+`GET`, `POST` and `DELETE /api/one/hosted-memory/pilot` require the authenticated
+owner's `VAULT_OWNER` token and return `private, no-store`. There is no owner ID
+in the URL or request body. `POST` accepts only
+`{"sourceKind":"curated_oauth_connector","sourceId":"hubspot","reviewVersion":"hosted_memory_pilot.v1","expectedGeneration":"0","acknowledgeHostedCustody":true,"acknowledgeSourceScope":true}`.
+`sourceId` must identify a checked-in curated OAuth MCP provider that is still
+active in the operator-owned reviewed connector catalog. The selected provider
+is pinned to this grant generation. A different provider requires a new review
+generation and erases the preceding staged envelope.
+Unknown fields, including attempted vault keys or owner tokens, are rejected
+with a private 422. The response contains `status` (`off`, `pending`, `expired`,
+or `revoked`), an opaque `grantId`, decimal-string `generation`, selected source,
+review version and timestamps. `expectedGeneration` must match the current
+decimal-string generation from GET; the first request uses `"0"`. A delayed
+pre-revocation POST receives a private 409 and cannot rearm the row.
+It always reports `captureEnabled:false` and `workerPaired:false`. A pending
+review expires after 15 minutes. Repeating POST within that window is
+idempotent at the current generation; a fresh request after expiration or
+revocation gets a new grant ID and higher generation. DELETE is idempotent and
+advances the generation on the first revocation; if no review row exists yet,
+it creates a revoked generation-1 fence so a delayed initial POST cannot
+restore pending intent. Owner account reset erases the
+pending record; full account erasure cascades from `vault_keys`.
+
+`PUT /api/one/hosted-memory/pilot/envelope` requires the same owner token and
+stages one owner-encrypted `connector_status.v1` snapshot for the selected
+provider. Its strict body has `grantId`, decimal-string `expectedGeneration`,
+`sourceKind`, `sourceId`, `scope`, `envelopeVersion` (`aes256gcm.pilot.v1`),
+decimal-string `expectedRevision`, UUID-v4 `keyId`, unpadded URL-safe base64
+`nonceBase64Url` (12-byte AES-GCM IV), `ciphertextBase64Url` (ciphertext with
+16-byte tag), and lowercase-hex `aadSha256`. The UTF-8 AAD is exactly
+`hushh-hosted-source-v1\n` + unpadded base64url(owner UID) + `\n` + grant UUID
++ `\n` + decimal generation + `\n` + source ID +
+`\nconnector_status.v1\n` + decimal new revision, without a trailing newline.
+The owner encrypts with a locally owner-wrapped pilot key and a fresh random IV
+for every revision. The server verifies the AAD digest, grant, source and
+revision, but cannot inspect the encrypted status. It rejects reuse of the
+immediately preceding `(keyId, nonce)` pair; the client remains responsible
+for never reusing a key and IV across older revisions. A successful PUT and
+`GET /api/one/hosted-memory/pilot/envelope` return exact ciphertext, digest,
+revision and source metadata with `private, no-store` and
+`captureEnabled:false`, `workerPaired:false`. Stale or changed grants return
+private 409; malformed envelopes return private 422; absent current ciphertext
+returns private 404.
+The owner-side plaintext status before encryption uses
+`not_connected|connected|verifying|needs_reauth|revoked|error`; `not_connected`
+is an authoritative tombstone for future client projection merges.
+The server cannot infer or validate any of these values from ciphertext.
+
+Review and owner staging store no vault key, owner token, plaintext source value,
+DEK, wrapped key, attestation or runtime credential. No route activates a worker,
+releases a key, or authorizes closed-app source reads. A pending review expires
+after 15 minutes and immediately blocks envelope readback and new staging.
+The encrypted row remains in storage after expiry until renewed review, source
+switch, revocation, account reset or full erasure; no expiry purge runs yet.
+Grant change and revocation erase that row transactionally. A missing or
+unavailable table returns a private 503 rather than claiming capture is active.
+The owner-facing enrollment and separately reviewed key-custody protocol in
+[the hosted custody ADR](./hosted-confidential-memory-custody-adr.md) remain
+future work.
+
 ### Wallet Profile lifecycle
 
 The Wallet cards surface and `/one/wallet-card` share the same identity pass
@@ -338,6 +422,18 @@ from attempting its legacy issuance before returning the incompatible response.
 | POST   | `/api/notifications/register`                         | Register FCM push token                                                                                                                                         |
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
+
+### WorkOS enterprise SSO (flagged)
+
+Gated by `WORKOS_SSO_ENABLED` (default off). While off, every sign-in route answers `404` (the webhook too, until `WORKOS_WEBHOOK_SECRET` is provisioned; after that it keeps deprovisioning, so turning sign-in off as a rollback never drops offboarding) and Firebase sign-in is unchanged. SSO proves identity only: a successful exchange returns a Firebase custom token and grants no role, consent, or vault access. WorkOS is the authority for organizations, DNS-verified domains and connections; there is no Hussh-side registry or table. See the [ADR](./enterprise-sso-workos-adr.md). Both sign-in routes are rate limited per client IP.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/auth/sso/start` (JSON body `{email}` or `{organization_id}`, optional `origin`) | None | Ask WorkOS which organization has verified the email's domain and has not had SSO switched off, and return `{authorization_url, state, organization}`. Free-mail domains, unknown domains and organizations whose connections are all inactive return `404 sso_not_available`. |
+| POST | `/api/auth/sso/exchange` | None (one-time WorkOS code + signed state) | `{code, state}` returns `{custom_token, user_id, is_new_account, organization}`. The client signs in with the custom token. Refusals: `sso_state_invalid`, `sso_code_invalid`, `sso_org_mismatch`, `sso_org_not_enabled`, `sso_domain_not_verified`, `sso_deprovisioned`, `sso_email_conflict`, `sso_account_conflict`, `sso_account_deleted`. |
+| POST | `/api/webhooks/workos` | `WorkOS-Signature` over the raw body (180 s window) | Directory Sync deprovisioning. `dsync.user.deleted` and `dsync.user.updated` with `state: inactive` or `suspended` mark the person deprovisioned and refuse later sign-in through the organization. An account SSO created is also disabled, its refresh tokens revoked and its consent grants revoked; an existing personal account that SSO only linked has its sessions revoked and is otherwise left alone. Every step is idempotent, so redelivery repeats harmlessly. Other events are acknowledged and ignored. |
+
+The custom token carries exactly `auth_provider=workos` and `workos_org_id`. The browser must compare the returned `state` to the value it stored before redirecting, then pass it back to the exchange.
 
 ### Chat push device registration
 
@@ -818,6 +914,28 @@ codes remain authoritative. The receipt UI renders the preserved symbol directly
 Automatic receipt scanning continues after matches through every available page
 within a fifty-page/six-candidate-per-page bound (300 messages), publishing each page
 incrementally. Reaching that bound is not proof of mailbox exhaustion.
+Each owner has one active receipt page across backend instances, fenced by a
+nonblocking PostgreSQL session lock on a dedicated connection; success, failure,
+timeout and cancellation close that connection and release the lane. It reserves
+one additional database connection per active scan, outside the request pool,
+bounded to two lock connections per backend worker within the scan deadline.
+Receipt extraction owns one transient retry budget, without nested model retries.
+Schema and evidence-validation failures are permanent for the current scan and
+are never retried automatically. Errors carry safe `detail.code`, `message` and
+`retryable`; response-model drift is `500 GMAIL_RECEIPT_CONTRACT_MISMATCH` with
+`retryable:false`. Previously saved rows remain visible during a failed refresh.
+Gmail's rejection of a provider pagination token becomes
+`409 GMAIL_RECEIPT_CURSOR_EXPIRED`, without automatic replay. Try again clears
+the rejected continuation and starts at page one while keeping valid rows.
+Transient provider failures are typed `503 GMAIL_PROVIDER_UNAVAILABLE`;
+receipt failure logs include request ID and upstream status, never provider bodies.
+Each validated page appears immediately. During a restored-snapshot refresh,
+new canonical groups appear beside saved groups; hashed event identity prevents
+duplicate projections as a group expands. An incomplete pass changes only the
+current display, keeping the saved snapshot and its revision until completion.
+An incoming compatible event for one saved transaction waits for the complete
+pass; separate refund/cancellation rows still appear immediately. Canonical
+grouping and the final snapshot use the existing grouping contract.
 Receipt-only signed `next_cursor` continuations bind owner/account, page size,
 query and a fixed 365-day `window_start`/`window_end`. Send that cursor in the
 next scan body; it expires after two hours and never grants access by itself.
@@ -1375,7 +1493,11 @@ merging two businesses merely because their names or contact details overlap.
 ### One Google Calendar
 
 Calendar is a live Google provider integration. Connection lifecycle uses
-Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
+Firebase identity; legacy event reads and all action proposals require `VAULT_OWNER`.
+The two first-party Schedule reads instead verify Firebase identity and the
+owner-bound active Calendar OAuth consent grant, including required Google scopes.
+They derive the owner only from the verified bearer, never request parameters.
+This narrow provider-read lane grants no vault, PKM, Mail, agent or mutation access.
 Create, reschedule, and cancel are always two-step: a short-lived proposal is
 reviewed by the client and then executed once. Plans are deleted after execution
 or failure and become unusable after ten minutes; a subsequent Calendar mutation
@@ -1423,7 +1545,65 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/availability`      | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars.                                                         |
 | POST   | `/api/one/calendar/proposals`         | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google.                     |
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
+| POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
+| POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
+| POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the connected primary attendee; prepare a ten-minute encrypted review of decline and optionally the editable organizer email with checked alternatives. No meeting changes. |
+| POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current account/grant and ETag, patch only the connected attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
+| POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
+
+Connected `/one/calendar` defaults to Schedule → Today. Invitations and Insights
+are Coming soon. Today loads every event-readable subscribed calendar with
+source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
+subscribed calendars in batches of twenty, merges busy periods and clips elapsed
+time before counting matching windows. Overlaps and civil-day/DST boundaries
+are calculated server-side. Time zone resolves from the browser; the account
+menu edits time zone and availability hours for the current owner session.
+Calendar automatically loads using the current signed-in identity and its existing
+Calendar OAuth grant; it has no additional credential prompt or unlock card.
+Each provider request checks the original connection/grant binding. Disconnect,
+revocation, owner changes and unavailable provider information fail closed.
+Responses are private/no-store; events stay in component memory. A vault lock or
+HCT revocation does not revoke these two provider reads: Firebase invalidation
+or Calendar disconnect does. Attendance still requires matching Firebase and
+VAULT_OWNER authority. Date/view changes and session epochs reject stale results.
+Selected-day shortcuts open Google Calendar, and free-window actions hand off
+date, range, time zone and the exact requested-duration booking to Calendar chat.
+Chat gathers missing details and requires the existing proposal confirmation;
+selecting a window never creates an event by itself. New proposals bind the
+review to the current Google grant. With subscribed-calendar access, create
+proposals show busy-period warnings across the included calendars and reject
+changed availability at confirmation. Google must return an event identifier
+before creation is reported as successful; mutations are never automatically
+retried.
+
+The visible Schedule view refreshes every thirty seconds and on return to the
+page or network recovery, coalescing requests within three seconds. Superseded
+reads are cancelled. Transient read failures receive at most two short retries;
+authentication and permission failures require their existing recovery action.
+Today retains the last successful same-owner/day records during refresh with an
+explicit stale notice if checking fails. Free-time booking actions are removed
+until a fresh availability check succeeds. Permission loss clears retained events.
+Initial disconnected onboarding is
+unchanged. Native subscribed-calendar discovery is requested only through an
+explicit `include_calendar_list` upgrade; base native consent stays unchanged,
+and existing manage/list permissions are preserved.
+
+The five connected workspace endpoints belong to
+`api/routes/one/calendar_workspace.py`, registered independently beside the
+existing Calendar router. Calendar lifecycle, setup, and chat proposal APIs
+remain owned by `calendar.py`; their onboarding workflow inventory and paused
+cursors retain their existing contract.
+
+Attendance review stores only an opaque idempotency ledger in
+`calendar_attendance_reviews` (migration 337); encrypted review contents remain
+in memory in the client. The three-day organizer link uses
+`/calendar/reschedule#<encrypted-capability>` and is scrubbed before analytics
+or API dispatch. It discloses only offered times, the reviewed reply address
+and the original event-specific link, and expires on Calendar account/grant
+changes. Choosing a time opens the recipient's email app; the organizer must
+update the invitation. It never substitutes the logged-in Calendar homepage.
+
 
 ### Complete Consent source reads
 
@@ -3429,7 +3609,7 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `GET /api/one/payouts/account/earnings?cursor=…&mode=live\|test` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor; `mode` defaults to the payment mode. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
 | `GET /api/one/payouts/account/bank-payouts?cursor=…` | Up to 20 recorded Stripe bank payout statuses per page with `nextCursor`. Each keeps the masked bank it was sent to (write-once), the payout method, Stripe's bank trace and reconciliation status, and when the status changed; a same-status provider update still applies. An account transfer is never reported as a bank deposit. |
 | `GET /api/one/payouts/account/balance` | The owner's Connect balance for the configured mode: `{stripeMode, currency, accountLinked, inStripeCents, availableCents, pendingCents, nextAvailableOn, nextAvailableCents, asOf, stale}`. An unlinked owner gets zeros with `accountLinked:false`. Snapshot read; refreshes from Stripe inline (single flight, at most 2.5 s) only when stale; 503 `BALANCE_UNAVAILABLE` otherwise. |
-| `GET /api/one/payouts/activity?kind=&mode=&cursor=&limit=&since=` | One owner-scoped, newest-first list of earnings, coin redemptions, bank deposits and adjustments (`kind` all, earning, redemption, deposit, adjustment or coins; `limit` 20, at most 50; opaque cursor). Held money carries `review: {reason, nextStep}` from a closed vocabulary, never provider text. `balanceAfterCoins` is the ledger balance after that row, not the available balance: reservations and holds are not ledger rows. `since=` (never with `cursor`) rereads from 30 s before that time and returns at most 100 changed rows; more than that returns `reset:true` and no rows. Deposit IDs keep their `po_`; no other provider ID is returned. 422 `INVALID_ACTIVITY_QUERY` on unknown filters, 422 `INVALID_CURSOR` for a cursor from another owner, mode, kind or signing key. The web client refuses a page whose `schemaVersion` is not 1, whose `mode` or `kind` differs from the query, or whose `nextCursor` repeats the cursor it sent; drops rows that break amount, ID or mode rules; never displays provider IDs; and merges pages by ID. |
+| `GET /api/one/payouts/activity?kind=&mode=&cursor=&limit=&since=` | One owner-scoped, newest-first list of earnings, coin redemptions, bank deposits and adjustments (`kind` all, earning, redemption, deposit, adjustment or coins; `limit` 20, at most 50; opaque cursor). Held money carries `review: {reason, nextStep}` from a closed vocabulary, never provider text. `balanceAfterCoins` is the ledger balance after that row, not the available balance: reservations and holds are not ledger rows. `sourceItemCount` is the raw page row count before client presentation filters; a strict memory source read requires it to equal the returned `items.length`. `since=` (never with `cursor`) rereads from 30 s before that time and returns at most 100 changed rows; more than that returns `reset:true` and no rows. Deposit IDs keep their `po_`; no other provider ID is returned. 422 `INVALID_ACTIVITY_QUERY` on unknown filters, 422 `INVALID_CURSOR` for a cursor from another owner, mode, kind or signing key. The web client refuses a page whose `schemaVersion` is not 1, whose `mode` or `kind` differs from the query, or whose `nextCursor` repeats the cursor it sent; drops rows that break amount, ID or mode rules; never displays provider IDs; and merges pages by ID. |
 | `GET /api/one/payouts/activity/{itemId}` | One receipt for the authenticated owner: amounts, fees, status timeline, masked bank and a Hussh reference `HC-XXXXXXXX` for support. No `acct_`, `ch_`, `pi_`, `tr_` or `trr_` IDs. Another owner's item is 404 `ACTIVITY_ITEM_NOT_FOUND`. |
 | `GET /api/connectors/google_drive/sharing/requests?direction=outgoing`, `GET …/requests/{id}`, `GET …/requests/{id}/delivery` | For the requester of a request that requires payment, each also carries `payment`, the requester payment view: `{state, amountCents, currency, checkoutExpiresAt, requestExpiresAt, refund, nextAction, withdrawn}`. `state` is `none`, `awaiting_owner`, `preparing`, `payable`, `link_expired`, `request_expired`, `paid`, `refund_pending`, `refunded`, `partially_refunded` or `closed`; `nextAction` is `pay`, `wait_owner`, `new_request` or `none`. Money states win, so a late payment on a closed request never reads as unpaid or closed. Free requests and the owner's view keep their old shape. No provider IDs, owner earnings or file details. |
 | `GET /api/connectors/google_drive/sharing/requests/{id}/payment` | Requester only. Adds `paymentView`, the same payment view, beside the existing quote and status fields. |

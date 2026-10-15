@@ -126,7 +126,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         let password = call.getString("passphrase") ?? call.getString("password")
         let salt = call.getString("salt")
         if password == nil {
-            call.reject("Missing passphrase")
+            call.reject("Missing password")
             return
         }
         

@@ -574,6 +574,7 @@ struct NativeDrawerContent: View {
     @ToolbarContentBuilder private var profileClose: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             control("xmark", "Close Profile", identifier: "native-profile-drawer-close") { model.close?() }
+                .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: "profile-close"))
         }
     }
     private var legacyContent: some View {

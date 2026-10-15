@@ -404,6 +404,9 @@ PY
 copy_template_if_needed() {
   local template="$1"
   local target="$2"
+  # Retire only the old public rollout key before comparing profile shape, so
+  # cached credentials survive migration to ordinary new-user onboarding.
+  remove_env_keys "$target" NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED
   if [ ! -f "$template" ]; then
     echo "Missing template: $template" >&2
     exit 1

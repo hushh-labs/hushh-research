@@ -1,5 +1,6 @@
 "use client";
 
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
@@ -9,7 +10,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
 import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
-import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -44,7 +45,6 @@ import {
   WalletCardManage,
   type WalletCardManageAction,
 } from "@/components/wallet-card/wallet-card-manage";
-import { WalletCardPassPreview } from "@/components/wallet-card/wallet-card-pass-preview";
 import { WalletCardSetup } from "@/components/wallet-card/wallet-card-setup";
 import {
   copyWalletCardLink,
@@ -91,8 +91,8 @@ type VisitorPreviewState =
 function WalletProfileShell({ embedded, title, description, children, preview }: {
   embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
-  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className={`${profileStyles.walletContent} space-y-4`}>
-    <div className={preview ? "px-[var(--settings-row-px)]" : undefined}><div className={preview ? "mx-auto max-w-[36rem] space-y-1" : "space-y-1"}><h3 className="text-[13px] font-medium leading-[1.22]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div></div>
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} space-y-4`}>
+    <div className="space-y-1"><h3 className="text-[13px] font-normal leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
@@ -672,43 +672,27 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup>
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
-              ) : visitorPreview.status === "error" ? (
-                <div className="space-y-3 text-xs text-muted-foreground">
-                  <p>{visitorPreview.message}</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="none"
-                    effect="fade"
-                    onClick={() => void loadVisitorPreview()}
-                  >
-                    Try again
-                  </Button>
-                </div>
-              ) : (
-                <PublicWalletCardSkeleton />
-              )}
+          {!embedded ? <div className="mx-auto w-full max-w-[420px]">
+            <WalletDemoCardFace summary={WALLET_DEMO_CARDS.find(item => item.cardId === (passVariant === "nws" ? "agent-one-nws" : "agent-one-profile"))!} profile={imageShareProfile} />
+          </div> : null}
+          {visitorPreview.status === "ready" ? (
+            <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
+          ) : visitorPreview.status === "error" ? (
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>{visitorPreview.message}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="none"
+                effect="fade"
+                onClick={() => void loadVisitorPreview()}
+              >
+                Try again
+              </Button>
             </div>
-          </SettingsGroup>
-
-          <div className="px-[var(--settings-row-px)]">
-          <details className="mx-auto w-full max-w-[36rem] rounded-[var(--app-card-radius-standard)] border border-border">
-            <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-[13px] font-medium">Profile card preview</summary>
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
-              />
-            </div>
-          </details>
-          </div>
+          ) : (
+            <PublicWalletCardSkeleton />
+          )}
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -720,7 +704,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
                   >
-                    <ProfilePaneWalletIcon className="mr-2 h-4 w-4" aria-hidden />
+                    <AppleWalletIcon />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
                 ) : imageShareAction}

@@ -196,7 +196,7 @@ describe("WalletWorkspace at scale", () => {
     // Exercise the real cohesive SVG renderer; only public asset I/O and the
     // browser object-URL boundary are replaced in JSDOM.
     vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
-      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8"));
+      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v2.svg`), "utf8"));
     const images = new Map<string, Blob>();
     vi.stubGlobal("URL", class extends URL {
       static createObjectURL = vi.fn((blob: Blob) => {
@@ -357,7 +357,7 @@ describe("WalletWorkspace at scale", () => {
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
     // Await the user interactions so the save-to-Cards lifecycle commits
     // before returning to the deck; its complete storage order stays asserted.
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Back", exact: true })); });
     await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
@@ -367,9 +367,9 @@ describe("WalletWorkspace at scale", () => {
     render(<WalletWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-add-collection");
-    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0" }));
     await screen.findByTestId("wallet-selected-card");
-    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     const browser = screen.getByTestId("wallet-card-browser");
     const deck = screen.getByTestId("wallet-add-collection");
     for (const tab of ["Add", "Sharing"]) {
@@ -591,11 +591,12 @@ describe("WalletWorkspace at scale", () => {
   });
 
   it("search narrows metadata and reports no match", async () => {
+    navigationMock.search = "q=amex";
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    await waitFor(() => expect(screen.getByTestId("wallet-add-collection")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
+    await screen.findByRole("textbox", { name: "Search cards" });
+    expect(screen.queryByRole("button", { name: "Search cards" })).toBeNull();
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "amex" } });
     });

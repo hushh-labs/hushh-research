@@ -12,7 +12,10 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
-import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
+import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
@@ -24,6 +27,7 @@ import {
   resolveOneSetupCompletionTarget,
   normalizeInternalRouteHref,
   ROUTES,
+  buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
@@ -56,12 +60,15 @@ export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const initialContacts = useInitialContacts();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const queueEntryWelcome = useOneConversationSession(
     (state) => state.queueEntryWelcome,
   );
   const [dismissing, setDismissing] = useState(false);
-  const [finalizationError, setFinalizationError] = useState<string | null>(null);
+  const [finalizationError, setFinalizationError] = useState<string | null>(
+    null,
+  );
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const finalizationInFlightRef = useRef<Promise<string> | null>(null);
@@ -96,15 +103,23 @@ export function OneSetupHub() {
       if (!active || !saved) return;
       setRuntimeChoiceSnapshot({
         userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(saved) ? "complete" : "required",
+        state: PreVaultUserStateService.hasOneRuntimeChoice(saved)
+          ? "complete"
+          : "required",
       });
     };
     const unsubscribe = CacheService.getInstance().subscribe((event) => {
-      if (event.type === "set" && event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) {
+      if (
+        event.type === "set" &&
+        event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)
+      ) {
         reconcileSavedChoice();
       }
     });
-    const cleanup = () => { active = false; unsubscribe(); };
+    const cleanup = () => {
+      active = false;
+      unsubscribe();
+    };
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setRuntimeChoiceSnapshot({
@@ -210,14 +225,19 @@ export function OneSetupHub() {
       // boundary. The Chat surface derives its summary from the unlocked
       // in-memory context and consumes this marker once; no private values
       // enter the route or conversation history.
-      queueEntryWelcome(user.uid);
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      const showContactsWelcome =
+        (bootstrap?.initialContactsWelcomeAcknowledged === false ||
+          InitialContacts.getSnapshot().ownerId === user.uid);
+      if (!showContactsWelcome) queueEntryWelcome(user.uid);
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
       // this encryption boundary completes. Resume the canonical source flow
       // once, now that it has a valid vault session.
-      router.replace(target);
-      return target;
+      const next = showContactsWelcome ? buildInitialContactsWelcomeRoute(target) : target;
+      router.replace(next);
+      return next;
     })();
     finalizationInFlightRef.current = finalize;
     try {
@@ -352,7 +372,9 @@ export function OneSetupHub() {
 
   const summary = hubStateLoading
     ? "One moment…"
-    : runtimeChoiceComplete ? "Add more any time." : "Choose your AI first.";
+    : runtimeChoiceComplete
+      ? "Add more any time."
+      : "Choose your AI first.";
 
   return (
     <AppPageShell
@@ -368,14 +390,16 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-          <PageHeader
-            title={
-              !hubStateLoading && runtimeChoiceComplete ? "You're all set" : "Set up One"
-            }
-            description={summary}
-            accent="neutral"
-            className={styles.setupHeader}
-          />
+        <PageHeader
+          title={
+            !hubStateLoading && runtimeChoiceComplete
+              ? "You're all set"
+              : "Set up One"
+          }
+          description={summary}
+          accent="neutral"
+          className={styles.setupHeader}
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className={styles.setupContent}>
@@ -388,7 +412,11 @@ export function OneSetupHub() {
                 <SetupNavigationTile
                   id="connections"
                   title="Choose your AI"
-                  description={runtimeChoiceComplete ? "Change this any time." : "Use ours, or bring your own."}
+                  description={
+                    runtimeChoiceComplete
+                      ? "Change this any time."
+                      : "Use ours, or bring your own."
+                  }
                   href={buildOneSetupConnectionsRoute(returnTo)}
                   voiceControlId="one_setup_tile_connections"
                   icon={lucideCapabilityIcon(PlugZap)}
@@ -399,7 +427,19 @@ export function OneSetupHub() {
                   isComplete={runtimeChoiceComplete}
                 />
               </SettingsGroup>
+              {initialContacts.ownerId === user?.uid ? (
+                <SettingsGroup separatorInset>
+                  <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
+                    description={initialContacts.status === "ready"
+                      ? `${initialContacts.result?.autoConnectedCount ?? 0} new connections. Your shared circle will be ready after setup.`
+                      : "Optional. Match people you know and organize a shared Contacts circle."}
+                    trailing={initialContacts.status === "ready" ? "Checked" : ["reading", "matching"].includes(initialContacts.status) ? "Checking…" : "Find people"}
+                    disabled={["reading", "matching", "ready"].includes(initialContacts.status)}
+                    onClick={() => InitialContacts.startSource()} />
+                </SettingsGroup>
+              ) : null}
               <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
+                <PwmResearchDisclosure className="mb-4" />
                 <Button
                   type="button"
                   variant="blue"
