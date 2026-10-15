@@ -676,6 +676,14 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
     assert config.sign_in_ready and config.webhook_secret and config.redirect_origins
 
 
+def test_cloudbuild_packs_sso_settings_in_binder_order():
+    cloudbuild = Path(__file__).resolve().parents[2] / "deploy" / "backend.cloudbuild.yaml"
+    assert (
+        "_WORKOS_CONFIG=${_WORKOS_SSO_ENABLED}|${_WORKOS_REDIRECT_URI}|${_WORKOS_REDIRECT_ORIGINS}"
+        in cloudbuild.read_text(encoding="utf-8")
+    )
+
+
 async def test_sign_in_is_unavailable_without_the_webhook_secret():
     """Offboarding arrives by webhook, so SSO that cannot receive it must not sign anyone in."""
     service = EnterpriseSsoService(
@@ -828,22 +836,44 @@ def test_which_directory_events_deprovision(event, state, expected):
 
 @pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs POSIX bash")
 @pytest.mark.parametrize(
-    ("flag", "bound", "ok"),
+    ("flag", "bound", "redirect_uri", "ok"),
     [
-        ("true", "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET", True),
-        ("true", "WORKOS_API_KEY WORKOS_CLIENT_ID", False),  # a missing secret must stop the deploy
-        ("", "", True),  # SSO off: the secrets stay optional
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET",
+            "https://app.example/login",
+            True,
+        ),
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID",
+            "https://app.example/login",
+            False,
+        ),  # missing secret
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET",
+            "",
+            False,
+        ),  # missing redirect
+        ("", "", "", True),  # SSO off: the secrets stay optional
     ],
 )
-def test_deploy_refuses_to_enable_sso_with_a_secret_missing(flag, bound, ok):
+def test_deploy_refuses_to_enable_sso_with_missing_required_configuration(
+    flag, bound, redirect_uri, ok
+):
     script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
     stubs = (
         "secrets=BASE=x:latest; PROJECT_ID=p\n"
         'add_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
         "add_env() { :; }\n"
     )
-    env = {**os.environ, "BOUND": bound, "_WORKOS_SSO_ENABLED": flag}
-    env["_WORKOS_REDIRECT_URI"] = "https://app.example/login"
+    # Cloud Build packs these three substitutions into one step env entry.
+    env = {
+        **os.environ,
+        "BOUND": bound,
+        "_WORKOS_CONFIG": f"{flag}|{redirect_uri}|https://app.example",
+    }
     run = subprocess.run(  # noqa: S603 - fixed shell and repository script; fixed inputs
         ["bash", "-c", f"{stubs}source {script}"], env=env, capture_output=True, text=True
     )
