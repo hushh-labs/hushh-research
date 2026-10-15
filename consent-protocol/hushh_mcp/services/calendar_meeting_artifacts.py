@@ -117,6 +117,7 @@ class CalendarMeetingArtifacts:
 
     async def _references(self, user_id, binding, event):
         refs = []
+        states = {}
         # Attachments are linked by provider fileId, never by their title or URL.
         for attachment in event.get("attachments", []):
             if not isinstance(attachment, dict) or not FILE_ID.fullmatch(
@@ -145,7 +146,7 @@ class CalendarMeetingArtifacts:
         if (conference.get("conferenceSolution") or {}).get("key", {}).get(
             "type"
         ) != "hangoutsMeet" or not re.fullmatch(r"[a-z]{3}-[a-z]{4}-[a-z]{3}", code):
-            return refs, "unavailable"
+            return refs, "unavailable", states
         calendar = self.insights.calendar
 
         async def check():
@@ -179,35 +180,63 @@ class CalendarMeetingArtifacts:
             if records.get("nextPageToken") or len(matches) > 1:
                 raise ArtifactUnavailable("unverified")
             if not matches:
-                return refs, "unavailable"
+                return refs, "unavailable", states
             record = matches[0]
             name = record.get("name", "")
             if not re.fullmatch(r"conferenceRecords/[A-Za-z0-9_-]+", name):
                 raise ArtifactUnavailable("unverified")
-            processing = False
             for resource, kind, destination, key in [
                 ("recordings", "recording", "driveDestination", "file"),
                 ("smartNotes", "notes", "docsDestination", "document"),
                 ("transcripts", "transcript", "docsDestination", "document"),
             ]:
-                data = await self._meet(token, f"{name}/{resource}", {"pageSize": 100})
-                await check()
-                if data.get("nextPageToken"):
-                    raise ArtifactUnavailable("temporarily_unavailable")
-                for item in data.get(resource, []):
-                    processing = processing or item.get("state") in {"STARTED", "ENDED"}
-                    identifier = (item.get(destination) or {}).get(key, "")
-                    if item.get("state") == "FILE_GENERATED" and FILE_ID.fullmatch(identifier):
-                        refs.append(
-                            {"file_id": identifier, "kind": kind, "association": item.get("name")}
-                        )
-            return list(
-                {r["file_id"]: r for r in refs}.values()
-            ), "processing" if processing else "checked"
+                try:
+                    data = await self._meet(token, f"{name}/{resource}", {"pageSize": 100})
+                    await check()
+                    if data.get("nextPageToken") or not isinstance(data.get(resource, []), list):
+                        raise ArtifactUnavailable("temporarily_unavailable")
+                    states[kind] = "not_generated"
+                    for item in data.get(resource, []):
+                        state = item.get("state")
+                        if state in {"STARTED", "ENDED"}:
+                            states[kind] = "processing"
+                        elif state == "FILE_GENERATED":
+                            identifier = (item.get(destination) or {}).get(key, "")
+                            if not FILE_ID.fullmatch(identifier):
+                                raise ArtifactUnavailable("temporarily_unavailable")
+                            refs.append(
+                                {
+                                    "file_id": identifier,
+                                    "kind": kind,
+                                    "association": item.get("name"),
+                                }
+                            )
+                            if states[kind] != "processing":
+                                states[kind] = "available"
+                        else:
+                            raise ArtifactUnavailable("temporarily_unavailable")
+                except ArtifactUnavailable as error:
+                    states[kind] = error.state
+                except (ValueError, TypeError, AttributeError):
+                    states[kind] = "temporarily_unavailable"
+            discovery = next(
+                (
+                    state
+                    for state in (
+                        "permission_required",
+                        "temporarily_unavailable",
+                        "processing",
+                        "unavailable",
+                    )
+                    if state in states.values()
+                ),
+                "checked",
+            )
+            return list({r["file_id"]: r for r in refs}.values()), discovery, states
         except ArtifactUnavailable as error:
-            return refs, error.state
-        except (httpx.HTTPError, ValueError, TypeError):
-            return refs, "temporarily_unavailable"
+            return refs, error.state, states
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            return refs, "temporarily_unavailable", states
 
     async def _file(self, user_id, binding, ref, *, content):
         result = {**ref, "state": "permission_required"}
@@ -290,10 +319,24 @@ class CalendarMeetingArtifacts:
             return result
         except ArtifactUnavailable as error:
             return {**ref, "state": error.state}
-        except DriveOAuthError:
-            return {**ref, "state": "permission_required"}
+        except DriveOAuthError as error:
+            return {
+                **ref,
+                "state": "temporarily_unavailable"
+                if error.status_code >= 500 or str(error) == "refresh_in_progress"
+                else "permission_required",
+            }
         except DriveReadError as error:
-            return {**ref, "state": "temporarily_unavailable" if error.retryable else "unavailable"}
+            return {
+                **ref,
+                "state": "permission_required"
+                if error.status_code == 403
+                or str(error)
+                in {"reconnect_required", "operation_not_allowed", "identity_not_verified"}
+                else "temporarily_unavailable"
+                if error.retryable or str(error) == "provider_response_invalid"
+                else "unavailable",
+            }
         except (UnicodeError, httpx.HTTPError):
             return {**ref, "state": "temporarily_unavailable"}
 
@@ -307,7 +350,7 @@ class CalendarMeetingArtifacts:
             expected_account_email=expected_account_email,
         )
         drive_before = await self.oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
-        refs, discovery = await self._references(user_id, binding, event)
+        refs, discovery, states = await self._references(user_id, binding, event)
         artifacts = []
         for ref in refs[:12]:
             artifacts.append(await self._file(user_id, binding, ref, content=content))
@@ -321,7 +364,28 @@ class CalendarMeetingArtifacts:
                 {"file_id": a["file_id"], "kind": a["kind"], "state": "permission_required"}
                 for a in artifacts
             ]
+        for kind in ("recording", "notes", "transcript"):
+            files = [a for a in artifacts if a["kind"] == kind and not a.get("linked_only")]
+            if files:
+                states[kind] = next(
+                    (
+                        state
+                        for state in (
+                            "permission_required",
+                            "temporarily_unavailable",
+                            "source_changed",
+                            "unavailable",
+                        )
+                        if any(a["state"] == state for a in files)
+                    ),
+                    states.get(kind, "available")
+                    if any(a["state"] == "available" for a in files)
+                    else files[0]["state"],
+                )
+            else:
+                states.setdefault(kind, discovery if discovery != "checked" else "unavailable")
         return {
+            "availability": states,
             "event": self.insights.calendar._event_summary(event),
             "calendar_id": calendar_id,
             "discovery": discovery,

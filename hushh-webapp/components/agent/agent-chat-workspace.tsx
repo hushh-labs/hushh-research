@@ -2709,7 +2709,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
   } | null>(null);
   const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
-  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions } | null>(null);
+  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions; meetingOrigin?: { ownerId: string; conversationId: string | null } } | null>(null);
   currentDraftRef.current = { input, attachment: longPromptAttachment };
   const recoveryUiRef = useRef({
     conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
@@ -3742,6 +3742,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   const handleCreateNewChat = useCallback(() => {
+    if (pendingChatKeyRetryRef.current?.meetingOrigin) pendingChatKeyRetryRef.current = null;
     chatSessionRef.current.start();
     setCalendarSlot(null);
     pendingDriveSearchSelectionRef.current = null;
@@ -5436,16 +5437,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     performance.mark("hushh:agent-chat:send-handler-entry");
     const text = textInput.trim();
-    const slotContext = calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
+    const meetingOrigin = options.calendarMeeting && user?.uid ? { ownerId: user.uid, conversationId: conversationIdRef.current } : undefined;
+    const slotContext = !options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
       calendarSlot.conversationId === conversationIdRef.current
       ? calendarSlotInstruction(calendarSlot.selection) : null;
-    if (calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
+    if (!options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
         calendarSlot.conversationId === conversationIdRef.current && !slotContext) {
       setCalendarSlot(null);
       appendMessage({ id: `calendar-window-expired-${Date.now()}`, role: "assistant", text: "That free window has passed. What time would work for you?", ...stampNow(), status: "done", renderAsPlainAssistantMessage: true });
       return;
     }
-    const invitationContext = calendarInvitationContext?.needsContext && calendarInvitationContext.selection.ownerId === user?.uid &&
+    const invitationContext = !options.calendarMeeting && calendarInvitationContext?.needsContext && calendarInvitationContext.selection.ownerId === user?.uid &&
       calendarInvitationContext.conversationId === conversationIdRef.current
       ? calendarInvitationInstruction(calendarInvitationContext.selection) : null;
     let meetingAttachment: AgentTextAttachment | null = null;
@@ -5471,6 +5473,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         );
       } catch {
         if (!isCurrent()) return;
+        appendMessage({ id: `meeting-request-${Date.now()}`, role: "user", text, calendarMeeting: options.calendarMeeting, ...stampNow(), status: "done" });
         appendMessage({ id: `meeting-access-${Date.now()}`, role: "assistant", text: "Meeting access changed or could not be verified. Open Calendar and check the meeting again.", ...stampNow(), status: "done", renderAsPlainAssistantMessage: true });
         return;
       } finally {
@@ -6161,7 +6164,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         driveSearchSelection: options.driveSearchSelection,
-        pendingEmailDraft: pendingEmailDraftFrameRef.current
+        pendingEmailDraft: !options.calendarMeeting && pendingEmailDraftFrameRef.current
           ? buildPendingEmailDraftContext(
               emailDraftCardValueRef.current,
               pendingEmailDraftFrameRef.current.envelope,
@@ -6473,13 +6476,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // flow, and send it once after unlock. Refreshing the conversation list
         // here would only be refused again.
         if (!currentDraftRef.current.input.trim()) setInput(text);
-        if (attachments.length && !currentDraftRef.current.attachment) {
+        if (!options.calendarMeeting && attachments.length && !currentDraftRef.current.attachment) {
           setLongPromptAttachment(
             createPendingTextAttachment(attachments.map((item) => item.text).join("\n\n")),
           );
         }
         if (error.recovery === "unlock") {
-          pendingChatKeyRetryRef.current = { text, options };
+          pendingChatKeyRetryRef.current = { text, options, meetingOrigin };
           setVaultDialogOpen(true);
         }
       } else {
@@ -6507,7 +6510,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // message the person left untouched in the composer.
   useEffect(() => {
     const pending = pendingChatKeyRetryRef.current;
-    if (!hasChatAccess || !pending) return;
+    if (!pending) return;
+    if (pending.meetingOrigin && pending.meetingOrigin.ownerId !== user?.uid) {
+      pendingChatKeyRetryRef.current = null;
+      return;
+    }
+    if (!hasChatAccess) return;
+    if (pending.meetingOrigin && pending.meetingOrigin.conversationId !== conversationIdRef.current) {
+      // Unlock clears the active ID before history restoration. Never turn a
+      // retry into a new chat, or replay it in a different selected chat.
+      if (conversationIdRef.current === null) return;
+      pendingChatKeyRetryRef.current = null;
+      return;
+    }
     pendingChatKeyRetryRef.current = null;
     if (currentDraftRef.current.input.trim() !== pending.text) return;
     const pendingAttachments = pending.options.attachments ?? [];
@@ -6519,7 +6534,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     setInput("");
     void runAgentTurnRef.current(pending.text, pending.options);
-  }, [hasChatAccess]);
+  }, [hasChatAccess, conversationId, user?.uid]);
 
   /**
    * Follow-up turn that reports a specialist DelegateResult back to One.
@@ -7155,7 +7170,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             attachments: current.attachments,
             deferPkmContext: current.deferPkmContext,
             driveSearchSelection: current.driveSearchSelection,
-            gmailInformationRequestWorkflowId: current.gmailInformationRequestWorkflowId,
+            gmailInformationRequestWorkflowId: options.calendarMeeting ? undefined : current.gmailInformationRequestWorkflowId,
             kycInformationSaveConfirmed: options.calendarMeeting ? false : current.kycInformationSaveConfirmed,
           });
           return;
@@ -7950,7 +7965,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   /** A sent message stays as it was; its edited paste goes out as a new turn. */
   const resendTextAttachment = (message: AgentMessage, index: number, editedText: string) => {
-    if (isVoiceConnecting || voiceActive) return false;
+    if (isVoiceConnecting || voiceActive || message.calendarMeeting || message.attachments?.some(item => item.name === "Meeting sources.txt")) return false;
     const attachments = replaceTextAttachmentForResend(message.attachments ?? [], index, editedText);
     if (!attachments) return false;
     transcriptUserScrollRef.current = false;
@@ -9181,7 +9196,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       message={message}
                       driveMemoryReview={renderDriveMemoryReview(message)}
                       onResendAttachment={
-                        message.role === "user" && message.attachments?.length
+                        message.role === "user" && message.attachments?.length && !message.calendarMeeting && !message.attachments.some(item => item.name === "Meeting sources.txt")
                           ? (index, editedText) => resendTextAttachment(message, index, editedText)
                           : undefined
                       }

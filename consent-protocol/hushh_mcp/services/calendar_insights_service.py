@@ -51,8 +51,15 @@ class CalendarInsightsService:
         unique = {}
         for event in events:
             occurrence = event.get("original_start_time") or event.get("start") or {}
+            occurrence_id = occurrence.get("date")
+            if occurrence.get("dateTime"):
+                occurrence_id = (
+                    datetime.fromisoformat(occurrence["dateTime"].replace("Z", "+00:00"))
+                    .astimezone(UTC)
+                    .isoformat()
+                )
             key = (
-                ("ical", event["ical_uid"], occurrence.get("dateTime") or occurrence.get("date"))
+                ("ical", event["ical_uid"], occurrence_id)
                 if event.get("ical_uid")
                 else ("event", event.get("calendar_id"), event.get("id"))
             )
@@ -74,10 +81,7 @@ class CalendarInsightsService:
             for i in range(7)
         ]
         timed, recurring = [], {}
-        focus_safe = complete and not any(
-            (e.get("start") or {}).get("date") and e.get("availability_default_included")
-            for e in events
-        )
+        focus_safe = complete
         for event in events:
             if (
                 not event.get("availability_default_included", True)
@@ -88,6 +92,10 @@ class CalendarInsightsService:
                 )
             ):
                 continue
+            if (event.get("start") or {}).get("date") and event.get(
+                "transparency"
+            ) != "transparent":
+                focus_safe = False
             raw_start, raw_end = ((event.get(k) or {}).get("dateTime") for k in ("start", "end"))
             if not raw_start or not raw_end:
                 continue
@@ -110,16 +118,17 @@ class CalendarInsightsService:
                     0, (min(finish, end) - max(begin, start)).total_seconds() / 60
                 )
         timed.sort(key=lambda entry: entry[0])
+        busy = [entry for entry in timed if entry[2].get("transparency") != "transparent"]
         overlaps = sum(
-            a[0] < b[1] and b[0] < a[1] for i, a in enumerate(timed) for b in timed[i + 1 :]
+            a[0] < b[1] and b[0] < a[1] for i, a in enumerate(busy) for b in busy[i + 1 :]
         )
-        back_to_back = sum(a[1] == b[0] for i, a in enumerate(timed) for b in timed[i + 1 :])
+        back_to_back = sum(a[1] == b[0] for i, a in enumerate(busy) for b in busy[i + 1 :])
         focus = []
         if focus_safe:
             for day in days[:5]:
                 left, right = day_window(day["date"], time_zone, "09:00", "17:00")
                 cursor = left
-                for begin, finish, _ in timed:
+                for begin, finish, _ in busy:
                     if finish <= left or begin >= right:
                         continue
                     if begin - cursor >= timedelta(hours=1):
@@ -160,7 +169,10 @@ class CalendarInsightsService:
             and (e.get("end") or {}).get("dateTime")
             and datetime.fromisoformat(e["end"]["dateTime"].replace("Z", "+00:00")) <= end
         ]
-        candidates.sort(key=lambda e: e["end"]["dateTime"], reverse=True)
+        candidates.sort(
+            key=lambda e: datetime.fromisoformat(e["end"]["dateTime"].replace("Z", "+00:00")),
+            reverse=True,
+        )
         from hushh_mcp.services.calendar_meeting_artifacts import CalendarMeetingArtifacts
 
         artifacts = CalendarMeetingArtifacts(insights=self)
@@ -185,7 +197,21 @@ class CalendarInsightsService:
                                 if a["state"] == "available" and not a.get("linked_only")
                             }
                         ),
-                        "artifact_status": detail["discovery"],
+                        "artifact_status": next(
+                            (
+                                state
+                                for state in (
+                                    "permission_required",
+                                    "temporarily_unavailable",
+                                    "processing",
+                                    "unavailable",
+                                )
+                                if state in detail.get("availability", {}).values()
+                            ),
+                            "not_generated"
+                            if set(detail.get("availability", {}).values()) == {"not_generated"}
+                            else detail["discovery"],
+                        ),
                     }
                 except TimeoutError:
                     return {

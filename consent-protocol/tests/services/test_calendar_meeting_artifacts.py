@@ -56,7 +56,7 @@ def test_requested_scopes_do_not_authorize_meet(monkeypatch):
     svc = service()
     monkeypatch.setattr(module, "inspect_token", AsyncMock(return_value={"calendar.events"}))
     svc._meet = AsyncMock(side_effect=AssertionError("No Meet scope"))
-    refs, state = asyncio.run(svc._references("owner", BINDING, EVENT))
+    refs, state, states = asyncio.run(svc._references("owner", BINDING, EVENT))
     assert refs == [] and state == "permission_required"
     svc._meet.assert_not_called()
 
@@ -64,7 +64,7 @@ def test_requested_scopes_do_not_authorize_meet(monkeypatch):
 def test_description_title_and_link_are_not_artifact_association():
     svc = service()
     svc._meet = AsyncMock(side_effect=AssertionError("Unverified association"))
-    refs, state = asyncio.run(
+    refs, state, states = asyncio.run(
         svc._references(
             "owner",
             BINDING,
@@ -82,7 +82,7 @@ def test_reused_meeting_code_is_not_guessed(monkeypatch, records):
     svc = service()
     monkeypatch.setattr(module, "inspect_token", AsyncMock(return_value=module.MEET_SCOPES))
     svc._meet = AsyncMock(return_value={"conferenceRecords": records})
-    refs, state = asyncio.run(svc._references("owner", BINDING, EVENT))
+    refs, state, states = asyncio.run(svc._references("owner", BINDING, EVENT))
     assert not refs and state == ("unverified" if records else "unavailable")
     assert "end_time >" in svc._meet.call_args.args[2]["filter"]
 
@@ -106,7 +106,7 @@ def test_processing_and_exact_provider_file_ids(monkeypatch):
             {},
         ]
     )
-    refs, state = asyncio.run(svc._references("owner", BINDING, EVENT))
+    refs, state, states = asyncio.run(svc._references("owner", BINDING, EVENT))
     assert refs == [
         {
             "file_id": "exact-file-id",
@@ -115,6 +115,11 @@ def test_processing_and_exact_provider_file_ids(monkeypatch):
         }
     ]
     assert state == "processing"
+    assert states == {
+        "recording": "processing",
+        "notes": "available",
+        "transcript": "not_generated",
+    }
 
 
 def test_drive_revocation_discards_earlier_file_content():
@@ -123,7 +128,7 @@ def test_drive_revocation_discards_earlier_file_content():
         {"connection_generation": 1, "status": "connected"},
         {"connection_generation": 2, "status": "disconnected"},
     ]
-    svc._references = AsyncMock(return_value=([{"file_id": "f", "kind": "notes"}], "checked"))
+    svc._references = AsyncMock(return_value=([{"file_id": "f", "kind": "notes"}], "checked", {}))
     svc._file = AsyncMock(
         return_value={
             "file_id": "f",
@@ -257,7 +262,12 @@ def test_shared_calendar_occurrences_are_not_double_counted():
                 {"events": [{**event, "calendar_id": "first"}]},
                 {
                     "events": [
-                        {**event, "id": "b", "calendar_id": "second"},
+                        {
+                            **event,
+                            "id": "b",
+                            "calendar_id": "second",
+                            "start": {"dateTime": "2026-10-14T15:30:00+05:30"},
+                        },
                         {**event, "id": "c", "ical_uid": "distinct-uid", "calendar_id": "second"},
                     ]
                 },
@@ -390,3 +400,140 @@ def test_actual_token_scope_inspection_uses_fixed_https_origin(
             "drive.file",
         }
     assert calls == [("GET", "/tokeninfo?access_token=synthetic%26token"), "closed"]
+
+
+def test_late_provider_files_modified_text_and_revocation_are_read_fresh(monkeypatch):
+    svc = service()
+    monkeypatch.setattr(module, "connector_feature_enabled", lambda *args: True)
+    monkeypatch.setattr(
+        module,
+        "inspect_token",
+        AsyncMock(
+            return_value=module.MEET_SCOPES | {"https://www.googleapis.com/auth/drive.readonly"}
+        ),
+    )
+    generation = 0
+
+    async def meet(token, path, params=None):
+        if path == "conferenceRecords":
+            return {"conferenceRecords": [{"name": "conferenceRecords/verified"}]}
+        resource = path.split("/")[-1]
+        if not generation:
+            return {resource: [{"state": "ENDED"}]}
+        destination, key = (
+            ("driveDestination", "file")
+            if resource == "recordings"
+            else ("docsDestination", "document")
+        )
+        return {
+            resource: [
+                {
+                    "state": "FILE_GENERATED",
+                    "name": path + "/verified",
+                    destination: {key: resource + "-file"},
+                }
+            ]
+        }
+
+    svc._meet = AsyncMock(side_effect=meet)
+    svc.drive.get_file_facts = AsyncMock(
+        return_value={
+            "title": "Provider file",
+            "viewUrl": "https://docs.google.com/document/d/verified",
+        }
+    )
+    svc.drive.get_metadata = AsyncMock(
+        return_value=SimpleNamespace(mime_type="application/vnd.google-apps.document", version="1")
+    )
+    svc.drive.read_live_bytes = AsyncMock(return_value=("text/plain", b"Original provider text"))
+
+    def read():
+        return asyncio.run(svc.detail(user_id="owner", calendar_id="primary", event_id="event"))
+
+    first = read()
+    assert first["availability"] == dict.fromkeys(
+        ("recording", "notes", "transcript"), "processing"
+    )
+    assert first["artifacts"] == []
+    generation = 1
+    second = read()
+    assert {a["file_id"] for a in second["artifacts"]} == {
+        "recordings-file",
+        "smartNotes-file",
+        "transcripts-file",
+    }
+    assert [a["text"] for a in second["artifacts"] if a["kind"] != "recording"] == [
+        "Original provider text"
+    ] * 2
+    svc.drive.read_live_bytes.return_value = ("text/plain", b"Modified provider text")
+    assert "Original provider text" not in json.dumps(read())
+    svc.drive.get_file_facts.side_effect = module.DriveReadError(
+        "source_unavailable", status_code=403
+    )
+    revoked = read()
+    assert set(revoked["availability"].values()) == {"permission_required"}
+    assert all("url" not in a and "text" not in a for a in revoked["artifacts"])
+    svc._meet.side_effect = module.ArtifactUnavailable("permission_required")
+    assert read()["artifacts"] == []
+
+
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        ({}, "not_generated"),
+        ({"recordings": [None]}, "temporarily_unavailable"),
+        (
+            {"recordings": [{"state": "FILE_GENERATED", "driveDestination": {"file": None}}]},
+            "temporarily_unavailable",
+        ),
+        ({"recordings": [{"state": "FILE_GENERATED"}]}, "temporarily_unavailable"),
+        ({"recordings": [{"state": "UNKNOWN"}]}, "temporarily_unavailable"),
+    ],
+)
+def test_absence_requires_successful_complete_provider_response(monkeypatch, payload, expected):
+    svc = service()
+    monkeypatch.setattr(module, "inspect_token", AsyncMock(return_value=module.MEET_SCOPES))
+    svc._meet = AsyncMock(
+        side_effect=[{"conferenceRecords": [{"name": "conferenceRecords/a"}]}, payload, {}, {}]
+    )
+    _, _, states = asyncio.run(svc._references("owner", BINDING, EVENT))
+    assert states["recording"] == expected
+    assert states["notes"] == "not_generated"
+
+
+@pytest.mark.parametrize(
+    "all_day",
+    [
+        {"status": "cancelled"},
+        {"attendees": [{"self": True, "response_status": "declined"}]},
+        {"transparency": "transparent"},
+    ],
+)
+def test_non_busy_events_do_not_remove_focus_windows(all_day):
+    insights = CalendarInsightsService(SimpleNamespace(calendar=SimpleNamespace()))
+    insights.events = AsyncMock(
+        return_value=(
+            [
+                {
+                    "title": "Ignored all day",
+                    "start": {"date": "2026-10-14"},
+                    "end": {"date": "2026-10-15"},
+                    **all_day,
+                },
+                {
+                    "title": "Free reminder",
+                    "transparency": "transparent",
+                    "start": {"dateTime": "2026-10-12T09:00:00Z"},
+                    "end": {"dateTime": "2026-10-12T17:00:00Z"},
+                },
+            ],
+            True,
+        )
+    )
+    result = asyncio.run(insights.overview(user_id="owner", date="2026-10-14", time_zone="UTC"))
+    assert result["meeting_count"] == 1
+    assert result["meeting_minutes"] == 480
+    assert result["focus"][0] == {
+        "start_at": "2026-10-12T09:00:00+00:00",
+        "end_at": "2026-10-12T17:00:00+00:00",
+    }

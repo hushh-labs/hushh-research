@@ -17,17 +17,20 @@ import { CalendarInsightsService, type CalendarInsights as Overview, type Meetin
 import styles from "./calendar-insights.module.css";
 
 const hours = (minutes: number) => `${Math.round(minutes / 6) / 10} hr`;
+const artifactLabels: Record<string, string> = { permission_required: "Permission required", processing: "Still processing", not_generated: "No files generated", temporarily_unavailable: "Provider error", unavailable: "Unavailable" };
 const availability: Record<string, string> = {
-  processing: "Google is still preparing one or more meeting files. Check again later.",
+  not_generated: "No file has been generated for this verified meeting.",
+  available: "Available",
+  processing: "Still processing. Google is still preparing one or more meeting files. Check again later.",
   permission_required: "Permission required. Calendar access does not include access to this meeting file.",
   unavailable: "Not available or not shared with your connected account.",
   unverified: "This meeting could not be matched to one verified conference record.",
-  temporarily_unavailable: "Access could not be checked. Try again.",
+  temporarily_unavailable: "Provider error. Access could not be checked. Try again.",
   source_changed: "The source changed. Refresh to check it again.",
   unsupported_format: "Preview is unavailable for this file format.",
 };
 function safeSource(value?: string) {
-  try { const url = new URL(value || ""); return url.protocol === "https:" && ["drive.google.com", "docs.google.com"].includes(url.hostname) && !url.username && !url.password ? value : undefined; } catch { return undefined; }
+  try { const url = new URL(value || ""); return url.protocol === "https:" && ["drive.google.com", "docs.google.com"].includes(url.hostname) && !url.username && !url.password && (!url.port || url.port === "443") ? value : undefined; } catch { return undefined; }
 }
 function Artifact({ item }: { item: MeetingArtifact }) {
   const link = safeSource(item.url);
@@ -41,6 +44,24 @@ function Artifact({ item }: { item: MeetingArtifact }) {
       {item.truncated ? <p className={styles.muted}>Preview shortened. Open the source for the full text.</p> : null}
     </>}
   </div>;
+}
+
+function SourceExcerpts({ artifacts, kind }: { artifacts: MeetingArtifact[]; kind: "decisions" | "follow-ups" }) {
+  const headings = kind === "decisions" ? /^(?:#{1,6}\s*)?(?:key )?decisions\s*:?\s*$/i : /^(?:#{1,6}\s*)?(?:follow[- ]?ups|action items|next steps)\s*:?\s*$/i;
+  const excerpts = artifacts.flatMap(item => {
+    if (item.state !== "available" || !item.text || !safeSource(item.url)) return [];
+    const lines = item.text.split("\n");
+    const start = lines.findIndex(line => headings.test(line.trim()));
+    if (start < 0) return [];
+    const body = [];
+    for (const line of lines.slice(start + 1)) {
+      if (/^(?:#{1,6}\s+|(?:summary|decisions|key decisions|follow[- ]?ups|action items|next steps)\s*:?[ \t]*$)/i.test(line.trim())) break;
+      body.push(line);
+    }
+    const text = body.join("\n").trim();
+    return text ? [{ ...item, excerpt: text }] : [];
+  });
+  return excerpts.length ? excerpts.map(item => <div key={item.file_id} className="space-y-2"><p className={styles.notes}>{item.excerpt}</p><a className={styles.link} href={safeSource(item.url)} target="_blank" rel="noopener noreferrer">Source: {item.title || "Meeting document"}<ExternalLink className="size-3" /></a></div>) : <p className={styles.muted}>No explicit {kind} section in the available source text. Ask One to review the authorized sources.</p>;
 }
 
 export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, vaultOwnerToken }: {
@@ -58,15 +79,54 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && navigator.onLine));
+  const sessionId = useOneConversationSession(state => state.sessionId);
+  const refreshBudget = useRef(5);
+  const lastRefresh = useRef(0);
   const [asking, setAsking] = useState(false);
   const entryRef = useRef<HTMLButtonElement>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const lastSelectedId = useRef<string | null>(null);
   const getToken = useRef(getIdToken); getToken.current = getIdToken;
   const epoch = snapshotVaultSessionEpoch();
-  const identity = `${userId}:${accountKey}:${epoch}`;
+  const identity = `${userId}:${accountKey}:${epoch}:${sessionId}`;
   const current = useRef(identity); current.current = identity;
   const lifetime = useRef<AbortController | null>(null);
+  const refresh = useCallback(() => {
+    if (document.visibilityState === "hidden" || !navigator.onLine) return;
+    lifetime.current?.abort();
+    setOverview(null); setLibrary(null); setDetail(null); setPage(0);
+    setRevision(value => value + 1);
+  }, []);
+  useEffect(() => {
+    const resume = () => {
+      const active = document.visibilityState !== "hidden" && navigator.onLine;
+      setCanRefresh(active);
+      if (!active) {
+        lifetime.current?.abort();
+        setOverview(null); setLibrary(null); setDetail(null); setPage(0); setLoading(false);
+        return;
+      }
+      // Focus and visibilitychange commonly arrive together.
+      if (Date.now() - lastRefresh.current < 1000) return;
+      lastRefresh.current = Date.now(); refreshBudget.current = 5; refresh();
+    };
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("offline", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      window.removeEventListener("offline", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [refresh]);
+  useEffect(() => {
+    if (!canRefresh || loading || error || view === "overview" || refreshBudget.current <= 0) return;
+    const timer = window.setTimeout(() => { refreshBudget.current -= 1; refresh(); }, 60_000);
+    return () => window.clearTimeout(timer);
+  }, [canRefresh, loading, error, view, revision, refresh]);
   const back = useCallback(() => {
     if (view === "overview") return false;
     setError("");
@@ -76,9 +136,11 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
   }, [view]);
   useBackLayer("/one/calendar", view === "meeting" ? 2 : view === "library" ? 1 : 0, back);
   useEffect(() => {
+    if (!canRefresh) return;
     const controller = new AbortController(); lifetime.current = controller;
     const valid = () => !controller.signal.aborted && current.current === identity && isVaultSessionEpochCurrent(epoch);
-    setLoading(true); setAsking(false); setError(""); setDetail(null);
+    setLoading(true); setAsking(false); setError(""); setDetail(null); setOverview(null);
+    if (view !== "library" || page === 0) setLibrary(null);
     const load = async () => {
       try {
         const token = await getToken.current(); if (!valid()) return;
@@ -100,7 +162,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
       finally { if (valid()) setLoading(false); }
     };
     void load(); return () => controller.abort();
-  }, [view, selected, date, zone, identity, epoch, revision, accountKey, page]);
+  }, [view, selected, date, zone, identity, epoch, revision, accountKey, page, canRefresh]);
   const ask = async () => {
     if (!selected?.id || !vaultOwnerToken || asking) return;
     const eventId = selected.id;
@@ -122,8 +184,10 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
   });
   const artifacts = detail?.artifacts || [];
   return <div className={styles.insights}>
+    <div className="flex justify-end"><Button variant="ghost" size="sm" disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; refresh(); }}>Refresh</Button></div>
+    {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon" aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}><ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
-    {error ? <SectionCard><p role="alert">{error}</p><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Try again</Button></SectionCard> : null}
+    {error ? <SectionCard><p role="alert">{error}</p><Button variant="outline" onClick={() => { refreshBudget.current = 5; refresh(); }}>Try again</Button></SectionCard> : null}
     {loading ? <p role="status">Checking Calendar{view === "meeting" ? " and meeting file permissions" : ""}…</p> : null}
     {view === "overview" ? <>
       <div><h2 className={styles.heading}>Insights</h2><p className={styles.muted}>Understand your time. Make room for what matters.</p></div>
@@ -135,7 +199,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? `${overview.overlaps} overlapping pairs · ${overview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
       <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>{overview ? "No recurring commitments in the loaded events." : "Recurring commitments have not been checked."}</p>}</SectionCard>
-      <button ref={entryRef} type="button" className={styles.entry} onClick={() => { setPage(0); setLibrary(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes from past meetings</span></span><ChevronRight className="size-4" /></button>
+      <button ref={entryRef} type="button" className={styles.entry} onClick={() => { refreshBudget.current = 5; setPage(0); setLibrary(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes from past meetings</span></span><ChevronRight className="size-4" /></button>
       <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
         {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
       </SectionCard>
@@ -145,18 +209,18 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
       <SegmentedTabs variant="filter" ariaLabel="Recording and notes filters" value={filter} onValueChange={setFilter} options={[{ value: "all", label: "All" }, { value: "recording", label: "Recordings" }, { value: "notes", label: "Notes" }]} />
       {filter !== "all" ? <p className={styles.muted}>Filters include only files whose access was verified.</p> : null}
       {library && !library.complete ? <p role="status" className={styles.muted}>Some calendars or additional events could not be included. This list is incomplete.</p> : null}
-      <SectionCard>{filtered.map(meeting => <button className={styles.row} type="button" key={`${meeting.calendar_id}:${meeting.id}`} ref={node => { const key = `${meeting.calendar_id}:${meeting.id}`; if (node) rowRefs.current.set(key, node); else rowRefs.current.delete(key); }} onClick={() => { lastSelectedId.current = `${meeting.calendar_id}:${meeting.id}`; setSelected(meeting); setDetailTab("notes"); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleString(undefined, { timeZone: zone, dateStyle: "medium", timeStyle: "short" }) : meeting.start?.date}</span><span className={styles.tags}>{meeting.artifact_kinds?.length ? meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : kind === "notes" ? "Notes" : "Transcript"}</span>) : <span className={styles.tag}>{meeting.artifact_status === "permission_required" ? "Permission required" : "Check meeting files"}</span>}</span></span><ChevronRight className="size-4" /></button>)}{!loading && !error && !filtered.length ? <p className={styles.muted}>{query || filter !== "all" ? "No matching meetings in this list." : "No linked meetings were returned for this period."}</p> : null}</SectionCard>
+      <SectionCard>{filtered.map(meeting => <button className={styles.row} type="button" key={`${meeting.calendar_id}:${meeting.id}`} ref={node => { const key = `${meeting.calendar_id}:${meeting.id}`; if (node) rowRefs.current.set(key, node); else rowRefs.current.delete(key); }} onClick={() => { lastSelectedId.current = `${meeting.calendar_id}:${meeting.id}`; setSelected(meeting); setDetailTab("notes"); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleString(undefined, { timeZone: zone, dateStyle: "medium", timeStyle: "short" }) : meeting.start?.date}</span><span className={styles.tags}>{meeting.artifact_kinds?.length ? meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : kind === "notes" ? "Notes" : "Transcript"}</span>) : <span className={styles.tag}>{artifactLabels[meeting.artifact_status || ""] || "Check meeting files"}</span>}</span></span><ChevronRight className="size-4" /></button>)}{!loading && !error && !filtered.length ? <p className={styles.muted}>{query || filter !== "all" ? "No matching meetings in this list." : "No linked meetings were returned for this period."}</p> : null}</SectionCard>
       {library?.next_page != null ? <Button variant="outline" disabled={loading} onClick={() => setPage(library.next_page!)}>Load more meetings</Button> : null}
       {library?.next_page != null && (query || filter !== "all") ? <p className={styles.muted}>Search and filters apply to loaded meetings. Load more to include older results.</p> : null}
     </> : <>
-      <h2 className={styles.heading}>{selected?.title}</h2>
+      <h2 className={styles.heading}>{detail?.event?.title || selected?.title}</h2>
       {detail ? <>
         {detail.discovery !== "checked" ? <p role="status" className={styles.muted}>{detail.discovery === "permission_required" ? "Google Meet access is required to discover recordings, transcripts and smart notes. This Calendar connection does not grant it." : availability[detail.discovery]}</p> : null}
-        <div className={styles.details}><SectionCard title="Recording">{artifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} />)}{!artifacts.some(item => item.kind === "recording") ? <p className={styles.muted}>No recording available from verified sources.</p> : null}</SectionCard>
+        <div className={styles.details}><SectionCard title="Recording">{artifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} />)}{!artifacts.some(item => item.kind === "recording") ? <p className={styles.muted}>{detail.availability?.recording === "not_generated" ? "Not recorded / no recording generated." : availability[detail.availability?.recording || detail.discovery] || "No recording available from verified sources."}</p> : null}</SectionCard>
         <SectionCard title="Meeting notes"><SegmentedTabs ariaLabel="Meeting assets" variant="filter" value={detailTab} onValueChange={setDetailTab} options={[{ value: "notes", label: "Notes" }, { value: "transcript", label: "Transcript" }]} />
           {artifacts.filter(item => item.kind === detailTab).map(item => <Artifact key={item.file_id} item={item} />)}
-          {!artifacts.some(item => item.kind === detailTab) ? <p className="py-4 text-muted-foreground">{detailTab === "notes" ? "Notes" : "Transcript"} not available from verified sources.</p> : null}
-          {detailTab === "notes" ? <div className="space-y-3 border-t pt-3"><div><h3 className="font-semibold">Decisions</h3><p className={styles.muted}>See the source notes above. No separate decision record was supplied.</p></div><div><h3 className="font-semibold">Follow-ups</h3><p className={styles.muted}>See the source notes above. No separate follow-up record was supplied.</p></div></div> : null}
+          {!artifacts.some(item => item.kind === detailTab) ? <p className="py-4 text-muted-foreground">{detail.availability?.[detailTab as "notes" | "transcript"] === "not_generated" ? (detailTab === "notes" ? "No notes generated." : "No transcript generated.") : availability[detail.availability?.[detailTab as "notes" | "transcript"] || detail.discovery] || "Not available from verified sources."}</p> : null}
+          {detailTab === "notes" ? <div className="space-y-3 border-t pt-3"><div><h3 className="font-semibold">Decisions</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="decisions" /></div><div><h3 className="font-semibold">Follow-ups</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="follow-ups" /></div></div> : null}
         </SectionCard></div>
         <Button variant="outline" disabled={asking || !vaultOwnerToken || !artifacts.some(item => item.can_ask)} onClick={() => void ask()}><MessageSquare className="mr-2 size-4" />{asking ? "Checking source access…" : "Ask One about this meeting"}</Button>
         {!vaultOwnerToken ? <p className={styles.muted}>Unlock your vault in One to use meeting context in your conversation.</p> : null}

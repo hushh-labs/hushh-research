@@ -9,7 +9,7 @@ export type CalendarInsights = {
 export type Meeting = CalendarEventSummary & { artifact_refs?: { file_id: string; mime_type: string }[]; conference_id?: string; artifact_kinds?: string[]; artifact_status?: string };
 export type MeetingLibrary = { complete: boolean; window_days: number; next_page?: number | null; meetings: Meeting[] };
 export type MeetingArtifact = { file_id: string; kind: "recording" | "notes" | "transcript"; state: string; title?: string; url?: string; text?: string; truncated?: boolean; can_ask?: boolean; linked_only?: boolean };
-export type MeetingDetail = { event: Meeting; calendar_id: string; discovery: string; complete: boolean; artifacts: MeetingArtifact[] };
+export type MeetingDetail = { event: Meeting; calendar_id: string; discovery: string; availability?: Partial<Record<MeetingArtifact["kind"], string>>; complete: boolean; artifacts: MeetingArtifact[] };
 export type MeetingSelection = { calendar_id: string; event_id: string; expected_account_email: string };
 export type MeetingContext = { title: string; sources: { title: string; url: string; text: string; truncated: boolean }[] };
 

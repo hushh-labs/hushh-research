@@ -1557,7 +1557,7 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights remains Coming soon. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights shows the live weekly overview and meeting library. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
@@ -3710,6 +3710,21 @@ disables automatic PKM capture and refuses `pkm.add` for this context. Retry ret
 meeting provenance and rechecks source access; restored attachments without live
 selection provenance require reopening Calendar. These reads
 perform no ingestion, Memory write, schema change or scheduling action.
+
+Detail availability is per artifact kind: available, processing, not generated
+(only after a successful complete Meet list), permission required, unavailable,
+or provider error. Drive 403 is permission required; 404/410 may mean deleted or
+not shared and never proves that a meeting was not recorded. Supported text is
+read from Drive afresh; explicit Decisions/Follow-ups sections are quoted with
+source links, never invented. Account/generation changes discard read content.
+
+Opening Insights, returning to the tab, window focus, network reconnection and
+manual Refresh fetch fresh provider state. Library/detail polls at one-minute
+intervals, at most five times per entry/resume/manual refresh; hidden/offline
+pages stop and abort pending reads. Refresh clears displayed source content and
+replaces page one, removing stale, revoked or deleted artifacts. Chat unlock
+retries retain owner/conversation identity and await that conversation's restore;
+meeting source attachments cannot enter generic edit/resend or draft recovery.
 
 All responses use `private, no-store`. The existing catch-all One proxy and
 platform-aware `ApiService` own web/native transport. No new native bridge is
