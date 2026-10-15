@@ -273,13 +273,23 @@ const VERIFICATION_WINDOWS = [
   ["document_request_payment", DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS],
 ] as const;
 /** Sources that keep an inventory from being complete: unavailable in this
- * read, or last verified outside their freshness window. */
+ * read, or last verified outside their freshness window. Ages are measured from
+ * `freshnessAt` (when the read began, where a scan was judged reusable), so a
+ * slow build cannot age a reused source past its window; a source verified
+ * during the build, after that time and never after observedAt, is fresh. */
 export function incompleteLivingSourceKinds(
   inventory: Pick<LivingSourceInventory, "unavailable" | "observedAt" | "verifiedAt">,
+  freshnessAt: string = inventory.observedAt,
 ): string[] {
   const kinds = new Set(inventory.unavailable);
-  for (const [kind, maxAge] of VERIFICATION_WINDOWS)
-    if (!recentlyVerified(inventory.verifiedAt?.[kind], inventory.observedAt, maxAge)) kinds.add(kind);
+  const reference = Date.parse(freshnessAt);
+  const observed = Date.parse(inventory.observedAt);
+  for (const [kind, maxAge] of VERIFICATION_WINDOWS) {
+    const at = inventory.verifiedAt?.[kind];
+    const verified = at === undefined ? NaN : Date.parse(at);
+    const duringBuild = verified > reference && verified <= observed;
+    if (!duringBuild && !recentlyVerified(at, freshnessAt, maxAge)) kinds.add(kind);
+  }
   return [...kinds].sort();
 }
 export function reconcileLivingSources(
@@ -289,6 +299,8 @@ export function reconcileLivingSources(
   unavailable: string[],
   now: string,
   sourceVerifiedAt: Partial<Record<"connection" | "document_earning" | "payout_activity" | "document_request_payment" | "consent" | "curated_oauth_connector", string>> = {},
+  /** When this build's read began; completeness ages are measured from it. */
+  freshnessAt: string = now,
 ): LivingSourceInventory {
   const verifiedAt = { ...(previous?.verifiedAt ?? {}) };
   for (const kind of successfulKinds) {
@@ -349,7 +361,7 @@ export function reconcileLivingSources(
     records: [...records.values()].sort((a, b) =>
       `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`),
     ),
-    complete: incompleteLivingSourceKinds({ unavailable, observedAt: now, verifiedAt }).length === 0,
+    complete: incompleteLivingSourceKinds({ unavailable, observedAt: now, verifiedAt }, freshnessAt).length === 0,
     unavailable: [...unavailable].sort(),
     observedAt: now,
     verifiedAt,

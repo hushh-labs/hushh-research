@@ -518,6 +518,8 @@ describe("persisted source-linked Profile memory.md", () => {
       await refreshSources(true);
       expect(profileCheck()).toBe("2026-10-15T10:00:00.000Z");
       recordLivingSourceSessionVerification(USER, snapshotVaultSessionEpoch(), ["profile"], sessionCheck);
+      // An unchanged sync rebuilds nothing; its check time applies on read.
+      expect(profileCheck()).toBe(sessionCheck);
       await refreshSources(true);
       expect(profileCheck()).toBe(sessionCheck);
     } finally { vi.useRealTimers(); }

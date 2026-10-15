@@ -687,6 +687,37 @@ it("keeps per-kind verification times on skipped scans and fails closed when pay
   }
 });
 
+it("judges reused sources from when the read began, unless the build outlasts the grace", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-10-14T00:00:00.000Z"));
+    await syncLivingSources(params);
+    const identity = m.identity.getMockImplementation();
+    // Every scan is still reusable at 4:59; this build's profile read takes 30s.
+    vi.setSystemTime(new Date("2026-10-14T00:04:59.000Z"));
+    m.identity.mockImplementationOnce(async (...args: unknown[]) => {
+      vi.setSystemTime(new Date("2026-10-14T00:05:29.000Z"));
+      return identity?.(...args);
+    });
+    await expect(syncLivingSources(params)).resolves.toBeDefined();
+    expect(inventory().complete).toBe(true);
+
+    // Negative control: a build longer than the 2-minute grace is judged at
+    // write time, so a reused source is never fresh past window plus grace.
+    vi.setSystemTime(new Date("2026-10-14T00:09:58.000Z"));
+    await syncLivingSources(params);
+    vi.setSystemTime(new Date("2026-10-14T00:14:57.000Z"));
+    m.identity.mockImplementationOnce(async (...args: unknown[]) => {
+      vi.setSystemTime(new Date("2026-10-14T00:17:58.000Z"));
+      return identity?.(...args);
+    });
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(inventory().complete).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("timestamps a long scan at completion so a queued refresh does not repeat it", async () => {
   vi.useFakeTimers();
   try {
@@ -880,7 +911,7 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-14T00:00:00.000Z"));
   try {
-    await syncLivingSources(params);
+    expect(await syncLivingSources(params)).toEqual({ stored: true });
     const observedAt = inventory().observedAt;
     const previousStored = stored;
     m.save.mockImplementation(async (p) => {
@@ -890,7 +921,7 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
       return { success: true, idempotentReplay: true };
     });
     vi.setSystemTime(new Date("2026-10-14T00:01:00.000Z"));
-    await syncLivingSources(params);
+    expect(await syncLivingSources(params)).toEqual({ stored: false });
     expect(stored).toBe(previousStored);
     expect(inventory().observedAt).toBe(observedAt);
     // The skipped write still verified the profile in this unlocked session.

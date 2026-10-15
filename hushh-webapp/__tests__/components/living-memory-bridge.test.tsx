@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   getMetadata: vi.fn(),
   refreshMemoryDocument: vi.fn(),
   syncLivingSources: vi.fn(),
+  markPending: vi.fn(),
   domainChangeListener: null as ((detail: { userId: string; domain: string; operation: string }) => void) | null,
   connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
   payoutChangeListener: null as ((detail: { kinds: string[] }) => void) | null,
@@ -55,7 +56,7 @@ vi.mock("@/lib/pkm/memory-refresh", () => ({
   refreshMemoryDocument: (...args: unknown[]) => m.refreshMemoryDocument(...args),
   watchMemoryFreshness: () => () => undefined,
   clearMemoryDocument: vi.fn(),
-  markMemoryRefreshPending: vi.fn(),
+  markMemoryRefreshPending: (...args: unknown[]) => m.markPending(...args),
 }));
 vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
   subscribeToPkmDomainChanges: (listener: (detail: { userId: string; domain: string; operation: string }) => void) => {
@@ -150,6 +151,27 @@ describe("LivingMemoryBridge", () => {
     });
     expect(m.refreshMemoryDocument).toHaveBeenCalledTimes(1);
     expect(m.refreshMemoryDocument.mock.calls[0]![0]).toMatchObject({ force: false });
+  });
+
+  it("rebuilds the mirror quietly after a stored sync and marks it updating only for owner changes", async () => {
+    m.syncLivingSources.mockResolvedValue({ stored: true });
+    render(<LivingMemoryBridge />);
+    await flush();
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: true });
+    expect(m.markPending).not.toHaveBeenCalled();
+
+    // A routine wake whose sync stored nothing lets the freshness check decide.
+    m.refreshMemoryDocument.mockClear();
+    m.syncLivingSources.mockResolvedValue({ stored: false });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: false });
+    expect(m.markPending).not.toHaveBeenCalled();
+
+    // A committed owner change is the only wake that shows the mirror updating.
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } })));
+    await flush();
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
   });
 
   it("still refreshes when a relevant domain actually changed", async () => {

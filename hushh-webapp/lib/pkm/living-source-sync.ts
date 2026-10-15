@@ -37,6 +37,7 @@ import {
   type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
 import { recordLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
+import { LIVE_MIRROR_STALE_GRACE_MS } from "@/lib/pkm/live-mirror-contract";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -580,8 +581,11 @@ export async function syncLivingSources(params: {
   forceConnections?: boolean;
   forceConsent?: boolean;
   forceCuratedConnectors?: boolean;
-}): Promise<void> {
+}): Promise<{ stored: boolean }> {
   const epoch = snapshotVaultSessionEpoch();
+  // Whether the encrypted write changed anything. An unchanged sync still
+  // verified its sources, which the session verification map records.
+  let storedChange = false;
   const readStartedAt = new Date().toISOString();
   let storedSnapshotAt = readStartedAt;
   let incompleteKinds: string[] = [];
@@ -892,7 +896,7 @@ export async function syncLivingSources(params: {
     }
     return { inputs, successful, unavailable, failed };
   };
-  if (!isVaultSessionEpochCurrent(epoch)) return;
+  if (!isVaultSessionEpochCurrent(epoch)) return { stored: false };
   const result = await PkmWriteCoordinator.saveMergedDomain({
     ...params,
     domain: LIVING_SOURCE_DOMAIN,
@@ -976,6 +980,11 @@ export async function syncLivingSources(params: {
       // A long keyset read is fresh when it finishes. Timestamping the start
       // would immediately trigger another full scan if it exceeded five minutes.
       storedSnapshotAt = new Date().toISOString();
+      // A source judged reusable when this read began stays fresh for this
+      // build, unless the build outlasted the read-time grace: then ages are
+      // measured at write time, so no source counts fresh past window + grace.
+      const freshnessAt = Date.parse(storedSnapshotAt) - Date.parse(readStartedAt) <= LIVE_MIRROR_STALE_GRACE_MS
+        ? readStartedAt : storedSnapshotAt;
       const inventory = reconcileLivingSources(
         previous ?? null,
         inputs,
@@ -990,8 +999,9 @@ export async function syncLivingSources(params: {
           consent: consentVerifiedAt,
           curated_oauth_connector: curatedConnectorsVerifiedAt,
         },
+        freshnessAt,
       );
-      incompleteKinds = incompleteLivingSourceKinds(inventory);
+      incompleteKinds = incompleteLivingSourceKinds(inventory, freshnessAt);
       verifiedKinds = LIVING_SOURCE_KINDS.filter((kind) => successful.includes(kind));
       scanFailures = failed;
       previouslyUnavailable = new Set(previous?.unavailable ?? []);
@@ -1044,6 +1054,7 @@ export async function syncLivingSources(params: {
         journalPending,
         sourceHealth,
       });
+      storedChange = !unchanged;
       return {
         unchanged,
         domainData: {
@@ -1117,4 +1128,5 @@ export async function syncLivingSources(params: {
     recordLivingSourceSessionVerification(params.userId, epoch, verifiedKinds, storedSnapshotAt);
   if (incompleteKinds.length)
     throw new LivingSourcesIncompleteError(incompleteKinds);
+  return { stored: storedChange };
 }

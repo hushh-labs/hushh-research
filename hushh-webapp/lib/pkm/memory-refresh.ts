@@ -58,6 +58,34 @@ type Cached = {
 };
 const peekCached = (userId: string) => CacheService.getInstance().peek<Cached>(CACHE_KEY(userId));
 
+/**
+ * Newer source verifications from this owner's unlocked session. An unchanged
+ * sync re-verified its sources without a write or a rebuild, so its time is
+ * applied when the mirror is read. Another owner or vault epoch adds nothing.
+ */
+function withSessionVerification(userId: string, projection: LiveMirrorProjection): LiveMirrorProjection {
+  if (projection.ownerId !== userId || projection.vaultEpoch !== snapshotVaultSessionEpoch()) return projection;
+  const session = getLivingSourceSessionVerification(userId, projection.vaultEpoch);
+  const newer = (kind: keyof typeof session, at: string | null): string | null => {
+    const verified = session[kind];
+    return verified && (at === null || Date.parse(verified) > Date.parse(at)) ? verified : null;
+  };
+  const refreshed = new Map<string, string>();
+  const sources = projection.sources.map((source) => {
+    if (source.group !== "living" || !source.kind || source.state === "unavailable") return source;
+    const verifiedAt = newer(source.kind, source.verifiedAt);
+    if (!verifiedAt) return source;
+    refreshed.set(source.kind, verifiedAt);
+    return { ...source, verifiedAt };
+  });
+  if (!refreshed.size) return projection;
+  const facts = projection.facts.map((fact) => {
+    const verifiedAt = refreshed.get(fact.kind);
+    return verifiedAt && newer(fact.kind, fact.verifiedAt) ? { ...fact, verifiedAt } : fact;
+  });
+  return { ...projection, sources, facts };
+}
+
 /** Document-level status, without the per-source verification-age check. */
 function documentStatus(userId: string, entry: CacheSnapshot<Cached>, now: number): MemoryRefreshStatus {
   const cached = entry.data;
@@ -109,7 +137,8 @@ export function peekMemoryView(userId: string): MemoryView {
   return {
     document,
     builtAt,
-    status: status === "current" && projection && liveMirrorHasExpiredSource(projection, now) ? "stale" : status,
+    status: status === "current" && projection &&
+      liveMirrorHasExpiredSource(withSessionVerification(userId, projection), now) ? "stale" : status,
   };
 }
 /**
@@ -120,7 +149,7 @@ export function peekLiveMirror(userId: string, now: number = Date.now()): LiveMi
   const entry = peekCached(userId);
   const projection = entry?.data.projection;
   if (!entry || !projection || projection.ownerId !== userId) return null;
-  return applyLiveMirrorReadTime(projection, now, documentStatus(userId, entry, now));
+  return applyLiveMirrorReadTime(withSessionVerification(userId, projection), now, documentStatus(userId, entry, now));
 }
 
 export interface RefreshMemoryParams {
