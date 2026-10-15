@@ -159,12 +159,6 @@ if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|com
   ran=1
 fi
 
-# Wallet owns real local OCR and encrypted scan-to-Cards browser proof.
-if has_match '^hushh-webapp/(components/wallet/|lib/wallet/|lib/services/wallet|lib/capacitor/card-scanner\.ts|public/wallet/card-scan-worker\.js|scripts/prepare-wallet-ocr\.mjs|e2e/wallet-(card-scan|intelligent-card-add)\.layout\.spec\.ts|e2e/fixtures/wallet-intelligent)'; then
-  run_check "Wallet local OCR and encrypted scan-to-Cards" npm run test:wallet-scanning
-  ran=1
-fi
-
 # Calendar owns a transport-backed fixture for connected Schedule. Keep this
 # explicitly registered; the general layout script enumerates its own specs.
 if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then

@@ -1,5 +1,6 @@
-import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 "use client";
+
+import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 
 /**
  * Download everything One remembers about you.

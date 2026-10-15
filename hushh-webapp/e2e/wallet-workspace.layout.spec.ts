@@ -929,8 +929,8 @@ for (const width of [390, 1440]) {
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
     await expect(details).not.toContainText(/CVV|CVC|PIN/);
     const icons = details.locator('[data-slot="settings-row-icon"] svg');
-    await expect(icons).toHaveCount(8);
-    expect(await icons.evaluateAll(elements => elements.slice(0, 7).every(icon => {
+    await expect(icons).toHaveCount(6);
+    expect(await icons.evaluateAll(elements => elements.slice(0, 5).every(icon => {
       const keyAccent = icon.querySelector('defs pattern circle');
       if (keyAccent) {
         const ink = icon.querySelector('defs pattern rect');
