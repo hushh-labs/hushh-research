@@ -535,6 +535,80 @@ async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_
     }
 
 
+@pytest.mark.parametrize("condition", ["intact", "key_missing", "inventory_changed", "replaced"])
+async def test_legacy_provider_retry_requires_the_original_key_inventory_and_generation(
+    store, condition
+):
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services.pod_crypto_erase import _tombstone
+    from tests.pod_connector_harness import SCOPES, credential
+
+    log = await _agent(store)
+    login = credential("gmail", SCOPES["gmail_manage"])
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, login))
+    await _fencer(log)()
+    records = await log.fold_fenced(
+        owner_id=OWNER, attempt_id=ATTEMPT, visit_reverse=lambda _: None
+    )
+    body = json.loads(
+        _tombstone(
+            OWNER,
+            ATTEMPT,
+            records,
+            [],
+            {"revoked": 0, "unrevoked": 0, "unavailable": 1, "receipts": []},
+        )
+    )
+    body["version"] = 3
+    body.pop("providerCoverage")
+    if condition == "inventory_changed":
+        body["records"] = []
+    if condition == "key_missing":
+        await store.delete(WRAPPED)
+    original = json.dumps(body).encode()
+    await store.put(ERASURE_TOMBSTONE_OBJECT, original)
+    calls = []
+
+    async def provider(_url, form):
+        calls.append(form["token"])
+        return 200, {}
+
+    class Replaced(_Recording):
+        async def put_if_generation(self, key, value, generation):
+            assert key == ERASURE_TOMBSTONE_OBJECT and generation != ABSENT
+            assert (
+                await self._inner.put_if_generation(
+                    key, json.dumps({**body, "attemptId": "another-attempt"}).encode(), generation
+                )
+                is not None
+            )
+            return None
+
+    selected = Replaced(store) if condition == "replaced" else store
+    options = dict(
+        store=selected,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_never if condition == "key_missing" else _fencer(log),
+        provider_post=provider,
+        require_provider_revocation=True,
+    )
+    if condition != "intact":
+        with pytest.raises(PodCryptoEraseRefused):
+            await crypto_erase(**options)
+        assert await store.get(WRAPPED) == (None if condition == "key_missing" else b"wrapped-dek")
+        assert calls == ([login.refresh_token] if condition == "replaced" else [])
+        if condition != "replaced":
+            assert await store.get(ERASURE_TOMBSTONE_OBJECT) == original
+        return
+    result = await crypto_erase(**options)
+    assert result["providerRevoked"] == 1 and result["providerUnavailable"] == 0
+    qualified = json.loads(await store.get(ERASURE_TOMBSTONE_OBJECT))
+    assert qualified["version"] == 4 and qualified["records"] == records
+    assert await store.get(WRAPPED) is None
+
+
 @pytest.mark.parametrize("version", [1, 2, 3])
 async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_completion(
     store, version

@@ -286,6 +286,9 @@ tombstones remain readable but report provider coverage as unavailable. Never
 mint a new key or convert a legacy zero counter into a cleanup success. If an old
 operation already destroyed its credential key, external provider recovery needs
 separate evidence. Internal local-only erasure is not full-account completion.
+With the original key intact, requalify only the same fenced inventory and
+replace provider metadata conditionally against the observed object generation.
+A changed inventory or a competing tombstone refuses key destruction.
 
 ### Azure Files activation on an existing pod
 
