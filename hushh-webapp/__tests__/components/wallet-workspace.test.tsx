@@ -149,7 +149,7 @@ describe("WalletWorkspace at scale", () => {
     // Exercise the real cohesive SVG renderer; only public asset I/O and the
     // browser object-URL boundary are replaced in JSDOM.
     vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
-      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8"));
+      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v2.svg`), "utf8"));
     const images = new Map<string, Blob>();
     vi.stubGlobal("URL", class extends URL {
       static createObjectURL = vi.fn((blob: Blob) => {

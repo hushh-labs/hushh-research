@@ -1,5 +1,10 @@
 const notificationPrivacy = vi.hoisted(() => ({ clear: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/notifications/fcm-service", () => ({ clearLocalChatNotificationState: notificationPrivacy.clear }));
+const signupToken = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/google-signup-token", () => ({
+  requestGoogleSignupToken: signupToken,
+  googleSignupConfigured: () => Boolean(process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 
@@ -151,6 +156,7 @@ vi.mock("@/lib/capacitor", () => ({
 
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
 import {
+  GoogleAuthProvider,
   linkWithCredential,
   onAuthStateChanged,
   PhoneAuthProvider,
@@ -1213,6 +1219,7 @@ describe("AuthService.restoreNativeSession", () => {
 describe("AuthService native Google provider parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockAuth.currentUser = null;
   });
@@ -1252,6 +1259,23 @@ describe("AuthService native Google provider parity", () => {
   it("rejects native source metadata for a replacement owner", async () => {
     mockFirebaseAuthentication.getIdTokenResult.mockResolvedValue({ claims: { sub: "other" }, signInProvider: "apple.com" });
     await expect(AuthService.initialContactsSignInProvider({ uid: "owner" } as any, () => true)).rejects.toThrow("session_changed");
+  });
+
+  it.each(["ios", "android"])("keeps public %s signup outside unverified Contacts authorization", async (platform) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    mockCapacitor.getPlatform.mockReturnValue(platform);
+    const idToken = createIdToken(3600, "new-owner");
+    mockAuth.currentUser = { uid: "new-owner", getIdToken: vi.fn().mockResolvedValue(idToken) };
+    mockHushhAuth.signIn.mockResolvedValue({ user: { id: "new-owner" }, idToken, isNewUser: true });
+    mockFirebaseAuthentication.signInWithGoogle.mockResolvedValue({
+      user: { uid: "new-owner" }, additionalUserInfo: { isNewUser: true }, credential: { idToken },
+    });
+    mockFirebaseAuthentication.getIdToken.mockResolvedValue({ token: idToken });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(result.isNewUser).toBe(true);
+    expect(result.contactsGrant).toBeUndefined();
+    expect(mockHushhAuth.authorizeGoogleContacts).not.toHaveBeenCalled();
+    if (platform === "ios") expect(mockFirebaseAuthentication.signInWithGoogle).toHaveBeenCalledWith();
   });
 
   it("captures a real Contacts token during signup without accepting a stale JS owner", async () => {
@@ -1418,10 +1442,14 @@ describe("AuthService native Google provider parity", () => {
 describe("AuthService web provider popup continuity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "firebase-client.apps.googleusercontent.com");
     mockCapacitor.isNativePlatform.mockReturnValue(false);
+    signupToken.mockReset();
   });
 
-  it("uses Firebase popup authentication for Google on web", async () => {
+  it.each(["", "firebase-client.apps.googleusercontent.com"])("keeps the SDK contract for callers without an explicit sign-in purpose (%s)", async (clientId) => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", clientId);
     const user = {
       uid: "google-web-user",
       getIdToken: vi.fn().mockResolvedValue("google-id-token"),
@@ -1444,14 +1472,113 @@ describe("AuthService web provider popup continuity", () => {
     expect(mockOAuthAddScope).not.toHaveBeenCalled();
   });
 
-  it("requests Contacts only for the explicit signup purpose and returns the invocation-local grant", async () => {
+  it("keeps public Google signup successful without requesting the unverified Contacts scope", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    signupToken.mockResolvedValue({ accessToken: "authentication-token", contactsGranted: false });
+    mockSignInWithCredential.mockResolvedValue({ user, additionalUserInfo: { isNewUser: true } });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
+    expect(result.isNewUser).toBe(true);
+    expect(result.contactsGrant).toBeUndefined();
+    expect(mockOAuthAddScope).not.toHaveBeenCalled();
+    expect(signupToken).toHaveBeenCalledWith({ includeContacts: false, signal: undefined });
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it("preserves an existing user's Firebase identity and phone without requesting Contacts", async () => {
+    const user = { uid: "existing-owner", phoneNumber: "+14155550123", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    signupToken.mockResolvedValue({ accessToken: "identity-only-token", contactsGranted: false });
+    mockSignInWithCredential.mockResolvedValue({ user, additionalUserInfo: { isNewUser: false } });
+    const settling = vi.fn();
+    const result = await AuthService.signInWithGoogle({ purpose: "authentication", onCredentialExchange: settling });
+    expect(signupToken).toHaveBeenCalledWith({ includeContacts: false, signal: undefined });
+    expect(result.user).toBe(user);
+    expect(result.user.phoneNumber).toBe("+14155550123");
+    expect(result.isNewUser).toBe(false);
+    expect(result.contactsGrant).toBeUndefined();
+    expect(settling).toHaveBeenCalledExactlyOnceWith();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("preserves SDK signup and contact choice without a configured identity client (%s)", async (includeContacts) => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "");
     const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
     mockSignInWithPopup.mockResolvedValue({ user, additionalUserInfo: { isNewUser: true } });
-    mockGoogleCredentialFromResult.mockReturnValue({ accessToken: "ephemeral-contacts-token" });
-    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts" });
-    expect(mockOAuthAddScope).toHaveBeenCalledExactlyOnceWith("https://www.googleapis.com/auth/contacts.readonly");
+    mockGoogleCredentialFromResult.mockReturnValue({ accessToken: "legacy-token" });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts", includeContacts });
+    expect(mockSignInWithPopup).toHaveBeenCalledTimes(1);
+    expect(signupToken).not.toHaveBeenCalled();
+    expect(mockOAuthAddScope).toHaveBeenCalledTimes(includeContacts ? 1 : 0);
+    expect(Boolean(result.contactsGrant)).toBe(includeContacts);
     expect(result.isNewUser).toBe(true);
+  });
+
+  it.each([true, false])("exchanges the signup token directly and preserves Firebase newness (%s)", async (isNewUser) => {
+    const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    signupToken.mockResolvedValue({ accessToken: "ephemeral-contacts-token", contactsGranted: true });
+    const credential = { providerId: "google.com" };
+    vi.mocked(GoogleAuthProvider.credential).mockReturnValue(credential as any);
+    mockSignInWithCredential.mockResolvedValue({ user, additionalUserInfo: { isNewUser } });
+    const settling = vi.fn();
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts", onCredentialExchange: settling });
+    expect(GoogleAuthProvider.credential).toHaveBeenCalledWith(null, "ephemeral-contacts-token");
+    expect(mockSignInWithCredential).toHaveBeenCalledExactlyOnceWith(mockAuth, credential);
+    expect(settling).toHaveBeenCalledExactlyOnceWith();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+    expect(result.isNewUser).toBe(isNewUser);
     expect(result.contactsGrant).toEqual({ accessToken: "ephemeral-contacts-token", authority: "firebase-signup" });
+  });
+
+  it("completes authentication when Contacts is declined or disabled", async () => {
+    const user = { uid: "signup", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
+    signupToken.mockResolvedValue({ accessToken: "authentication-token", contactsGranted: false });
+    mockSignInWithCredential.mockResolvedValue({ user, additionalUserInfo: { isNewUser: true } });
+    const result = await AuthService.signInWithGoogle({ purpose: "initial_contacts", includeContacts: false });
+    expect(signupToken).toHaveBeenCalledWith({ includeContacts: false, signal: undefined });
+    expect(result.user).toBe(user);
+    expect(result.contactsGrant).toBeUndefined();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it.each(["authentication", "initial_contacts"] as const)("does not exchange a token from a replaced %s attempt", async (purpose) => {
+    const controller = new AbortController();
+    let finish!: (grant: { accessToken: string; contactsGranted: boolean }) => void;
+    signupToken.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const pending = AuthService.signInWithGoogle({ purpose, signal: controller.signal });
+    controller.abort();
+    finish({ accessToken: "stale-token", contactsGranted: true });
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a Contacts grant when Firebase rejects the credential", async () => {
+    signupToken.mockResolvedValue({ accessToken: "ephemeral-token", contactsGranted: true });
+    mockSignInWithCredential.mockRejectedValueOnce({ code: "auth/invalid-credential" });
+    await expect(AuthService.signInWithGoogle({ purpose: "initial_contacts" })).rejects.toMatchObject({ code: "auth/invalid-credential" });
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it.each(["credential", "id-token"] as const)("preserves committed signup settlement after cancellation during %s", async (stage) => {
+    const controller = new AbortController();
+    let finish!: () => void;
+    const deferred = new Promise<void>((resolve) => { finish = resolve; });
+    const user = { uid: "committed-owner", getIdToken: vi.fn(async () => {
+      if (stage === "id-token") await deferred;
+      return "firebase-token";
+    }) };
+    signupToken.mockResolvedValue({ accessToken: "ephemeral-token", contactsGranted: true });
+    mockSignInWithCredential.mockImplementationOnce(async () => {
+      if (stage === "credential") await deferred;
+      return { user, additionalUserInfo: { isNewUser: true } };
+    });
+    const pending = AuthService.signInWithGoogle({ purpose: "initial_contacts", signal: controller.signal });
+    await vi.waitFor(() => expect(stage === "credential" ? mockSignInWithCredential : user.getIdToken).toHaveBeenCalled());
+    controller.abort();
+    finish();
+    await expect(pending).resolves.toMatchObject({
+      user, idToken: "firebase-token", isNewUser: true,
+      contactsGrant: { accessToken: "ephemeral-token", authority: "firebase-signup" },
+    });
   });
 
   it("uses Firebase popup authentication for Apple on web", async () => {

@@ -16,6 +16,7 @@ import {
   clearSetupIntent,
   markSetupIntent,
 } from "@/lib/services/one-setup-intent";
+import { readWorldModelInvitationHandoff } from "@/lib/world-model/invitation-handoff";
 
 const {
   push,
@@ -87,6 +88,8 @@ vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
     ONE_SETUP_FINANCE: "/one/setup/finance",
     ONE_HOME: "/one",
     PROFILE: "/one/profile",
+    PROFILE_WORLD_MODEL: "/one/profile/world-model",
+    WORLD_MODEL_INVITE: "/world-model/invite",
   },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
@@ -164,23 +167,27 @@ describe("OnboardingJourneyGuard", () => {
     hasFinanceIntentMock.mockReset().mockReturnValue(false);
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
+    window.sessionStorage.clear();
     clearSetupIntent();
   });
 
-  it("routes pending initial welcome before a positive root-setup latch", async () => {
-    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+  it.each(["cached", "cold"])("routes %s pending initial welcome before a positive root-setup latch", async (entry) => {
+    // Old deployment profiles cannot disable a pending new-user welcome.
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "false");
     pathnameValue = "/finance";
     window.history.replaceState(null, "", "/finance?tab=portfolio");
     isPersistentSetupResolvedMock.mockReturnValue(true);
-    getCachedBootstrapStateMock.mockReturnValue({ ...incompleteSetupState(), setupCompleted: true,
-      initialContactsWelcomeAcknowledged: false });
+    const welcomeState = { ...incompleteSetupState(), setupCompleted: true,
+      initialContactsWelcomeAcknowledged: false };
+    getCachedBootstrapStateMock.mockReturnValue(entry === "cached" ? welcomeState : null);
+    bootstrapStateMock.mockResolvedValue(welcomeState);
     render(<OnboardingJourneyGuard><div>finance agent</div></OnboardingJourneyGuard>);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/welcome?return_to=%2Ffinance%3Ftab%3Dportfolio"));
     expect(screen.queryByText("finance agent")).toBeNull();
   });
 
   it.each(["/one/welcome", "/one/welcome/", "/one/welcome/index.html"])("admits welcome alias %s without redirecting it back to setup", async (route) => {
-    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED", "false");
     pathnameValue = route;
     window.history.replaceState(null, "", route);
     isPersistentSetupResolvedMock.mockReturnValue(true);
@@ -222,10 +229,11 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.queryByText("Checking setup...")).toBeNull();
   });
 
-  it("admits a returning user synchronously from the positive setup latch", async () => {
+  it("checks pending welcome once on cold entry before admitting a returning user", async () => {
     pathnameValue = "/one";
     getCachedBootstrapStateMock.mockReturnValue(null);
     isPersistentSetupResolvedMock.mockReturnValue(true);
+    bootstrapStateMock.mockResolvedValue({ setupCompleted: true, initialContactsWelcomeAcknowledged: null });
 
     render(
       <OnboardingJourneyGuard>
@@ -233,9 +241,9 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
 
-    expect(screen.getByText("one home")).toBeTruthy();
+    expect(await screen.findByText("one home")).toBeTruthy();
     expect(screen.queryByText("Checking setup...")).toBeNull();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -254,6 +262,23 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
     });
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it("keeps a direct PWM fragment out of setup return_to while binding the account", async () => {
+    const token = "a".repeat(43);
+    pathnameValue = "/one/profile/world-model";
+    window.history.replaceState(null, "", `${pathnameValue}#claim=${token}`);
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    render(<OnboardingJourneyGuard><div>model</div></OnboardingJourneyGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+    const setup = new URL(replace.mock.calls[0][0], "https://one.local");
+    expect(setup.pathname).toBe("/one/setup");
+    const destination = setup.searchParams.get("return_to")!;
+    expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
+    expect(decodeURIComponent(setup.href)).not.toContain(token);
+    const id = new URL(destination, "https://one.local").searchParams.get("handoff")!;
+    expect(readWorldModelInvitationHandoff(id, "journey-user")).toBe(token);
   });
 
   it.each(["/one/setup", "/one/setup/connections"])("returns a completed invite journey to its destination from %s", async (setupRoute) => {

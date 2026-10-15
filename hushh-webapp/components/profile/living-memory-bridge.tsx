@@ -44,8 +44,12 @@ export function LivingMemoryBridge() {
     let scannedConnectionVersion = 0;
     let payoutHintVersion = 0;
     let scannedPayoutVersion = 0;
+    let activityHintVersion = 0;
+    let scannedActivityVersion = 0;
     let consentHintVersion = 0;
     let scannedConsentVersion = 0;
+    let requestPaymentHintVersion = 0;
+    let scannedRequestPaymentVersion = 0;
     let connectorHintVersion = 0;
     let scannedConnectorVersion = 0;
     const stopWatch = watchMemoryFreshness(userId);
@@ -68,7 +72,9 @@ export function LivingMemoryBridge() {
             if (!idToken) throw new Error("Source authorization unavailable");
             const connectionVersion = connectionHintVersion;
             const payoutVersion = payoutHintVersion;
+            const activityVersion = activityHintVersion;
             const consentVersion = consentHintVersion;
+            const requestPaymentVersion = requestPaymentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
               await syncLivingSources({
@@ -78,12 +84,16 @@ export function LivingMemoryBridge() {
                 idToken,
                 forceConnections: connectionVersion > scannedConnectionVersion,
                 forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                forcePayoutActivity: activityVersion > scannedActivityVersion,
                 forceConsent: consentVersion > scannedConsentVersion,
+                forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
                 forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
               });
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
+              scannedActivityVersion = activityVersion;
               scannedConsentVersion = consentVersion;
+              scannedRequestPaymentVersion = requestPaymentVersion;
               scannedConnectorVersion = connectorVersion;
             }
           }
@@ -159,6 +169,9 @@ export function LivingMemoryBridge() {
       const owner = (event as CustomEvent<{ userId?: string }>).detail?.userId;
       if (owner && owner !== userId) return;
       consentHintVersion++;
+      // Committed payment ready, paid and refund document events use this
+      // request-scoped feed signal. The snapshot remains the authority.
+      requestPaymentHintVersion++;
       refreshSources();
     };
     const onNativeConnectorReturn = (event: Event) => {
@@ -175,10 +188,16 @@ export function LivingMemoryBridge() {
       }
     });
     const stopPayoutChanges = subscribePayoutStateChanged((detail) => {
+      let changed = false;
       if (payoutChangeTouches(detail, ["earnings"])) {
         payoutHintVersion++;
-        refreshSources();
+        changed = true;
       }
+      if (payoutChangeTouches(detail, ["wallet", "earnings", "bank_payouts"])) {
+        activityHintVersion++;
+        changed = true;
+      }
+      if (changed) refreshSources();
     });
     window.addEventListener(
       AGENT_CHAT_HISTORY_INVALIDATED_EVENT,

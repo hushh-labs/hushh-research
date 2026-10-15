@@ -8,7 +8,7 @@ export function loadWalletCardArtwork(kind: WalletCardArtworkKind): Promise<stri
   if (existing) return existing;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
-  const request = fetch(`/wallet/artwork/${kind}-v1.svg`, {
+  const request = fetch(`/wallet/artwork/${kind}-v2.svg`, {
     credentials: "omit",
     cache: "force-cache",
     signal: controller.signal,

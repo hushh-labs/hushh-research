@@ -71,7 +71,6 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
-    "pwm_tavily_api_key": "PWM_TAVILY_API_KEY",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
     "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
@@ -629,11 +628,6 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
-
-
-def pwm_tavily_api_key() -> str:
-    hydrate_runtime_environment()
-    return str(os.getenv("PWM_TAVILY_API_KEY", "")).strip()
 
 
 @dataclass(frozen=True)

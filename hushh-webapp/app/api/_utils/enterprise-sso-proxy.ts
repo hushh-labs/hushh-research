@@ -10,14 +10,18 @@ const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" };
 
 export async function proxyEnterpriseSso(
   path: string,
-  init: { method: "GET" | "POST"; search?: string; body?: string },
+  init: { method: "GET" | "POST"; search?: string; body?: string; forwardedFor?: string | null },
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`${getPythonApiUrl()}${path}${init.search ?? ""}`, {
       method: init.method,
-      headers: init.body ? { "Content-Type": "application/json" } : undefined,
+      // The backend rate-limits per visitor, and only this proxy sees who the visitor is.
+      headers: {
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(init.forwardedFor ? { "X-Forwarded-For": init.forwardedFor } : {}),
+      },
       body: init.body,
       cache: "no-store",
       signal: controller.signal,

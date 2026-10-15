@@ -184,16 +184,17 @@ describe("what to help with first", () => {
   });
 
   it("keeps Calendar read-first and requests Gmail reading/sending in one connection", () => {
-    // Calendar routes to the Calendar page, whose setup connect is read-only;
+    // Calendar setup stays read-only; task recovery stays in the conversation.
     // Gmail requests its combined grant once; this does not send an email.
     const root = process.cwd();
     const calendar = readFileSync(join(root, "components/calendar/calendar-agent-page.tsx"), "utf8");
     const connectors = readFileSync(join(root, "components/agent/connectors-panel.tsx"), "utf8");
     const workspace = readFileSync(join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
-    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read") =>');
+    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false) =>');
     expect(connectors).toContain('const connectMail = (purpose: "send" | "compose" = "send") =>');
     expect(connectors).toContain('createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read")');
-    expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
+    expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*calendarChatRecoveryRef\.current\(\);/);
+    expect(workspace).not.toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
   });
 
   it("shows the explanation with its single action, then asks the tone", () => {

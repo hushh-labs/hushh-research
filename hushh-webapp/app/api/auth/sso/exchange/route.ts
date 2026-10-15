@@ -5,5 +5,6 @@ export async function POST(request: NextRequest) {
   return proxyEnterpriseSso("/api/auth/sso/exchange", {
     method: "POST",
     body: await request.text(),
+    forwardedFor: request.headers.get("x-forwarded-for"),
   });
 }

@@ -119,7 +119,7 @@ function LineGlyph({ status }: { status: PkmSaveReceiptCoverageLine["status"] })
   if (status === "saved") return <CheckCircleIcon {...common} className="shrink-0 text-[color:var(--tone-green)]" />;
   if (status === "held") return <WarningIcon {...common} className="shrink-0 text-[color:var(--tone-orange)]" />;
   if (status === "not_yet_saved") {
-    return <ArrowsClockwiseIcon {...common} weight="duotone" className="shrink-0 text-[color:var(--tone-orange)]" />;
+    return <ArrowsClockwiseIcon {...common} weight="regular" className="shrink-0 text-[color:var(--tone-orange)]" />;
   }
   return <InfoIcon {...common} className="shrink-0 text-foreground/50" />;
 }

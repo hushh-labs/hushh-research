@@ -145,7 +145,7 @@ export function ReceiptMerchantLogo({
       {showFallback ? (
         <FallbackIcon
           className={`size-[18px] ${CATEGORY_COLORS[fallbackCategory || "Other"]}`}
-          weight="duotone"
+          weight="regular"
         />
       ) : null}
       {requestLogo ? (
@@ -391,7 +391,7 @@ function ReceiptListRow({
           />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+              <span className="min-w-0 truncate text-sm font-normal text-foreground">
                 {row.merchantName}
               </span>
               <ReceiptStatusBadge row={row} />
@@ -655,7 +655,7 @@ export function GmailRecentReceipts({
                 key={group.key}
               >
                 <h3
-                  className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  className="receipt-month-heading app-metadata-label px-1 text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground"
                   id={headingId}
                 >
                   {group.label}
@@ -756,7 +756,7 @@ export function GmailRecentReceipts({
           <div className="space-y-3 text-sm">
             <p className="text-destructive">{detailError}</p>
             <button
-              className="font-medium text-primary"
+              className="font-normal text-primary"
               onClick={() => setDetailAttempt((attempt) => attempt + 1)}
               type="button"
             >
@@ -832,7 +832,7 @@ export function GmailRecentReceipts({
 
             {selectedRow && selectedRow.eventTimeline.length > 1 ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   Activity
                 </p>
                 <ol className="divide-y divide-border/60">
@@ -842,7 +842,7 @@ export function GmailRecentReceipts({
                       key={event.sourceReceiptKey}
                     >
                       <div className="flex items-baseline justify-between gap-3 text-sm">
-                        <span className="font-medium text-foreground">
+                        <span className="font-normal text-foreground">
                           {receiptTimelineLabel(event)}
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground">
@@ -862,7 +862,7 @@ export function GmailRecentReceipts({
 
             {emailExcerpt ? (
               <div className="space-y-1.5 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   {emailExcerpt.label}
                 </p>
                 <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
@@ -873,7 +873,7 @@ export function GmailRecentReceipts({
 
             {sourceEvidence.length ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   Source evidence
                 </p>
                 <ul className="space-y-2">
@@ -882,7 +882,7 @@ export function GmailRecentReceipts({
                       className="text-sm leading-5 text-foreground"
                       key={`${evidence.kind}:${index}`}
                     >
-                      <span className="font-medium capitalize">
+                      <span className="font-normal capitalize">
                         {evidence.kind.replace("_", " ")}
                       </span>
                       <span className="text-muted-foreground"> · </span>
@@ -915,7 +915,7 @@ function ReceiptDetailRow({
   return (
     <div className="grid grid-cols-[minmax(0,0.36fr)_minmax(0,0.64fr)] gap-3 py-3 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-words text-right font-medium text-foreground">
+      <dd className="break-words text-right font-normal text-foreground">
         {normalizedValue}
       </dd>
     </div>

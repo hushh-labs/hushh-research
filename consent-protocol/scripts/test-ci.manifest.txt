@@ -25,6 +25,7 @@ tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
+tests/services/test_drive_extraction_mime_admission.py
 # Native selected-file staging, the privacy-only notification outbox, and the
 # bounded Scheduler coordinator each rely on real PostgreSQL leases.  Keep
 # these in the blocking manifest: collection-only coverage cannot catch a
@@ -303,6 +304,18 @@ tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
+# Hosted Live Memory pilot review is owner-only, pending-only, and revoke-fenced.
+# The PostgreSQL proof exercises migration replay, row isolation, and vault erasure.
+tests/test_hosted_memory_pilot_routes.py
+tests/test_hosted_memory_pilot_postgres.py
+tests/services/test_hosted_memory_envelope_contract.py
+tests/test_hosted_memory_envelope_postgres.py
+tests/services/test_hosted_memory_attestation.py
+# Owner-scoped document request payment snapshots feed the encrypted client
+# projection without exposing Stripe, bank, or document payloads.
+tests/test_requester_document_payment_source_unit.py
+tests/test_requester_document_payment_source_routes.py
+tests/test_requester_document_payment_source_postgres.py
 tests/test_pool_acquire_is_bounded.py
 tests/test_market_advisory_lock_connection.py
 
@@ -482,6 +495,11 @@ tests/test_capability_graph_gate_compares_against_base.py
 # keeps the UAT backend provenance check in front of the macOS job.
 tests/test_ci_path_filters_cover_lane_scripts.py
 tests/test_testflight_backend_provenance_runs_before_macos.py
+# (2026-10-15) CI Status Gate is the one required check, and GitHub reads a
+# skipped required check as a pass. This runs the gate's own bash and fails
+# when an in-scope lane or authority check can pass unrun, or a dispatched run
+# can stand in for a pull request's checks.
+tests/test_ci_status_gate_fails_closed.py
 
 # Consent and information sharing, proven end to end: the lifecycle proof
 # (request, approve with duration, export, decrypt, deny, revoke, cancel,
@@ -749,6 +767,7 @@ tests/test_stripe_connect_balances.py
 tests/test_stripe_connect_balances_postgres.py
 tests/test_connect_bank_payout_snapshot_postgres.py
 tests/test_bank_payout_event_replay_postgres.py
+tests/test_referral_settings_replay_postgres.py
 tests/test_drive_request_terms_migrations_postgres.py
 
 tests/test_pkm_answer_catalog.py
@@ -791,5 +810,16 @@ tests/test_one_wallet_card_routes.py
 tests/services/test_one_referral_service_summary.py
 tests/test_one_referral_dashboard_routes.py
 
+tests/test_pwm_notification_drain_routes.py
+tests/test_world_model_lifecycle.py
 # WorkOS enterprise SSO: signatures, state, exchange refusals and deprovisioning.
 tests/test_workos_enterprise_sso_flow.py
+
+tests/services/test_calendar_schedule_service.py
+tests/services/test_calendar_schedule_boundaries.py
+tests/services/test_calendar_attendance_service.py
+tests/test_calendar_schedule_routes.py
+
+# Live Memory replay: owner route contract and committed source journal on PostgreSQL.
+tests/test_source_journal_routes.py
+tests/test_live_memory_source_journal_postgres.py

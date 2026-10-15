@@ -6,6 +6,7 @@ import Link from "next/link";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { IntroV2Carousel } from "./IntroV2Carousel";
 import { OneWelcomeStory } from "./OneWelcomeStory";
 import introStyles from "./IntroV2Carousel.module.css";
@@ -82,6 +83,12 @@ export function GuestPreview({
     setStep(next);
   }
 
+  useBackLayer(ROUTES.HOME, invitation ? 0 : step, () => {
+    if (step < 1) return false;
+    moveTo(step - 1);
+    return true;
+  });
+
   const invitationContent = invitation ? (
     <>
       <strong role="heading" aria-level={2}>
@@ -113,7 +120,7 @@ export function GuestPreview({
     ? "Join this Circle"
     : invitation
       ? "Accept invitation"
-      : "Start with One";
+      : "Get started";
 
   return (
     <FullscreenFlowShell
@@ -129,17 +136,20 @@ export function GuestPreview({
           <OneWelcomeStory headingRef={headingRef} motionEnabled={motionEnabled}>
             <footer className={welcomeStyles.footer}>
               <Button
+                type="button"
                 variant="blue"
                 effect="fill"
                 size="prominent"
-                fullWidth
                 className={welcomeStyles.welcomeCta}
                 onClick={() => moveTo(1)}
               >
                 <span className={welcomeStyles.ctaLabel}>Create your One</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M4 12h15M13 5l7 7-7 7" />
+                </svg>
               </Button>
               {publicLinks && (
-                <nav className={welcomeStyles.links} aria-label="Explore Hussh">
+                <nav className={welcomeStyles.links} aria-label="Explore One">
                   <Link href={ROUTES.RESEARCH} className={welcomeStyles.link}>Research</Link>
                   <Link href={ROUTES.BLOG} className={welcomeStyles.link}>Blog</Link>
                   <Link href={ROUTES.DEVELOPERS} className={welcomeStyles.link}>Developers</Link>

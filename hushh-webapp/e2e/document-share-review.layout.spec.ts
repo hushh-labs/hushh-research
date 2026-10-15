@@ -1195,7 +1195,7 @@ for (const width of [320, 390, 1440]) {
       expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
     }
     expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-    expect(await question.evaluate((node) => getComputedStyle(node).fontFamily)).toContain("Inter");
+    expect(await question.evaluate((node) => getComputedStyle(node).fontFamily)).toContain("Plus Jakarta Sans");
     if (process.env.REQUEST_SCOPE_SCREENSHOT_DIR) {
       await dialog.screenshot({ path: path.join(process.env.REQUEST_SCOPE_SCREENSHOT_DIR, `request-scope-${width}.png`) });
     }

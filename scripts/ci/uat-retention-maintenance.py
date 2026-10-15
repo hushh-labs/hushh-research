@@ -12,6 +12,7 @@ import hashlib
 import importlib
 from io import BytesIO
 import json
+import math
 import os
 import re
 import shutil
@@ -89,7 +90,8 @@ REQUIRED_PRODUCTION_STEPS = (
 )
 
 
-GITHUB_LOOKUP_SECONDS = 180
+GITHUB_LOOKUP_SECONDS = 90
+PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
 _API_CACHE: ContextVar[dict | None] = ContextVar("api_cache", default=None)
 
@@ -100,10 +102,22 @@ def command(*args: str) -> str:
     if args[0] == "gh" and deadline is not None:
         timeout = min(timeout, deadline - time.monotonic())
         if timeout <= 0:
-            raise retention.UnsafeState("GitHub authority lookup exceeded three minutes")
-    return subprocess.run(
-        args, check=True, capture_output=True, text=True, timeout=timeout
-    ).stdout
+            raise retention.UnsafeState(
+                "GitHub authority lookup exceeded its bounded budget"
+            )
+    return retention.run_command(args, timeout=timeout).stdout
+
+
+def run_retention(arguments: list[str]) -> None:
+    # Keep the authored CLI and one deadline; do not fork another unbounded runner.
+    previous = sys.argv
+    try:
+        sys.argv = arguments[1:]
+        result = retention.main()
+        if result:
+            raise retention.UnsafeState("retention did not complete its pass")
+    finally:
+        sys.argv = previous
 
 
 def api(repository: str, endpoint: str):
@@ -957,21 +971,33 @@ def trusted_pending_uat_state(repository: str, run: dict, artifact: dict) -> boo
     )
 
 
-def download_pending_uat_state(repository: str, artifact: dict, directory: Path) -> None:
+def download_pending_uat_state(
+    repository: str, artifact: dict, directory: Path, *, environment: str = "uat"
+) -> None:
     """Fetch the checked immutable artifact ID, rejecting overwrite and ZIP races."""
-    response = subprocess.run(
+    if (
+        type(artifact.get("id")) is not int
+        or artifact["id"] < 1
+        or type(artifact.get("size_in_bytes")) is not int
+        or not 0 < artifact["size_in_bytes"] <= 10 * 1024 * 1024
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("digest", "")))
+    ):
+        raise retention.UnsafeState("pending checkpoint artifact envelope is invalid")
+    response = retention.run_command(
         ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
-        check=True,
-        capture_output=True,
         timeout=180,
+        text=False,
     )
     archive = response.stdout
-    if (
-        len(archive) != artifact["size_in_bytes"]
-        or hashlib.sha256(archive).hexdigest() != artifact["digest"].removeprefix("sha256:")
-    ):
+    if len(archive) != artifact["size_in_bytes"] or hashlib.sha256(
+        archive
+    ).hexdigest() != artifact["digest"].removeprefix("sha256:"):
         raise retention.UnsafeState("pending UAT drain artifact digest changed")
-    allowed = {"README.txt", "completed.json", *(f"{name}.json" for name in LANES["uat"]["services"])}
+    allowed = {
+        "README.txt",
+        "completed.json",
+        *(f"{name}.json" for name in LANES[environment]["services"]),
+    }
     try:
         with ZipFile(BytesIO(archive)) as bundle:
             entries = bundle.infolist()
@@ -988,7 +1014,9 @@ def download_pending_uat_state(repository: str, artifact: dict, directory: Path)
                     for entry in entries
                 )
             ):
-                raise retention.UnsafeState("pending UAT drain artifact has unsafe files")
+                raise retention.UnsafeState(
+                    "pending UAT drain artifact has unsafe files"
+                )
             for entry in entries:
                 (directory / entry.filename).write_bytes(bundle.read(entry))
     except BadZipFile as exc:
@@ -1001,6 +1029,11 @@ def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
     prior = json.loads(older.read_text())
     if not isinstance(latest, dict) or not isinstance(prior, dict):
         raise retention.UnsafeState("invalid UAT drain state history")
+    if "clocks" in latest or "clocks" in prior:
+        # Only the helper carries a per-revision clock, by proving the revision
+        # unchanged in live Cloud Run since the newest receipt. Skipping an
+        # older receipt only restarts a revision's drain.
+        return False
     identity = (
         "schema_version", "service", "project", "region",
         "fingerprint", "protected",
@@ -1038,30 +1071,65 @@ def carry_earlier_uat_clock(current: Path, older: Path) -> bool:
     return True
 
 
+def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifact: dict | None = None) -> bool:
+    if (
+        run.get("path") != ".github/workflows/capacity-maintenance.yml"
+        or run.get("head_branch") != "main"
+        # repository_dispatch is the hourly clock's tick: the scheduled pass,
+        # queued by the previous pass (capacity-maintenance.yml `next-pass`).
+        or run.get("event") not in {"schedule", "repository_dispatch", "workflow_dispatch"}
+        or (run.get("repository") or {}).get("full_name") != repository
+        or (run.get("head_repository") or {}).get("full_name") != repository
+    ):
+        return False
+    attempt = run.get("run_attempt", 1)
+    if type(attempt) is not int or not 1 <= attempt <= 10:
+        raise retention.UnsafeState("maintenance attempt inventory exceeds bounded lookup")
+    name = ("UAT" if environment == "uat" else "Production") + " bounded revision cleanup"
+    for number in range(attempt, 0, -1):
+        endpoint = (f"runs/{run['id']}/jobs?filter=latest&per_page=100" if number == attempt
+                    else f"runs/{run['id']}/attempts/{number}/jobs?per_page=100")
+        result = api(repository, endpoint)
+        jobs = result.get("jobs")
+        if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
+            raise retention.UnsafeState("maintenance job inventory is incomplete")
+        matched = [job for job in jobs if job.get("name") == name]
+        if len(matched) != 1 or matched[0].get("status") != "completed":
+            continue
+        authored = matched[0].get("steps", [])
+        steps = {step.get("name"): step for step in authored}
+        if len(steps) != len(authored) or not all(steps.get(n, {}).get("conclusion") == "success" for n in (
+            "Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+            f"Authenticate to {environment}", f"Save {environment} cleanup checkpoint",
+        )):
+            continue
+        if artifact is not None:
+            saved = steps[f"Save {environment} cleanup checkpoint"]
+            created = _github_timestamp(artifact.get("created_at"))
+            started = _github_timestamp(saved.get("started_at"))
+            finished = _github_timestamp(saved.get("completed_at"))
+            if not (created and started and finished and started - timedelta(seconds=5) <= created <= finished + timedelta(seconds=30)):
+                continue
+        return True
+    return False
+
+
 def restore_state(
     repository: str, directory: Path, *, environment: str = "uat"
 ) -> None:
     lane = LANES[environment]
     artifact = lane["state_artifact"]
     artifacts = list(bounded_artifacts(repository, artifact))
-    if environment == "uat":
-        # GitHub's artifact listing is not strictly ordered by created_at.
-        # Examine newer evidence first, then carry the earliest compatible
-        # clock until a changed or empty pass breaks the lineage.
-        if any(
-            _github_timestamp(item.get("created_at")) is None
-            for item in artifacts
-            if item.get("name") == artifact and item.get("expired") is False
-        ):
-            raise retention.UnsafeState("UAT drain artifact has no valid creation time")
-        artifacts.sort(
-            key=lambda item: _github_timestamp(item.get("created_at"))
-            or datetime.min.replace(tzinfo=timezone.utc),
-            reverse=True,
-        )
+    # API listing order is not creation order in either environment.
+    if any(_github_timestamp(item.get("created_at")) is None
+           for item in artifacts if item.get("name") == artifact and item.get("expired") is False):
+        raise retention.UnsafeState("drain artifact has no valid creation time")
+    artifacts.sort(key=lambda item: _github_timestamp(item.get("created_at"))
+                   or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     selected = False
     active = {
-        service for service in lane["services"]
+        service
+        for service in lane["services"]
         if (directory / f"{service}.json").exists()
     }
     for item in artifacts:
@@ -1072,6 +1140,15 @@ def restore_state(
             raise retention.UnsafeState("state artifact lacks a valid source run")
         run = api(repository, f"runs/{run_id}")
         completed = trusted_run(run, repository, "capacity-maintenance.yml")
+        needs_attempt_proof = not completed or run.get("run_attempt", 1) > 1
+        checkpoint_source = needs_attempt_proof and trusted_checkpoint_run(
+            repository, run, environment, item
+        )
+        if run.get("run_attempt", 1) > 1 and not checkpoint_source:
+            raise retention.UnsafeState(
+                "Rerun checkpoint cannot be verified; operator reconciliation required"
+            )
+        completed = (completed and not needs_attempt_proof) or checkpoint_source
         pending_uat = environment == "uat" and trusted_pending_uat_state(
             repository, run, item
         )
@@ -1079,37 +1156,54 @@ def restore_state(
             continue
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)
-            if pending_uat:
-                download_pending_uat_state(repository, item, source)
+            if pending_uat or checkpoint_source:
+                download_pending_uat_state(
+                    repository, item, source, environment=environment
+                )
             else:
                 download(repository, run["id"], artifact, source)
             if not selected and environment == "uat":
                 receipt = source / "completed.json"
                 if not receipt.is_file() or receipt.is_symlink():
-                    raise retention.UnsafeState("UAT drain artifact lacks a regular completion receipt")
+                    raise retention.UnsafeState(
+                        "UAT drain artifact lacks a regular completion receipt"
+                    )
                 source_states = {
-                    service for service in lane["services"]
+                    service
+                    for service in lane["services"]
                     if (source / f"{service}.json").is_file()
                     and not (source / f"{service}.json").is_symlink()
                 }
-                if not source_states:
+                if (
+                    not source_states
+                    and json.loads(receipt.read_text()).get("pass_status", "complete")
+                    == "complete"
+                ):
                     # A newer successful empty pass supersedes even preseeded
                     # state from this workflow's earlier first pass.
                     for service in lane["services"]:
                         destination = directory / f"{service}.json"
                         if destination.is_symlink():
-                            raise retention.UnsafeState("preseeded retention state is a symlink")
+                            raise retention.UnsafeState(
+                                "preseeded retention state is a symlink"
+                            )
                         destination.unlink(missing_ok=True)
                     destination = directory / "completed.json"
                     if destination.is_symlink():
-                        raise retention.UnsafeState("preseeded retention state is a symlink")
+                        raise retention.UnsafeState(
+                            "preseeded retention state is a symlink"
+                        )
                     shutil.copyfile(receipt, destination)
                     return
             if selected:
                 for service in tuple(active):
                     earlier = source / f"{service}.json"
-                    if not earlier.is_file() or earlier.is_symlink() or not carry_earlier_uat_clock(
-                        directory / earlier.name, earlier
+                    if (
+                        not earlier.is_file()
+                        or earlier.is_symlink()
+                        or not carry_earlier_uat_clock(
+                            directory / earlier.name, earlier
+                        )
                     ):
                         active.remove(service)
                 if not active:
@@ -1136,7 +1230,8 @@ def restore_state(
             if environment == "production":
                 return
             active = {
-                service for service in lane["services"]
+                service
+                for service in lane["services"]
                 if (directory / f"{service}.json").exists()
             }
             if not active:
@@ -1182,7 +1277,7 @@ def maintenance_due(
     release_run_id: int | None = None,
     restore: bool = True,
 ) -> bool:
-    """Avoid settled cron work; wake UAT drains even before their deadline."""
+    """Inspect only changed, unfinished or due retention receipts."""
     if restore:
         restore_state(repository, directory, environment=environment)
     receipt = directory / "completed.json"
@@ -1200,12 +1295,24 @@ def maintenance_due(
         or completed["release_run_id"] < 1
     ):
         raise retention.UnsafeState(f"invalid {environment} completion receipt")
+    status = completed.get("pass_status", "complete")
+    if status not in {"complete", "in_progress", "deferred", "unresolved"}:
+        raise retention.UnsafeState("invalid cleanup checkpoint status")
+    if status != "complete":
+        if (
+            completed.get("checkpoint_version") != 2
+            or not isinstance(completed.get("pending_services"), list)
+            or not set(completed["pending_services"]).issubset(
+                LANES[environment]["services"]
+            )
+        ):
+            raise retention.UnsafeState("invalid partial cleanup checkpoint")
+        return True
     observed = latest_deploy_observation(repository, environment)
     if (
         release_run_id is not None and completed["release_run_id"] != release_run_id
     ) or completed["observed_run_id"] != observed:
         return True
-    pending_uat_drain = False
     for service in LANES[environment]["services"]:
         path = directory / f"{service}.json"
         if not path.exists():
@@ -1222,16 +1329,7 @@ def maintenance_due(
             raise retention.UnsafeState(f"invalid {environment} drain receipt")
         if state["not_before"] <= time.time():
             return True
-        if environment == "uat":
-            # The first pass may have completed without its delayed recheck
-            # running. Reinspect a trusted pending receipt so this new run
-            # emits a deadline and schedules its own wait outside the lock.
-            # The retention helper still requires live identity and the full
-            # drain interval before it can delete anything. Multiple cron
-            # wakes may wait for the same deadline; their rechecks serialize
-            # under the deploy lock and independently revalidate live state.
-            pending_uat_drain = True
-    return pending_uat_drain
+    return False
 
 
 def production_maintenance_due(repository: str, directory: Path) -> bool:
@@ -1383,19 +1481,24 @@ def release_protection_flags(
 ) -> list[str]:
     current = release["final"][f"{lane}_revision"]
     rollback = release.get("predeploy", {}).get(f"{lane}_revision", "")
-    if environment == "uat" and lane == "backend" and release.get("scope") == "frontend":
+    if (
+        environment == "uat"
+        and lane == "backend"
+        and release.get("scope") == "frontend"
+    ):
         verified_rollback = release.get("_maintenance_backend_rollback_revision")
         if not isinstance(verified_rollback, str) or not re.fullmatch(
             r"consent-protocol-[a-z0-9-]+", verified_rollback
         ):
-            raise retention.UnsafeState("frontend-only UAT backend rollback is unverified")
+            raise retention.UnsafeState(
+                "frontend-only UAT backend rollback is unverified"
+            )
         rollback = verified_rollback
     known_good = ""
     if environment == "uat":
-        tag = subprocess.run(
+        tag = retention.run_command(
             ["git", "show-ref", "--verify", "--quiet", "refs/tags/deployed/uat-latest"],
             check=False,
-            capture_output=True,
             timeout=30,
         )
         if tag.returncode not in {0, 1}:
@@ -1441,18 +1544,169 @@ def release_protection_flags(
 
 
 def main() -> int:
-    deadline = _LOOKUP_DEADLINE.set(time.monotonic() + GITHUB_LOOKUP_SECONDS)
+    started = time.monotonic()
+    deadline = _LOOKUP_DEADLINE.set(started + GITHUB_LOOKUP_SECONDS)
+    pass_deadline = started + PASS_SECONDS - 5
+    inherited = os.environ.get("HUSSH_RETENTION_DEADLINE_MONOTONIC")
+    if inherited is not None:
+        inherited_deadline = float(inherited)
+        if not math.isfinite(inherited_deadline):
+            raise retention.UnsafeState("invalid inherited cleanup deadline")
+        pass_deadline = min(pass_deadline, inherited_deadline)
+    budget = retention.PASS_DEADLINE.set(pass_deadline)
     cache = _API_CACHE.set({})
     try:
-        return maintenance_pass()
+        try:
+            return maintenance_pass()
+        except retention.BudgetExpired:
+            if "--apply" not in sys.argv:
+                raise
+            output = os.environ.get("GITHUB_OUTPUT")
+            if output:
+                with Path(output).open("a") as stream:
+                    stream.write("cleanup_outcome=deferred\n")
+            print(
+                "Cleanup budget exhausted before a new mutation; existing checkpoint retained."
+            )
+            return 0
     finally:
         _API_CACHE.reset(cache)
+        retention.PASS_DEADLINE.reset(budget)
         _LOOKUP_DEADLINE.reset(deadline)
+
+
+def checkpoint(args, run_id, observed, pending, status):
+    retention.atomic_state(
+        args.state_dir / "completed.json",
+        {
+            "schema_version": 1,
+            "checkpoint_version": 2,
+            "environment": args.environment,
+            "project": LANES[args.environment]["project"],
+            "release_run_id": run_id,
+            "observed_run_id": observed,
+            "pass_status": status,
+            "pending_services": list(pending),
+        },
+    )
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with Path(output).open("a") as stream:
+            stream.write("checkpoint_ready=true\n")
+
+
+# Capacity Maintenance's run-name for a tick scoped to one environment. Such a
+# pass never runs the other environment's verify step, so it cannot attempt
+# that environment's cleanup, and the other environment's guard skips it without
+# fetching its jobs. Without this, UAT-only clock passes (about 13 a day) would
+# lengthen production's walk between production deploys past its 90 s budget.
+SCOPED_TICK_TITLES = {
+    "uat": "Capacity Maintenance tick (uat)",
+    "production": "Capacity Maintenance tick (production)",
+}
+
+
+def assert_checkpoint_publication(repository: str, environment: str) -> None:
+    name = (
+        "UAT" if environment == "uat" else "Production"
+    ) + " bounded revision cleanup"
+    other_scope = SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
+    legacy = (
+        "UAT revision maintenance (no drain wait)"
+        if environment == "uat"
+        else "Production revision maintenance (no drain wait)"
+    )
+    for page in range(1, 11):
+        result = api(
+            repository,
+            f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
+        )
+        runs = result.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise retention.UnsafeState("maintenance history is invalid")
+        for run in sorted(runs, key=lambda item: item["id"], reverse=True):
+            if (
+                run.get("path") != ".github/workflows/capacity-maintenance.yml"
+                or run.get("head_branch") != "main"
+                or (run.get("repository") or {}).get("full_name") != repository
+                or (run.get("head_repository") or {}).get("full_name") != repository
+            ):
+                continue
+            if run.get("event") == "repository_dispatch" and run.get("display_title") == other_scope:
+                continue
+            inventory = api(
+                repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100"
+            )
+            jobs = inventory.get("jobs")
+            if not isinstance(jobs, list) or inventory.get("total_count") != len(jobs):
+                raise retention.UnsafeState("maintenance job inventory is incomplete")
+            for job in jobs:
+                if job.get("name") == legacy:
+                    return  # The pre-policy historical boundary has no new intents.
+                if job.get("name") != name:
+                    continue
+                if (
+                    str(run.get("id")) == os.environ.get("GITHUB_RUN_ID")
+                    and job.get("status") != "completed"
+                ):
+                    continue
+                if job.get("status") != "completed":
+                    if job.get("status") in {"queued", "waiting", "pending"}:
+                        continue
+                    raise retention.UnsafeState(
+                        "An earlier environment maintenance job is still active"
+                    )
+                steps = {step.get("name"): step for step in job.get("steps", [])}
+                attempt = steps.get(
+                    f"Prepare or finish eligible {environment} revision cleanup", {}
+                )
+                if attempt.get("conclusion") in {None, "skipped"}:
+                    continue
+                saved = steps.get(f"Save {environment} cleanup checkpoint", {}).get(
+                    "conclusion"
+                )
+                if saved == "success":
+                    if not trusted_checkpoint_run(repository, run, environment):
+                        raise retention.UnsafeState(
+                            "maintenance checkpoint source is untrusted"
+                        )
+                    return
+                if saved == "skipped" and attempt.get("conclusion") == "success":
+                    continue  # A successful no-op never started a mutation checkpoint.
+                raise retention.UnsafeState(
+                    "Maintenance exited without publishing its checkpoint; operator reconciliation required"
+                )
+        if len(runs) < 100:
+            return
+    raise retention.UnsafeState(
+        "maintenance checkpoint history exceeds bounded inventory"
+    )
+
+
+def assert_no_pending_mutations(repository, directory, environment):
+    assert_checkpoint_publication(repository, environment)
+    restore_state(repository, directory, environment=environment)
+    receipt = directory / "completed.json"
+    if receipt.exists():
+        state = json.loads(receipt.read_text())
+        if state.get("pass_status", "complete") == "unresolved":
+            raise retention.UnsafeState(
+                "Cleanup provider outcome is unresolved; reconcile maintenance before deployment"
+            )
+    for service in LANES[environment]["services"]:
+        path = directory / f"{service}.json"
+        if (
+            path.exists()
+            and json.loads(path.read_text()).get("pending_mutation") is not None
+        ):
+            raise retention.UnsafeState(
+                "Cleanup provider outcome is unresolved; reconcile maintenance before deployment"
+            )
 
 
 def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
     """Expose a recheck result without treating a stale source as an error."""
-    if not args.apply or args.environment != "uat":
+    if not args.apply:
         return
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -1466,6 +1720,7 @@ def maintenance_pass() -> int:
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
+    parser.add_argument("--check-mutations", action="store_true")
     parser.add_argument(
         "--force-inspection",
         action="store_true",
@@ -1473,18 +1728,29 @@ def maintenance_pass() -> int:
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
     args = parser.parse_args()
-    if args.verify_source_only and args.apply:
+    if (args.verify_source_only or args.check_mutations) and args.apply:
         parser.error("source verification cannot apply cleanup")
     if args.release_run_id and not args.release_run_id.isdigit():
         parser.error("release run ID must be numeric")
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
-    if args.verify_source_only and not args.force_inspection and not maintenance_due(
-        repository,
-        args.state_dir,
-        environment=args.environment,
-        release_run_id=int(args.release_run_id) if args.release_run_id else None,
+    if args.check_mutations:
+        assert_no_pending_mutations(repository, args.state_dir, args.environment)
+        return 0
+    if args.apply:
+        assert_checkpoint_publication(repository, args.environment)
+        restore_state(repository, args.state_dir, environment=args.environment)
+    if (
+        (args.verify_source_only or args.apply)
+        and not args.force_inspection
+        and not maintenance_due(
+            repository,
+            args.state_dir,
+            environment=args.environment,
+            release_run_id=int(args.release_run_id) if args.release_run_id else None,
+            restore=not args.apply,
+        )
     ):
         output = os.environ.get("GITHUB_OUTPUT")
         if output:
@@ -1511,18 +1777,6 @@ def maintenance_pass() -> int:
         record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
-    if args.apply:
-        restore_state(repository, args.state_dir, environment=args.environment)
-        if not args.force_inspection and not maintenance_due(
-            repository,
-            args.state_dir,
-            environment=args.environment,
-            release_run_id=run_id,
-            restore=False,
-        ):
-            print("Maintenance settled or not yet due; no cloud mutation authorized.")
-            record_uat_cleanup_outcome(args, "settled_or_not_due")
-            return 0
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
@@ -1536,44 +1790,82 @@ def maintenance_pass() -> int:
     observation = (
         latest_deploy_observation(repository, args.environment) if args.apply else None
     )
-    for service, keep in lane_config["services"].items():
-        # The workflow holds the environment's deployment lock for this short pass.
-        # Recheck the release before each service as defense against external changes.
-        if not live_release_matches(release, environment=args.environment):
-            raise retention.UnsafeState("live release changed during maintenance")
-        flags = []
-        lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(service)
-        if lane:
-            flags += release_protection_flags(
-                service, lane, release, environment=args.environment
-            )
-        if args.apply:
-            flags += [
-                "--apply",
-                "--healthy",
-                "--defer-state",
-                str(args.state_dir / f"{service}.json"),
-                "--release-run-id",
-                str(run_id),
-            ]
-            if args.environment == "uat":
-                flags.append("--carry-uat-clock")
-        else:
-            flags += ["--dry-run"]
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/ci/cloudrun-retention.py",
+    pending = list(lane_config["services"])
+    if args.apply:
+        checkpoint(args, run_id, observation, pending, "in_progress")
+    for service in lane_config["services"]:
+        if not args.apply:
+            break
+        try:
+            retention.reconcile_mutation(
+                args.state_dir / f"{service}.json",
                 service,
-                REGION,
-                str(keep),
-                *flags,
-                "--project",
                 lane_config["project"],
-            ],
-            check=True,
-            timeout=600,
-        )
+                REGION,
+            )
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            outcome = (
+                "unresolved"
+                if isinstance(exc, retention.MutationUncertain)
+                else "deferred"
+            )
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            return 0
+    for service, keep in lane_config["services"].items():
+        try:
+            # The workflow holds the environment's deployment lock for this short pass.
+            # Recheck the release before each service as defense against external changes.
+            if not live_release_matches(release, environment=args.environment):
+                raise retention.UnsafeState("live release changed during maintenance")
+            flags = []
+            lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
+                service
+            )
+            if lane:
+                flags += release_protection_flags(
+                    service, lane, release, environment=args.environment
+                )
+            if args.apply:
+                flags += [
+                    "--apply",
+                    "--healthy",
+                    "--defer-state",
+                    str(args.state_dir / f"{service}.json"),
+                    "--release-run-id",
+                    str(run_id),
+                ]
+                if args.environment == "uat":
+                    flags.append("--carry-uat-clock")
+            else:
+                flags += ["--dry-run"]
+            run_retention(
+                [
+                    sys.executable,
+                    "scripts/ci/cloudrun-retention.py",
+                    service,
+                    REGION,
+                    str(keep),
+                    *flags,
+                    "--project",
+                    lane_config["project"],
+                ],
+            )
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            if not args.apply:
+                raise
+            outcome = (
+                "unresolved"
+                if isinstance(exc, retention.MutationUncertain)
+                else "deferred"
+            )
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            print(f"Cleanup {outcome}; checkpoint retained, no completion claimed.")
+            return 0
+        pending.remove(service)
+        if args.apply:
+            checkpoint(args, run_id, observation, pending, "in_progress")
     if args.apply and args.environment == "uat":
         deadlines: list[int] = []
         for service in lane_config["services"]:
@@ -1583,6 +1875,15 @@ def maintenance_pass() -> int:
             if state_file.is_symlink():
                 raise retention.UnsafeState("deferred UAT retention state is a symlink")
             state = json.loads(state_file.read_text())
+            now = int(time.time())
+            # Revisions keep separate deadlines, so the next one can fall due
+            # while later services run. Judge a per-revision receipt at its
+            # helper's own check, which deleted every revision due by then.
+            checked = (
+                state.get("checked_at")
+                if isinstance(state, dict) and "clocks" in state
+                else now
+            )
             if (
                 not isinstance(state, dict)
                 or state.get("schema_version") != 1
@@ -1590,8 +1891,10 @@ def maintenance_pass() -> int:
                 or state.get("project") != lane_config["project"]
                 or state.get("region") != REGION
                 or state.get("release_run_id") != str(run_id)
+                or type(checked) is not int
+                or checked > now
                 or type(state.get("not_before")) is not int
-                or state["not_before"] <= int(time.time())
+                or state["not_before"] <= checked
                 or not isinstance(state.get("revisions"), list)
                 or not state["revisions"]
             ):
@@ -1605,25 +1908,15 @@ def maintenance_pass() -> int:
                     f"drain_not_before={max(deadlines) if deadlines else ''}\n"
                 )
     if args.apply:
-        (args.state_dir / "completed.json").write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "environment": args.environment,
-                    "project": lane_config["project"],
-                    "release_run_id": run_id,
-                    "observed_run_id": observation,
-                }
-            )
-            + "\n"
-        )
+        checkpoint(args, run_id, observation, [], "complete")
         record_uat_cleanup_outcome(args, "applied")
+    elif os.environ.get("GITHUB_OUTPUT"):
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write("cleanup_outcome=dry_run\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         retry_path = (
-            "Pending deletions get a timed follow-up, with scheduled passes as backup. "
-            if args.environment == "uat"
-            else "Pending deletions are retried by short scheduled maintenance passes. "
+            "Pending deletions are retried by hourly scheduled maintenance passes. "
         )
         with Path(summary).open("a") as output:
             output.write(
@@ -1653,6 +1946,7 @@ if __name__ == "__main__":
         sys.exit(main())
     except (
         retention.UnsafeState,
+        retention.BudgetExpired,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
         ValueError,

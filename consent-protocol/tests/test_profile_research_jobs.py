@@ -53,6 +53,19 @@ class MemoryStore:
 
 @pytest.fixture(autouse=True)
 def authority(monkeypatch):
+    from hushh_mcp.services import world_model_service
+
+    monkeypatch.setattr(
+        world_model_service,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000001",
+                "auto_started_at": None,
+            }
+        ),
+    )
     monkeypatch.setattr(jobs, "validate_first_party_owner_token", AsyncMock(return_value=object()))
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
 
@@ -689,3 +702,204 @@ async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch,
     instance.store.get = read
     with pytest.raises(PermissionError):
         await getattr(instance, operation)("owner", "token")
+
+
+@pytest.mark.asyncio
+async def test_pwm_resume_keeps_budget_and_new_consent_clears_evidence(monkeypatch):
+    import copy
+
+    from hushh_mcp.services import world_model_service as pwm
+
+    generation = {"id": "00000000-0000-4000-8000-000000000001"}
+    monkeypatch.setattr(
+        pwm,
+        "preferences",
+        AsyncMock(
+            side_effect=lambda *a, **k: {
+                "enabled": True,
+                "generation": generation["id"],
+                "auto_started_at": None,
+            }
+        ),
+    )
+    observed = []
+
+    async def check(*args):
+        return None, generation["id"]
+
+    async def research(**kwargs):
+        observed.append((kwargs["attempts_used"], copy.deepcopy(kwargs["work"])))
+        if not kwargs["attempts_used"]:
+            await kwargs["on_attempts_start"]((1, 33))
+        await kwargs["on_progress"]({"evidence": "synthetic owner evidence"})
+        return {"status": "paused", "pkm_written": False, "restart_required": True}
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research, check=check)
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    original = instance.store.rows["owner"]["job_id"]
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    assert instance.store.rows["owner"]["job_id"] == original
+    generation["id"] = "00000000-0000-4000-8000-000000000002"
+    await instance.start("owner", "fixture-token")
+    await settle(instance)
+    assert instance.store.rows["owner"]["job_id"] != original
+    assert observed == [
+        ((), {}),
+        ((1, 33), {"evidence": "synthetic owner evidence"}),
+        ((1, 33), {}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_owner_decision_inputs_are_sealed_carried_and_never_change_reuse(monkeypatch):
+    seen = []
+
+    async def research(**kwargs):
+        seen.append(kwargs.get("inputs"))
+        if len(seen) == 1:
+            return {"status": "paused", "pkm_written": False, "restart_required": True}
+        return RESULT
+
+    instance = pwm_manager(monkeypatch, progressive=True, offer=research)
+    decisions = {"owner_decisions": {"confirmed": [], "rejected": ["Likes the color blue."]}}
+    await instance.start("owner", "token", inputs=decisions)
+    await settle(instance)
+    draft_id = instance.store.rows["owner"]["job_id"]
+    assert instance.store.rows["owner"]["inputs"] == decisions
+    # A resume without new inputs keeps the owner's decisions for the model.
+    await instance.start("owner", "token")
+    await settle(instance)
+    assert instance.store.rows["owner"]["job_id"] == draft_id
+    assert seen == [decisions, decisions]
+    # New decisions never invalidate a reusable draft or buy another run.
+    changed = {"owner_decisions": {"confirmed": [], "rejected": ["Lives in Paris."]}}
+    assert await instance.start("owner", "token", inputs=changed) == {
+        **RESULT,
+        "draft_id": draft_id,
+    }
+    assert len(seen) == 2
+    # Legacy Magic research without inputs keeps its exact call and state shape.
+    legacy = manager()
+    await legacy.start("owner", "fixture-token")
+    await settle(legacy)
+    assert "inputs" not in legacy.offer.await_args.kwargs
+    assert "inputs" not in legacy.store.rows["owner"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending"])
+async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monkeypatch, existing):
+    from hushh_mcp.services import world_model_service as pwm
+
+    rows = {}
+    if existing == "opted_out":
+        rows["owner"] = {
+            "enabled": False,
+            "email_enabled": False,
+            "generation": "00000000-0000-4000-8000-000000000001",
+            "auto_started_at": None,
+        }
+
+    async def read(user_id, **kwargs):
+        return copy.deepcopy(rows.get(user_id))
+
+    async def enroll(user_id, token):
+        rows.setdefault(
+            user_id,
+            {
+                "enabled": True,
+                "email_enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000002",
+                "auto_started_at": None,
+            },
+        )
+
+    enroll_default = AsyncMock(side_effect=enroll)
+    monkeypatch.setattr(pwm, "preferences", read)
+    monkeypatch.setattr(pwm, "enroll_default", enroll_default)
+    monkeypatch.setattr(
+        pwm, "owner_setup_resolved", AsyncMock(return_value=existing != "setup_pending")
+    )
+    monkeypatch.setattr(
+        pwm,
+        "owner_identity",
+        AsyncMock(return_value={"full_name": "Example", "email": "a@example.test"}),
+    )
+    monkeypatch.setattr(pwm, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        pwm, "get_chat_key_provider", lambda: SimpleNamespace(current_key=lambda _: b"k" * 32)
+    )
+    instance = pwm_manager(monkeypatch)
+    result = await instance.ensure("owner", "token")
+    await settle(instance)
+    if existing == "missing":
+        assert result["status"] == "pending"
+        enroll_default.assert_awaited_once_with("owner", "token")
+        assert rows["owner"]["enabled"] and rows["owner"]["email_enabled"]
+        instance.offer.assert_awaited_once()
+        return
+    # Negative control: an explicit opt-out stays off, and nothing is enrolled
+    # before setup resolves. No research state is written either way.
+    assert result == {"status": "consent_required", "pkm_written": False}
+    enroll_default.assert_not_awaited()
+    assert rows.get("owner", {}).get("enabled") in (None, False)
+    assert instance.store.rows == {}
+    instance.offer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "age_days,active_draft,completed,unpurged,expected",
+    [
+        (2, None, False, False, "saved"),
+        (8, None, False, False, "pending"),
+        # The purge removed a run that never finished: it is prepared again now.
+        (2, "00000000-0000-4000-8000-0000000000d1", False, False, "pending"),
+        # A finished draft that aged out waits for the re-preparation interval.
+        (2, "00000000-0000-4000-8000-0000000000d1", True, False, "saved"),
+        # Past retention but not purged yet: same rule, no new paid run.
+        (2, "00000000-0000-4000-8000-0000000000d1", True, True, "saved"),
+    ],
+)
+async def test_ensure_prepares_again_after_checkpoint_purge_once_last_run_is_old(
+    monkeypatch, age_days, active_draft, completed, unpurged, expected
+):
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.services import world_model_service as pwm
+
+    now = datetime(2026, 10, 15, tzinfo=UTC)
+    monkeypatch.setattr(
+        pwm,
+        "preferences",
+        AsyncMock(
+            return_value={
+                "enabled": True,
+                "email_enabled": True,
+                "generation": "00000000-0000-4000-8000-000000000001",
+                "auto_started_at": now - timedelta(days=age_days),
+                "active_draft_id": active_draft,
+            }
+        ),
+    )
+    finished = AsyncMock(return_value=completed)
+    monkeypatch.setattr(pwm, "draft_completed", finished)
+    monkeypatch.setattr(pwm, "admission", AsyncMock(return_value=(None, "owner-bound-identity")))
+    instance = pwm_manager(monkeypatch, clock=now.timestamp)
+    if unpurged:
+        instance.store.rows["owner"] = {
+            "job_id": active_draft,
+            "status": "offered",
+            "started_at": now.timestamp() - 25 * 3600,
+            "finished_at": now.timestamp() - 25 * 3600,
+            "consent_generation": "00000000-0000-4000-8000-000000000001",
+            "result": RESULT,
+        }
+    # No live checkpoint; the last run's age and outcome decide.
+    assert (await instance.ensure("owner", "token"))["status"] == expected
+    await settle(instance)
+    assert instance.offer.await_count == (1 if expected == "pending" else 0)
+    if active_draft is not None:
+        finished.assert_awaited_once_with("owner", active_draft)

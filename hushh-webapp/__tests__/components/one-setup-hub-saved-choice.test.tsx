@@ -4,8 +4,15 @@ import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
   saved: false,
+  unlocked: false,
+  pendingContactsWelcome: false,
+  completionOrder: [] as string[],
   listener: null as null | ((event: { type: string; key: string }) => void),
   unsubscribe: vi.fn(),
+  replace: vi.fn(),
+  queueEntryWelcome: vi.fn(),
+  updatePreferences: vi.fn(),
+  acknowledgeSetupExit: vi.fn(),
 }));
 vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
   const snapshot = { ownerId: null, status: "idle", source: "none" };
@@ -20,22 +27,38 @@ vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
   };
 });
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: false }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
 vi.mock("@/lib/services/cache-service", () => ({ CACHE_KEYS: { PRE_VAULT_BOOTSTRAP: (id: string) => `bootstrap:${id}` }, CacheService: { getInstance: () => ({ subscribe: (listener: typeof state.listener) => { state.listener = listener; return state.unsubscribe; } }) } }));
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { getCachedBootstrapState: () => ({ saved: state.saved }), hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved } }));
-vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: vi.fn() }));
-vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: {} }));
-vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: {} }));
-vi.mock("@/lib/services/post-unlock-sync-service", () => ({ PostUnlockSyncService: {} }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: { getCachedBootstrapState: () => ({ saved: state.saved, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }), hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved } }));
+vi.mock("@/lib/services/one-setup-exit-service", () => ({ acknowledgeOneSetupExit: state.acknowledgeSetupExit }));
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({ PreVaultSensitiveDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined), hasFinanceIntent: () => false } }));
+vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraftService: { finalizeForVault: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock("@/lib/services/post-unlock-sync-service", () => ({ PostUnlockSyncService: { run: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock("@/lib/services/world-model-research-service", () => ({ WorldModelResearchService: { updatePreferences: state.updatePreferences } }));
 vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({ notifyGeminiRuntimeConfigurationChanged: vi.fn() }));
-vi.mock("@/lib/agent/one-conversation-session", () => ({ useOneConversationSession: () => vi.fn() }));
+vi.mock("@/lib/agent/one-conversation-session", () => ({ useOneConversationSession: () => state.queueEntryWelcome }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn() }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
 
-beforeEach(() => { state.saved = false; state.listener = null; state.unsubscribe.mockClear(); });
+beforeEach(() => {
+  state.saved = false;
+  state.unlocked = false;
+  state.pendingContactsWelcome = false;
+  state.completionOrder.length = 0;
+  state.listener = null;
+  state.unsubscribe.mockClear();
+  state.replace.mockClear();
+  state.queueEntryWelcome.mockClear();
+  state.updatePreferences.mockReset().mockImplementation(async () => {
+    state.completionOrder.push("pwm-preferences");
+  });
+  state.acknowledgeSetupExit.mockReset().mockImplementation(async () => {
+    state.completionOrder.push("setup-acknowledgement");
+  });
+});
 describe("Setup saved AI choice", () => {
   it("removes redundant progress and disables Finish until the current owner's saved choice arrives", async () => {
     const view = render(<OneSetupHub />);
@@ -59,5 +82,25 @@ describe("Setup saved AI choice", () => {
     await screen.findByRole("dialog");
     view.unmount();
     expect(state.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("finishes with pending Contacts welcome and discloses default-on research without a choice", async () => {
+    state.saved = true;
+    state.unlocked = true;
+    state.pendingContactsWelcome = true;
+    render(<OneSetupHub />);
+
+    // Research is disclosed, not asked: no checkbox and no preferences write.
+    expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+      "Your private agent will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.",
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/one/welcome?return_to=%2F"));
+    expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce();
+    expect(state.queueEntryWelcome).not.toHaveBeenCalled();
+    expect(state.updatePreferences).not.toHaveBeenCalled();
+    expect(state.completionOrder).toEqual(["setup-acknowledgement"]);
   });
 });

@@ -15949,14 +15949,14 @@
       }
     },
     {
-      "action_id": "profile.world_model.build",
+      "action_id": "profile.world_model.open_fact",
       "surface_id": "profile_world_model",
-      "label": "Build my model",
+      "label": "Open a detail",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Explicitly begins owner-authorized public research using verified identity.",
+      "meaning": "Show one detail's sources, why it may be about the owner, how certain it is, and its choices.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -15990,14 +15990,14 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_build"
+        "pwm_fact_open"
       ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16017,15 +16017,15 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.profile.world_model.build",
+        "goal_id": "goal.profile.world_model.open_fact",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "profile.world_model.build",
-            "label": "Build my model",
+            "action_id": "profile.world_model.open_fact",
+            "label": "Open a detail",
             "failure_behavior": "stop"
           }
         ],
@@ -16050,14 +16050,418 @@
       }
     },
     {
-      "action_id": "profile.world_model.review",
+      "action_id": "profile.world_model.confirm_fact",
       "surface_id": "profile_world_model",
-      "label": "Review selected details",
+      "label": "Yes, this is right",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Review source-cited statements, edit and save exactly the checked details.",
+      "meaning": "Save the exact statement to the owner's memory. Success is shown only after the encrypted write commits.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_yes"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.confirm_fact",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.confirm_fact",
+            "label": "Yes, this is right",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.reject_fact",
+      "surface_id": "profile_world_model",
+      "label": "No, this isn't right",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Remember privately that a statement is not about the owner so research does not propose it again. Saves no opposite fact.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_no"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-row.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.reject_fact",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.reject_fact",
+            "label": "No, this isn't right",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.edit_fact",
+      "surface_id": "profile_world_model",
+      "label": "Edit a detail",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Save only the owner's corrected wording in place of the statement.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_edit",
+        "pwm_fact_edit_save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.edit_fact",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.edit_fact",
+            "label": "Edit a detail",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.remove_fact",
+      "surface_id": "profile_world_model",
+      "label": "Remove a detail",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "After one confirmation, remove a saved detail from the owner's memory and keep it from coming back.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Owner decisions write the owner's encrypted memory and must be made by the owner on screen.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_fact_remove",
+        "pwm_fact_remove_confirm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-fact-sheet.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.remove_fact",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.remove_fact",
+            "label": "Remove a detail",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.research",
+      "surface_id": "profile_world_model",
+      "label": "Use public sources",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Turn public research on or off. Off is an explicit opt-out that research respects.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -16091,14 +16495,15 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
-        "pwm_review"
+        "pwm_settings_open",
+        "pwm_research_enabled",
+        "pwm_turn_on"
       ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-options.tsx"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16118,15 +16523,613 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.profile.world_model.review",
+        "goal_id": "goal.profile.world_model.research",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "profile.world_model.review",
-            "label": "Review selected details",
+            "action_id": "profile.world_model.research",
+            "label": "Use public sources",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.email",
+      "surface_id": "profile_world_model",
+      "label": "Email me when it's ready",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Set the persistent readiness email preference.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_email"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.email",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.email",
+            "label": "Email me when it's ready",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.refresh",
+      "surface_id": "profile_world_model",
+      "label": "Check for updates",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Start a fresh research pass when research is on and none is running.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_refresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.refresh",
+            "label": "Check for updates",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.retry",
+      "surface_id": "profile_world_model",
+      "label": "Try again",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Resume preparation or reopen saved details under fresh owner authority.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.retry",
+            "label": "Try again",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.open",
+      "surface_id": "profile_world_model",
+      "label": "Open Personal World Model",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Open the dedicated Personal World Model page.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_open_page"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.open",
+            "label": "Open Personal World Model",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.sources",
+      "surface_id": "profile_world_model",
+      "label": "Add a public source",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Read independently supplied permitted public URLs for owner review.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_sources_open",
+        "pwm_sources_prepare",
+        "pwm_manage_sourced"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-sources.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.sources",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.sources",
+            "label": "Add a public source",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.preview",
+      "surface_id": "profile_world_model",
+      "label": "Prepare invitation preview",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Read a supplied professional source and review selected preview facts.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-invitations.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.preview",
+            "label": "Prepare invitation preview",
             "failure_behavior": "stop"
           }
         ],
@@ -16153,12 +17156,12 @@
     {
       "action_id": "profile.world_model.invite",
       "surface_id": "profile_world_model",
-      "label": "Create model invitation",
+      "label": "Invite someone",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Create a contact-bound invitation. No enrichment or sharing occurs before the recipient verifies and consents.",
+      "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -16192,14 +17195,14 @@
         "intended_handler": "PersonalWorldModelPage"
       },
       "control_ids": [
+        "pwm_invite_open",
         "pwm_invite"
       ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/personal-world-model.md",
-        "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-invitations.tsx"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16227,7 +17230,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.invite",
-            "label": "Create model invitation",
+            "label": "Invite someone",
             "failure_behavior": "stop"
           }
         ],
@@ -16259,7 +17262,7 @@
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Accept the invitation with a freshly verified matching contact. Starts no research and grants no sharing.",
+      "meaning": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -16299,8 +17302,7 @@
       "docs_references": [
         "docs/reference/one/personal-world-model.md",
         "components/profile/personal-world-model-page.tsx",
-        "components/profile/world-model-invitations.tsx",
-        "components/agent/profile-research-card.tsx"
+        "components/profile/world-model-claim-invitation.tsx"
       ],
       "workflow": null,
       "external_callback": null,
@@ -16329,6 +17331,106 @@
             "type": "action",
             "action_id": "profile.world_model.claim",
             "label": "Claim my model",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.world_model.reject",
+      "surface_id": "profile_world_model",
+      "label": "Reject invitation",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Delete an unclaimed invitation addressed to the verified owner.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_reject"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/personal-world-model-page.tsx",
+        "components/profile/world-model-claim-invitation.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.reject",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.reject",
+            "label": "Reject invitation",
             "failure_behavior": "stop"
           }
         ],

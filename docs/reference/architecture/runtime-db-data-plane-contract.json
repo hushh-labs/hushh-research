@@ -41,7 +41,9 @@
     "drive_packet_members",
     "drive_packet_versions",
     "drive_packet_version_sources",
-    "drive_packet_listings"
+    "drive_packet_listings",
+    "calendar_attendance_reviews",
+    "live_memory_source_events"
   ],
   "retention_registry": [
     {
@@ -528,10 +530,11 @@
         "google_provider_connections",
         "google_service_grants",
         "google_oauth_attempts",
-        "google_calendar_action_proposals"
+        "google_calendar_action_proposals",
+        "calendar_attendance_reviews"
       ],
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
-      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected. Attendance review rows contain only submission metadata and redacted outcomes, expire after ten minutes, and are purged on the next review.",
       "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services. Full account deletion snapshots the encrypted refresh token before erasure and, after commit, revokes it at Google best effort (account_deletion_provider_cleanup); a provider failure never rolls back the committed deletion.",
       "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
       "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
@@ -1796,17 +1799,79 @@
     {
       "id": "pwm_invitation_authority",
       "owner": "iam-consent-governance",
-      "data_class": "workflow_state",
+      "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
         "pwm_claim_invitations"
       ],
       "primary_access_path": "Authenticated PWM invitation create/list/revoke/claim routes. Shared account graph locks and existing transaction connection for strict owner authority.",
-      "retention_policy": "Seven-day authorization expiry; expired rows removed on subsequent invitation creation. Explicit revocation deletes immediately.",
+      "retention_policy": "Seven-day expiry; expired rows are removed on invitation creation. Rejection/revocation deletes; claim clears transferable ciphertext.",
       "deletion_behavior": "Delete either participant rows on account reset; actor_profiles cascading foreign keys delete on account erasure. Migration refreshes canonical deleted-identity guards.",
-      "trust_boundary": "Keyed contact commitment and random token hash only; no raw contact, findings, names or passwords. Claim grants no sharing or research.",
-      "plaintext_posture": "metadata_only",
+      "trust_boundary": "Contact commitment and token hash remain metadata. Public professional preview is encrypted with a token-derived key; the token and plaintext are never stored. Recipient verified-contact claim transfers selected preview to their vault and may start research only with explicit recipient consent. No inviter access to full PWM.",
+      "plaintext_posture": "encrypted_professional_preview_and_opaque_claim_metadata",
       "expected_row_growth": "bounded_twenty_pending_per_owner"
+    },
+    {
+      "id": "live_memory_connector_journal",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_connector_streams",
+        "live_memory_connector_events"
+      ],
+      "primary_access_path": "Transactional trigger on operator-owned OAuth connection row changes and owner-token GET /api/one/source-journal/connectors. Events are change hints; the owner client rereads the curated connector overview before encrypted projection.",
+      "retention_policy": "At most 2048 committed events per owner, pruned in the append transaction. The retained floor and head survive pruning so older cursors receive resetRequired and require an authoritative snapshot. There is no time-based purge while the owner remains active.",
+      "deletion_behavior": "Account reset erases owner event rows and upserts the retained hash/sequence watermark, even without prior journal state, so every older cursor requires a new authoritative snapshot without sequence reuse. Full erasure deletes both journal tables for the owner after connector cleanup in the same transaction. Root-delete triggers cover rolling older runtimes, and full-erasure tombstones suppress later source append. Ordinary connector-row deletion appends a deleted hint.",
+      "trust_boundary": "Only one-way SHA-256 owner commitment, operator connector ID, event UUID, commit-ordered sequence, changed/deleted operation, schema version, and time. No raw UID, credentials, OAuth tokens, scopes, account labels, provider payloads, PKM values or vault key. Owner token authorizes replay; hints do not grant sharing or establish source values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_2048_events_plus_one_stream_row_per_owner"
+    },
+    {
+      "id": "live_memory_source_journal",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_source_streams",
+        "live_memory_source_events"
+      ],
+      "primary_access_path": "Transactional triggers on selected profile, consent, connection, document-payment and owner-earning source tables; owner-token GET /api/one/source-journal/events returns metadata hints and requires verified authoritative snapshots.",
+      "retention_policy": "At most 2048 committed events per owner. The retained floor and head remain after pruning to signal resetRequired. No time-based purge while the owner remains active.",
+      "deletion_behavior": "Account reset deletes events and advances the surviving cursor watermark; full account erasure deletes the stream. Root-delete triggers and deletion tombstones prevent resurrection.",
+      "trust_boundary": "Only a one-way owner commitment, source kind, operation, event UUID, sequence, version and time are stored. No source values, row IDs, counterpart identity, payment IDs, documents, location, credentials or vault keys. Hints grant no access.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "bounded_2048_events_plus_one_stream_row_per_owner"
+    },
+    {
+      "id": "live_memory_hosted_pilot_review",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_hosted_pilot_grants"
+      ],
+      "primary_access_path": "Owner-token GET/POST/DELETE /api/one/hosted-memory/pilot. Pending intent only; there is no active worker or capture authorization.",
+      "retention_policy": "A pending intent expires after 15 minutes. Its single owner row remains for visible expiry or revocation state until a renewed review, account reset or full erasure; there is no background time purge.",
+      "deletion_behavior": "Account reset explicitly deletes the row while preserving vault_keys. Full account erasure cascades from vault_keys. Revocation increments the generation and preserves a revoked marker until re-review or erasure.",
+      "trust_boundary": "Stores internal owner UID, opaque grant ID, monotonic generation, one checked-in active curated OAuth provider ID and source kind, review contract version and timestamps only. No vault key, owner token, DEK, wrapped key, attestation, source record, worker credential or active capture state. The owner token authenticates each route but is never persisted.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_row_per_owner"
+    },
+    {
+      "id": "live_memory_hosted_scoped_source_envelope",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "live_memory_hosted_source_envelopes"
+      ],
+      "primary_access_path": "Owner-token PUT/GET /api/one/hosted-memory/pilot/envelope stages and reads exact AES-GCM ciphertext for one selected curated OAuth connector status. No worker lease, checkpoint, result or key-release path exists.",
+      "retention_policy": "One row per owner. A 15-minute pending review expiry blocks owner readback and staging but does not physically erase ciphertext. Encrypted bytes persist until renewed review, source change, explicit revocation, account reset or full erasure; no automatic expiry purge runs in this release.",
+      "deletion_behavior": "A grant ID, generation, source ID or revoked-status change erases its envelope in the same transaction. Account reset explicitly deletes it; full erasure cascades through the grant from vault_keys.",
+      "trust_boundary": "Stores internal owner UID, selected provider ID, grant and revision metadata, AAD and ciphertext hashes, and owner AES-GCM nonce/ciphertext. No canonical vault key, pilot DEK, wrapped key, owner token, plaintext connector status, OAuth credential, attestation assertion, worker lease or checkpoint. The server cannot verify encrypted status content. Key release, worker routes and closed-app capture are disabled.",
+      "plaintext_posture": "ciphertext_and_metadata",
+      "expected_row_growth": "one_row_per_owner"
     },
     {
       "id": "pwm_provider_budget",
@@ -1816,12 +1881,28 @@
       "exact_tables": [
         "pwm_provider_budget"
       ],
-      "primary_access_path": "Atomic monthly provider credit charge before dispatch.",
+      "primary_access_path": "Legacy Tavily aggregate accounting retained for history; native PWM has no active writer to this table.",
       "retention_policy": "One aggregate counter per provider/month; retained for operational cost audit.",
       "deletion_behavior": "No owner data or identifiers; account deletion does not alter shared quota.",
       "trust_boundary": "Provider name, UTC month and numeric credits only; never queries or contact identifiers.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one_row_per_provider_month"
+    },
+    {
+      "id": "pwm_research_lifecycle",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_research_preferences",
+        "pwm_completion_events"
+      ],
+      "primary_access_path": "Owner consent and generation fences; checkpoint CAS creates metadata outbox and transactional Feed projection. Dedicated notification worker claims email leases.",
+      "retention_policy": "One preference per owner and completion metadata per draft, retained until reset/deletion. Research content stays in separately encrypted checkpoints with 24-hour expiry.",
+      "deletion_behavior": "Reset explicitly deletes preferences and cascades completion events. Erasure cascades from actor profile. Account graph locks fence checkpoint and email dispatch.",
+      "trust_boundary": "Flags, UUIDs, closed outcomes and delivery timestamps only. No names, contacts, findings, queries, plaintext keys or tokens.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_preference_per_owner_and_one_event_per_research_draft"
     }
   ]
 }

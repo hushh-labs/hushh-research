@@ -26,22 +26,27 @@ for (const dark of [false, true]) {
       await page.addStyleTag({ content: `:root { --app-safe-area-top-effective: ${viewport.top}px !important; --app-safe-area-bottom-effective: ${viewport.bottom}px !important; }` });
       await page.evaluate(() => document.fonts.ready);
       const storyTitles = [
-        "Start with a clearer day.",
-        "Find what you already have.",
-        "Make the next move easier.",
-        "Share only what you choose.",
+        "Big plans.Less busywork.",
+        "Find answers.Not more tabs.",
+        "Your people.Right here.",
+        "Your information.Your call.",
       ];
       for (let step = 1; step <= 5; step++) {
         await expect(preview).toHaveAttribute("data-preview-step", String(step));
         if (step === 1) {
           const heading = preview.getByRole("heading", { name: "Your private AI agent for everyday life." });
           await expect(heading).toBeVisible();
-          await expect(heading).toHaveCSS("font-family", /InterVariable/);
+          await expect(heading).toHaveCSS("font-family", /Plus Jakarta Sans/);
+          await expect(heading).toHaveCSS("font-weight", "600");
+          if (viewport.width === 393 || viewport.width === 1440) {
+            const size = await heading.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+            expect(size).toBeCloseTo(viewport.width === 393 ? 30 : 48, 0);
+          }
         }
-        const story = preview.locator(`[data-intro-v2-card][data-story-index="${step - 1}"]`);
+        const story = preview.locator(".ao-slide");
         const cta = step === 1
           ? preview.getByRole("button", { name: "Create your One", exact: true })
-          : story.getByRole("button", { name: step === 5 ? "Start with One" : "Next screen", exact: true });
+          : story.getByRole("button", { name: step === 5 ? "Get started" : "Next", exact: true });
         if (step > 1) {
           await expect(story.locator("[data-intro-v2-title]")).toHaveText(storyTitles[step - 2]);
           await expect(story).toBeVisible();

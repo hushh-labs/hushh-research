@@ -852,24 +852,52 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   with the request, such as "call it Home instead, yes").
 
 
-### Declared: explicit Personal World Model research
+### Declared: default-on Personal World Model research
 
 - Owning agent: One's `one_personal_world_model` manifest specialist, entered by
-  the owner from Profile. It chooses source queries, identity pivots, evidence
-  interpretation, fact support, coverage gaps and plain-English summaries.
+  the authenticated `ensure` call after setup is resolved and the vault is
+  unlocked. Research is on by default after setup discloses it; `ensure` creates
+  a missing preference row as enabled and never flips an existing `enabled=false`
+  opt-out. It chooses source queries, identity pivots, evidence interpretation,
+  fact support, coverage gaps and plain-English summaries.
+- Owner decisions: `ensure` and `POST /jobs` accept bounded `owner_decisions`
+  (`confirmed`/`rejected`, at most 50 statements of 1 to 600 characters each),
+  stored in the sealed job state under `inputs` and passed to the specialist as
+  data. The authored manifest instruction tells the model not to propose those
+  claims or equivalents again and never to infer an opposite. The model decides
+  equivalence; host code only validates the bounds, and the client hides only
+  drafts whose claim key exactly matches a decided key.
 - Host contract: verified owner/setup/vault authority; exact contact matching for
   invitation claims; bounded durable attempts, timeouts, response schemas and
   receipt resolution. These checks cannot promote an uncertain candidate or
   manufacture a numerical confidence probability. Python rejects inconsistent
   identity/report enums; it does not recompute a successful semantic answer.
-- Persistence: only selected/edited owner-confirmed facts use the existing exact
-  review mutation. Source references resolve only from received tool receipts.
-  Draft generation IDs and CAS fences reject stale dismissal/completion. The
-  saved page projects approved PKM; it does not synthesize new claims.
+- Persistence: an owner's Yes, Edit, Remove or No is written in the browser to
+  the encrypted Soul.md domain `one_memory` through the existing compare-and-set
+  writer. Yes saves the exact statement, Edit only the owner's wording, Remove
+  deletes the bullet, and No writes no bullet and never an opposite. Private
+  `_pwm_claims` metadata keeps decisions and is never sent to a model as memory.
+  Independently supplied source facts use the existing exact review mutation;
+  their source references resolve only from received tool receipts. Draft
+  generation IDs and CAS fences reject stale dismissal/completion. The page
+  shows saved owner decisions; it does not synthesize new claims.
 - Failure: missing provider, exhausted budget, invalid output or authority loss
   yields unavailable/disabled; never inferred no-match. The job records terminal
   state and attempt charges without logging identity or query contents.
-- Evidence: checkpoint/revocation/completion tests and invitation authority tests
-  exercise production services. Live precision, preference attribution and
-  latency require consented evaluation after the optional search key is configured.
+- Evidence: checkpoint/revocation/completion tests, default-preference and
+  `owner_decisions` bound tests, and invitation authority tests exercise
+  production services. Live precision, preference attribution and
+  latency require consented live evaluation through managed Vertex.
+- Native Google responses stay view-only: grounded answer text, grounding URLs and
+  titles, and search-suggestion HTML are never persisted to memory, and
+  `/source-reviews/complete` refuses a display-only draft with 409. Search
+  suggestions are still displayed with the grounded findings. Independently
+  supplied permitted URL Context sources produce a separate `ProfileReport`
+  review draft. Successful requested-URL receipts, purpose bounds and exact
+  selection protect that save path. The same manifest owns both modes; the host
+  never turns grounded links into crawl inputs.
+- Structured intelligence contracts: `QueryPlan`, `IdentityAssessment`, and
+  `WorldModelReport` in `one_adk/world_model_contracts.py`. Evidence existence,
+  candidate membership, conflict conditions and topic receipt checks validate
+  model output; they do not choose queries or generate replacement interpretations.
 - Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).

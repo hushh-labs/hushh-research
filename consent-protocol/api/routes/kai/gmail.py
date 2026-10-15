@@ -366,6 +366,10 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                 "The bounded Gmail receipt response was too large."
             ),
             "GMAIL_RECEIPT_INVALID_RESPONSE": ("Gmail returned an invalid receipt response."),
+            "GMAIL_RECEIPT_CURSOR_EXPIRED": ("Receipt continuation expired. Start a new scan."),
+            "GMAIL_RECEIPT_CONTRACT_MISMATCH": (
+                "Receipt sync could not validate its response. Please try again later."
+            ),
             "GMAIL_RECEIPT_EXTRACTION_INVALID": ("Receipt extraction returned an invalid result."),
             "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED": (
                 "Receipt extraction could not be verified from the message."
@@ -376,13 +380,25 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
             "GMAIL_RECEIPT_EXTRACTION_TIMEOUT": ("Receipt extraction timed out. Please try again."),
         }
         return HTTPException(
-            status_code=max(400, min(599, int(exc.status_code))),
+            status_code=503
+            if code == "GMAIL_PROVIDER_UNAVAILABLE"
+            else max(400, min(599, int(exc.status_code))),
             detail={
                 "code": code if code in safe_messages else "GMAIL_RECEIPT_UNAVAILABLE",
                 "message": safe_messages.get(
                     code,
                     "Receipts are temporarily unavailable. Please try again.",
                 ),
+                "retryable": code
+                in {
+                    "GMAIL_CONNECTION_CHANGED",
+                    "GMAIL_RECEIPT_SCAN_IN_PROGRESS",
+                    "GMAIL_PROVIDER_UNAVAILABLE",
+                    "GMAIL_RECEIPT_SCAN_TIMEOUT",
+                    "GMAIL_RECEIPT_DETAIL_TIMEOUT",
+                    "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+                    "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+                },
             },
             headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},
         )
@@ -391,6 +407,7 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
         detail={
             "code": "GMAIL_RECEIPT_UNAVAILABLE",
             "message": "Receipts are temporarily unavailable. Please try again.",
+            "retryable": False,
         },
         headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},
     )
@@ -692,17 +709,10 @@ async def gmail_live_receipt_scan(
         requested_user_id=payload.user_id,
     )
     _no_store(response)
-    access_check_count = 0
 
     async def require_current_access() -> None:
-        nonlocal access_check_count
-        access_check_count += 1
-        # The dependency already performed the database-backed vault-owner
-        # check immediately before entering this receipt route. The service's
-        # first callback occurs before its Gmail read, so reuse that result;
-        # every later callback revalidates before information is returned.
-        if access_check_count == 1:
-            return
+        # Admission can wait for a bounded lock session. Revalidate after that
+        # wait, before any Gmail/model read, as well as before publishing.
         await _revalidate_live_receipt_access(token_data=token_data, owner=owner)
 
     try:
@@ -732,13 +742,14 @@ async def gmail_live_receipt_scan(
             # owner's own receipt content.
             field_paths = [".".join(str(part) for part in error["loc"]) for error in exc.errors()]
             logger.warning(
-                "kai.gmail.live_receipt_scan_invalid_response fields=%s",
+                "kai.gmail.live_receipt_scan_invalid_response request_id=%s fields=%s",
+                getattr(request.state, "request_id", ""),
                 field_paths,
             )
             raise GmailApiError(
-                "Gmail returned an invalid receipt response.",
-                status_code=502,
-                code="GMAIL_RECEIPT_INVALID_RESPONSE",
+                "Receipt sync could not validate its response. Please try again later.",
+                status_code=500,
+                code="GMAIL_RECEIPT_CONTRACT_MISMATCH",
             ) from None
         coverage = result.get("coverage") if isinstance(result, dict) else None
         logger.info(
@@ -768,9 +779,15 @@ async def gmail_live_receipt_scan(
     except Exception as exc:
         safe_error = _live_receipt_http_error(exc)
         logger.warning(
-            "kai.gmail.live_receipt_scan_failed error=%s code=%s",
+            "kai.gmail.live_receipt_scan_failed request_id=%s error=%s receipt_error=%s provider_status=%s",
+            getattr(request.state, "request_id", ""),
             type(exc).__name__,
             safe_error.detail["code"],
+            exc.provider_status_code
+            if isinstance(exc, GmailApiError)
+            and isinstance(exc.provider_status_code, int)
+            and 400 <= exc.provider_status_code <= 599
+            else None,
         )
         raise safe_error from None
 

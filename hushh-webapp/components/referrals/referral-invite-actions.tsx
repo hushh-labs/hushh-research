@@ -72,7 +72,7 @@ export function ReferralInviteActions({ active, link, onShare }: ReferralInviteA
             rippleEffect="fill"
           >
             <span className="referral-share-gift" aria-hidden="true">
-              <GiftIcon size={18} weight="duotone" />
+              <GiftIcon size={18} />
             </span>
             <span className="referral-share-label">Invite &amp; earn $</span>
             <span className="referral-share-arrow-surface" aria-hidden="true">
