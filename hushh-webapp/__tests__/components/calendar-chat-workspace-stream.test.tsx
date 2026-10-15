@@ -72,6 +72,41 @@ function workspace() {
 }
 
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it.each(["active slot", "expired slot", "proposal"])("replaces %s context with a generic invitation request in the same conversation", async previous => {
+    const start = new Date(Date.now() + 60000).toISOString();
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start) + 1800000).toISOString(), timeZone: "UTC" });
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    const invitations = vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], time_zone: "UTC", start_at: start, end_at: new Date(Date.parse(start) + 86400000).toISOString(), complete: true });
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 1800000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?");
+    if (previous === "proposal") {
+      fireEvent.change(composer, { target: { value: "guest@example.com" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      await screen.findByRole("button", { name: "Schedule meeting" });
+    }
+    if (previous === "expired slot") vi.spyOn(Date, "now").mockReturnValue(Date.parse(start) + 1860000);
+    stream.mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", filter: "pending" } } }));
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: {
+      ownerId: "owner", request: "Show my pending invitations.",
+    } }); });
+    await waitFor(() => expect(invitations).toHaveBeenCalled());
+    const wire = JSON.parse(String(stream.mock.calls.at(-1)?.[1]?.body));
+    expect(wire.messages.at(-1).content).toBe("Show my pending invitations.");
+    if (previous === "proposal") expect(wire.threadId).toBe(JSON.parse(String(stream.mock.calls[0][1]?.body)).threadId);
+    expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+    expect(screen.queryByText("That free window has passed. What time would work for you?")).toBeNull();
+    expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+    expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
+  });
+
   it("retains an invitation through cold history failure and resumes the same chat after retry", async () => {
     clearAgentChatHistoryCache("owner");
     vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));

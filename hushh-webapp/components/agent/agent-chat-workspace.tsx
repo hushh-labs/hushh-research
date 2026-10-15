@@ -4261,6 +4261,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const nextMessages: AgentMessage[] = [];
     if (handoff.calendarRequest) {
       historyRestoreEpochRef.current += 1;
+      setCalendarSlot(null);
+      setPendingSpecialistDirective(null);
       setCalendarInvitationContext(null);
       setQueuedHandoffPrompt(handoff.calendarRequest.request);
       consumeHandoff(handoff.id);
