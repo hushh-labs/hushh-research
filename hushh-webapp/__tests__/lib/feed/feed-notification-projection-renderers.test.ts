@@ -25,6 +25,15 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it("opens a recipient-bound card request without putting private card details in Feed", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const result = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Divya", wallet_card_request_id: id, wallet_card_request_status: "pending" }, "connections"));
+    expect(result.label).toBe("Divya requested a card");
+    expect(result.description).toBe("Choose card");
+    expect(result.href).toBe(`/one/wallet?card_request=${id}`);
+    const malformed = presentFeedItem(feedItem("direct_message_received", { wallet_card_request_id: "javascript:bad" }, "connections"));
+    expect(malformed.href).not.toContain("card_request");
+  });
   it("announces the actual card sender and offers View card without payment details", () => {
     const result = presentFeedItem(feedItem("direct_message_received", {
       wallet_card_grant_id: "11111111-1111-4111-8111-111111111111",

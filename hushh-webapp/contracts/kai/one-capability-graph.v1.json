@@ -27064,6 +27064,161 @@
     },
     {
       "aliases": [
+        "Request cards",
+        "request a card",
+        "ask them to share a card"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.request_card",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens a card request review for this connected person. Sending requires explicit confirmation. The owner chooses a card and duration before sharing; requesting grants no access.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.request_card",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.request_card"
+        }
+      },
+      "goal_id": "goal.people.profile.request_card",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Request cards",
+      "navigation": {
+        "fallback": "people.profile.request_card",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "card",
+        "wallet",
+        "request",
+        "share"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose Country Code",
         "choose country code",
         "select country",
@@ -43007,7 +43162,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "e4181f11f3a288d96c056ce742c4ab8832edc2a9761df9c34be4bcf160833796",
+      "projection_digest": "2e138a365b35e2b84030af5493e842734684d65788432723c8e2fdb8bed3eaba",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43026,7 +43181,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "3b4a692078832301",
+      "source_revision": "4142a5c8b7b8534b",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44544,7 +44699,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "3b4a692078832301",
+    "source_revision": "4142a5c8b7b8534b",
     "web": {
       "actions": [
         {
@@ -44587,7 +44742,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "79877557abdc31a2fdeb72387746a3fee014aee6f5347c739b2af3c95e5c8e9c",
+      "projection_digest": "cbc5421a77dba71e9f96af0302d1167495534827f0660861cec061ee6986b5ef",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44606,7 +44761,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "3b4a692078832301",
+      "source_revision": "4142a5c8b7b8534b",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46163,7 +46318,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "3b4a692078832301",
+  "revision": "4142a5c8b7b8534b",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -47823,6 +47978,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_card",
         "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
@@ -48097,6 +48253,7 @@
   "semantic_diff": {
     "added": [
       "actions:one.scheduled_tasks.open",
+      "actions:people.profile.request_card",
       "actions:pkm.close_sharing_price_review",
       "actions:pkm.review_sharing_price",
       "actions:route.one_files",
@@ -48120,6 +48277,7 @@
       "screens:screen:/one",
       "screens:screen:/one/pkm",
       "screens:screen:/one/setup",
+      "screens:screen:/people/[personRef]",
       "workflows:workflow.setup.connections"
     ],
     "compatible": [
@@ -50425,18 +50583,18 @@
     "capability_graph_evolution": "b261d01a4ba302e339893dffc2365cb2a7cb61eabd0ebe8974a007e7cd596446",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "9eddb4f49e497d88c86c264399f26fba954c8056586ffae45725cad62330d231",
+    "kai_action_gateway": "fe9a0bf4537a34442f2b6803e14108ebd6410cda01b6eae7e5ca00329a796a34",
     "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "2fba71595b29b91b67d211f52e4d068ff05d3382ca0f271f8a14a1ade98af0f8",
-    "route_orchestration_index": "79e8df13931c88ff7afc61b57f589b46901aeca9d5511cca088b29a08756c50f",
+    "route_orchestration_index": "fae985bdad9bd7a20314de561610eefab7c7cbaec2680ffc4ab86e76671d326f",
     "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
   },
-  "source_revision": "3b4a692078832301",
+  "source_revision": "4142a5c8b7b8534b",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "3b4a692078832301",
+    "current_graph_revision": "4142a5c8b7b8534b",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50485,6 +50643,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -50694,6 +50853,7 @@
           "06db6538bfac1f45",
           "101c32b70ab14a4d",
           "14b86b8e434fc15c",
+          "3b4a692078832301",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "49f1882f17ca746a",
@@ -50731,6 +50891,7 @@
           "06db6538bfac1f45",
           "101c32b70ab14a4d",
           "14b86b8e434fc15c",
+          "3b4a692078832301",
           "43c428db7505bdee",
           "53c411e01494034b",
           "8afa7c0f35f622a7",
@@ -50969,6 +51130,7 @@
           "34ab4e29e27a1679",
           "3618b09083db26c6",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51224,6 +51386,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51473,6 +51636,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51722,6 +51886,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51971,6 +52136,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",

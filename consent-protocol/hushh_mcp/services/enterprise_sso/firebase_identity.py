@@ -35,6 +35,7 @@ class FirebaseUserInfo:
     email_verified: bool
     disabled: bool = False
     claims: Mapping[str, Any] = field(default_factory=dict)
+    display_name: str | None = None
 
 
 class FirebaseIdentityPort(Protocol):
@@ -42,7 +43,9 @@ class FirebaseIdentityPort(Protocol):
 
     async def find_by_email(self, email: str) -> FirebaseUserInfo | None: ...
 
-    async def create_user(self, uid: str, email: str) -> None: ...
+    async def create_user(self, uid: str, email: str, display_name: str | None = None) -> None: ...
+
+    async def set_display_name(self, uid: str, display_name: str) -> None: ...
 
     async def merge_claims(self, uid: str, updates: Mapping[str, Any]) -> None: ...
 
@@ -59,6 +62,7 @@ def _info(user: Any) -> FirebaseUserInfo:
         email_verified=bool(user.email_verified),
         disabled=bool(user.disabled),
         claims=dict(user.custom_claims or {}),
+        display_name=(getattr(user, "display_name", None) or "").strip() or None,
     )
 
 
@@ -90,19 +94,31 @@ class FirebaseAdminIdentity:
         except firebase_auth.UserNotFoundError:
             return None
 
-    async def create_user(self, uid: str, email: str) -> None:
+    async def create_user(self, uid: str, email: str, display_name: str | None = None) -> None:
         """Create the identity, idempotently. The org's IdP asserted this email on a domain
         WorkOS verified by DNS, so the address is created verified."""
         firebase_auth, app = self._auth()
+        extra = {"display_name": display_name} if display_name else {}
         try:
             await asyncio.to_thread(
-                firebase_auth.create_user, uid=uid, email=email, email_verified=True, app=app
+                firebase_auth.create_user,
+                uid=uid,
+                email=email,
+                email_verified=True,
+                app=app,
+                **extra,
             )
         except firebase_auth.UidAlreadyExistsError:
             return  # a concurrent first sign-in for the same person already made it
         except firebase_auth.EmailAlreadyExistsError:
             # A different account holds this address. Never merge into it here.
             raise EnterpriseSsoError("sso_email_conflict", 409) from None
+
+    async def set_display_name(self, uid: str, display_name: str) -> None:
+        """Set the name the profile shows. Firebase Auth is where the app reads it from; the
+        identity shadow catches up on the person's next sign-in."""
+        firebase_auth, app = self._auth()
+        await asyncio.to_thread(firebase_auth.update_user, uid, display_name=display_name, app=app)
 
     async def merge_claims(self, uid: str, updates: Mapping[str, Any]) -> None:
         """Add to a user's claims. `set_custom_user_claims` replaces the whole object, so

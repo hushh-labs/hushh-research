@@ -878,7 +878,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00e2\u2020\u2019inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -2080,6 +2080,21 @@
       "trust_boundary": "Flags, UUIDs, closed outcomes and delivery timestamps only. No names, contacts, findings, queries, plaintext keys or tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one_preference_per_owner_and_one_event_per_research_draft"
+    },
+    {
+      "id": "wallet_incoming_card_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "wallet_card_requests"
+      ],
+      "primary_access_path": "A connected requester explicitly sends a metadata-only ask. The target opens its recipient-bound Feed notification and chooses a card and duration; the existing grant transaction atomically sends the encrypted response and fulfills the request. A marker or request never authorizes card access.",
+      "retention_policy": "Requests expire seven days after creation. Expiry ends response eligibility, not storage. Request, client retry and decision metadata remain until either participant resets or deletes their account; no scheduled history purge is claimed.",
+      "deletion_behavior": "Account reset and erasure delete rows for either participant before grants and Messages. Foreign keys cascade participant deletion. Grant or source-message deletion clears only the historical reference and cannot reactivate a terminal request.",
+      "trust_boundary": "Authenticated same-user vault owner, participant-bound reads, active unblocked connections and target-only response. Recipient and card selection remain server-bound; no PAN, CVV, PIN, vault keys, card inventory or card values are stored in requests. Request metadata remains outside Live Memory.",
+      "plaintext_posture": "opaque_participant_request_and_decision_metadata",
+      "expected_row_growth": "at_most_one_pending_request_per_directed_connection_pair_with_idempotent_retries"
     }
   ]
 }
