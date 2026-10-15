@@ -5,6 +5,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import {
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
+  type LiveMirrorClaim,
   type LiveMirrorFact,
   type LiveMirrorFactState,
   type LiveMirrorFactValue,
@@ -428,4 +429,39 @@ const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
  */
 export function liveMirrorSourceRoute(kind: LiveMirrorKind): LiveMirrorSourceRoute | null {
   return Object.hasOwn(SOURCE_ROUTES, kind) ? { ...SOURCE_ROUTES[kind] } : null;
+}
+
+/** One side of a disagreement, worded the same way on every surface. */
+export interface LiveMirrorClaimText {
+  /** Who says it: "Your memory", "Profile", "Earning 2". */
+  label: string;
+  value: string;
+  /** "Checked 4 min ago · Version 3", or when it changed if never checked. */
+  detail: string | null;
+}
+
+export function liveMirrorClaimText(
+  claim: LiveMirrorClaim,
+  predicate: string,
+  now: string | number,
+  timeZone?: string,
+): LiveMirrorClaimText {
+  const value = claim.value === null
+    ? "Not set"
+    : formatLiveMirrorValue(predicate, claim.value, {
+      currency: claim.currency ?? null,
+      revision: claim.revision ?? undefined,
+      timeZone,
+    });
+  const changed = claim.sourceUpdatedAt ? formatLiveMirrorDateTime(claim.sourceUpdatedAt, timeZone) : null;
+  const when = claim.verifiedAt ? `Checked ${liveMirrorAgo(claim.verifiedAt, now)}` : changed ? `Changed ${changed}` : null;
+  const detail = [when, claim.revision ? `Version ${claim.revision}` : null].filter(Boolean).join(" · ");
+  return { label: claim.source === "soul" ? "Your memory" : claim.label, value, detail: detail || null };
+}
+
+/** Where to fix one side: memory.md for the owner's own words, else the screen that owns the source. */
+export function liveMirrorClaimRoute(claim: LiveMirrorClaim, predicate: string): LiveMirrorSourceRoute | null {
+  if (claim.source === "soul") return { href: ROUTES.PKM, label: "Edit memory.md" };
+  const kind = predicate.slice(0, predicate.indexOf("."));
+  return (LIVE_MIRROR_KINDS as readonly string[]).includes(kind) ? liveMirrorSourceRoute(kind as LiveMirrorKind) : null;
 }

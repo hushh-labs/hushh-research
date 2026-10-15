@@ -161,6 +161,10 @@ export interface LiveMirrorClaim {
   revision: number | null;
   sourceUpdatedAt: string | null;
   verifiedAt: string | null;
+  /** A money claim's own currency, from its record; absent when not money or unknown. */
+  currency?: string | null;
+  /** "named": a Soul-versus-profile name claim. "record": one side of a record whose revisions disagree. */
+  origin?: "named" | "record";
 }
 
 /** Two sources disagree about one predicate. Both claims are shown; none is chosen. */
