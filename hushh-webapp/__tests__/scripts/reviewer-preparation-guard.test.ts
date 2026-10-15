@@ -5,6 +5,45 @@ import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {
+  it("rejects a connector-only port before it can advertise broader mutation authority", async () => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    const context = { route: vi.fn() };
+    await expect(installReadOnlyMutationGuard(context, {
+      appOrigin: "https://dev.one.hussh.ai", admitOwnerPodConnectorOperation: () => true,
+    })).rejects.toThrow("requires bounded mutation admission");
+    expect(context.route).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["catalog", true, true, false, "POST", "", true],
+    ["verify", true, true, false, "POST", "", true],
+    ["oauth/begin", true, true, false, "POST", "", true],
+    ["oauth/complete", true, true, false, "POST", "", true],
+    ["oauth/cancel", true, true, false, "POST", "", true],
+    ["tools/call", true, true, false, "POST", "", false],
+    ["verify", false, true, false, "POST", "", false],
+    ["verify", true, false, false, "POST", "", false],
+    ["verify", true, true, true, "POST", "", false],
+    ["verify", true, true, false, "DELETE", "", false],
+    ["verify", true, true, false, "POST", "?account=other", false],
+    ["verify", true, true, false, "POST", "#other", false],
+  ])("bounds private connector %s to explicit current-owner admission", async (operation, authorized, current, navigation, method, suffix, allowed) => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", String(authorized));
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn(() => current);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", admitMutation: () => false,
+      admitOwnerPodConnectorOperation: admission,
+    });
+    const path = "/api/one/pod/agent-chat/connectors/custom_" + "a".repeat(32) + "/mcp/";
+    const route = { request: () => ({ url: () => "https://owner-pod.example" + path + operation + suffix,
+      method: () => method, isNavigationRequest: () => navigation }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    if (!authorized || navigation || method !== "POST" || suffix || operation === "tools/call")
+      expect(admission).not.toHaveBeenCalled();
+  });
   it.each(["truthy", "throw"])("rejects unverifiable private preparation admission (%s)", async failure => {
     let handler!: (route: unknown) => Promise<void>;
     const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {

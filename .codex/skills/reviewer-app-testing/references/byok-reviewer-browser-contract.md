@@ -148,3 +148,13 @@ Fail closed and classify the first broken boundary:
 6. domain-specific storage, scope, projection, or consumer behavior
 
 Do not weaken the BYOK or navigation assertion to turn an environment defect into a pass.
+
+Private connector rehearsals compose `admitOwnerPodConnectorOperation` with the
+existing bounded `admitMutation` callback; connector-only configuration is refused
+before browser or route installation. The port admits only non-navigation HTTPS
+POSTs for a custom connector's catalog, verification and OAuth begin/complete/cancel
+operations. The caller must verify the current signed owner endpoint, configuration
+revision and OAuth attempt; the borrowed-session lease rechecks owner/vault authority
+before and after asynchronous admission. This grants no generic tool-call endpoint
+or payment-write authority. Cross-origin OAuth handoff and cold-return unlock remain
+separate phases; retiring a session never authorizes continued protected requests.

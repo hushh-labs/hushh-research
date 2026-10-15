@@ -75,6 +75,13 @@ class ExistingReviewerSession {
         await this.assertCurrent();
         return admitted === true;
       },
+      admitOwnerPodConnectorOperation: async request => {
+        if (!this.baseline || !ports.admitOwnerPodConnectorOperation) return false;
+        await this.assertCurrent();
+        const admitted = await ports.admitOwnerPodConnectorOperation(request);
+        await this.assertCurrent();
+        return admitted === true;
+      },
       admitProviderOAuth: ports.admitProviderOAuth, admitMutation: async request => {
         if (!this.baseline) return false;
         await this.assertCurrent();

@@ -3785,3 +3785,18 @@ and Calendar review cleanup on reset needs an explicit delete because reset reta
 `actor_profiles` (account lifecycle/security owner). Full account deletion already
 follows the verified schema cascades. Neither gap authorizes a capacity increase,
 a second ledger, or a claim that the Sandbox lifecycle is complete.
+
+The reviewed merge is `5fc77478fd`. Contract generation retained both parents'
+workflow compatibility history. The unchanged Back run passed 454/461 cases;
+one-worker retries passed all 52 Memory cases, 186/187 Location cases and the
+remaining Location search case separately. Initial failures and the later search
+timeout remain recorded as contended local runs; no timeout or assertion changed.
+Hosted CI remains authoritative for the complete browser/full-suite gates.
+
+The canonical reviewer now has a bounded private-connector admission port: exact
+HTTPS non-navigation catalog, verification and OAuth paths, composed with bounded
+mutation admission and owner/vault retirement checks. Its 57 focused cases and
+20 Node contracts pass, including refusal of connector-only broad authority and
+retirement during deferred connector admission. The concrete signed endpoint and
+OAuth-attempt filter still require qualification before browser use. This is
+rehearsal admission, not evidence of One's authenticated Stripe account reads.
