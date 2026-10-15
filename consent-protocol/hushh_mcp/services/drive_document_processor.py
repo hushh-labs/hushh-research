@@ -377,7 +377,10 @@ class LocalDocumentProcessor:
     async def prepare(self, *, content: bytes, mime_type: str) -> PreparedIndex:
         if not content or len(content) > CONTENT_LIMIT:
             raise DriveReadError("file_too_large")
-        async with self._lock:
+        # The parse and embedding children also take a per-vCPU slot, so CPU
+        # and memory heavy children never exceed page_extraction_slots() in
+        # this process. Lock order is always _lock, then _pages.
+        async with self._lock, self._pages:
             await self.scanner.scan(content)
             parsed = await self.parser.parse(content=content, mime_type=mime_type)
             return await self.embedder.prepare(parsed)
