@@ -33,6 +33,7 @@ import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { type WalletCardArtwork } from "@/lib/wallet/card-artwork";
 import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
 import { WalletCardFace } from "./wallet-card-face";
+import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
 import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -85,7 +86,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const [issuingRegion, setIssuingRegion] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [artworkBusy, setArtworkBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [additionalOpen, setAdditionalOpen] = useState(false);
   useEffect(() => { if (!active) { setScanReading(null); setArtwork(undefined); } }, [active]);
@@ -103,6 +103,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const ownerKey = `${epoch}:${context?.userId ?? ""}`;
   const previousOwner = useRef(ownerKey);
   const draftVisible = active && previousOwner.current === ownerKey;
+  const artworkVisible = useWalletArtworkVisibility(context, artwork?.source === "catalog" ? artwork : undefined, draftVisible);
   useEffect(() => {
     if (previousOwner.current === ownerKey) return;
     previousOwner.current = ownerKey;
@@ -162,7 +163,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || scanning || artworkBusy || networkLoading || !draftVisible) return;
+    if (saving.current || scanning || networkLoading || !draftVisible) return;
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
@@ -232,7 +233,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       {!scanInToolbar ? scanner : null}
       {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
       {draftVisible && (scanReading || digits.length >= 13) ? <div className="mx-auto w-full max-w-[26.5rem]">
-        <WalletCardFace artwork={artwork} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
+        <WalletCardFace artwork={artworkVisible ? artwork : undefined} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
       </div> : null}
       <fieldset disabled={submitting || scanning || !draftVisible} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
@@ -319,7 +320,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
           </div>
         </details>
       </fieldset>
-      {artworkEnabled ? <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} onChange={setArtwork} onBusyChange={setArtworkBusy} /> : null}
+      {artworkEnabled ? <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} /> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}
@@ -328,7 +329,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       <FlowActionGroup
         className="mx-auto max-w-[244px]"
         stacked
-        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || artworkBusy || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
+        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
         secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>

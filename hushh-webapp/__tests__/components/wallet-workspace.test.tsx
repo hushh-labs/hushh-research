@@ -96,6 +96,7 @@ import { OnboardingLocalService } from "@/lib/services/onboarding-local-service"
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { WalletCardService, type WalletCardRecord } from "@/lib/services/wallet-card-service";
+import { WalletService, type WalletCardPresentation } from "@/lib/services/wallet-service";
 import * as walletCardArtwork from "@/lib/services/wallet-card-artwork-service";
 import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-decoder";
 
@@ -113,6 +114,23 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("hides cached catalog artwork while approval is unknown on resume and retains the card after revocation", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const row: WalletCardPresentation = { summary: { ...makeCards(1)[0]!, brand: "visa" }, cardholderName: "Synthetic Owner", artwork: { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } };
+    let finish!: (rows: WalletCardPresentation[]) => void;
+    const pending = new Promise<WalletCardPresentation[]>(resolve => { finish = resolve; });
+    const load = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValue(pending);
+    const view = render(<WalletWorkspace />);
+    await waitFor(() => expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull());
+    fireEvent.focus(window);
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    await act(async () => { finish([{ ...row, artwork: { source: "neutral", version: 1 } }]); });
+    expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Card 0", exact: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  });
   it("loads cards when the owner token arrives after the vault key", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     vaultMock.tokenReady = false;
