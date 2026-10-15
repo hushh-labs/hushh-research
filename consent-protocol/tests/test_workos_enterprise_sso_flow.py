@@ -676,6 +676,14 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
     assert config.sign_in_ready and config.webhook_secret and config.redirect_origins
 
 
+def test_cloudbuild_packs_sso_settings_in_binder_order():
+    cloudbuild = Path(__file__).resolve().parents[2] / "deploy" / "backend.cloudbuild.yaml"
+    assert (
+        "_WORKOS_CONFIG=${_WORKOS_SSO_ENABLED}|${_WORKOS_REDIRECT_URI}|${_WORKOS_REDIRECT_ORIGINS}"
+        in cloudbuild.read_text(encoding="utf-8")
+    )
+
+
 async def test_sign_in_is_unavailable_without_the_webhook_secret():
     """Offboarding arrives by webhook, so SSO that cannot receive it must not sign anyone in."""
     service = EnterpriseSsoService(
