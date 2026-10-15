@@ -12,19 +12,22 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
 from api.referral_listener import get_referral_queue, release_referral_queue
 from hushh_mcp.operons.referral_scoring.weekly_cutoff import next_weekly_cutoff
-from hushh_mcp.services.one_referral_circle_service import (
-    CircleSelectionError,
-    get_active_circle_selection,
-    select_competition_circle,
+from hushh_mcp.services.one_referral_activity_service import (
+    get_balances,
+    get_transaction_history,
+    reconcile_product_activity,
+    record_app_open,
 )
+from hushh_mcp.services.one_referral_challenge_service import get_challenge_status
 from hushh_mcp.services.one_referral_display_handle_service import (
     DisplayHandleError,
     DisplayHandleTaken,
@@ -32,16 +35,19 @@ from hushh_mcp.services.one_referral_display_handle_service import (
     set_display_handle,
 )
 from hushh_mcp.services.one_referral_leaderboard_service import (
-    get_circle_leaderboard,
     get_engagement_status,
     get_individual_leaderboard,
     get_milestone_progress,
+)
+from hushh_mcp.services.one_referral_network_service import (
+    get_network_circle,
+    get_network_leaderboard,
 )
 from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettingsUnavailable,
     get_active_program_settings,
 )
-from hushh_mcp.services.one_referral_scoring_service import get_cumulative_score
+from hushh_mcp.services.one_referral_rewards_service import RewardClaimError, claim_milestone
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -57,7 +63,11 @@ router = APIRouter(prefix="/api/one/referrals", tags=["One Referrals"])
 
 
 @router.get("/summary")
-def referral_summary(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_summary(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
     """This person's referral link and how their referrals are doing.
 
     A failure here must never look like a broken Profile: the tab renders its
@@ -65,7 +75,7 @@ def referral_summary(firebase_uid: str = Depends(require_firebase_auth)):
     nothing internal in it.
     """
     try:
-        return get_referral_summary(firebase_uid)
+        return get_referral_summary(firebase_uid, offset=offset, limit=limit)
     except ReferralProgramDisabled:
         raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_OFF"})
     except ReferralServiceError:
@@ -104,11 +114,12 @@ class ResolveSlugRequest(BaseModel):
 
 
 class BindAttributionRequest(BaseModel):
-    attribution_id: str = Field(..., max_length=64)
+    model_config = ConfigDict(extra="forbid")
+    attribution_id: UUID
 
 
 @router.post("/resolve")
-async def resolve_referral_slug(payload: ResolveSlugRequest, request: Request):
+def resolve_referral_slug(payload: ResolveSlugRequest, request: Request):
     """Open a referral link. Public by necessity -- there is no session yet.
 
     Answers identically for an invalid slug, a disabled one, and one whose owner
@@ -131,13 +142,13 @@ async def resolve_referral_slug(payload: ResolveSlugRequest, request: Request):
 
 
 @router.post("/bind")
-async def bind_referral_attribution(
+def bind_referral_attribution(
     payload: BindAttributionRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Attach a pending attribution to the person who just signed in."""
     try:
-        return bind_attribution(payload.attribution_id, firebase_uid)
+        return bind_attribution(str(payload.attribution_id), firebase_uid)
     except ReferralProgramDisabled:
         return {"status": "unavailable"}
     except Exception:
@@ -152,14 +163,11 @@ class SelectCircleRequest(BaseModel):
 @router.get("/circle")
 def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's current referral-contest team, if any."""
-    selection = get_active_circle_selection(firebase_uid)
-    if selection is None:
-        return {"circle_id": None}
-    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
+    return get_network_circle(firebase_uid)
 
 
 @router.post("/circle")
-async def select_referral_circle(
+def select_referral_circle(
     payload: SelectCircleRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -168,14 +176,10 @@ async def select_referral_circle(
     Requires the caller already be an accepted member of that Location
     Circle -- this endpoint grants no membership and changes no capacity.
     """
-    try:
-        selection = select_competition_circle(firebase_uid, payload.circle_id)
-    except CircleSelectionError:
-        raise HTTPException(status_code=403, detail={"code": "REFERRAL_CIRCLE_NOT_A_MEMBER"})
-    except Exception:
-        logger.exception("[referrals] circle_selection_failed")
-        raise HTTPException(status_code=500, detail={"code": "REFERRAL_CIRCLE_SELECTION_FAILED"})
-    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
+    circle = get_network_circle(firebase_uid)
+    if circle["circle_id"] != payload.circle_id:
+        raise HTTPException(status_code=403, detail={"code": "REFERRAL_CIRCLE_INHERITED"})
+    return circle
 
 
 class SetHandleRequest(BaseModel):
@@ -183,13 +187,13 @@ class SetHandleRequest(BaseModel):
 
 
 @router.get("/handle")
-async def referral_display_handle(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_display_handle(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's own chosen public leaderboard handle, if any set."""
     return {"handle": get_display_handle(firebase_uid)}
 
 
 @router.post("/handle")
-async def set_referral_display_handle(
+def set_referral_display_handle(
     payload: SetHandleRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -222,13 +226,14 @@ def referral_cumulative_points(firebase_uid: str = Depends(require_firebase_auth
     the verified token, never a request parameter -- this can only ever
     answer for the caller's own account.
     """
-    return {"points": get_cumulative_score(firebase_uid)}
+    return get_balances(firebase_uid)
 
 
 @router.get("/leaderboard")
 def referral_individual_leaderboard(
     after_rank: int = 0,
     limit: int = 20,
+    snapshot_id: UUID | None = None,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """One page of the latest published cumulative-ranking snapshot.
@@ -240,17 +245,21 @@ def referral_individual_leaderboard(
     """
     bounded_limit = max(1, min(limit, 50))
     return get_individual_leaderboard(
-        limit=bounded_limit, after_rank=max(0, after_rank), viewer_user_id=firebase_uid
+        limit=bounded_limit,
+        after_rank=max(0, after_rank),
+        viewer_user_id=firebase_uid,
+        snapshot_id=str(snapshot_id) if snapshot_id else None,
     )
 
 
 @router.get("/circles/leaderboard")
 def referral_circle_leaderboard(
     limit: int = 20,
+    after_rank: int = 0,
     _firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Cumulative RAW qualified-referral count per contest team."""
-    return {"teams": get_circle_leaderboard(limit=max(1, min(limit, 50)))}
+    return get_network_leaderboard(limit=max(1, min(limit, 50)), after_rank=max(0, after_rank))
 
 
 @router.get("/policy")
@@ -274,27 +283,55 @@ def referral_program_policy(_firebase_uid: str = Depends(require_firebase_auth))
 
 @router.get("/challenge")
 def referral_weekly_challenge(_firebase_uid: str = Depends(require_firebase_auth)):
-    """The current seven-day challenge round's start and close.
+    """The persisted weekly window, status and server clock.
 
-    A display computation only, derived from the active settings version's
-    `weekly_schedule` -- it never creates or reads a reward-round row. Returns
-    `active: false` with no window when the schedule is unset (v1's state) or
-    the active row cannot be found, so the dashboard can render a "not yet
-    scheduled" state instead of guessing at a deadline.
+    An unset schedule renders an explicit not-configured state. Scheduling a
+    window does not activate physical prizes; that remains a separate flag.
     """
+    return get_challenge_status()
+
+
+class ProductActivityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message_id: UUID
+
+
+@router.post("/activity")
+def referral_product_activity(
+    payload: ProductActivityRequest, firebase_uid: str = Depends(require_firebase_auth)
+):
+    return reconcile_product_activity(firebase_uid, str(payload.message_id))
+
+
+@router.post("/app-open")
+def referral_app_open(firebase_uid: str = Depends(require_firebase_auth)):
+    return record_app_open(firebase_uid)
+
+
+@router.get("/transactions")
+def referral_transactions(
+    before_id: int | None = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    return get_transaction_history(firebase_uid, before_id, limit)
+
+
+class ClaimRewardRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    milestone_key: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/rewards/claim")
+def referral_reward_claim(
+    payload: ClaimRewardRequest, firebase_uid: str = Depends(require_firebase_auth)
+):
     try:
-        settings = get_active_program_settings()
-    except ProgramSettingsUnavailable:
-        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
-    window = next_weekly_cutoff(datetime.now(timezone.utc), settings.weekly_schedule)
-    if window is None:
-        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
-    return {
-        "active": True,
-        "week_started_at": window.week_started_at.isoformat(),
-        "cutoff_at": window.cutoff_at.isoformat(),
-        "timezone": window.timezone,
-    }
+        return claim_milestone(firebase_uid, payload.milestone_key)
+    except RewardClaimError:
+        raise HTTPException(
+            status_code=409, detail={"code": "REWARD_NOT_EARNED_OR_ALREADY_CLAIMED"}
+        )
 
 
 @router.get("/milestones")
@@ -323,7 +360,10 @@ def referral_engagement_status(firebase_uid: str = Depends(require_firebase_auth
         raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
     program_timezone = str(settings.weekly_schedule.get("timezone") or "").strip() or "UTC"
     return get_engagement_status(
-        firebase_uid, flash_windows=settings.flash_windows, program_timezone=program_timezone
+        firebase_uid,
+        flash_windows=settings.flash_windows,
+        program_timezone=program_timezone,
+        run_length_days=int(settings.streak_rules.get("run_length_days", 3)),
     )
 
 
@@ -364,7 +404,7 @@ async def _referral_event_stream(user_id: str, request: Request):
     except asyncio.CancelledError:
         raise
     finally:
-        await release_referral_queue(user_id)
+        await release_referral_queue(user_id, queue)
 
 
 @router.get("/events")

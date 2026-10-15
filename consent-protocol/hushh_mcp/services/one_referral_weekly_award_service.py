@@ -17,7 +17,7 @@ slot has is (reward_round_id, award_slot), never (user_id, anything).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -70,6 +70,9 @@ def finalize_reward_round(cutoff_at: datetime, program_timezone: str) -> Finaliz
     refuses to create any award row until that is deliberately turned on, so
     real prize processing stays off by construction.
     """
+    if cutoff_at.tzinfo is None or cutoff_at > datetime.now(timezone.utc):
+        raise ValueError("round cannot finalize before its cutoff")
+
     settings = get_active_program_settings()
     if not settings.feature_active:
         raise RealAwardProcessingDisabled(
@@ -80,7 +83,13 @@ def finalize_reward_round(cutoff_at: datetime, program_timezone: str) -> Finaliz
     round_row = get_or_create_reward_round(cutoff_at, program_timezone)
 
     with get_db_connection() as connection:
-        if round_row["status"] == "finalized":
+        locked = connection.execute(
+            text(
+                "SELECT status FROM one_referral_reward_rounds WHERE id=CAST(:rid AS UUID) FOR UPDATE"
+            ),
+            {"rid": round_row["id"]},
+        ).fetchone()
+        if locked.status == "finalized":
             existing = connection.execute(
                 text(
                     """
@@ -104,12 +113,12 @@ def finalize_reward_round(cutoff_at: datetime, program_timezone: str) -> Finaliz
         ranked = connection.execute(
             text(
                 """
-                SELECT user_id, SUM(points) AS total
+                SELECT user_id, SUM(coins) AS total
                   FROM one_referral_score_events
                  WHERE created_at < :cutoff_at
                  GROUP BY user_id
-                HAVING SUM(points) > 0
-                 ORDER BY total DESC, user_id ASC
+                HAVING SUM(coins) > 0
+                 ORDER BY total DESC, MIN(created_at) FILTER (WHERE coins>0), user_id ASC
                  LIMIT :limit
                 """
             ),

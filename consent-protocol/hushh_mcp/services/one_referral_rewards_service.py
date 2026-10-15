@@ -32,6 +32,29 @@ class FulfillmentDecisionError(RuntimeError):
     """A fulfillment decision could not be recorded."""
 
 
+class RewardClaimError(RuntimeError):
+    """The owner has not earned this reward, or has already claimed it."""
+
+
+def claim_milestone(user_id: str, milestone_key: str) -> dict:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            text("""
+          UPDATE one_referral_milestone_entitlements SET claimed_at=NOW()
+           WHERE user_id=:uid AND milestone_key=:key AND claimed_at IS NULL
+           RETURNING id,claimed_at
+        """),
+            {"uid": user_id, "key": milestone_key},
+        ).fetchone()
+        if row is None:
+            raise RewardClaimError("reward not earned or already claimed")
+    return {
+        "milestone_key": milestone_key,
+        "claimed_at": row.claimed_at.isoformat(),
+        "status": "claimed",
+    }
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

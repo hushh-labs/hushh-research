@@ -16,6 +16,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from hushh_mcp.services import one_referral_activity_service as activity_service
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard_service
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"
@@ -160,6 +161,8 @@ def test_get_milestone_progress_reports_earned_and_the_nearest_next_milestone(mo
         milestone_key="tee_5",
         reward="hushh_tee",
         earned_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        claimed_at=None,
+        fulfillment_status="pending_review",
     )
     conn = MagicMock()
 
@@ -184,7 +187,13 @@ def test_get_milestone_progress_reports_earned_and_the_nearest_next_milestone(mo
 
     assert progress["lifetime_qualified_count"] == 7
     assert progress["earned"] == [
-        {"milestone_key": "tee_5", "reward": "hushh_tee", "earned_at": "2026-10-01T00:00:00+00:00"}
+        {
+            "milestone_key": "tee_5",
+            "reward": "hushh_tee",
+            "earned_at": "2026-10-01T00:00:00+00:00",
+            "claimed_at": None,
+            "fulfillment_status": "pending_review",
+        }
     ]
     assert progress["next_milestone"] == {
         "milestone_key": "backpack_15",
@@ -209,6 +218,11 @@ def test_get_engagement_status_reports_live_streak_and_no_active_flash(monkeypat
             return datetime(2026, 11, 9, 12, 0, tzinfo=tz or timezone.utc)
 
     monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(
+        activity_service,
+        "get_daily_streak",
+        lambda *_args: {"current_run_days": 2, "longest_run_days": 2},
+    )
 
     with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
         status = leaderboard_service.get_engagement_status(
@@ -230,6 +244,11 @@ def test_get_engagement_status_reports_an_active_flash_window(monkeypatch):
             return datetime(2026, 11, 8, 15, 0, tzinfo=tz or timezone.utc)
 
     monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(
+        activity_service,
+        "get_daily_streak",
+        lambda *_args: {"current_run_days": 2, "longest_run_days": 2},
+    )
     windows = [
         {
             "start": datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc).isoformat(),
@@ -257,10 +276,18 @@ def test_get_milestone_progress_has_no_next_milestone_once_everything_is_earned(
             return _Result(
                 [
                     SimpleNamespace(
-                        milestone_key="tee_5", reward="hushh_tee", earned_at=GENERATED_AT
+                        milestone_key="tee_5",
+                        reward="hushh_tee",
+                        earned_at=GENERATED_AT,
+                        claimed_at=None,
+                        fulfillment_status="pending_review",
                     ),
                     SimpleNamespace(
-                        milestone_key="backpack_15", reward="hushh_backpack", earned_at=GENERATED_AT
+                        milestone_key="backpack_15",
+                        reward="hushh_backpack",
+                        earned_at=GENERATED_AT,
+                        claimed_at=None,
+                        fulfillment_status="pending_review",
                     ),
                 ]
             )

@@ -1,17 +1,8 @@
-"""Referral qualification rules.
+"""Referral state transitions and verified product-usage qualification.
 
-Qualification is decided once, at the moment a referred person finishes the
-required Hushh One onboarding flow: attribution bound, signed up, onboarded,
-Qualified. There is no post-onboarding engagement bar -- no active-minutes
-floor, no eligible-agent requirement, no minimum-event count. Those checks
-used to gate `evaluate()`; they were retired because the product no longer
-asks a referred person to do anything after finishing setup.
-
-The engagement-accounting functions below (`credit_for_heartbeat`,
-`merge_intervals`, `eligible_credited_seconds`) still exist because the
-underlying session infrastructure is still written to and still rendered on
-the Referrals tab as progress context. They simply no longer decide whether
-anyone qualifies.
+Setup and phone verification are prerequisites, not qualification events.
+The service supplies trusted completed-agent-reply evidence. Legacy heartbeat
+accounting remains available for historical engagement context.
 """
 
 from __future__ import annotations
@@ -75,6 +66,7 @@ class ReferralPolicy:
     """One version of the program's rules, as read from the database."""
 
     version: int
+    required_product_event: str = "completed_agent_reply"
     program_enabled: bool = True
     new_users_only: bool = True
     attribution_window_days: int = 30
@@ -191,15 +183,15 @@ def attribution_expires_at(first_seen_at: datetime, policy: ReferralPolicy) -> d
 class QualificationInput:
     """Everything the decision needs, already gathered by the caller.
 
-    `onboarding_complete` is the whole qualification bar: it means the person
-    finished the required Hushh One onboarding flow server-side. Nothing here
-    asks what they did afterward.
+    `onboarding_complete` and `phone_verified` are prerequisites.
+    `verified_product_usage` is evidence supplied by the trusted event owner.
     """
 
     status: str
     phone_verified: bool
     onboarding_complete: bool
     risk_level: str = "low"
+    verified_product_usage: bool = False
 
 
 @dataclass(frozen=True)
@@ -227,6 +219,8 @@ def evaluate(candidate: QualificationInput, policy: ReferralPolicy) -> Qualifica
         return QualificationDecision(status, "phone_not_verified", changed=False)
     if not candidate.onboarding_complete:
         return QualificationDecision(status, "onboarding_incomplete", changed=False)
+    if not candidate.verified_product_usage:
+        return QualificationDecision(status, "product_usage_required", changed=False)
 
     if candidate.risk_level == "high":
         return QualificationDecision(REJECTED, "risk_high", changed=True)
