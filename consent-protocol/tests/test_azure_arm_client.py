@@ -79,6 +79,33 @@ def test_throttling_waits_for_retry_after_then_succeeds():
     assert sleeps == [7.0]
 
 
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (503, {}),
+        (409, {"error": {"code": "AnotherOperationInProgress"}}),
+    ],
+)
+def test_fenced_write_cannot_dispatch_an_internal_retry(status, body):
+    session = _Session(_Response(status, body), _Response(200, {"id": _PATH}))
+    admitted = True
+
+    def guard():
+        if not admitted:
+            raise PermissionError("setup is fenced")
+
+    def fence(_seconds):
+        nonlocal admitted
+        admitted = False
+
+    client = ArmClient(_BEARER, session=session, sleep=fence, before_write=guard)
+    with pytest.raises(PermissionError, match="setup is fenced"):
+        client.put(_PATH, api_version="v", body={})
+    assert len(session.sent) == 1
+    # Observing the resource is still allowed; it cannot create another resource.
+    assert client.get(_PATH, api_version="v") == {"id": _PATH}
+
+
 def test_persistent_throttling_is_a_typed_refusal():
     session = _Session(*[_Response(429, {}, {"Retry-After": "1"}) for _ in range(5)])
     client, _ = _client(session)

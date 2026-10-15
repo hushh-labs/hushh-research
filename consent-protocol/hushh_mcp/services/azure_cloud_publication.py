@@ -1,8 +1,8 @@
 """Publish a proven Azure subscription onto the person's registry row.
 
 The sibling of ``byoc_cloud_publication.record_proven_cloud``, with the same
-serialization: the setup job row is locked first and must still own setup (same job,
-``running``, ``proving``), then the registry row is updated only while it holds no
+serialization: owner locks 171 then 198 precede the setup job row, which must
+still own setup (same job, ``running``, ``proving``). The registry changes only while it holds no
 pod. GCP coordinates are cleared in the same write, so a row never carries two
 clouds' coordinates under one target.
 
@@ -22,12 +22,16 @@ from hushh_mcp.services.azure_setup_plan import group_id
 from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE
 
 _PUBLISH = """
-WITH job AS MATERIALIZED (
-    SELECT user_id FROM byoc_setup_jobs
-    WHERE user_id = :owner AND job_id = :job AND project_id = :group_ref
+WITH owner_lock AS MATERIALIZED (
+    SELECT pg_advisory_xact_lock(hashtextextended(:owner,171))
+), erasure_lock AS MATERIALIZED (
+    SELECT pg_advisory_xact_lock(hashtextextended(:owner,198)) FROM owner_lock
+), job AS MATERIALIZED (
+    SELECT j.user_id FROM byoc_setup_jobs j CROSS JOIN erasure_lock
+    WHERE j.user_id = :owner AND job_id = :job AND project_id = :group_ref
       AND status = 'running' AND stage = 'proving'
       AND (stages @> CAST(:selected AS jsonb)) = :files_enabled
-    FOR UPDATE
+    FOR UPDATE OF j
 ), attached AS (
     UPDATE personal_agent_registry r
     SET user_cloud_tenant_id = :tenant,

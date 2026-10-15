@@ -32,6 +32,14 @@ registry against new reservations and refuses existing Azure reservations or
 new retained outcomes. Other erasure schema rollback requires its own fenced,
 drained release procedure; an application rollback does not recover deleted keys.
 
+Dev-only 961 records the original Azure setup nonce and coordinates in the
+existing job before its first write. Owner locks serialize job replacement with
+erasure reservation; disabled or missing guards refuse admission. This fence
+prevents subsequent setup stages and internal ARM write retries. Setup/rebuild
+cancellation joins the actual local execution, including queued and repeated
+cancellation, before reporting interruption. That exit is not proof that a cloud
+operation has settled; teardown remains refused until provider operations settle.
+
 Current Azure erasure revokes access but does not delete all subscription
 resources. Full teardown needs fresh owner authorization, qualified inventory
 and final absence receipts through the existing erasure operation. Until those

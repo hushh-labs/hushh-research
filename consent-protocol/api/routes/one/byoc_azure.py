@@ -394,6 +394,14 @@ async def complete_azure_authorize(
         if selection.kind in ("setup", "discover"):
             row = await _require_setup_admission(firebase_uid)
             _require_files_available(selection.files_enabled)
+        if selection.kind == "teardown":
+            # Teardown must have its own durable erasure admission; never let a
+            # valid new-purpose state fall through into provisioning.
+            raise _refuse(
+                409,
+                "AZURE_ERASURE_AUTHORIZATION_REQUIRED",
+                "Continue deletion from your account settings.",
+            )
         if selection.kind == "discover":
             return await _continue_in_home_directory(firebase_uid, body.state, selection, body.code)
         token = await asyncio.to_thread(entra.redeem, body.state, selection, body.code)

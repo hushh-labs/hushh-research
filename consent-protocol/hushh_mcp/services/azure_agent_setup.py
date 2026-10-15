@@ -242,6 +242,8 @@ def run_agent_setup(
     http: Any = None,
     sleep: Callable[[float], None] = time.sleep,
     adopt: bool = False,
+    bind_setup: Callable[[PlanInputs], None] | None = None,
+    guard: Callable[[], None] | None = None,
 ) -> AzureSetupResult:
     """Every setup stage before and including ``proving``. Synchronous.
 
@@ -253,7 +255,7 @@ def run_agent_setup(
     registry, repository, digest = parse_source_image(source_image)
     if image_credentials is None:
         image_credentials = import_credentials(registry)
-    arm = arm or ArmClient(access_token, sleep=sleep)
+    arm = arm or ArmClient(access_token, sleep=sleep, before_write=guard)
     nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=adopt)
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id
     if not principal:
@@ -274,8 +276,15 @@ def run_agent_setup(
         files_enabled=spec.files_library_enabled,
     )
     values = {"husshPrincipalId": principal, "imageDigest": digest}
+    if bind_setup is not None:
+        bind_setup(inputs)
     applier = SetupApplier(
-        arm, advance=advance, sleep=sleep, image_source_credentials=image_credentials, adopt=adopt
+        arm,
+        advance=advance,
+        sleep=sleep,
+        image_source_credentials=image_credentials,
+        adopt=adopt,
+        guard=guard,
     )
     try:
         result = applier.apply(plan_for(inputs), values=values, plan_for=plan_for)

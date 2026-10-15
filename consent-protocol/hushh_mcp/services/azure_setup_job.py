@@ -23,6 +23,8 @@ from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
 from hushh_mcp.services.azure_entra_authorizer import AzureAuthorizeError
 from hushh_mcp.services.azure_federation import AzureFederationError
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+from hushh_mcp.services.azure_setup_plan import PlanInputs
+from hushh_mcp.services.azure_setup_worker import AzureSetupCancelled, run_setup_thread
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
 from hushh_mcp.services.compute_backend import PodSpec
 
@@ -123,6 +125,15 @@ async def _guarded(
     try:
         await work()
         await jobs.finish(user_id=user_id, job_id=job_id, status="recorded")
+    except AzureSetupCancelled:
+        await _finish_failed(
+            jobs,
+            user_id=user_id,
+            job_id=job_id,
+            code="SETUP_INTERRUPTED",
+            message="Cloud setup stopped. Existing resources are kept for reconciliation.",
+        )
+        raise
     except JobSuperseded:
         logger.info("azure_setup_job.superseded user=%s job=%s", user_id, job_id)
     except _TYPED as exc:
@@ -156,6 +167,44 @@ def _stage_writer(jobs: Any, *, user_id: str, job_id: str) -> Callable[[str], No
     return advance
 
 
+def _setup_boundary(
+    jobs: Any, *, user_id: str, job_id: str
+) -> tuple[Callable[[PlanInputs], None], Callable[[], None]]:
+    """Thread bridge to existing durable admission; no credentials in either callback."""
+    loop = asyncio.get_running_loop()
+
+    def bind(inputs: PlanInputs) -> None:
+        intent = {
+            "version": 1,
+            "jobId": job_id,
+            "hushhId": inputs.hushh_id,
+            "tenantId": inputs.tenant_id,
+            "subscriptionId": inputs.subscription_id,
+            "resourceGroup": inputs.resource_group,
+            "location": inputs.location,
+            "setupNonce": inputs.nonce,
+        }
+        retained = asyncio.run_coroutine_threadsafe(
+            jobs.retain_azure_setup_intent(user_id=user_id, job_id=job_id, intent=intent), loop
+        ).result(timeout=30)
+        if retained is not True:
+            raise AzureSetupRefused(
+                "Cloud setup stopped before creating more resources.", code="SETUP_FENCED"
+            )
+
+    def guard() -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                jobs.assert_azure_worker_admitted(user_id=user_id, job_id=job_id), loop
+            ).result(timeout=30)
+        except JobSuperseded as exc:
+            raise AzureSetupRefused(
+                "Cloud setup stopped before creating more resources.", code="SETUP_FENCED"
+            ) from exc
+
+    return bind, guard
+
+
 async def run_azure_setup_job(
     *,
     user_id: str,
@@ -185,7 +234,8 @@ async def run_azure_setup_job(
                 subscription_id=subscription_id,
             )
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
-        result = await asyncio.to_thread(
+        bind_setup, guard = _setup_boundary(jobs, user_id=user_id, job_id=job_id)
+        result = await run_setup_thread(
             setup,
             access_token=access_token,
             tenant_id=tenant_id,
@@ -194,6 +244,8 @@ async def run_azure_setup_job(
             spec=spec,
             source_image=source_image,
             advance=advance,
+            bind_setup=bind_setup,
+            guard=guard,
         )
         await publish(
             jobs,
@@ -302,7 +354,7 @@ async def run_azure_rebuild_job(
 
     async def work() -> None:
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
-        await asyncio.to_thread(
+        await run_setup_thread(
             setup,
             access_token=access_token,
             tenant_id=str(spec.user_cloud_tenant_id or ""),

@@ -3,7 +3,10 @@ person's token in memory only."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 
@@ -24,6 +27,9 @@ class _Repo:
         self.stages: list[str] = []
         self.finished: dict = {}
         self.superseded_at = superseded_at
+
+    async def assert_azure_worker_admitted(self, *, user_id, job_id):
+        return None
 
     async def advance(self, *, user_id, job_id, stage):
         if stage == self.superseded_at:
@@ -201,3 +207,113 @@ async def test_a_skipped_update_is_a_typed_failure():
         user_id="u1", job_id="j3", access_token=_TOKEN, target_image="i", upgrade=upgrade, repo=repo
     )
     assert repo.finished["code"] == "UPGRADE_COOLDOWN"
+
+
+@pytest.mark.parametrize("cancel_executor_proxy", [False, True])
+async def test_cancelled_setup_joins_the_thread_before_recording_interruption(
+    monkeypatch, cancel_executor_proxy
+):
+    repo = _Repo()
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    executor_futures = []
+    original_executor = loop.run_in_executor
+
+    def observe_executor(*args):
+        future = original_executor(*args)
+        executor_futures.append(future)
+        return future
+
+    monkeypatch.setattr(loop, "run_in_executor", observe_executor)
+    release = Event()
+    exited = Event()
+    dispatched = []
+
+    def setup(**kwargs):
+        loop.call_soon_threadsafe(entered.set)
+        try:
+            assert release.wait(5), "test did not release the synthetic provider call"
+            kwargs["guard"]()
+            dispatched.append("second-write")
+            return _result()
+        finally:
+            exited.set()
+
+    task = asyncio.create_task(_run_setup(repo, setup))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        if cancel_executor_proxy:
+            assert executor_futures
+            executor_futures[0].cancel()
+        else:
+            task.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)  # deliver the cancelled proxy through shield to its owner
+        assert not task.done() and not repo.finished
+        task.cancel()  # repeated cancellation cannot abandon the thread either
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+        assert exited.is_set() and dispatched == []
+        assert repo.finished["status"] == "failed"
+        assert repo.finished["code"] == "SETUP_INTERRUPTED"
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("cancel_executor_proxy", [False, True])
+async def test_cancelled_queued_setup_never_starts_or_waits_for_a_missing_exit(
+    monkeypatch, cancel_executor_proxy
+):
+    repo = _Repo()
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    release = Event()
+    submitted = asyncio.Event()
+    pending = []
+    dispatched = []
+
+    def occupy():
+        assert release.wait(5)
+
+    blocker = loop.run_in_executor(None, occupy)
+    await asyncio.sleep(0)
+    # The first executor slot is reserved; the queued setup cannot start.
+    original_executor = loop.run_in_executor
+
+    def observe_executor(*args):
+        future = original_executor(*args)
+        pending.append(future)
+        submitted.set()
+        return future
+
+    monkeypatch.setattr(loop, "run_in_executor", observe_executor)
+
+    def setup(**kwargs):
+        dispatched.append("write")
+        return _result()
+
+    task = asyncio.create_task(_run_setup(repo, setup))
+    try:
+        await asyncio.wait_for(submitted.wait(), 5)
+        assert len(pending) == 1
+        if cancel_executor_proxy:
+            pending[0].cancel()
+        else:
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+        assert repo.finished["code"] == "SETUP_INTERRUPTED"
+        assert dispatched == []
+    finally:
+        release.set()
+        await blocker
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        executor.shutdown(wait=True)
+    assert dispatched == []

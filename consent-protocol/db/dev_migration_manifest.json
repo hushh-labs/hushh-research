@@ -75,7 +75,8 @@
     "957_personal_agent_azure_files_upgrade.sql",
     "958_one_shared_legacy_continuity.sql",
     "959_shared_files_storage_lifecycle.sql",
-    "960_owner_erasure_provider_outcomes.sql"
+    "960_owner_erasure_provider_outcomes.sql",
+    "961_azure_setup_erasure_binding.sql"
   ],
   "deferred_release_migrations": [
     {

@@ -1,0 +1,22 @@
+-- Stop and reconcile setup workers before removing their durable admission.
+BEGIN;
+LOCK TABLE public.personal_agent_registry IN SHARE MODE;
+LOCK TABLE public.byoc_setup_jobs IN SHARE MODE;
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM public.byoc_setup_jobs j WHERE
+   j.project_id LIKE '/subscriptions/%/resourceGroups/%'
+   AND (j.status='running' OR EXISTS (SELECT 1 FROM jsonb_array_elements(j.stages) s
+     WHERE s->>'stage'='azure_setup_intent')))
+ OR EXISTS (SELECT 1 FROM public.personal_agent_registry r
+   JOIN public.byoc_setup_jobs j ON j.user_id=r.user_id
+   WHERE r.backend_metadata ? 'erasure'
+     AND j.project_id LIKE '/subscriptions/%/resourceGroups/%')
+ THEN RAISE EXCEPTION 'Azure setup bindings require forward recovery'; END IF;
+END $$;
+DROP TRIGGER zw_byoc_azure_erasure ON public.byoc_setup_jobs;
+DROP FUNCTION public.guard_byoc_azure_erasure_job();
+DROP FUNCTION public.byoc_azure_worker_admitted(text,text);
+DROP FUNCTION public.retain_byoc_azure_setup_intent(text,text,jsonb);
+DROP FUNCTION public.byoc_azure_setup_guards_ready();
+DROP FUNCTION public.valid_byoc_azure_setup_intent(text,text,text,text,jsonb);
+COMMIT;

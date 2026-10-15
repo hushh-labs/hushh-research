@@ -3238,7 +3238,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2674,
+  "finding_count": 2675,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -17530,7 +17530,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/byoc_setup_job_service.py",
       "symbol": null,
-      "value": 551
+      "value": 574
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27311,6 +27311,15 @@
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/azure_agent_setup.py",
+      "symbol": "run_agent_setup",
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_setup.py|run_agent_setup|function exceeds the advisory gene budget",
+      "limit": 80,
+      "value": 89
     }
   ],
   "inspected_files": 6625,
@@ -52297,5 +52306,25 @@
     ],
     "evidence_revision": "48e6323266fabbc79ba7bb2d47e9f44b22d20960",
     "review": "Independent owner_lifecycle_cleanup_review: exact existing inventory growth and historical-receipt regression coverage. Registry preflight stays within reviewed ceilings. No budget or unrelated ceiling changes; complete Azure teardown remains unimplemented."
+  },
+  "azure_setup_erasure_admission_review_20261015": {
+    "evidence_revision": "48acc5d19dae11033588e943ba970f106e8b78a5",
+    "review": "Independent lifecycle security review qualifies only cohesive bind-before-write orchestration and two existing-table SQL ports with owner-first admission. Global budgets and all other ceilings unchanged. Worker/provider drain and full teardown are separate obligations.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_setup.py|run_agent_setup|function exceeds the advisory gene budget",
+        "before": 80,
+        "after": 89,
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "a1fb536c8f237c51fc746cd07120d8069caa275e78c6cfb6d0aff62b8d9581ec"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py||module exceeds the advisory operon budget",
+        "before": 551,
+        "after": 574,
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "04d510941d2f07397fa42b1b60e2293c9b7ad2fbe4b70e8106b519ec760fbfa8"
+      }
+    ]
   }
 }

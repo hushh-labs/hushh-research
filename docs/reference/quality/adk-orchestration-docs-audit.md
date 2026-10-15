@@ -49,8 +49,13 @@ real PostgreSQL refusal on an old erasure schema before key destruction and
 retention of exact provider outcomes. New GCP inventories exclude uncreated
 legacy mail resources while historical receipts keep their obligations. Dev-only
 migration 960 must be admitted before using the new Azure erasure response.
-Complete Azure resource deletion, failed-setup reconciliation and operator-project
-mail-topic cleanup still require implementation. Account deletion remains refused
+Dev-only 961 additionally retains Azure setup identity before writes and fences
+job replacement against erasure using serialized owner locks. The 174 focused
+cases cover trigger refusal, provider retry fencing and actual local thread exit
+on queued/running cancellation, with broken-code negative controls. Teardown
+authorization is attempt-bound but refuses execution. Complete Azure deletion,
+durable worker/provider reconciliation and
+operator-project mail-topic cleanup still require implementation. Account deletion remains refused
 while resources are unresolved; provider retention is not immediate physical erasure.
 
 **Browser correction — local, disabled:** 22 UI cases and headless checks of the

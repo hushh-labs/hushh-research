@@ -143,6 +143,58 @@ def test_a_tampered_state_is_refused():
             entra.verify_state(forged, "uid-1")
 
 
+def test_teardown_authorization_binds_the_existing_erasure_attempt_and_frozen_terms():
+    url = entra.begin(
+        "uid-1",
+        kind="teardown",
+        subscription_id=_SUBSCRIPTION,
+        tenant_id=_TENANT,
+        erasure_attempt="attempt-1",
+        erasure_digest="a" * 64,
+    )
+    query = _query(url)
+    selection = entra.verify_state(query["state"], "uid-1")
+    assert (selection.kind, selection.erasure_attempt, selection.erasure_digest) == (
+        "teardown",
+        "attempt-1",
+        "a" * 64,
+    )
+    assert (selection.subscription_id, selection.authority) == (_SUBSCRIPTION, _TENANT)
+    assert "offline_access" not in url and query["code_challenge_method"] == "S256"
+    with pytest.raises(entra.AzureAuthorizeError, match="different account"):
+        entra.verify_state(query["state"], "uid-2")
+    exp, payload, mac = query["state"].removeprefix("azure.").split(".", 2)
+    substituted = entra._unb64(payload).replace(b"attempt-1", b"attempt-2")
+    with pytest.raises(entra.AzureAuthorizeError, match="verification"):
+        entra.verify_state(f"azure.{exp}.{entra._b64(substituted)}.{mac}", "uid-1")
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"erasure_attempt": ""},
+        {"erasure_attempt": "a|injected"},
+        {"erasure_digest": ""},
+        {"erasure_digest": "g" * 64},
+        {"subscription_id": ""},
+        {"authority": "common"},
+        {"kind": "setup"},
+        {"kind": "upgrade"},
+        {"files_enabled": True},
+    ],
+)
+def test_teardown_cannot_broaden_or_omit_its_exact_authorization(patch):
+    terms = {
+        "kind": "teardown",
+        "subscription_id": _SUBSCRIPTION,
+        "authority": _TENANT,
+        "erasure_attempt": "attempt-1",
+        "erasure_digest": "a" * 64,
+    }
+    with pytest.raises(entra.AzureAuthorizeError):
+        entra.make_state("uid-1", **{**terms, **patch})
+
+
 def test_an_expired_state_is_refused(monkeypatch):
     state = entra.make_state("uid-1", kind="upgrade", subscription_id="", authority=_TENANT)
     real = time.time

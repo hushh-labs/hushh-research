@@ -157,6 +157,7 @@ class ArmClient:
         lro_timeout_seconds: float = 900.0,
         throttle_retries: int = 4,
         transient_retries: int = 12,
+        before_write: Callable[[], None] | None = None,
     ) -> None:
         self._token = token
         self._session = session
@@ -165,6 +166,7 @@ class ArmClient:
         self._lro_timeout = lro_timeout_seconds
         self._throttle_retries = throttle_retries
         self._transient_retries = transient_retries
+        self._before_write = before_write
 
     def _bearer(self) -> str:
         token = self._token() if callable(self._token) else self._token
@@ -183,6 +185,10 @@ class ArmClient:
         headers = {"Authorization": f"Bearer {self._bearer()}", "Accept": "application/json"}
         throttled = settling = 0
         while True:
+            # Recheck every dispatch, including throttled/settling retries. Reads
+            # may finish observing an operation already submitted before fencing.
+            if method not in ("GET", "HEAD") and self._before_write is not None:
+                self._before_write()
             response = self._send_once(method, url, headers, body)
             if response.status in (429, 503) and throttled < self._throttle_retries:
                 throttled += 1

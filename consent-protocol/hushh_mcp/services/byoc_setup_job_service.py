@@ -105,11 +105,16 @@ class ByocSetupJobRepo:
         response = await asyncio.to_thread(
             self._db().execute_raw,
             """
+            WITH owner_lock AS MATERIALIZED (
+              SELECT pg_advisory_xact_lock(hashtextextended(:owner,171))
+            ), erasure_lock AS MATERIALIZED (
+              SELECT pg_advisory_xact_lock(hashtextextended(:owner,198)) FROM owner_lock
+            )
             INSERT INTO byoc_setup_jobs
               (user_id, job_id, project_id, status, stage, stages, error_code,
                error_message, created_at, updated_at)
-            VALUES (:owner, :job, :project, 'running', 'starting',
-                    CAST(:stages AS jsonb), NULL, NULL, now(), now())
+            SELECT :owner, :job, :project, 'running', 'starting',
+                   CAST(:stages AS jsonb), NULL, NULL, now(), now() FROM erasure_lock
             ON CONFLICT (user_id) DO UPDATE SET
               job_id = EXCLUDED.job_id, project_id = EXCLUDED.project_id,
               status = 'running', stage = 'starting', stages = EXCLUDED.stages,
@@ -138,6 +143,25 @@ class ByocSetupJobRepo:
             {"owner": user_id, "job": job_id},
         )
         return bool(response.data)
+
+    async def retain_azure_setup_intent(self, *, user_id: str, job_id: str, intent: dict) -> bool:
+        """Freeze the non-secret setup binding before its first cloud mutation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_byoc_azure_setup_intent(:owner,:job,CAST(:intent AS jsonb)) "
+            "AS retained",
+            {"owner": user_id, "job": job_id, "intent": json.dumps(intent)},
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def assert_azure_worker_admitted(self, *, user_id: str, job_id: str) -> None:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.byoc_azure_worker_admitted(:owner,:job) AS admitted",
+            {"owner": user_id, "job": job_id},
+        )
+        if not (response.data and response.data[0].get("admitted") is True):
+            raise JobSuperseded("Azure setup admission changed")
 
     async def retain_authorization(
         self, *, user_id: str, job_id: str, intent: dict, receipt: dict | None = None
