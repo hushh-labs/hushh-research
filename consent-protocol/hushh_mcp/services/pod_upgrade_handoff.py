@@ -112,12 +112,15 @@ class PodUpgradeHandoffClient:
         incarnation: str,
         timeout_seconds: float | None = None,
         poll_seconds: float = 1.0,
+        guard: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         """Fence work, then return the authoritative idle receipt."""
         payload = {
             "operationId": str(operation_id).strip(),
             "incarnation": str(incarnation).strip(),
         }
+        if guard is not None:
+            guard()
         self._request("POST", "/api/one/pod/upgrade/prepare", body=payload)
         deadline = (
             time.monotonic() + max(1.0, float(timeout_seconds))
@@ -125,6 +128,8 @@ class PodUpgradeHandoffClient:
             else None
         )
         while True:
+            if guard is not None:
+                guard()
             status = self._request("GET", "/api/one/pod/upgrade/status")
             receipt = status.get("idleReceipt")
             if (

@@ -126,6 +126,7 @@ def upgrade_agent(
     *,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    guard: Callable[[], None] | None = None,
 ) -> BackendHandle:
     """Synchronous: import the digest, re-fence, replace, acknowledge, wait for a verdict."""
     expected = str(spec.expected_service_uid or "").strip()
@@ -152,7 +153,7 @@ def upgrade_agent(
         require_connector_configuration(observation.app, connector_environment)
         running = backend.verified_handle(spec.hushh_id, observation)
         return _with_metadata(running, upgraded=False, source_image=spec.upgrade_target_image)
-    handoff = _prepare_handoff(spec, app)
+    handoff = _prepare_handoff(spec, app, guard=guard)
     try:
         step = import_image_step(scopes, registry, repository)
         body = resolve(step.body, {"imageDigest": digest})
@@ -185,6 +186,7 @@ def upgrade_agent(
         connector_environment=connector_environment,
         clock=clock,
         sleep=sleep,
+        guard=guard,
     )
 
 
@@ -199,6 +201,7 @@ def _replace(
     connector_environment: list[dict[str, str]],
     clock: Callable[[], float],
     sleep: Callable[[float], None],
+    guard: Callable[[], None] | None = None,
 ) -> BackendHandle:
     """Submit the one-image replacement, acknowledge it, and wait for its revision."""
     api = API_VERSIONS["container_apps"]
@@ -261,13 +264,21 @@ def _replace(
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
-    backend.prune_superseded_images(arm, observation.app, previous=previous, expected=target)
+    backend.prune_superseded_images(
+        arm,
+        observation.app,
+        previous=previous,
+        expected=target,
+        **({"guard": guard} if guard is not None else {}),
+    )
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )
 
 
-def _prepare_handoff(spec: PodSpec, app: dict[str, Any]) -> Any:
+def _prepare_handoff(
+    spec: PodSpec, app: dict[str, Any], *, guard: Callable[[], None] | None = None
+) -> Any:
     """Fence the running agent's work before replacement (the GCP handoff, unchanged).
 
     Single revision mode keeps the old revision serving until the new one is ready,
@@ -289,7 +300,7 @@ def _prepare_handoff(spec: PodSpec, app: dict[str, Any]) -> Any:
     handoff = (client, revision)
     try:
         receipt = client.prepare_and_wait(
-            operation_id=spec.upgrade_operation_id, incarnation=revision
+            operation_id=spec.upgrade_operation_id, incarnation=revision, guard=guard
         )
         if spec.on_upgrade_idle is not None:
             spec.on_upgrade_idle(receipt)

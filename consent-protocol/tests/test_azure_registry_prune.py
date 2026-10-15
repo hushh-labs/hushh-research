@@ -376,3 +376,24 @@ def test_one_update_deletes_at_most_the_cap(monkeypatch):
     many = [_manifest(_d(c)) for c in "56789"] + _ALL
     registry = _Registry(many)
     assert len(_prune(_Arm(), registry)) == 1
+
+
+def test_revoked_worker_stops_registry_deletes_and_reports_only_completed_effects():
+    registry = _Registry(_ALL)
+
+    def guard():
+        if registry.deleted:
+            raise PermissionError("synthetic worker stopped")
+
+    removed = prune_superseded_images(
+        _Arm(),
+        app_id=_APP_ID,
+        app=_app(),
+        previous=_image(PREVIOUS),
+        tenant_id=_TENANT,
+        token=lambda: _TOKEN,
+        registry=registry,
+        expected=_image(CURRENT),
+        guard=guard,
+    )
+    assert removed == registry.deleted == [OLDEST]

@@ -8,7 +8,7 @@ Not a mock of method calls: it holds resources by ARM id, fills in what Azure fi
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from hushh_mcp.services.azure_arm_client import ArmError, ArmResponse
 
@@ -24,6 +24,18 @@ class FakeArm:
         self.failures: dict[tuple[str, str], list[ArmError]] = {}
         self.forbidden: set[str] = set()
         self.revision = 1
+        self._write_guard: Callable[[], None] = lambda: None
+
+    def with_write_guard(self, guard: Callable[[], None]):
+        guarded = copy.copy(self)
+        previous = self._write_guard
+
+        def combined():
+            previous()
+            guard()
+
+        guarded._write_guard = combined
+        return guarded
 
     def fail(self, method: str, suffix: str, *errors: ArmError) -> None:
         self.failures[(method, suffix)] = list(errors)
@@ -88,6 +100,7 @@ class FakeArm:
             raise
 
     def put(self, path: str, *, api_version: str, body: dict, op: str = "") -> dict[str, Any]:
+        self._write_guard()
         self.calls.append(("PUT", path, copy.deepcopy(body)))
         self._maybe_fail("PUT", path)
         self.resources[path] = self._enrich(path, body)
@@ -96,11 +109,13 @@ class FakeArm:
     def post(
         self, path: str, *, api_version: str, body: Optional[dict] = None, op: str = ""
     ) -> dict:
+        self._write_guard()
         self.calls.append(("POST", path, copy.deepcopy(body)))
         self._maybe_fail("POST", path)
         return {"status": "Succeeded"}
 
     def delete(self, path: str, *, api_version: str, op: str = "") -> bool:
+        self._write_guard()
         self.calls.append(("DELETE", path, None))
         self._maybe_fail("DELETE", path)
         return self.resources.pop(path, None) is not None

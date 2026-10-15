@@ -262,6 +262,12 @@ transient failure, but does not establish its cause. Verify serving digest,
 durable key/cursor, private IAM and unchanged service identity before recording
 recovery. Isolated maintenance never substitutes for Settings owner approval.
 
+Cancelling an Azure update fences further worker writes and joins the actual
+thread before releasing local lifecycle authority. Handoff polling and optional
+image pruning recheck that fence. A completed local thread does not prove a lost
+ARM request settled: retain its provider receipt and upgrade lease for observed
+reconciliation. Registry pruning reports only effects it actually confirmed.
+
 ### Provider revocation during account erasure
 
 Inventory sealed credential history, including cleared and superseded logins:

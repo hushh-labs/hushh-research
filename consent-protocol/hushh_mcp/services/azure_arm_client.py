@@ -16,6 +16,7 @@ that names any other host is refused rather than followed.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 import urllib.parse
@@ -276,11 +277,31 @@ class ArmClient:
             mutations, validate_url=require_arm_url, refuse=_mutation_refused
         )
 
-    def _bearer(self) -> str:
-        token = self._token() if callable(self._token) else self._token
-        if not token:
-            raise ArmError("unauthorized", status=0, code="NoToken", message="", op="token")
-        return token
+    def with_write_guard(self, guard: Callable[[], None]) -> ArmClient:
+        """Narrow this operation's writes without mutating a shared client."""
+        fenced = copy.copy(self)
+        previous = self._before_write
+
+        def check() -> None:
+            guard()
+            if previous is not None:
+                previous()
+
+        fenced._before_write = check
+        return fenced
+
+    def with_mutations(self, journal: ArmMutationJournal) -> ArmClient:
+        """Bind one cleanup request to its durable transport receipts.
+
+        Cleanup reconciles refused or uncertain requests before another dispatch;
+        it must not hide a second mutation behind a transport retry.
+        """
+        recorded = copy.copy(self)
+        recorded._mutations = ArmMutationRecorder(
+            journal, validate_url=require_arm_url, refuse=_mutation_refused
+        )
+        recorded._throttle_retries = recorded._transient_retries = 0
+        return recorded
 
     def _http(self) -> Any:
         if self._session is None:
@@ -297,7 +318,10 @@ class ArmClient:
         op: str,
         mutation: ArmMutationRequest | None = None,
     ) -> ArmResponse:
-        headers = {"Authorization": f"Bearer {self._bearer()}", "Accept": "application/json"}
+        token = self._token() if callable(self._token) else self._token
+        if not token:
+            raise ArmError("unauthorized", status=0, code="NoToken", message="", op="token")
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         throttled = settling = 0
         while True:
             mutation_id = self._mutations.admit(mutation) if mutation is not None else ""
