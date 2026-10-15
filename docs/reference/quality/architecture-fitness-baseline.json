@@ -16753,7 +16753,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/circle_chat_service.py",
       "symbol": null,
-      "value": 731
+      "value": 740
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19156,7 +19156,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_circle_chat.py",
       "symbol": null,
-      "value": 1260
+      "value": 1333
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -36211,6 +36211,27 @@
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
     "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+  },
+  "main_circle_emoji_composition_review_20261015": {
+    "entries": [
+      {
+        "after": 740,
+        "before": 731,
+        "key": "module_size|consent-protocol/hushh_mcp/services/circle_chat_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "cbc0a7ec6ae78f03637a8bf9505d898d0c6b7d87888e81a951663a6fe6961f60"
+      },
+      {
+        "after": 1333,
+        "before": 1260,
+        "key": "module_size|consent-protocol/tests/test_circle_chat.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "76112369b981ad83a3be56a3502c71a5f50839a3a3aafbfd233633770699920b"
+      }
+    ],
+    "incoming_main": "60a73734ac79a225ec69595482dace154e44f6d7",
+    "review": "Independent read-only review: service matches main byte-for-byte and preserves reaction access/transaction logic; tests retain a fresh-queue isolation fixture plus main full emoji and migration/rollback controls. Two bounded retained module-size observations only; preserve every prior slot, scanner, budgets and exemption policy. Main has no accepted ratchet baseline.",
+    "source_commit": "b17830d120"
   },
   "main_hd_artwork_composition_review_20261015": {
     "entries": [
