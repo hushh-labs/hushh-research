@@ -665,7 +665,6 @@ jobs:
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
           WEB_TARGETED_PART: ${{ matrix.part }}
-          PLAYWRIGHT_SHARD: ${{ matrix.shard }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
           WEB_CI_DEPS_INSTALLED: ${{ matrix.part == 'browser' && '1' || '0' }}
