@@ -705,40 +705,29 @@ async def test_requested_wire_date_cannot_become_a_ready_snapshot_or_completed_t
         )
 
     proposal["temporal_scope"] = "no_period_claim"
+    proposal["title"] = "Executed wire transfer"
     proposal["description"] = "Requested transfer was executed"
+    proposal["coverage_summary"] = "Bank debited the account"
+    proposal["pricing"]["rationale"] = "Payment went through"
+    proposal["utility_rationale"] = "Settlement confirmed"
+    normalized = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert normalized.state == "ready"
+    assert normalized.title == "Request documents"
+    assert normalized.description == "Documents recording requests; completion is unverified."
+    assert normalized.coverage_summary == (
+        "Request records only; no completed action or reporting period verified."
+    )
+    assert normalized.pricing.rationale == (
+        "Estimate for request documents only; completion is unverified."
+    )
+    assert "executed" not in normalized.model_dump_json()
     with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
-        await construct_packet(
-            user_id="owner",
-            key="wire-request",
-            complete=True,
-            documents=[source],
-            interpret=AsyncMock(return_value=proposal),
-        )
-    proposal["description"] = "Requested transfer instruction; completion unverified"
-    proposal["title"] = "Wire transfer requests"
-    proposal["description"] = "Requests for transfers not executed"
-    proposal["coverage_summary"] = "No evidence that funds moved for these requests"
-    proposal["pricing"]["rationale"] = "Requests sent to the bank; completion unverified"
-    assert (
-        await construct_packet(
-            user_id="owner",
-            key="wire-request",
-            complete=True,
-            documents=[source],
-            interpret=AsyncMock(return_value=proposal),
-        )
-    ).state == "ready"
-    proposal["coverage_summary"] = "No fee, but funds moved for these requests"
-    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
-        await construct_packet(
-            user_id="owner",
-            key="wire-request",
-            complete=True,
-            documents=[source],
-            interpret=AsyncMock(return_value=proposal),
-        )
-    proposal["coverage_summary"] = "No evidence that funds moved for these requests"
-    assert (
         await verify_packet(
             user_id="owner",
             packet=proposal,
@@ -747,26 +736,83 @@ async def test_requested_wire_date_cannot_become_a_ready_snapshot_or_completed_t
             batch_scope={"mode": "complete_compact_summary"},
             interpret=AsyncMock(return_value=verdict),
         )
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=normalized.model_dump(),
+            documents=[source],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
     ).state == "ready"
+    for claim in (
+        "not executed, funds moved",
+        "not completed, settlement confirmed",
+        "settlement confirmed by bank",
+        "payment went through",
+        "unverified request, funds moved",
+        "no evidence of execution, funds moved",
+        "bank debited account",
+        "remittance confirmed",
+        "funds subsequently arrived",
+    ):
+        proposal["description"] = f"Requested transfer: {claim}"
+        cleaned = await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=True,
+            documents=[source],
+            interpret=AsyncMock(return_value=proposal),
+        )
+        assert cleaned.model_dump() == normalized.model_dump()
+        with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
+            await verify_packet(
+                user_id="owner",
+                packet=proposal,
+                documents=[source],
+                complete=True,
+                batch_scope={"mode": "complete_compact_summary"},
+                interpret=AsyncMock(return_value=verdict),
+            )
+    source["facts"]["document_type"] = {"value": "Wire transfer request form"}
+    wire_copy = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert wire_copy.title == "Wire transfer requests"
+    assert wire_copy.description == (
+        "Documents requesting a wire transfer; execution is unverified."
+    )
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
 
-
-@pytest.mark.parametrize(
-    "claim,blocked",
-    [
-        ("Requests were not only completed", True),
-        ("Requests were submitted; funds cleared the account", True),
-        ("A complete set of requested wire forms", False),
-        ("No record of a transfer being completed", False),
-    ],
-)
-def test_requested_event_claim_guard_distinguishes_completion_from_document_scope(claim, blocked):
-    from hushh_mcp.services.drive_packet_intelligence import _assert_no_completed_event_claim
-
-    if blocked:
-        with pytest.raises(ValueError, match="requested event described as completed"):
-            _assert_no_completed_event_claim(claim)
-    else:
-        _assert_no_completed_event_claim(claim)
+    full_source = {
+        **source,
+        "source_version": "v1",
+        "complete": True,
+        "facts": {
+            **source["facts"],
+            "issuer": None,
+            "subject": None,
+            "account": None,
+            "topics": [],
+            "ambiguous": False,
+            "missing_information": [],
+        },
+    }
+    assert (
+        await verify_packet(
+            user_id="owner",
+            packet=wire_copy.model_dump(),
+            documents=[compact_evidence(full_source)],
+            complete=True,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    ).state == "ready"
 
 
 async def test_final_checker_cannot_certify_event_as_document_period():
