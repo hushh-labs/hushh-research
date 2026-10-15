@@ -18,6 +18,7 @@ import json
 import logging
 import re
 import subprocess
+import threading
 import time
 import uuid
 from collections import Counter
@@ -792,17 +793,28 @@ class FakeInterpret:
         }
 
 
+# PDFium (pypdfium2) is not thread-safe: concurrent extraction crashed the
+# process (SIGTRAP) on the first live batch. Downloads still overlap; page
+# extraction runs one batch at a time.
+_EXTRACTION_LOCK = threading.Lock()
+
+
+def _extract_batch(content: bytes, mime_type: str, start_page: int):
+    from hushh_mcp.services.drive_document_pages import extract_pages
+
+    with _EXTRACTION_LOCK:
+        return extract_pages(content, mime_type, start_page=start_page, page_limit=4)
+
+
 async def extract_local(content: bytes, mime_type: str) -> dict:
     """Production extract_pages on original bytes, batch by batch (no persistence)."""
     from dataclasses import asdict
 
-    from hushh_mcp.services.drive_document_pages import engine_versions, extract_pages
+    from hushh_mcp.services.drive_document_pages import engine_versions
 
     pages, cursor, has_gaps, batch = [], 1, False, None
     while cursor is not None:
-        batch = await asyncio.to_thread(
-            extract_pages, content, mime_type, start_page=cursor, page_limit=4
-        )
+        batch = await asyncio.to_thread(_extract_batch, content, mime_type, cursor)
         pages.extend(asdict(page) for page in batch.pages)
         has_gaps = has_gaps or batch.has_gaps
         if batch.next_page is not None and (batch.next_page <= cursor or len(pages) >= 1000):
