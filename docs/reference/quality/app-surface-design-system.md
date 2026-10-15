@@ -846,7 +846,9 @@ Use the `Subtle Apple` depth model:
 
 ### Ripple Ownership and Clipping
 
-1. Every actionable shell should show Material ripple.
+1. Every actionable shell should show Material ripple. The animated private-agent
+   artwork is the narrow exception: `ShellActionSurface ripple={false}` preserves
+   its transparent no-halo surface; keyboard focus and the 44px target remain.
 2. The ripple host owns clipping.
 3. Rounded interactive shells must clip ripple to the exact visible radius.
 4. Outer cards remain `overflow-visible`; ripple, media, code panes, and chart plots clip inside their own inner boundaries.

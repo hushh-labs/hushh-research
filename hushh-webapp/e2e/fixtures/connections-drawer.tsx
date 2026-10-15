@@ -277,6 +277,7 @@ function Fixture() {
       {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
         <div data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}><div data-agent-chat-brand-tile>
           <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
+            ripple={false}
             aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
             onClick={() => setOneProfileOpen(true)}>
             <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />

@@ -2089,6 +2089,7 @@ test.describe("One profile artwork and animated presence", () => {
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveAttribute("data-one-presence-artwork", "answering");
       await expectPresencePlayback(profile);
+      await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.frames)).toBeGreaterThan(5);
     } finally {
       release();
       proof = await page.evaluate(() => {

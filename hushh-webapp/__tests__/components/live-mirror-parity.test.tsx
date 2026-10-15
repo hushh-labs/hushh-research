@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 
 const m = vi.hoisted(() => ({ view: null as LiveMirrorView | null }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-a" } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: true, vaultOwnerToken: "fixture-token", vaultKey: "fixture-key" }),
