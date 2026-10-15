@@ -8,9 +8,9 @@ name: Capacity Maintenance Clock
 #
 # Each run checks both environments without cloud credentials, with the same
 # --verify-source-only check Capacity Maintenance starts with. It sends one
-# capacity-maintenance-tick only when either environment is due, so quiet
-# hours add no Capacity Maintenance run (its checkpoint guard walks those
-# runs). It then re-arms itself: `next-check` waits in the
+# tick only when an environment is due, scoped to the due environments, so
+# quiet hours add no Capacity Maintenance run and one environment's work adds
+# none to the other's checkpoint guard walk. It then re-arms itself: `next-check` waits in the
 # capacity-maintenance-clock environment's 60-minute wait timer, which GitHub
 # holds before assigning a runner, and dispatches the next clock event. The
 # cron below only starts the clock, or restarts it if it stops. Cancel the
@@ -102,13 +102,27 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UAT_READY: ${{ needs.check.outputs.uat_ready }}
+      PRODUCTION_READY: ${{ needs.check.outputs.production_ready }}
     steps:
+      # Scope the tick to the due environments, so one environment's work adds
+      # no run to the other's checkpoint walk (Capacity Maintenance run-name).
       - name: Send one capacity-maintenance-tick
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$UAT_READY" == true && "$PRODUCTION_READY" == true ]]; then
+            tick=capacity-maintenance-tick
+          elif [[ "$UAT_READY" == true ]]; then
+            tick=capacity-maintenance-tick-uat
+          elif [[ "$PRODUCTION_READY" == true ]]; then
+            tick=capacity-maintenance-tick-production
+          else
+            echo "Nothing is due; not waking Capacity Maintenance."
+            exit 0
+          fi
           for attempt in 1 2 3; do
-            if gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type=capacity-maintenance-tick; then
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" -f event_type="$tick"; then
               exit 0
             fi
             sleep $((attempt * 10))

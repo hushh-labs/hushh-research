@@ -30,6 +30,7 @@ import { appendFileSync } from "node:fs";
 import { assertDeployable, reconcileUatTarget } from "./uat-target-selection.mjs";
 
 const GATE_NAME = "Main Post-Merge Smoke";
+const GATE_CHECK_NAME = `${GATE_NAME} Gate`;
 const REPO = process.env.GITHUB_REPOSITORY || "hushh-labs/hushh-research";
 const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 const CHAT_ONLY_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml";
@@ -72,10 +73,13 @@ async function api(path) {
 
 /** That commit's own gate — never a branch status, never a PR check. */
 async function gateFor(sha) {
-  const payload = await api(`/commits/${sha}/check-runs?per_page=100`);
-  const runs = (payload.check_runs || []).filter((run) =>
-    String(run.name || "").includes(GATE_NAME),
+  // Ask GitHub for the gate by name. The unfiltered list is newest first and
+  // never de-duplicated across workflow runs, so on an idle main head the
+  // hourly capacity clock's checks fill its first page and hide the gate.
+  const payload = await api(
+    `/commits/${sha}/check-runs?check_name=${encodeURIComponent(GATE_CHECK_NAME)}&per_page=100`,
   );
+  const runs = (payload.check_runs || []).filter((run) => run.name === GATE_CHECK_NAME);
   if (!runs.length) return "absent";
   if (runs.some((r) => r.status === "completed" && r.conclusion === "success")) {
     return "success";

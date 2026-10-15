@@ -90,13 +90,15 @@ provenance. A UAT run that passed every release gate and failed solely while
 retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
 Maintenance runs hourly or by explicit governed manual request; no deployment
-event starts it. GitHub delivered only 3-6 of the 24 daily runs of the minute-17
-cron on 2026-10-12..14, so **Capacity Maintenance Clock** keeps the hourly cadence:
-each clock run checks both environments without cloud credentials, sends one
-`capacity-maintenance-tick` repository dispatch only when maintenance is due, and
-re-arms itself after a 60-minute wait in the `capacity-maintenance-clock`
-environment (a wait timer, so no runner is held). A tick has exactly the scheduled
-pass's authority, and quiet hours add no maintenance run. Scheduled requests and
+event starts it. GitHub delivered only 3-6 of the 24 daily runs of its former
+minute-17 cron on 2026-10-12..14, so **Capacity Maintenance Clock** is now its only
+schedule: each clock run checks both environments without cloud credentials, sends
+one repository dispatch only when maintenance is due, scoped to the due environments
+(`capacity-maintenance-tick`, `-tick-uat` or `-tick-production`), and re-arms itself
+after a 60-minute wait in the `capacity-maintenance-clock` environment (a wait timer,
+so no runner is held). A tick has exactly the scheduled pass's authority within its
+scope. Quiet hours add no maintenance run, and a scoped pass's title lets the other
+environment's checkpoint guard skip it without reading its jobs. Scheduled requests and
 ticks coalesce without cancelling active work, and manual requests keep independent
 identities. Cancelling the clock's waiting run stops it until its next delivered
 cron. Each mutation pass verifies
