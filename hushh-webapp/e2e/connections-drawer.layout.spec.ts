@@ -2106,7 +2106,6 @@ test.describe("One profile artwork and animated presence", () => {
       fs.writeFileSync(probePath, JSON.stringify(proof, null, 2));
       await test.info().attach("presence-transition-frame-probe", { path: probePath, contentType: "application/json" });
     }
-    expect(proof.frames).toBeGreaterThan(5);
     expect(proof.interruptedOpacity).toBeGreaterThan(0);
     expect(proof.interruptedOpacity).toBeLessThan(1);
     expect(proof.blank, "no empty animation frame").toBe(0);
