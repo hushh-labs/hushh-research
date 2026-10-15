@@ -2054,6 +2054,7 @@ final class AppUITests: XCTestCase {
             }
         }
         let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
+        print("NATIVE_BOTTOM_SCROLL_FRAME stage=baseline navigationY=\(baseline) dockY=\(dockBaseline)")
         for cycle in 0..<10 {
             // Pan in the shared page gutter, never through an actionable tile.
             let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.65))
@@ -2074,9 +2075,11 @@ final class AppUITests: XCTestCase {
                 sameTab.press(forDuration: 0.3)
                 XCTAssertTrue(sameTab.isSelected, "NATIVE_BOTTOM_SCROLL_PRESS_LOST_TARGET")
             }
-            end.press(forDuration: 0.05, thenDragTo: start)
+            end.press(forDuration: 0.05, thenDragTo: start, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
             let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in abs(bar.frame.minY - baseline) <= 1 }, object: app)
             guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else {
+                reportNativeDockAdmission(app)
+                print("NATIVE_BOTTOM_SCROLL_FRAME stage=reverse navigationY=\(bar.frame.minY) dockY=\(dock.frame.minY)")
                 XCTFail("NATIVE_BOTTOM_SCROLL_REVERSE_DID_NOT_RESTORE"); return
             }
             XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)

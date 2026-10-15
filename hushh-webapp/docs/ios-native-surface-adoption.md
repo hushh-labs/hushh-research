@@ -16,6 +16,40 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Profile return, scroll ownership and privacy recovery — 2026-10-15
+
+| Family | Current renderer/owner | Evidence and limit |
+|---|---|---|
+| Account navigation | Retained UIKit stack with SwiftUI bodies; React operations | Existing physical Account proof below remains bounded; no whole-Profile conversion claimed. |
+| Other Profile details | Existing React body in the owned native content pane | Committed outgoing body/title are retained, inert and owner/vault-bound until native return admission. Nine-destination functional batches passed on iPhone at `bd9f375821` and simulator at `a23712046f`. |
+| Bottom navigation and dock scroll | Retained native pair; existing shared frontend scroll owner | Capability-negotiated ordered progress, bounded latest-wins delivery and acknowledged pinned fallback. Physical native pair/keyboard regressions passed at `af209c47da`. Actual Feed movement and paired displacement passed at `c9939989bd`, but reversal failed: integrated scroll acceptance remains open. |
+| Privacy recovery | Existing native validation and presentation owners | Navigation now requests fresh permitted admission after release, including completion readback without a listener event. The regression failed without that completion path; 198 nearest navigation/chrome tests pass. This is not UIKit transition acceptance. |
+| Rich/protected forms, pagers and unqualified selectors | Existing React feature owners | Retained exceptions, not native conversion. Older wrappers, web, Android and unqualified iPad keep their established paths. |
+
+Native compositor admission can withdraw UIKit interaction independently of a
+plugin's requested state. A visible host or active scroll binding is therefore
+not touch acceptance. NativeChrome's global conceal on privacy notifications is
+a separate notification-ordering risk; fresh React projection must still pass
+current document, overlay, owner and privacy admission. Never force interaction
+or replay an uncertain choice to recover a screen.
+
+The compact launcher may have no scroll range. Scroll qualification uses actual
+Feed overflow, normal tab navigation and preserved drafts—not inserted records,
+forced progress or changed motion thresholds. Simulator background/resume passed
+two cycles, but its Control Center step did not open the system panel; the whole
+interruption check is not accepted. Physical transport and XCTest authorization
+must be distinguished from vault entry.
+
+Canonical core passed at `adeec1fb2e` in 808s, before the later privacy readmission
+changes; optional local PostgreSQL skips are not CI proof. Those later changes
+have focused tests, lint and typecheck evidence, with final core/build/device
+qualification still required. The signed UAT simulator candidate at
+`c9939989bd` has a fresh web export; the physical iPhone remains on
+`eb4774d9f1` until the next separately prepared installation. Visual, VoiceOver,
+Dynamic Type and three physical Release performance runs remain unqualified.
+Use the existing single custom-shell switch below for rollback; no new family or
+release is enabled by these receipts.
+
 ### Profile transition owner and single custom-shell switch — 2026-10-15
 
 Profile's bounded Account stack now uses an owned `UINavigationController`
