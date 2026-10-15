@@ -539,7 +539,7 @@ final class NativeSupportTests: XCTestCase {
         let model = NativeDrawerModel(privateDrawerState())
         model.interactionEnabled = true
         var choices = 0
-        model.choose = { _, _, _ in choices += 1; model.pendingSequence = choices; return true }
+        model.choose = { [weak model] _, _, _ in choices += 1; model?.pendingSequence = choices; return true }
         func rowPixels() throws -> Data {
             // Public synthetic content only. Render the actual shared SwiftUI
             // menu, not a model property or markup snapshot. Exclude its glass

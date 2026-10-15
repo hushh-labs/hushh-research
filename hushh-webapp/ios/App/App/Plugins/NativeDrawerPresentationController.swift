@@ -648,7 +648,8 @@ struct NativeDrawerContent: View {
                                     }
                                     Spacer(minLength: 0)
                                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
+                            }.buttonStyle(.plain).disabled(!row.enabled || !model.controlsEnabled)
+                                .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
                     } else {
@@ -707,7 +708,8 @@ struct NativeDrawerContent: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
                 .padding(.horizontal, 16).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.controlsEnabled || model.choicePending)
+        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
+            .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
             .accessibilityIdentifier("native-profile-row-\(row.id)")
     }
     private var searchContent: some View {
@@ -743,6 +745,17 @@ struct NativeDrawerContent: View {
                 .accessibilityLabel(label).disabled(!model.controlsEnabled)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// A bridge acknowledgement is not an authored disabled state. Keep the row's
+/// native appearance while refusing repeat pointer and accessibility actions;
+/// NativeDrawerModel and the lease still enforce one-shot operation admission.
+private struct NativeDrawerPendingChoice: ViewModifier {
+    let pending: Bool
+    func body(content: Content) -> some View {
+        content.allowsHitTesting(!pending)
+            .accessibilityAddTraits(pending ? .notEnabled : [])
     }
 }
 
