@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
   key: "key-a",
   token: "token-a",
   pathname: "/one/profile/world-model",
+  skipBackgroundWrites: false,
   preferences: vi.fn(),
   observe: vi.fn(),
   load: vi.fn(),
@@ -21,6 +22,9 @@ const mock = vi.hoisted(() => ({
   seen: [] as string[],
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mock.pathname }));
+vi.mock("@/lib/testing/native-test", () => ({
+  shouldSkipReviewerBackgroundWritesForAutomation: () => mock.skipBackgroundWrites,
+}));
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.user,
@@ -119,6 +123,7 @@ beforeEach(() => {
   mock.key = "key-a";
   mock.token = "token-a";
   mock.pathname = "/one/profile/world-model";
+  mock.skipBackgroundWrites = false;
   mock.seen.length = 0;
   mock.preferences.mockResolvedValue({ enabled: true });
   mock.observe.mockResolvedValue(undefined);
@@ -126,6 +131,17 @@ beforeEach(() => {
   mock.ownerDecisions.mockReturnValue(decisions);
 });
 describe("PWM owner and request isolation", () => {
+  it("keeps restricted reviewer entry read-only while preserving explicit refresh", async () => {
+    mock.skipBackgroundWrites = true;
+    render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.preferences).toHaveBeenCalledOnce());
+    expect(mock.observe).not.toHaveBeenCalled();
+    expect(mock.load).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledOnce());
+    expect(mock.observe.mock.calls[0][0].refresh).toBe(true);
+  });
+
   it("consumes refresh before another account or vault token takes over", async () => {
     const { rerender } = render(
       <WorldModelProvider>

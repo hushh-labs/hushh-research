@@ -30,6 +30,18 @@ def backend_deploy_script() -> str:
     return BACKEND_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
 
+def managed_vertex_probe_script() -> str:
+    """The candidate probe behavior invoked by the build's explicit env contract."""
+    return (REPO_ROOT / "scripts/deploy/verify-managed-vertex-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+
+def managed_vertex_probe_surface() -> str:
+    """Build wiring plus its extracted candidate-probe behavior."""
+    return BACKEND_CLOUDBUILD.read_text(encoding="utf-8") + "\n" + managed_vertex_probe_script()
+
+
 def backend_deploy_surface() -> str:
     """YAML + script, for assertions that do not care which file carries the line."""
     return BACKEND_CLOUDBUILD.read_text(encoding="utf-8") + "\n" + backend_deploy_script()

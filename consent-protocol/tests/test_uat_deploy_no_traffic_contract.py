@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from hushh_mcp.managed_ai_config import load_profile
+from tests._deploy_contract import managed_vertex_probe_script, managed_vertex_probe_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -108,22 +109,6 @@ def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
-
-
-def _backend_build() -> str:
-    """Inspect the Cloud Build wrapper and its actual candidate probe script."""
-    source = _read("deploy/backend.cloudbuild.yaml")
-    step = next(
-        step
-        for step in yaml.safe_load(source)["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
-    assert step["args"] == ["scripts/deploy/verify-managed-vertex-runtime.sh"]
-    probe = _read(step["args"][0])
-    names = set(re.findall(r"\b_[A-Z][A-Z0-9_]*\b", probe)) | {"PROJECT_ID", "BUILD_ID"}
-    assert set(step["env"]) == {name + "=${" + name + "}" for name in names}
-    assert "!" + step["args"][0] in _read(".gcloudignore").splitlines()
-    return source + "\n" + probe
 
 
 def _backend_deploy() -> str:
@@ -282,7 +267,7 @@ def test_initial_contacts_source_change_requires_paired_scope_before_builds(
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
@@ -306,7 +291,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     """Drive-only credentials are opt-in UAT bindings, never generic fallbacks."""
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     names = (
         "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
         "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
@@ -329,7 +314,7 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
 
 def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     """Existing paid-required requests still need Checkout and signed webhooks."""
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     for lane in ("dev", "production"):
         workflow = _read(f".github/workflows/deploy-{lane}.yml")
         assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
@@ -428,7 +413,7 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
     """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
     uat = _read(".github/workflows/deploy-uat.yml")
     production = _read(".github/workflows/deploy-production.yml")
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     uat_worker = _read("deploy/drive/deploy_worker_service.sh")
     production_worker = _read("deploy/drive/deploy_worker_service_prod.sh")
 
@@ -449,7 +434,7 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
@@ -520,7 +505,7 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     assert load_profile("uat")["text_locations"] == ["global", "us", "eu"]
@@ -570,7 +555,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
     execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
     readiness_deploy = backend_build[deploy_start:execute_start]
@@ -582,7 +567,7 @@ def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
 
 
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
 
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
@@ -618,11 +603,7 @@ def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() 
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
     preflight = next(step["args"][-1] for step in steps if step.get("id") == "verify-runtime-iam")
-    probe = next(
-        _read(step["args"][-1])
-        for step in steps
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    probe = managed_vertex_probe_script()
     step_ids = [step.get("id") for step in steps]
     assert step_ids.index("verify-runtime-iam") < step_ids.index("deploy-backend")
     assert step_ids.index("verify-managed-vertex-runtime") < step_ids.index("deploy-backend")
@@ -730,12 +711,7 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
 
 
 def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
-    build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
-    probe = next(
-        _read(step["args"][-1])
-        for step in build["steps"]
-        if step.get("id") == "verify-managed-vertex-runtime"
-    )
+    probe = managed_vertex_probe_script()
     # Run the owning receipt parser and release decision. The job itself is
     # represented by its exit status/log line; no provider or gcloud is called.
     script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
@@ -830,7 +806,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
 
 
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
 
     assert '--command="python3"' in backend_build
     assert '--command="python"' not in backend_build
@@ -843,7 +819,7 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 
 
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
         "dev": "hushh-pda-uat",
         "uat": "hussh-511311",
@@ -861,7 +837,7 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
 
 
 def test_one_chat_uses_central_project_and_verified_profile() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     workflow = _read(".github/workflows/deploy-uat.yml")
     assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=" not in workflow
@@ -877,7 +853,7 @@ def test_one_chat_uses_central_project_and_verified_profile() -> None:
 
 
 def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     for env in ("dev", "uat", "production"):
         assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in _read(
@@ -892,7 +868,7 @@ def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
 
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
     sources = [
-        _backend_build(),
+        _read("deploy/backend.cloudbuild.yaml"),
         _read(".github/workflows/deploy-uat.yml"),
         _read(".github/workflows/deploy-production.yml"),
         _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
@@ -916,7 +892,7 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
 
 
 def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
@@ -935,7 +911,7 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     """
     from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
 
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     dev_workflow = _read(".github/workflows/deploy-dev.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
@@ -974,7 +950,7 @@ def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() 
     production_workflow = _read(".github/workflows/deploy-production.yml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     # The Cloud Build wrapper delegates deployment to the canonical script.
     assert "scripts/deploy/backend-deploy.sh" in backend_build
     backend_deploy = _read("scripts/deploy/backend-deploy.sh")
@@ -1010,7 +986,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 
 
 def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
-    backend_build = _backend_build()
+    backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")

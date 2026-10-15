@@ -351,11 +351,9 @@ steps:
   # schema, authority, provenance and health gates still run.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
-    args:
-      - "scripts/deploy/verify-managed-vertex-runtime.sh"
     env:
-      - "PROJECT_ID=${PROJECT_ID}"
       - "BUILD_ID=${BUILD_ID}"
+      - "PROJECT_ID=${PROJECT_ID}"
       - "_DEPLOY_ENV=${_DEPLOY_ENV}"
       - "_GENAI_PROJECT_ID=${_GENAI_PROJECT_ID}"
       - "_HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
@@ -370,6 +368,7 @@ steps:
       - "_VERIFY_MANAGED_VERTEX_RUNTIME=${_VERIFY_MANAGED_VERTEX_RUNTIME}"
       - "_VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}"
       - "_VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}"
+    args: ["scripts/deploy/verify-managed-vertex-runtime.sh"]
     id: "verify-managed-vertex-runtime"
     waitFor: ["build-backend-image", "verify-runtime-iam"]
 

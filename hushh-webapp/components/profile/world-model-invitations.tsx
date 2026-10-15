@@ -106,6 +106,7 @@ export function WorldModelInvitations({
       isEnabled: () =>
         active.current &&
         current.current.ownerId === ownerId &&
+        current.current.vaultKey === vaultKey &&
         current.current.vaultOwnerToken === vaultOwnerToken,
     });
     void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken, isCurrent: capture.isCurrent, signal: controller.signal })

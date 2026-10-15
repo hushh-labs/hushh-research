@@ -802,7 +802,7 @@ async def test_owner_decision_inputs_are_sealed_carried_and_never_change_reuse(m
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending"])
+@pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending", "private"])
 async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monkeypatch, existing):
     from hushh_mcp.services import world_model_service as pwm
 
@@ -846,6 +846,18 @@ async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monke
     )
     instance = pwm_manager(monkeypatch)
     owner_decisions = {"confirmed": ["Synthetic owner declaration"], "rejected": []}
+    if existing == "private":
+        from fastapi import HTTPException
+
+        from hushh_mcp.services import owner_placement_guard as placement
+
+        placement.get_owner_hosting_mode.return_value = "byoc"
+        with pytest.raises(HTTPException) as error:
+            await instance.ensure("owner", "token", owner_decisions=owner_decisions)
+        assert error.value.status_code == 409
+        enroll_default.assert_not_awaited()
+        instance.offer.assert_not_awaited()
+        return
     result = await instance.ensure("owner", "token", owner_decisions=owner_decisions)
     await settle(instance)
     if existing == "missing":

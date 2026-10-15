@@ -160,7 +160,7 @@ async def offer(
 
 
 class WorldModelJobs(ProfileResearchJobs):
-    async def start(self, user_id, consent_token, *, inputs=None):
+    async def start(self, user_id, consent_token, *, inputs: dict | None = None):
         require_access = content_access(user_id, consent_token)
         await require_access()
         result = await super().start(user_id, consent_token, inputs=inputs)
@@ -188,16 +188,16 @@ class WorldModelJobs(ProfileResearchJobs):
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         require_access = content_access(user_id, consent_token)
         await require_access()
-        # Research is on by default once setup disclosed it. An existing row,
-        # including an explicit opt-out, is never changed here.
-        if (
-            one_profile_research_enabled()
-            and await preferences(user_id) is None
-            and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
-        ):
+        # Preserve existing opt-outs; placement admission precedes enrollment.
+        if one_profile_research_enabled():
+            consent = await preferences(user_id)
             await require_access()
-            await enroll_default(user_id, consent_token)
-            await require_access()
+            if consent is None:
+                resolved = await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+                await require_access()
+                if resolved:
+                    await enroll_default(user_id, consent_token)
+                    await require_access()
         refused, _ = await admission(user_id, consent_token)
         if refused:
             return refused
@@ -226,6 +226,7 @@ class WorldModelJobs(ProfileResearchJobs):
                 # A recently finished draft aged out. Unfinished purged work
                 # resumes below instead of buying a new preparation interval.
                 return {"status": "saved", "pkm_written": False}
+        await require_access()
         if (
             state
             and state["status"] == "saved"

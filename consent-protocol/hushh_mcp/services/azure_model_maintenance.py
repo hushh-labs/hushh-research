@@ -11,7 +11,7 @@ import copy
 import hashlib
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_model_enablement import (
@@ -28,13 +28,13 @@ class ModelRepairUnconfirmed(RuntimeError):
 
 class _Journal:
     def __init__(
-        self, registry: Any, plan: AzureModelEnablementPlan, lease: str, record: dict | None
+        self, registry: Any, plan: AzureModelEnablementPlan, lease: str, record: dict
     ) -> None:
         self.registry, self.plan, self.lease = registry, plan, lease
         self.record = copy.deepcopy(record)
 
     async def guard(self) -> dict:
-        row = await self.registry.get(self.plan.owner_id)
+        row: dict | None = await self.registry.get(self.plan.owner_id)
         if not row:
             raise ModelRepairUnconfirmed("Model repair owner no longer exists")
         self.plan.require_owner(row)
@@ -168,7 +168,7 @@ async def _ensure_resource(
 async def _replacement(journal: _Journal, arm: ArmClient, handoff_factory: Any) -> None:
     plan = journal.plan
     await journal.guard()
-    app = await _read(arm, plan.service_id, "container_apps")
+    app = await _read(arm, plan.service_id, "container_apps") or {}
     if "replacement" not in journal.record.get("intents", []):
         plan.require_app(app or {})
         properties = app["properties"]
@@ -206,7 +206,7 @@ async def _replacement(journal: _Journal, arm: ArmClient, handoff_factory: Any) 
                 )
             },
         )
-        app = await _read(arm, plan.service_id, "container_apps")
+        app = await _read(arm, plan.service_id, "container_apps") or {}
         desired = plan.replacement(app or {}, revision_suffix(journal.record["attemptId"]))
         await journal.intent("replacement", replacementDigest=digest(desired))
         await journal.guard()
@@ -220,7 +220,7 @@ async def _replacement(journal: _Journal, arm: ArmClient, handoff_factory: Any) 
     deadline = time.monotonic() + 360
     while True:
         await journal.guard()
-        app = await _read(arm, plan.service_id, "container_apps")
+        app = await _read(arm, plan.service_id, "container_apps") or {}
         plan.require_app(app or {}, expected_digest=journal.record["replacementDigest"])
         properties = app["properties"]
         revision = "ca-hussh-one-pod--" + revision_suffix(journal.record["attemptId"])
@@ -244,7 +244,7 @@ async def _replacement(journal: _Journal, arm: ArmClient, handoff_factory: Any) 
 async def _verify_runtime(
     arm: ArmClient, plan: AzureModelEnablementPlan, record: dict, handoff_factory: Any
 ) -> dict:
-    app = await _read(arm, plan.service_id, "container_apps")
+    app = await _read(arm, plan.service_id, "container_apps") or {}
     plan.require_app(app or {}, expected_digest=record["replacementDigest"])
     revision = "ca-hussh-one-pod--" + revision_suffix(record["attemptId"])
     properties = app["properties"]
@@ -269,7 +269,7 @@ async def _verify_runtime(
     }
     if proof != expected:
         raise ModelRepairUnconfirmed("Model repair runtime identity or inference is unverified")
-    return proof
+    return cast(dict, proof)
 
 
 async def _verify_resources(arm: ArmClient, plan: AzureModelEnablementPlan) -> None:
@@ -290,7 +290,7 @@ async def _verify_resources(arm: ArmClient, plan: AzureModelEnablementPlan) -> N
 async def _preflight_access(
     arm: ArmClient, plan: AzureModelEnablementPlan, record: Any, handoff_factory: Any
 ) -> None:
-    app = await _read(arm, plan.service_id, "container_apps")
+    app = await _read(arm, plan.service_id, "container_apps") or {}
     replacing = isinstance(record, dict) and "replacement" in record.get("intents", [])
     plan.require_app(app or {}, expected_digest=record["replacementDigest"] if replacing else None)
     revision = app["properties"]["latestReadyRevisionName"]
@@ -321,7 +321,7 @@ async def enable_owner_model(
     completed = isinstance(record, dict) and record.get("status") == "verified"
     plan.require_owner(row or {}, completed=completed)
     await _verify_resources(arm, plan)
-    if completed:
+    if isinstance(record, dict) and completed:
         if (
             metadata.get("upgradeLease")
             or record.get("plan") != plan.model_dump()

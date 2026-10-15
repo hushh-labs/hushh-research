@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -193,7 +193,7 @@ class AzureModelEnablementPlan(BaseModel):
         desired["properties"]["template"]["containers"][0]["env"] = entries
         if desired != expected:
             raise ValueError("Azure model repair must preserve all other configuration")
-        return desired
+        return cast(dict, desired)
 
 
 def plan_from_observation(row: dict, app: dict, choice: ModelChoice) -> AzureModelEnablementPlan:

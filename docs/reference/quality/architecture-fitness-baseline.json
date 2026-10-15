@@ -25532,7 +25532,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_profile_research_jobs.py",
       "symbol": null,
-      "value": 920
+      "value": 932
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -48835,6 +48835,23 @@
     "source_revision": "3cf500486eece51830bde9b138530901c92ad90a",
     "verification": "34 packet/retention cases pass; immutable predecessor retains a packet head and fails the reset negative control, while connector-deletion control passes."
   },
+  "scope_commerce_parallel_branch_review_20261015": {
+    "entries": [
+      {
+        "after": 932,
+        "before": 930,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "review": "Exact two-line union: owner-decisions fixture and forwarded-input assertion; both existing ensure calls pass decisions. Private-placement refusal and no-enrollment/no-offer controls retained. No budget, detector or other occurrence change.",
+        "source_sha256": "ed1f5e68b9d93b32ba4c69414d85b03c03733e8bded5ab63379f666b27e99ca0"
+      }
+    ],
+    "parents": {
+      "incoming": "f1159af6d85e44fd36db84a7f3fc1d9221f1e3a5",
+      "retained": "5ed3faade9efe5c5680ac6f12289fd6e29181f4c"
+    },
+    "reviewer": "backend_context",
+    "verification": "Parent focused backend run: 238 passed, one database-dependent skip. Final canonical core and CI remain required."
+  },
   "scope_commerce_password_calendar_main_merge_20261014": {
     "composed_revision": "0948a34c7499119fa880f33aa4374faf699c8a99",
     "incoming_main_revision": "4e92edf790ba982df7943ac61b53f2dd89334249",
@@ -50469,6 +50486,109 @@
     "source_qualification_sha256": "41f85371b8039b7782da4036d3c3434bd95df547dc4bc6e826c5ac0de6204d2f",
     "source_revision": "78e118a69a761099ece1619077f1331719d3f20a",
     "verification": "201 backend, 66 frontend, 451 Back, 123 Files/Azure/runtime-provider, 12 Chromium/WebKit layout and 16 reviewer harness cases pass; typecheck and generated UI parity pass. Immutable predecessors fail actual placement, invitation retirement/expiry, owner ADC and Files boundaries. Exact-candidate core/CI and deployed financial acceptance remain required."
+  },
+  "scope_commerce_pwm_owner_review_main_merge_20261015": {
+    "changes": [
+      {
+        "baseline_value": 377,
+        "key": "class_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|ProfileResearchJobs|class exceeds the advisory operon budget",
+        "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
+        "qualification": "incoming_ast",
+        "review_rationale": "Exact incoming class AST; retained placement admission is outside this class.",
+        "source_sha256": "2937779debfcbb2aca67c813ae9142a67bb0c0058aefa3187dc3c3a7ce698424",
+        "value": 385
+      },
+      {
+        "baseline_value": 151,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|_run|function exceeds the advisory gene budget",
+        "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
+        "qualification": "incoming_ast",
+        "review_rationale": "Exact incoming function AST.",
+        "source_sha256": "2937779debfcbb2aca67c813ae9142a67bb0c0058aefa3187dc3c3a7ce698424",
+        "value": 152
+      },
+      {
+        "baseline_value": 109,
+        "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py|start|function exceeds the advisory gene budget",
+        "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
+        "qualification": "incoming_ast",
+        "review_rationale": "Exact incoming function AST.",
+        "source_sha256": "2937779debfcbb2aca67c813ae9142a67bb0c0058aefa3187dc3c3a7ce698424",
+        "value": 116
+      },
+      {
+        "baseline_value": 346,
+        "key": "function_size|consent-protocol/hushh_mcp/one_adk/world_model.py|run_world_model|function exceeds the advisory gene budget",
+        "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
+        "qualification": "incoming_file",
+        "review_rationale": "Whole source file is byte-identical to incoming main.",
+        "source_sha256": "e9cfd6a895848513120a87f72098877652005936dd2f49f6a5a2445d858db5c0",
+        "value": 349
+      },
+      {
+        "baseline_value": 171,
+        "key": "function_size|consent-protocol/tests/test_world_model_invitations.py|test_claim_contract_on_single_connection_postgres|function exceeds the advisory gene budget",
+        "path": "consent-protocol/tests/test_world_model_invitations.py",
+        "qualification": "retained_security_composition",
+        "review_rationale": "Incoming function AST plus exactly two retained helper calls proving transaction-local owner lineage and expiry after lock waiting; removing only those calls reproduces incoming AST.",
+        "source_sha256": "7d51594ce8e45aece7d41e868ddab5df2238031fba7b20b1ab015aa92375bb95",
+        "value": 207
+      },
+      {
+        "baseline_value": 989,
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+        "path": "hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts",
+        "qualification": "retained_security_composition",
+        "review_rationale": "Retains incoming decision coverage and both branch retirement/recovery-checkpoint regressions; no assertions removed.",
+        "source_sha256": "a2aef3b7bef8b043b90d862c2cfa78229bd30ec1c06943bbde214c78002859b4",
+        "value": 1012
+      },
+      {
+        "baseline_value": 903,
+        "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+        "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
+        "qualification": "retained_security_composition",
+        "review_rationale": "Byte-identical to incoming after removing only three retained beforeEffect admission contract/check lines; preserve read and delayed-retry retirement fencing.",
+        "source_sha256": "5e869f5860ea9047f174e7ae212517fe9e8d5d20b1d2d5f2613a2ddd58d313a4",
+        "value": 972
+      },
+      {
+        "baseline_value": 765,
+        "key": "module_size|consent-protocol/tests/test_profile_research_jobs.py||module exceeds the advisory operon budget",
+        "path": "consent-protocol/tests/test_profile_research_jobs.py",
+        "qualification": "retained_security_composition",
+        "review_rationale": "Retains incoming owner-decision/default-enrollment cases and branch private-placement, cached-draft and checkpoint release regressions; shared store fixtures remain extracted rather than duplicated.",
+        "source_sha256": "918e4f5725fa2b05bd5ecdd671e60ae1b79a53aefdafcd7dc4d5e8f32f5dc453",
+        "value": 930
+      },
+      {
+        "baseline_value": null,
+        "key": "module_size|hushh-webapp/components/profile/personal-world-model-page.tsx||module exceeds the advisory operon budget",
+        "path": "hushh-webapp/components/profile/personal-world-model-page.tsx",
+        "qualification": "incoming_file",
+        "review_rationale": "Whole source file is byte-identical to incoming main; current merge adds no authored growth to this component.",
+        "source_sha256": "ce648e994bcff521fc09e7a69f7c453ef8151b1d49611f5b726959439ce9326d",
+        "value": 740
+      },
+      {
+        "baseline_value": 616,
+        "key": "module_size|hushh-webapp/lib/navigation/profile-routes.ts||module exceeds the advisory operon budget",
+        "path": "hushh-webapp/lib/navigation/profile-routes.ts",
+        "qualification": "retained_route_composition",
+        "review_rationale": "Retains incoming world-model options and branch hosting/software-update panel type, normalization, route construction and route-state resolution.",
+        "source_sha256": "19fc079e2bc28d8d7c651794c616496929e479918a79c0b6d2672bf365e04911",
+        "value": 638
+      }
+    ],
+    "parents": {
+      "incoming": "40b717f69040c713ecde7bc411c69e7b46018681",
+      "retained": "ea63cfc76db4840c44b78b224e7d42673b25bb10"
+    },
+    "previous_actual_finding_count": 2660,
+    "previous_declared_finding_count": 2590,
+    "qualification_sha256": "6131bef99e1f9f131c7dc44664cebee05e3cb294d73780352c4ac7acb962a1ed",
+    "review": "Independent source/AST review of exactly ten measured size findings: five incoming-main spans and five retained security/navigation compositions. This records inherited debt; future growth, exclusions, scanner and budgets remain unchanged.",
+    "verification": "140 model-maintenance, 71 backend, 106 frontend and 461 Back cases pass; TypeScript and generated UI parity pass. Final core, hosted CI and deployed acceptance remain required."
   },
   "scope_commerce_receipt_native_main_merge_20261013": {
     "detector_sha256": "e30239423c7473d86893b35c795bae618732fc1b1fd6f82bd54aa9607870581c",

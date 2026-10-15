@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
+# Candidate probe logic; Cloud Build supplies its explicit environment.
 
 set -euo pipefail
 case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in

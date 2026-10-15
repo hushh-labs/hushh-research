@@ -70,8 +70,11 @@ Independent review qualifies exact size-only integration debt under unchanged
 Setup semantic retirements name only incoming revision `5dd05b725c815199` for
 three hosting-aware descriptions; all eight predecessor refs and prior retirements
 remain. The unused Tavily runtime getter/map was removed to preserve main's native
-research provider path. Optional Tavily deployment wiring remains unused compatibility
-debt owned by repository operations; no active backend caller was found.
+research provider path. A subsequent deployment-coverage check exposed its
+remaining packed selector, parser case and optional secret mount. These unused
+bindings are retired together; no active backend caller was found. The existing
+empty-default omission negative control now uses the declared Drive Picker
+binding, preserving coverage enforcement without adding exceptions.
 The subsequent normal merge also preserves root `a2b1e87d6e89` and its three
 browser-test corrections without replacing the broader main integration.
 UI-contract verification and the architecture ratchet pass on the composed source.
@@ -98,15 +101,78 @@ than repeating mutations. Only the paired model environment and revision suffix
 may change. Mode publication requires authenticated runtime recovery and actual
 managed-identity inference. Ordinary image upgrades cannot settle this lease.
 The focused maintenance, real-Postgres fencing, recovery and transport pack passes
-140 cases. Machine-route admission is checked before reservation or provider
-writes. The current admin preflight fails Google machine-token permission with
-HTTP 403; no Azure model, IAM, billing or financial mutation has occurred.
+140 cases, and explicit type checking passes all four maintenance/transport
+modules. Machine-route admission is checked before reservation or provider writes.
+The initial admin preflight failed Google machine-token permission with HTTP 403.
+After explicit authorization, a one-hour OIDC-only grant admitted the existing
+runtime identity once provider permissions propagated. At `2026-10-15T06:06:32Z`,
+the primary's existing Azure pod completed the model repair and verified actual
+managed-identity inference; its mode is `user_azure_mi`, using paired OpenAI
+`gpt-5-mini` version `2025-08-07`. Runtime recovery and registry publication passed.
+The temporary permission was removed immediately afterward. No subscription
+upgrade or Stripe financial mutation occurred. Encrypted synthetic Memory
+preparation has resumed through the existing unlocked owner session.
+
+The resumed proposal reaches Azure Responses but returns HTTP 400 and the safe
+`PKM_PROPOSAL_UNAVAILABLE` response. Authenticated owner status identifies the
+installed pod as `2026.10-dev.19+e04b76c61433.fa018342`; it predates the existing
+schema-normalization correction in this branch. An offline replay rejects that
+installed serializer's actual Memory schema and validates the candidate's schema
+without changing the authored information contract. All 98 provider/Responses
+cases pass. The installed source defect is established; attributing the provider's
+generic 400 to its exact rejected field remains qualified. Publish a CI-qualified
+immutable pod image through the normal release workflow, use the existing
+owner-approved update, verify recovery, and repeat the same proposal. No encrypted
+fixture save or scope purchase is claimed by this failed attempt.
+
+The next build removes the qualification-only reuse pin, which otherwise skips
+the pod build and republishes that older image. The release descriptor retains
+its existing predecessor and additionally admits the exact installed `fa018342`
+digest as a compatible offer. Independent source review binds installed source
+`e04b76c61433` to candidate `81824cf2e99e`: thirteen encrypted persistence,
+recovery, migration and admission modules are byte-identical; both descend from
+the tombstone-aware floor. Historical AI-selection v1 remains readable with the
+same HKDF/AAD, and the added Azure endpoint is optional. Existing recovery,
+Azure update, public connector configuration and schema-wire tests qualify the
+offer separately from installation. Canonical core remains required on the final
+descriptor candidate. This does not establish an installed image: owner approval,
+fresh Microsoft authority, durable handoff, exact digest and encrypted recovery
+remain mandatory, followed by the same Memory proposal.
+
+The release pack exposed an 8,764-character inline model probe, beyond the
+unchanged 8,000-character argument budget. Its body moves byte-for-byte into
+`scripts/deploy/verify-managed-vertex-runtime.sh`; the same build step passes all
+16 required environment bindings explicitly. Candidate identity, synthetic-only
+requests, cleared secrets, positive UAT receipts, voice checks, bounded logging
+readback and cleanup remain unchanged. Existing release and deployment checks
+pass 162 cases, including invalid/partial receipt refusal and the argument budget.
+The stale candidate's in-progress core was stopped after this independent failure
+was established; it is not counted as a successful run. The final candidate still
+requires the complete canonical core and exact-source hosted CI.
 
 The composed core's subsequent blockers were a main-imported implicit Mermaid
 node and an outdated platform-skill inventory hash. The diagram now declares its
 node; the independently reviewed skill diff changes one freshness comment only,
 and retains its pending-review classification. These corrections preserve the
 checks. Final integrated core and hosted CI remain required before Dev promotion.
+
+Fresh main `40b717f69040` is composed on the preserved branch with its owner-review
+World Model changes. The integration forwards bounded job inputs, admits private
+placement before default enrollment, retains invitation request-time authority and
+blocks implicit reviewer background writes while preserving explicit actions.
+All 175 prior semantic retirements and eight workflow predecessor references
+remain. Three independently reviewed same-version setup retirements additionally
+bind incoming main revision `710bd535b7febc69`: the hosting-aware connection choice
+and return-to-hub completion intentionally reject paused Gemini-only semantics.
+The exact-revision gate caught these after the normal merge; no wildcard or
+unrelated action retirement was added.
+The later core run also caught stale ordering in the three database readiness
+projections. Their owning capability, onboarding and scope-commerce generators
+now agree. Table/column/function sets, schema heads and migration SQL are unchanged.
+The final focused packs pass 71 backend, 106 frontend and 461 Back cases;
+TypeScript and generated UI parity pass. Independent source/AST review qualifies
+exactly ten inherited or composed size measurements under unchanged architecture
+budgets. This is source qualification, not Dev or financial acceptance.
 
 Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and was
 pushed on the existing branch. Its
@@ -325,8 +391,9 @@ pass. This correction still requires exact-candidate core, CI and Dev release.
 At `2026-10-14T14:52:35Z`, both private Azure runtimes were independently
 observed without `APP_FRONTEND_ORIGIN`; the counterpart also lacked the public
 Sandbox pin. Shared Dev deployment does not install owner-pod software or repair
-its environment. The current qualification-only reuse pin still publishes the
-earlier `e04b76c61433` image. Follow the canonical
+its environment. At that observation, the qualification-only reuse pin published
+the earlier `e04b76c61433` image. The October 15 release preparation above removes
+that pin and qualifies its exact predecessor for the next build. Follow the canonical
 [pod update runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md)
 to qualify the exact predecessor, remove the reuse pin for the next application
 image build, publish the immutable image and complete ordinary owner approval,
@@ -3698,3 +3765,58 @@ Canonical core passed at `eb34af7b290b` in 554 seconds. The interrupted merged c
 The concurrent verified-hosting/saved-AI setup contract changes completion semantics. Revision `8a957610367a7fda` therefore has one explicit fail-closed cloud-workflow retirement; unrelated workflow histories remain retained. Two incoming main test-module measurements are independently reviewed in the existing architecture baseline; budgets, scanner, exclusions and all other findings remain unchanged. Current prompt changes are source-qualified only: the installed counterpart pod remains `2026.10-dev.15+1d88a25b7e47.cdcf8dc2`, and no private-pod software update is implied by a shared Dev release.
 
 Recovered-candidate checks pass all 181 selected backend cases, all 438 Back cases, generated UI parity and the architecture ratchet with zero new or worsened findings. Every previously recorded workflow-policy revision remains represented. These checks use the recovered exact source; the full core and hosted CI remain pending. Headless reviewer continuation leaves the restarted shared Chrome untouched.
+
+### 2026-10-15 parallel-branch reconciliation
+
+The preserved infrastructure branch incorporates the concurrently published
+`f1159af6d8` changes through a normal merge. Reuse its process-wide three-session
+connection cap, receipt normalization and generator-owned column ordering; the
+parallel draft cap and fixture-order edits were not added as a second system.
+Retain owner/placement checks between awaited reads and the private-placement
+negative control alongside the incoming owner-decision assertion. Focused backend
+verification passed 238 cases with one database-dependent skip. Unchanged Memory
+verification passed all 52 cases with one worker after a contended Back run failed;
+the remaining Location retry, generation, canonical core and hosted CI are pending.
+These checks do not establish a new Dev release or paid-purchase acceptance.
+
+Two separate maintenance gaps remain recorded for their existing owners: dynamic
+UAT/production capacity accounting omits dedicated sessions (`repo-operations-intake`),
+and Calendar review cleanup on reset needs an explicit delete because reset retains
+`actor_profiles` (account lifecycle/security owner). Full account deletion already
+follows the verified schema cascades. Neither gap authorizes a capacity increase,
+a second ledger, or a claim that the Sandbox lifecycle is complete.
+
+The reviewed merge is `5fc77478fd`. Contract generation retained both parents'
+workflow compatibility history. The unchanged Back run passed 454/461 cases;
+one-worker retries passed all 52 Memory cases, 186/187 Location cases and the
+remaining Location search case separately. Initial failures and the later search
+timeout remain recorded as contended local runs; no timeout or assertion changed.
+Hosted CI remains authoritative for the complete browser/full-suite gates.
+
+The canonical reviewer now has a bounded private-connector admission port: exact
+HTTPS non-navigation catalog, verification and OAuth paths, composed with bounded
+mutation admission and owner/vault retirement checks. Its 57 focused cases and
+20 Node contracts pass, including refusal of connector-only broad authority and
+retirement during deferred connector admission. The concrete signed endpoint and
+OAuth-attempt filter still require qualification before browser use. This is
+rehearsal admission, not evidence of One's authenticated Stripe account reads.
+
+The subsequent normal merge `32260e80da` retains concurrent web repairs from
+`15d83d5bab` without duplicating them. All 173 tests across the eight previously
+failing Vitest files pass. The unchanged receipt-disconnection case first
+reproduced its timeout; explicitly starting the scan restores the intended
+pending-page/late-response boundary. No timeout or retirement assertion changed.
+The connected Calendar Chromium 320px geometry/session-recovery case also passes:
+its synthetic authentication boundary prevents import-time Firebase initialization
+while retaining the real Calendar component and typed transport. The earlier
+failure was an `auth/invalid-api-key` fixture error, not a missing product heading.
+Final combined core, exact-head hosted CI, Dev release and financial acceptance
+remain required. Existing Chrome transport and the owner session remain connected;
+no funding, purchase or payout was repeated during these checks.
+
+The combined candidate subsequently passed all 461 Back cases in the canonical
+generation command and all 13 selected Chromium cases covering Calendar recovery,
+uniform settings rows, sharing-history geometry and confirmed revocation. Back
+and Search receipts were regenerated together; workflow history and the capability
+graph remain unchanged. These synthetic checks do not replace the hosted full
+suite, private-agent software update or real Sandbox lifecycle receipts.

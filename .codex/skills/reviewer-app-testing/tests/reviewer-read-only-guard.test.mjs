@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { borrowedPage } from "./fixtures/borrowed-reviewer-page.mjs";
 import test from "node:test";
 
 import { createReviewerSessionHarness, installReadOnlyMutationGuard } from "../scripts/reviewer-session-harness.mjs";
@@ -384,42 +385,11 @@ test("human authentication admits exact provider exchanges but never custom-toke
   assert.throws(() => guard.assertNoBlockedMutation(), /blocked state-changing request/);
 });
 
-function borrowedPage() {
-  const priorWindow = globalThis.window;
-  const state = { ownerMatches: true, authReady: true, unlocked: true, authGeneration: 1, vaultEpoch: 2 };
-  const events = new Map(), routes = new Set(["another-agent-handler"]);
-  const frame = { parentFrame: () => null };
-  const absent = { isVisible: async () => false, first() { return this; } };
-  globalThis.window = { location: new URL(APP_ORIGIN + "/one"), dispatchEvent(event) {
-    if (event.type === "hushh:native-test-config-updated" && window.__HUSHH_NATIVE_TEST__) {
-      const bridge = window.__HUSHH_NATIVE_TEST__;
-      bridge.reviewerSessionSnapshot = () => ({ ...state });
-      bridge.bootstrapUserId = "synthetic-owner"; bridge.bootstrapState = "vault_unlocked";
-    }
-    if (event.type === "app-internal-navigation-requested") {
-      window.location = new URL(event.detail.href, APP_ORIGIN);
-      for (const handler of events.get("framenavigated") || []) handler(frame);
-    }
-  } };
-  const page = {
-    isClosed: () => false, url: () => window.location.href, mainFrame: () => frame,
-    route: async (_pattern, handler) => routes.add(handler), unroute: async (_pattern, handler) => routes.delete(handler),
-    on(name, handler) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(handler); },
-    off(name, handler) { events.get(name)?.delete(handler); },
-    evaluate: async (fn, args) => fn(args),
-    evaluateHandle: async (fn, args) => { const cleanup = fn(args); return { evaluate: async fn => fn(cleanup), dispose: async () => {} }; },
-    waitForFunction: async (fn, args) => { assert.ok(fn(args)); },
-    locator: () => absent, getByRole: () => absent,
-    goto() { throw new Error("Borrowed page must never load a document"); },
-    close() { throw new Error("Borrowed page must never close"); },
-  };
-  return { page, state, routes, events, restore() { globalThis.window = priorWindow; } };
-}
 
 test("borrowed reviewer sessions preserve other clients and permanently retire on owner or vault generation changes", async () => {
   const previousMode = process.env.REVIEWER_AUTH_MODE;
   process.env.REVIEWER_AUTH_MODE = "human_authenticated";
-  const fixture = borrowedPage();
+  const fixture = borrowedPage(APP_ORIGIN);
   const harness = await createReviewerSessionHarness({ repoRoot: path.resolve(import.meta.dirname, "../../../.."),
     appOrigin: APP_ORIGIN, reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "" } });
   try {
@@ -461,22 +431,25 @@ test("borrowed reviewer sessions preserve other clients and permanently retire o
   }
 });
 
-for (const privatePreparation of [false, true]) test(`a retired borrowed session cannot publish deferred evidence or forward deferred ${privatePreparation ? "private preparation" : "mutation"} approval`, async () => {
+for (const [label, pathname, port] of [
+  ["mutation", "/api/scope-commerce/purchases", "admitMutation"],
+  ["private preparation", "/api/one/pod/memory/proposals", "admitOwnerPodMemoryPreparation"],
+  ["private connector", "/api/one/pod/agent-chat/connectors/custom_" + "a".repeat(32) + "/mcp/verify", "admitOwnerPodConnectorOperation"],
+]) test(`a retired borrowed session cannot publish deferred evidence or forward deferred ${label} approval`, async () => {
   const previousMode = process.env.REVIEWER_AUTH_MODE, previousWrites = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS;
   process.env.REVIEWER_AUTH_MODE = "human_authenticated"; process.env.REVIEWER_ALLOW_SHARED_MUTATIONS = "true";
-  const fixture = borrowedPage();
+  const fixture = borrowedPage(APP_ORIGIN);
   let release, entered;
   const pending = new Promise(resolve => { release = resolve; }), started = new Promise(resolve => { entered = resolve; });
-  const pathname = privatePreparation ? "/api/one/pod/memory/proposals" : "/api/scope-commerce/purchases";
   const admit = async request => { assert.equal(new URL(request.url()).pathname, pathname); entered(); await pending; return true; };
   const harness = await createReviewerSessionHarness({ repoRoot: path.resolve(import.meta.dirname, "../../../.."),
     appOrigin: APP_ORIGIN, reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "" },
-    ...(privatePreparation ? { allowMemoryPreparation: true, admitOwnerPodMemoryPreparation: admit } : { admitMutation: admit }) });
+    allowMemoryPreparation: port === "admitOwnerPodMemoryPreparation", admitMutation: () => false, [port]: admit });
   const closeObservation = () => { for (const handler of fixture.events.get("close")) handler(); };
   try {
     const session = await harness.attachExistingSession(fixture.page);
     const handler = [...fixture.routes].find(value => typeof value === "function");
-    const request = requestFor(handler, "POST", (privatePreparation ? "https://owner-pod.example" : APP_ORIGIN) + pathname);
+    const request = requestFor(handler, "POST", (port === "admitMutation" ? APP_ORIGIN : "https://owner-pod.example") + pathname);
     await started; closeObservation(); release();
     assert.equal((await request).forwarded, false);
     await assert.rejects(session.assertCurrent(), /retired/);
