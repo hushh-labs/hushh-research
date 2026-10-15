@@ -13,7 +13,7 @@ python -m hushh_eval.drive_packets plan-batch | run-batch | judge | label | scor
 | `plan-batch` | Builds (or reuses) the sampling frame and preregisters a seeded two-stage cluster sample. Writes `plan.json` with `plan_sha256`. |
 | `run-batch` | Refuses a changed plan or a changed runtime SHA, then replays the production code (`DrivePacketWorker` facts and packet phases, in memory) on each sampled file. Resumable by case id. |
 | `judge` | Deterministic checks first (a failure is final). Then J1 (pinned Pro-tier model) and J2 (a different model), temperature 0, seed 20261015, typed schema, exact quotes. Disagreement is `unknown` and goes to the human queue. |
-| `label` | Deterministic labels (page count, content hash, period phrases), blind pre-labels (pages and file metadata only), silver agreement, family partition (30% held out), the human slice; `--interactive` is a terminal y/n/edit labeler. |
+| `label` | Deterministic labels (page count, content hash, period phrases), blind pre-labels (pages and file metadata only), silver agreement, family partition (30% held out), the human slice. `--interactive` first asks a person pass / fail (with severity) for each queued Ready packet, wrong ones first, then undecided, then passed; a person's verdict overrides the model judges. It then runs the y/n/edit field labeler. |
 | `score` | The nine stage metrics with exact one-sided 95% bounds. |
 | `report` | Founder report (12 lines or fewer, every number `x of n`, always with the 59 and 2,995 bars) and `report.public.json` (allowlisted counts only). |
 | `gate` | `--gate deploy|listing|ready`; exit 0 pass, 1 fail, 2 insufficient evidence. |
@@ -25,7 +25,15 @@ corpus with `FakeInterpret` and `FakeJudge` through the runtime's `interpret=`
 injection point: no network, no Vertex, no private data. The guard regression
 suite (`tests/fixtures/drive_packet_eval/adversarial/`) feeds adversarial model
 outputs to the runtime validators; an unexpected Ready-with-defect turns CI red.
-Cases with `known_gap` are tracked runtime work and run as strict expected failures.
+Cases with `known_gap` are tracked runtime work and run as strict expected failures
+(when the runtime closes a gap, its case passes and the strict marker fails CI until
+`known_gap` is removed from the generator). Open gaps today:
+
+| Fixture | Runtime gap |
+| --- | --- |
+| `same-pdf-twice` | No runtime Ready guard for a duplicate content hash among members (P1). |
+| `period-from-modified-date` | No runtime Ready guard for a period equal to the file date without a content citation (P1). |
+| `wrong-account-member` | Account consistency is left to the model checker; no deterministic runtime guard. |
 
 ## Operator runbook (real Drive, read-only)
 
@@ -65,11 +73,11 @@ python -m hushh_eval.drive_packets gate       --workdir $W --batch-id B001 --gat
 ## What a result means
 
 - The independent unit for packet gates is the family; at most one Ready packet
-  per family counts. With zero failures, the one-sided 95% bound needs 59
-  independent Ready packets for 95% and 2,995 for 99.9%. One owner's Drive cannot
-  establish 99.9%.
-- Without the human slice every number is model-judged and the listing gate stays
-  `insufficient`.
+  per family counts, and a family with any wrong Ready packet counts as wrong. With
+  zero failures, the one-sided 95% bound needs 59 independent Ready packets for 95%
+  and 2,995 for 99.9%. One owner's Drive cannot establish 99.9%.
+- Until a person has decided every counted Ready packet (`label --interactive`),
+  every number is model-judged and the listing gate stays `insufficient`.
 - Replay measures the checked-out SHA, not what UAT serves. Reports name the mode
   and SHA. Packets in replay are formed among the sampled files only.
 - Local extraction has no OCR engine on macOS; pages UAT already extracted are
