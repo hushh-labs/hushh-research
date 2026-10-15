@@ -78,6 +78,30 @@ describe("WalletService", () => {
       await expect(WalletService.selectCardArtwork(CONTEXT, variant, "test-1")).rejects.toThrow();
     } finally { vi.unstubAllGlobals(); }
   });
+  it("bounds artwork requests and sends only the permitted prefix metadata", async () => {
+    vi.useFakeTimers();
+    networkApi.fetch.mockImplementation(() => new Promise(() => {}));
+    try {
+      const result = WalletService.resolveCardArtwork(CONTEXT, { iinPrefix: "42424200", panLength: 16, pan: "4242424242424242", cvv: "123", pin: "1234", cardholderName: "Private" } as Parameters<typeof WalletService.resolveCardArtwork>[1]);
+      const rejected = expect(result).rejects.toThrow("Artwork unavailable");
+      await vi.advanceTimersByTimeAsync(8001); await rejected;
+      const [, options] = networkApi.fetch.mock.calls[0]!;
+      expect(JSON.parse(options.body)).toEqual({ iinPrefix: "42424200", panLength: 16 });
+      expect(options.signal.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+  it("revalidates saved immutable references separately and changes only artwork under the existing ID", async () => {
+    const artwork = approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "previous-version", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" }, CONTEXT.userId, snapshotVaultSessionEpoch());
+    const original = { ...DOMAIN_DATA, artwork: { [CARD_ID]: artwork }, sharing: { preserved: true } };
+    mockLoadDomainData.mockResolvedValue(original);
+    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: true, allowOverlay: false }] })));
+    expect((await WalletService.listCardPresentations(CONTEXT))[0]!.artwork).toMatchObject({ source: "catalog", catalogVersion: "previous-version" });
+    expect(JSON.parse(networkApi.fetch.mock.calls[0]![1].body).purpose).toBe("saved");
+    await WalletService.updateCardArtwork({ ...CONTEXT, cardId: CARD_ID, artwork: { source: "neutral", version: 1 } });
+    const changed = mockStoreWalletDomain.mock.calls[0]![0].applyMutation(original);
+    expect(changed.summary).toBe(original.summary); expect(changed.secrets).toBe(original.secrets); expect(changed.sharing).toBe(original.sharing);
+    expect(changed.artwork).toEqual({ [CARD_ID]: { source: "neutral", version: 1 } });
+  });
   it("retains one fallback identity when an uncertain save is retried after registration recovers", async () => {
     const draftId = "123E4567-E89B-12D3-A456-426614174088", reserveCardId = vi.fn().mockResolvedValueOnce(null).mockResolvedValue("card_registered_later");
     const card = { draftId, pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030 };

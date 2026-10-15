@@ -170,6 +170,7 @@ class ArtworkSelection(BaseModel):
 class ArtworkValidationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selections: list[ArtworkSelection] = Field(min_length=1, max_length=24)
+    purpose: Literal["selection", "saved"] = "selection"
 
 
 async def owner_identity(
@@ -247,7 +248,9 @@ async def artwork_validation(body: ArtworkValidationBody, owner: str = Depends(o
 
     return {
         "selections": await run_in_threadpool(
-            validate_artwork_selections, [selection.model_dump() for selection in body.selections]
+            validate_artwork_selections,
+            [selection.model_dump() for selection in body.selections],
+            purpose=body.purpose,
         )
     }
 

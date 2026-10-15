@@ -439,8 +439,9 @@ embossed metal and severe glare are not guaranteed by these bounds.
 `wallet_artwork_catalog.py` defines the `MetadataProvider` port and a strict
 versioned catalog. `HUSHH_WALLET_ARTWORK_CATALOG_PATH` optionally names a mounted,
 reviewed JSON file; its `assets/` directory contains digest-named rasters.
-There is **no configured issuer provider and no bundled production bank artwork**
-in this change. No API keys, partnerships, scraped assets or exact product coverage
+There is **no licensed issuer provider configured and no bundled production bank artwork**
+in this change. The default-off approved-feed adapter, provider evaluation and
+activation conditions are documented in [Wallet artwork providers](./wallet-artwork-providers.md). No API keys, partnerships, scraped assets or exact product coverage
 are implied. The fully working fallback paths are a reviewed private photo or neutral.
 
 The catalog records issuer, product, family, variant, country, network, IINs,
@@ -448,8 +449,9 @@ version, SHA-256 digest, raster MIME, provenance, rights reference, approving
 reviewer/date and status. Only approved, sanitized assets with a reviewed
 `perpetual_private_display` right are eligible. Time-limited licenses are rejected.
 Approvals must be nonblank, timezone-aware and already completed. A catalog can
-be replaced without a React change; version or status changes invalidate saved
-catalog presentation on the next authorized read. This does not erase a durable
+be replaced without a React change; new selections require the current catalog version. Saved immutable references
+survive unrelated catalog updates but current revocation, grant or rights changes
+invalidate their presentation on authorized reads and visible approval rechecks. This does not erase a durable
 encrypted copy, so a license requiring copy deletion is unsupported.
 
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
@@ -465,8 +467,8 @@ automatically prepares its unique approved design for owner review. Multiple
 approved variants use a compact chooser. Download, save and reload revalidate
 catalog authority. Revocation/outage before Add falls back to neutral without
 discarding valid card details; an explicit design update asks for a current choice.
-Production provider adapters must implement their own bounded transport and
-permission/rights review before configuration.
+The approved-feed adapter reuses the pinned public HTTPS transport and requires
+a deployment-owned permission/rights review before configuration.
 
 ### Private photo and prohibited security codes
 

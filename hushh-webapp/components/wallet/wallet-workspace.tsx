@@ -274,6 +274,8 @@ export function WalletWorkspace() {
     artworks: Record<string, WalletCardArtwork | undefined>;
   } | null>(null);
   const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
+  const cardSnapshotRef = useRef(cardSnapshot);
+  cardSnapshotRef.current = cardSnapshot;
   const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
   const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const artworks = ownedSnapshot?.artworks ?? {};
@@ -496,6 +498,33 @@ export function WalletWorkspace() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Saved immutable versions remain pinned, but approval is never permanent.
+  // Hide catalog copies while rechecking on resume and every visible minute.
+  useEffect(() => {
+    let disposed = false, inFlight = false, needsRecheck = false;
+    const recheck = async () => {
+      if (disposed || inFlight || document.visibilityState === "hidden") return;
+      const before = cardSnapshotRef.current, context = vaultContextRef.current();
+      if (!context || before?.ownerId !== context.userId) return;
+      needsRecheck ||= Object.values(before.artworks).some(artwork => artwork?.source === "catalog");
+      if (!needsRecheck) return;
+      inFlight = true;
+      const revision = ++cardReadRevision.current;
+      setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(Object.entries(previous.artworks).map(([id, artwork]) => [id, artwork?.source === "catalog" ? { source: "neutral" as const, version: 1 as const } : artwork])) } : previous);
+      try {
+        const rows = await WalletService.listCardPresentations(context);
+        if (disposed || revision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        setCardSnapshot(previous => previous?.ownerId === context.userId ? { ...previous, artworks: Object.fromEntries(rows.map(row => [row.summary.cardId, row.artwork])) } : previous);
+      } catch { /* Approval is unknown: keep the neutral presentation. */ }
+      finally { inFlight = false; }
+    };
+    const resume = () => void recheck();
+    const timer = window.setInterval(resume, 60_000);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
+  }, [renderedOwnerId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (introductionOpen || !renderedOwnerId || view.kind !== "list") return;
@@ -780,7 +809,7 @@ export function WalletWorkspace() {
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
-      <WalletCardDesignEditor key={`design:${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} name={cardholderNames[focusedCard.cardId]} getContext={() => getCardShareContext(focusedCard.cardId)} onSaved={artwork => setCardSnapshot(previous => previous?.ownerId === renderedOwnerId ? { ...previous, artworks: { ...previous.artworks, [focusedCard.cardId]: artwork } } : previous)} />
+      <WalletCardDesignEditor key={`design:${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} name={cardholderNames[focusedCard.cardId]} getContext={() => getCardShareContext(focusedCard.cardId)} onSaved={artwork => { cardReadRevision.current++; setCardSnapshot(previous => previous?.ownerId === renderedOwnerId ? { ...previous, artworks: { ...previous.artworks, [focusedCard.cardId]: artwork } } : previous); }} />
       <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
 
     </div>

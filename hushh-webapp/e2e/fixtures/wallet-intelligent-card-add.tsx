@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SecureCardAddForm } from "../../components/wallet/secure-card-add-form";
 import { WalletCardFace } from "../../components/wallet/wallet-card-face";
+import { WalletCardDesignEditor } from "../../components/wallet/wallet-card-design-editor";
 import { WalletService, type WalletCardPresentation } from "../../lib/services/wallet-service";
 import { PersonalKnowledgeModelService as Pkm } from "../../lib/services/personal-knowledge-model-service";
 import { decryptData } from "../../lib/vault/encrypt";
@@ -32,7 +33,7 @@ function Fixture() {
     {locked ? <p>Wallet locked</p> : tab === "add" ? <SecureCardAddForm showIntroduction={false} scanInToolbar getNetworkContext={() => context} onSubmit={async card => {
       const saved = await WalletService.addCard({ ...context, card, surface: "web", source: "one_wallet_add" });
       setCards([{ summary: saved.summary, cardholderName: saved.cardholderName, artwork: saved.artwork }]); setTab("cards");
-    }} /> : <section aria-label="Cards">{cards.map(row => <div key={row.summary.cardId} data-card-id={row.summary.cardId}><WalletCardFace {...row} /><p className="text-sm">Added to Wallet</p></div>)}<button className="min-h-11 px-3" onClick={() => setTab("add")}>Add another card</button></section>}
+    }} /> : <section aria-label="Cards">{cards.map(row => <div key={row.summary.cardId} data-card-id={row.summary.cardId}><WalletCardFace {...row} /><p className="text-sm">Added to Wallet</p><WalletCardDesignEditor card={row.summary} name={row.cardholderName} getContext={() => ({ ...context, isCurrent: () => !locked })} onSaved={artwork => setCards(previous => previous.map(card => card.summary.cardId === row.summary.cardId ? { ...card, artwork } : card))} /></div>)}<button className="min-h-11 px-3" onClick={() => setTab("add")}>Add another card</button></section>}
     {error ? <p role="alert">{error}</p> : null}
   </main>;
 }
