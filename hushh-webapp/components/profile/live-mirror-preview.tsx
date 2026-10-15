@@ -8,54 +8,62 @@ import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   LIVE_MEMORY_BOUNDARY_COPY,
-  LIVE_MIRROR_KINDS,
-  LIVE_MIRROR_SOURCE_LABELS,
-  type LiveMirrorClaim,
+  LIVE_MIRROR_HIDDEN_PREDICATES,
   type LiveMirrorConflict,
-  type LiveMirrorKind,
-  type LiveMirrorView,
+  type LiveMirrorSourceRoute,
 } from "@/lib/pkm/live-mirror-contract";
 import {
-  compareLiveMirrorFacts,
-  formatLiveMirrorValue,
+  liveMirrorClaimRoute,
+  liveMirrorClaimText,
   liveMirrorFactStateLabel,
   liveMirrorPreviewRows,
-  liveMirrorSourceRoute,
   liveMirrorStatus,
   type LiveMirrorPreviewRow,
 } from "@/lib/pkm/live-mirror-presentation";
 import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
 
-const KINDS = new Set<string>(LIVE_MIRROR_KINDS);
-const NEEDS_REVIEW = liveMirrorFactStateLabel("conflicted") ?? "Needs review";
+const HIDDEN_PREDICATES = new Set<string>(LIVE_MIRROR_HIDDEN_PREDICATES);
 
-/** The source a conflict's predicate names ("profile.name" is Profile's); null for an unknown prefix. */
-function conflictKind(conflict: LiveMirrorConflict): LiveMirrorKind | null {
-  const prefix = conflict.predicate.slice(0, conflict.predicate.indexOf("."));
-  return KINDS.has(prefix) ? (prefix as LiveMirrorKind) : null;
+/**
+ * Every side of one disagreement, a line each, as the shared claim formatter
+ * words it: "Profile: Ankit · Checked just now · Version 2". Profile and this
+ * preview both list claims through it, so a side reads the same on each and
+ * money keeps its own currency. Nothing is chosen.
+ */
+export function LiveMirrorClaimLines({ conflict, now }: { conflict: LiveMirrorConflict; now: string }) {
+  return (
+    <>
+      {conflict.claims.map((claim, index) => {
+        const { label, value, detail } = liveMirrorClaimText(claim, conflict.predicate, now);
+        return (
+          <span key={`${claim.source}:${index}`} className="block">
+            {detail ? `${label}: ${value} · ${detail}` : `${label}: ${value}`}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
-/** Where a claim came from: "Memory" for the owner-authored chat memory, else the source's label. */
-function claimLabel(claim: LiveMirrorClaim): string {
-  if (claim.label.trim()) return claim.label;
-  return claim.source === "soul" ? "Memory" : LIVE_MIRROR_SOURCE_LABELS[claim.source];
-}
-
-/** "Memory: Ankit · Profile: Ankit Kumar": every claim with its source, none chosen. */
-function conflictClaims(conflict: LiveMirrorConflict): string {
-  return conflict.claims
-    .map((claim) => `${claimLabel(claim)}: ${claim.value === null ? "Not set"
-      : formatLiveMirrorValue(conflict.predicate, claim.value, { revision: claim.revision ?? undefined })}`)
-    .join(" · ");
-}
-
-/** Where "Fix at source" goes: the first conflict's source, else the first fact's in display order. */
-function fixAtSourceKind(view: LiveMirrorView): LiveMirrorKind | null {
-  for (const conflict of view.conflicts ?? []) {
-    const kind = conflictKind(conflict);
-    if (kind) return kind;
+/**
+ * Each distinct place a side of these disagreements is corrected, in claim
+ * order: memory.md for what the owner wrote, else the screen that owns the
+ * source. `includeMemory: false` leaves memory.md out where Memory is already
+ * open or a tap away.
+ */
+export function liveMirrorFixRoutes(
+  conflicts: readonly LiveMirrorConflict[],
+  { includeMemory = true }: { includeMemory?: boolean } = {},
+): LiveMirrorSourceRoute[] {
+  const routes = new Map<string, LiveMirrorSourceRoute>();
+  for (const conflict of conflicts) {
+    for (const claim of conflict.claims) {
+      if (claim.source === "soul" && !includeMemory) continue;
+      const route = liveMirrorClaimRoute(claim, conflict.predicate);
+      if (route && !routes.has(route.href)) routes.set(route.href, route);
+    }
   }
-  return [...view.facts].sort(compareLiveMirrorFacts)[0]?.kind ?? null;
+  return [...routes.values()];
 }
 
 function PreviewRow({ row }: { row: LiveMirrorPreviewRow }) {
@@ -70,13 +78,12 @@ function PreviewRow({ row }: { row: LiveMirrorPreviewRow }) {
   );
 }
 
-/** Both claims, with their sources, for the owner to review. Nothing is chosen or overwritten. */
-function ConflictRow({ conflict }: { conflict: LiveMirrorConflict }) {
+/** Every claim with its source, a line each, for the owner to review. Nothing is chosen or overwritten. */
+function ConflictRow({ conflict, now }: { conflict: LiveMirrorConflict; now: string }) {
   return (
     <SettingsRow
       title={conflict.label}
-      description={conflictClaims(conflict)}
-      trailing={<Badge variant="secondary">{NEEDS_REVIEW}</Badge>}
+      description={<LiveMirrorClaimLines conflict={conflict} now={now} />}
       testId="live-mirror-conflict"
     />
   );
@@ -102,17 +109,18 @@ export function LiveMirrorPreview({
   const locked = mirror.status === "locked";
   const view = mirror.status === "ready" ? mirror.view : null;
   const status = view ? liveMirrorStatus(view.overall, view) : liveMirrorStatus(locked ? "locked" : "loading");
-  const conflicts = view?.conflicts ?? [];
-  // A disputed profile value is shown once, as its conflict row with both
-  // claims. Record rows keep their own "Needs review" state, since a conflict
+  // Other people's identifiers never render, not even inside a disagreement.
+  const conflicts = (view?.conflicts ?? []).filter((conflict) => !HIDDEN_PREDICATES.has(conflict.predicate));
+  // A disputed profile value is shown once, as its conflict row with every
+  // claim. Record rows keep their own "Needs review" state, since a conflict
   // names a predicate rather than one record.
   const disputed = new Set(conflicts.map((conflict) => conflict.predicate));
   const rows = view
     ? liveMirrorPreviewRows(view.facts.filter((fact) => fact.kind !== "profile" || !disputed.has(fact.predicate)))
     : [];
-  // At most one extra action, and only once the source has a reachable authority surface.
-  const fixKind = view ? fixAtSourceKind(view) : null;
-  const fix = fixKind ? liveMirrorSourceRoute(fixKind) : null;
+  // Fix rows appear only beside a disagreement, one per screen that owns a
+  // disputed source. memory.md gets none: Memory is already open or a tap away.
+  const fixes = liveMirrorFixRoutes(conflicts, { includeMemory: false });
 
   return (
     <section aria-label="Live memory preview" className="min-w-0">
@@ -139,17 +147,17 @@ export function LiveMirrorPreview({
           description={status.sub ?? undefined}
           testId="live-mirror-status"
         />
-        {conflicts.map((conflict) => (
-          <ConflictRow key={conflict.predicate} conflict={conflict} />
+        {view && conflicts.map((conflict) => (
+          <ConflictRow key={conflict.predicate} conflict={conflict} now={view.evaluatedAt} />
         ))}
         {rows.map((row) => (
           <PreviewRow key={row.key} row={row} />
         ))}
-        {fix ? (
-          <SettingsRow asChild chevron title="Fix at source" trailing={fix.label} testId="live-mirror-fix-at-source">
-            <Link href={fix.href} onClick={onNavigate} />
+        {fixes.map((route) => (
+          <SettingsRow key={route.href} asChild chevron title={route.label} testId="live-mirror-fix-at-source">
+            <Link href={route.href} onClick={onNavigate} />
           </SettingsRow>
-        ) : null}
+        ))}
         {showOpenMemory && !locked ? (
           <SettingsRow asChild chevron title="Open Memory" testId="live-mirror-open-memory">
             <Link href={ROUTES.PKM} onClick={onNavigate} />

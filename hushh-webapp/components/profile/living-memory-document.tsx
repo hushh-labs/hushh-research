@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ClipboardEvent, type ReactNode } from "react";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
+import { LiveMirrorClaimLines, liveMirrorFixRoutes } from "@/components/profile/live-mirror-preview";
 import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,19 +13,17 @@ import {
   LIVE_MIRROR_HIDDEN_PREDICATES,
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_SOURCE_LABELS,
-  type LiveMirrorClaim,
   type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorHistoryEntry,
-  type LiveMirrorKind,
   type LiveMirrorSource,
   type LiveMirrorSourceRoute,
   type LiveMirrorView,
 } from "@/lib/pkm/live-mirror-contract";
 import {
   formatLiveMirrorDateTime,
-  formatLiveMirrorValue,
   LIVE_MIRROR_HISTORY_FOOTER,
+  liveMirrorClaimText,
   liveMirrorCount,
   liveMirrorFactStateLabel,
   liveMirrorGapText,
@@ -83,49 +82,21 @@ function HistoryRow({ entry, facts }: { entry: LiveMirrorHistoryEntry; facts: re
   </>} />;
 }
 
-/** Where a claim came from: its own label, else its source's ("Memory" for the chat memory the owner wrote). */
-function claimSource(claim: LiveMirrorClaim): string {
-  if (claim.label.trim()) return claim.label;
-  return claim.source === "soul" ? "Memory" : LIVE_MIRROR_SOURCE_LABELS[claim.source];
-}
-
-/** One claim as its source states it, with when it was checked or changed and its version. Nothing is chosen. */
-function ClaimLine({ claim, predicate, named }: { claim: LiveMirrorClaim; predicate: string; named: boolean }) {
-  const value = claim.value === null ? "Not set"
-    : formatLiveMirrorValue(predicate, claim.value, { revision: claim.revision ?? undefined });
-  const at = claim.verifiedAt ?? claim.sourceUpdatedAt;
-  return (
-    <span className="block">
-      <span>{named ? `${claimSource(claim)}: ${value}` : value}</span>
-      {at ? <><span> · </span><span>{claim.verifiedAt ? "Checked " : "Changed "}</span><DateTime at={at} /></> : null}
-      {claim.revision !== null ? <><span> · </span><span>{`Version ${claim.revision}`}</span></> : null}
-    </span>
-  );
-}
-
 /** A disagreement's identity: its predicate and where each claim came from, so it holds while values change. */
 function conflictKey(conflict: LiveMirrorConflict): string {
   return JSON.stringify([conflict.predicate, conflict.claims.map(claim => [claim.source, claim.label])]);
 }
 
-/** Each distinct place these sources' values are changed; none for a kind without one. */
-function sourceRoutes(kinds: readonly LiveMirrorKind[]): LiveMirrorSourceRoute[] {
-  const routes = new Map<string, LiveMirrorSourceRoute>();
-  for (const kind of kinds) {
-    const route = liveMirrorSourceRoute(kind);
-    if (route && !routes.has(route.href)) routes.set(route.href, route);
-  }
-  return [...routes.values()];
-}
-
-/** Corrections happen at the source, never in the mirror or its Markdown. */
-function FixAtSource({ kinds, onNavigate }: { kinds: readonly LiveMirrorKind[]; onNavigate: () => void }) {
-  const routes = sourceRoutes(kinds);
+/**
+ * Corrections happen at the source, never in the mirror or its Markdown. Each
+ * link is titled by where it goes ("Edit profile") and closes the sheet first.
+ */
+function FixLinks({ routes, onNavigate }: { routes: readonly LiveMirrorSourceRoute[]; onNavigate: () => void }) {
   if (routes.length === 0) return null;
   return (
     <SettingsGroup embedded separatorInset>
       {routes.map(route => (
-        <SettingsRow key={route.href} asChild chevron title="Fix at source" trailing={route.label}>
+        <SettingsRow key={route.href} asChild chevron title={route.label}>
           <Link href={route.href} onClick={onNavigate} />
         </SettingsRow>
       ))}
@@ -134,6 +105,7 @@ function FixAtSource({ kinds, onNavigate }: { kinds: readonly LiveMirrorKind[]; 
 }
 
 function RecordDetails({ record, onNavigate }: { record: LiveMirrorRecordRow; onNavigate: () => void }) {
+  const route = liveMirrorSourceRoute(record.kind);
   return (
     <div className="min-w-0 space-y-3">
       <SettingsGroup embedded separatorInset>
@@ -146,25 +118,39 @@ function RecordDetails({ record, onNavigate }: { record: LiveMirrorRecordRow; on
         <SettingsRow title="Checked" trailing={<DateTime at={record.verifiedAt} />} />
         <SettingsRow title="Saved" trailing={<DateTime at={record.capturedAt} />} />
       </SettingsGroup>
-      <FixAtSource kinds={[record.kind]} onNavigate={onNavigate} />
+      <FixLinks routes={route ? [route] : []} onNavigate={onNavigate} />
     </div>
   );
 }
 
-/** Every claim with its source. The chat memory the owner wrote has no source route. */
-function ConflictDetails({ conflict, onNavigate }: { conflict: LiveMirrorConflict; onNavigate: () => void }) {
-  const kinds = conflict.claims.flatMap(claim => (claim.source === "soul" ? [] : [claim.source]));
+/**
+ * Every claim with its source, worded by the shared claim formatter, then one
+ * link to each place a side is corrected, in claim order: memory.md for what
+ * the owner wrote, else the screen that owns the source.
+ */
+function ConflictDetails({ conflict, now, onNavigate }: { conflict: LiveMirrorConflict; now: string; onNavigate: () => void }) {
   return (
     <div className="min-w-0 space-y-3">
       <SettingsGroup embedded separatorInset>
-        {conflict.claims.map((claim, index) => (
-          <SettingsRow key={`${claim.source}:${index}`} title={claimSource(claim)}
-            description={<ClaimLine claim={claim} predicate={conflict.predicate} named={false} />} />
-        ))}
+        {conflict.claims.map((claim, index) => {
+          const { label, value, detail } = liveMirrorClaimText(claim, conflict.predicate, now);
+          return <SettingsRow key={`${claim.source}:${index}`} title={`${label}: ${value}`} description={detail ?? undefined} />;
+        })}
       </SettingsGroup>
-      <FixAtSource kinds={kinds} onNavigate={onNavigate} />
+      <FixLinks routes={liveMirrorFixRoutes([conflict])} onNavigate={onNavigate} />
     </div>
   );
+}
+
+/**
+ * Word joiners (U+2060) in the preview stop owner emails and URLs from
+ * becoming links. They are invisible, so a copy leaves them out of the clipboard.
+ */
+function copyWithoutWordJoiners(event: ClipboardEvent<HTMLElement>) {
+  const selected = window.getSelection()?.toString() ?? "";
+  if (!selected.includes("\u2060")) return;
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", selected.replace(/\u2060/g, ""));
 }
 
 function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNode }) {
@@ -213,16 +199,14 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
         </TabsList>
         <TabsContent value="facts" className="min-w-0">
           {conflicts.length > 0 ? (
-            // Every claim stays visible with its source; no value is chosen or hidden.
-            <SettingsGroup title="Review" embedded separatorInset headingClassName="mt-0">
+            // Every claim stays visible with its source; no value is chosen or
+            // hidden. The heading names the state once, so rows carry no badge.
+            <SettingsGroup title="Sources disagree" embedded separatorInset headingClassName="mt-0">
               {conflicts.map((conflict, index) => {
                 const key = conflictKey(conflict);
                 return (
                   <SettingsRow key={`${key}:${index}`} title={conflict.label}
-                    description={conflict.claims.map((claim, claimIndex) => (
-                      <ClaimLine key={`${claim.source}:${claimIndex}`} claim={claim} predicate={conflict.predicate} named />
-                    ))}
-                    trailing={liveMirrorFactStateLabel("conflicted") ?? undefined}
+                    description={<LiveMirrorClaimLines conflict={conflict} now={view.evaluatedAt} />}
                     chevron onClick={() => setSelection({ type: "conflict", key })} />
                 );
               })}
@@ -267,9 +251,13 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
           <Footnote className="px-1">{LIVE_MIRROR_HISTORY_FOOTER}</Footnote>
         </TabsContent>
         <TabsContent value="preview" className="min-w-0">
-          {view.markdown.trim()
-            ? <div aria-label="Live memory preview" className="soul-memory-document min-w-0 px-1"><SafeMarkdown markdown={view.markdown} gfm linkPolicy="internal" /></div>
-            : <Footnote className="px-1">Nothing to preview yet</Footnote>}
+          {view.markdown.trim() ? (
+            // "live-mirror-markdown" keeps money table cells on one line so the table scrolls on a phone.
+            <div aria-label="Live memory preview" className="soul-memory-document live-mirror-markdown min-w-0 px-1"
+              onCopy={copyWithoutWordJoiners}>
+              <SafeMarkdown markdown={view.markdown} gfm linkPolicy="internal" />
+            </div>
+          ) : <Footnote className="px-1">Nothing to preview yet</Footnote>}
         </TabsContent>
       </Tabs>
       <SettingsDetailPanel
@@ -283,7 +271,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
         footer={<Button type="button" size="standard" className="w-full" onClick={closeDetails}>Done</Button>}
       >
         {selectedRecord ? <RecordDetails record={selectedRecord} onNavigate={closeDetails} />
-          : selectedConflict ? <ConflictDetails conflict={selectedConflict} onNavigate={closeDetails} /> : null}
+          : selectedConflict ? <ConflictDetails conflict={selectedConflict} now={view.evaluatedAt} onNavigate={closeDetails} /> : null}
       </SettingsDetailPanel>
     </>
   );
