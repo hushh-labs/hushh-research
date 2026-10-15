@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as vaultEncryption from "@/lib/vault/encrypt";
 
 const apiFetchMock = vi.fn();
 
@@ -34,6 +35,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 
 describe("PKM cache behavior", () => {
+  afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; vi.restoreAllMocks(); });
   beforeEach(() => {
     vi.clearAllMocks();
     CacheService.getInstance().clear();
@@ -62,6 +64,35 @@ describe("PKM cache behavior", () => {
     expect(a.userId).toBe("user-1");
     expect(b.userId).toBe("user-1");
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps financial reads available without seeding tickers in restricted review and preserves authorized sync", async () => {
+    const userId = "reviewer-ticker-owner";
+    vi.spyOn(PersonalKnowledgeModelService, "getEncryptedData").mockResolvedValue(null);
+    vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue({
+      ...PersonalKnowledgeModelService.emptyMetadata(userId), domains: [{ key: "financial" }],
+    } as Awaited<ReturnType<typeof PersonalKnowledgeModelService.getMetadata>>);
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainData").mockResolvedValue({
+      ciphertext: "synthetic", iv: "synthetic", tag: "synthetic", storageMode: "domain",
+    });
+    vi.spyOn(vaultEncryption, "decryptData").mockResolvedValue(JSON.stringify({ holdings: [{ symbol: "TEST" }] }));
+    apiFetchMock.mockResolvedValue(new Response(JSON.stringify({ seeded_rows: 0 }), { status: 200 }));
+    for (const reviewerMutationPolicy of ["read_only", "preparation_only", "bounded_mutation"] as const) {
+      CacheService.getInstance().clear();
+      window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+      const blob = await PersonalKnowledgeModelService.loadFullBlob({ userId, vaultKey: "key", vaultOwnerToken: "token" });
+      expect(blob.financial).toEqual({ holdings: [{ symbol: "TEST" }] });
+      expect(apiFetchMock).not.toHaveBeenCalled();
+    }
+    CacheService.getInstance().clear();
+    window.__HUSHH_NATIVE_TEST__!.reviewerMutationPolicy = "mutation_authorized";
+    await PersonalKnowledgeModelService.loadFullBlob({ userId, vaultKey: "key", vaultOwnerToken: "token" });
+    expect(apiFetchMock).toHaveBeenCalledOnce();
+    const [path, request] = apiFetchMock.mock.calls[0]!;
+    expect(path).toBe(`/api/tickers/sync-holdings/${userId}`);
+    expect(request.isEffectCurrent()).toBe(true);
+    window.__HUSHH_NATIVE_TEST__!.reviewerMutationPolicy = "read_only";
+    expect(request.isEffectCurrent()).toBe(false);
   });
 
   it("forced domain reads bypass fresh ciphertext cache", async () => {

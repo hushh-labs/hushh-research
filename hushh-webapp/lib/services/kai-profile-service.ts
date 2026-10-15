@@ -785,6 +785,7 @@ export class KaiProfileService {
     vaultKey: string;
     vaultOwnerToken?: string;
     baseFullBlob?: Record<string, unknown>;
+    beforeEffect?: () => Promise<void>;
     onboarding?: {
       completed: boolean;
       skippedPreferences: boolean;
@@ -879,6 +880,7 @@ export class KaiProfileService {
         surface: "web",
         source: "kai_profile_setup_sync",
       },
+      beforeEffect: params.beforeEffect,
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,

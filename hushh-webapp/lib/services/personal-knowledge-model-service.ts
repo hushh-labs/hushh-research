@@ -27,6 +27,7 @@ import {
   evaluateReservedWrite,
 } from "@/lib/pkm/reserved-branches";
 import { Capacitor } from "@capacitor/core";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -1194,7 +1195,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string;
     isEffectCurrent?: () => boolean;
   }): Promise<void> {
-    if (Capacitor.isNativePlatform()) {
+    if (Capacitor.isNativePlatform() || shouldSkipReviewerBackgroundWritesForAutomation()) {
       return;
     }
     if (!params.vaultOwnerToken) {
@@ -1236,7 +1237,7 @@ export class PersonalKnowledgeModelService {
           `/api/tickers/sync-holdings/${encodeURIComponent(params.userId)}`,
           {
             method: "POST",
-            isEffectCurrent: params.isEffectCurrent,
+            isEffectCurrent: () => !shouldSkipReviewerBackgroundWritesForAutomation() && (params.isEffectCurrent?.() ?? true),
             headers: {
               "Content-Type": "application/json",
               ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -4097,6 +4098,7 @@ export class PersonalKnowledgeModelService {
     confirmation: PkmUserConfirmation;
     expectedValue?: string | null;
     mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -4140,6 +4142,7 @@ export class PersonalKnowledgeModelService {
       initialSnapshot: existing.snapshot,
       applyMutation,
       mayPublish: params.mayPublish,
+      beforeEffect: params.beforeEffect,
     });
   }
 
@@ -4277,6 +4280,7 @@ export class PersonalKnowledgeModelService {
     initialSnapshot: DomainSnapshotV1 | null;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
     mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     let built = await this.buildRuntimeSecretsCommit({
       userId: params.userId,
@@ -4290,9 +4294,10 @@ export class PersonalKnowledgeModelService {
     });
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => {
+      send: async () => {
+        await params.beforeEffect?.();
         if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
-        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish, beforeEffect: params.beforeEffect });
       },
       rebuildAfterConflict: async () => {
         // A genuine version conflict: another writer advanced this domain. Drop

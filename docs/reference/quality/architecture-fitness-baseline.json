@@ -2488,7 +2488,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4021
+      "value": 4025
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16564,7 +16564,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4355
+      "value": 4359
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18274,7 +18274,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connections_service.py",
       "symbol": null,
-      "value": 3322
+      "value": 3336
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18607,7 +18607,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_information_request_service.py",
       "symbol": null,
-      "value": 1041
+      "value": 1046
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20758,7 +20758,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1703
+      "value": 1715
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20857,7 +20857,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-cache.test.ts",
       "symbol": null,
-      "value": 587
+      "value": 618
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22945,7 +22945,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/saved-locations.ts",
       "symbol": null,
-      "value": 666
+      "value": 668
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23287,7 +23287,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/kai-profile-service.ts",
       "symbol": null,
-      "value": 902
+      "value": 904
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23359,7 +23359,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4870
+      "value": 4875
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23954,7 +23954,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts",
       "symbol": null,
-      "value": 952
+      "value": 989
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23963,7 +23963,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
       "symbol": null,
-      "value": 900
+      "value": 903
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -38548,6 +38548,50 @@
       "source_revision": "6476c9c746f0af80dac62d98ea8b22dad0dbb664"
     },
     "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f",
+    "person_request_registry_handle_20261015": {
+      "parent_revision": "eef733e19c8fed9d59959cbff4b55d61b8d69641",
+      "reason": "Consumer request intake dropped the current authored registry handle and substituted a different fallback, causing scope-commerce binding refusal. Preserve internal metadata while omitting it from public rows; include rotation in the catalog revision. Extend nearest real consent and catalog tests; synthetic person authority setup stays in the existing fixture module. Production intake shrinks; no provider, query or consent authority is added.",
+      "reviewer": "main_backend_reconciliation",
+      "scope": "Exactly four existing findings. Budgets 500/250/80, scanner, exclusions, multiplicity and unrelated ceilings are unchanged.",
+      "slots": [
+        {
+          "after": 4359,
+          "before": 4355,
+          "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+          "source_sha256": "d5c1fdc3c88fdb65fa8f638ab9dd9d7db7c81a5caf00e31eaa226016847d3114"
+        },
+        {
+          "after": 4025,
+          "before": 4021,
+          "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+          "source_sha256": "d5c1fdc3c88fdb65fa8f638ab9dd9d7db7c81a5caf00e31eaa226016847d3114"
+        },
+        {
+          "after": 3336,
+          "before": 3322,
+          "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "source_sha256": "2e77e7b052490bbbc7bfc237430530db6bc466f196144a25b34d5b2c1a981f88"
+        },
+        {
+          "after": 1046,
+          "before": 1041,
+          "key": "module_size|consent-protocol/tests/services/test_information_request_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_information_request_service.py",
+          "source_sha256": "eb17e7d76095991c90bdf00af152ed5ba32893943fa447eb8dbaf7fdfb5e20cd"
+        }
+      ],
+      "verification": {
+        "consumer_funded_delivery": "not established by this test",
+        "consumer_postgres_proof": "owner approval and quote; no developer mapping; no premature export",
+        "focused_cases": 199,
+        "full_core": "required_before_push",
+        "old_code_absent_handle_positive": true,
+        "old_code_negative_failures": 2
+      }
+    },
     "relay_release_boundaries_20261011": {
       "changes": [
         {
@@ -38606,6 +38650,72 @@
         "browser": "Alias-only deltas retain assertion bodies. Four existing light/dark continuity checks pass across Chromium/WebKit; two old-production-CSS negative controls fail at unchanged pixel tolerances.",
         "function_spans": "New investor helpers/tests span at most51 lines, below80; environment lookup and DSN adaptation occur only during the explicit disposable fixture.",
         "investor": "Four existing service cases and two actual isolated-PostgreSQL cases pass using the CI-shaped DSN; original056, original057 and missing manual-reason guard negative controls fail."
+      }
+    },
+    "reviewer_background_writes_20261015": {
+      "parent_revision": "6eee8ca0f6e1ce8a83a56a84f8053502638c9c57",
+      "reason": "Observed restricted reviewer preparation attempted automatic encrypted PKM writes. Existing policy now gates automatic projection, recovery, onboarding and ticker synchronization; optional effect ports fence deferred replay while preserving explicit accepted capture lifetime. Nearest existing suites retain ordinary write controls. Size-only extraction would split the owning persistence boundary.",
+      "reviewer": "main_frontend_reconciliation",
+      "scope": "Exactly seven existing module spans; budgets 500/250/80, detector, exclusions and all unrelated finding slots unchanged.",
+      "slots": [
+        {
+          "after": 4875,
+          "before": 4870,
+          "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
+          "source_sha256": "a3bfeab3dd5ddc0abf33ffcb67bf24d191793361190c359d8fe66fa16b045c9a"
+        },
+        {
+          "after": 1715,
+          "before": 1703,
+          "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
+          "source_sha256": "5932ccbb3ce63cd6eff3a710c7c210e644c08d2bb7095ecfc7e51e535464c687"
+        },
+        {
+          "after": 989,
+          "before": 952,
+          "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts",
+          "source_sha256": "93a835fabacf68435dda746a5bd4a31c5f37ed900ddf0985a70234659b872a99"
+        },
+        {
+          "after": 904,
+          "before": 902,
+          "key": "module_size|hushh-webapp/lib/services/kai-profile-service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/services/kai-profile-service.ts",
+          "source_sha256": "261ad3cf4eb1195c9a6cb30ea9e0fb63c5be259167e45d02c9d21470423ceb58"
+        },
+        {
+          "after": 903,
+          "before": 900,
+          "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
+          "source_sha256": "34f14963099d412de59d19ce82debc2aff68a7d57edb8463ad78d57601431fec"
+        },
+        {
+          "after": 668,
+          "before": 666,
+          "key": "module_size|hushh-webapp/lib/one-location/saved-locations.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/one-location/saved-locations.ts",
+          "source_sha256": "7706d67ccdb1f9b402d7d7fb453177a6949e78d46e05d60ceb763c46210addb6"
+        },
+        {
+          "after": 618,
+          "before": 587,
+          "key": "module_size|hushh-webapp/__tests__/services/pkm-cache.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/services/pkm-cache.test.ts",
+          "source_sha256": "c08ce75172e2650ba14f450ee5ee3d82ec04e65d5e79dd118bb6491f9ea9c577"
+        }
+      ],
+      "verification": {
+        "back_cases": 460,
+        "deployed_acceptance": "unverified",
+        "extended_port_cases": 139,
+        "focused_cases": 197,
+        "full_core": "required_before_push",
+        "old_code_authorized_positive": true,
+        "old_code_negative_failures": 13
       }
     }
   },

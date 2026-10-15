@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
 const POST_UNLOCK_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
@@ -23,7 +24,7 @@ export function PostAuthOnboardingSyncBridge() {
   const lastSyncedSignatureRef = useRef<string | null>(null);
   const pendingRef = useRef<{
     signature: string;
-    params: { userId: string; vaultKey: string; vaultOwnerToken: string };
+    params: { userId: string; vaultKey: string; vaultOwnerToken: string; beforeEffect: () => Promise<void> };
     attempt: number;
   } | null>(null);
   const mountedRef = useRef(true);
@@ -55,7 +56,8 @@ export function PostAuthOnboardingSyncBridge() {
       !userId ||
       !isVaultUnlocked ||
       !vaultKey ||
-      !vaultOwnerToken
+      !vaultOwnerToken ||
+      shouldSkipReviewerBackgroundWritesForAutomation()
     ) {
       eligibleSignatureRef.current = null;
       pendingRef.current = null;
@@ -89,11 +91,14 @@ export function PostAuthOnboardingSyncBridge() {
       return;
     }
 
-    const params = { userId, vaultKey, vaultOwnerToken };
+    const params = { userId, vaultKey, vaultOwnerToken, beforeEffect: async () => {
+      if (!mountedRef.current || eligibleSignatureRef.current !== signature || shouldSkipReviewerBackgroundWritesForAutomation())
+        throw new DOMException("Background onboarding sync cancelled", "AbortError");
+    } };
     pendingRef.current = { signature, params, attempt: 0 };
 
     const drain = () => {
-      if (!mountedRef.current || activeSignatureRef.current) return;
+      if (!mountedRef.current || activeSignatureRef.current || shouldSkipReviewerBackgroundWritesForAutomation()) return;
       const next = pendingRef.current;
       pendingRef.current = null;
       if (
@@ -109,13 +114,14 @@ export function PostAuthOnboardingSyncBridge() {
         await PreVaultSensitiveDraftService.finalizeForVault(next.params);
         if (
           !mountedRef.current ||
+          shouldSkipReviewerBackgroundWritesForAutomation() ||
           eligibleSignatureRef.current !== next.signature
         ) {
           return false;
         }
         await PostUnlockSyncService.run(next.params);
         return (
-          mountedRef.current && eligibleSignatureRef.current === next.signature
+          mountedRef.current && !shouldSkipReviewerBackgroundWritesForAutomation() && eligibleSignatureRef.current === next.signature
         );
       })()
         .then((completed) => {
@@ -134,12 +140,14 @@ export function PostAuthOnboardingSyncBridge() {
           if (
             retryDelay !== undefined &&
             mountedRef.current &&
+            !shouldSkipReviewerBackgroundWritesForAutomation() &&
             eligibleSignatureRef.current === next.signature
           ) {
             retryTimerRef.current = window.setTimeout(() => {
               retryTimerRef.current = null;
               if (
                 !mountedRef.current ||
+                shouldSkipReviewerBackgroundWritesForAutomation() ||
                 eligibleSignatureRef.current !== next.signature ||
                 lastSyncedSignatureRef.current === next.signature
               ) {

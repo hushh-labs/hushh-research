@@ -63,6 +63,7 @@ import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
 import { peekMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
+import * as markdownMemory from "@/lib/pkm/markdown-memory";
 
 // Structured-PKM specialist contracts stay covered independently of One's
 // Soul-only context loader. These tests must not reintroduce a chat fallback.
@@ -873,6 +874,17 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("short");
     expect(context.domains).toEqual(["one_memory"]);
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation", "mutation_authorized"] as const)("retains Soul reads and admits recovery only for authorized mutations: %s", async reviewerMutationPolicy => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    const recovery = vi.spyOn(markdownMemory, "recoverMarkdownMemorySync").mockResolvedValue(undefined);
+    try {
+      const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
+      expect(context.domains).toEqual(["one_memory"]);
+      expect(context.text).toContain("concise summaries");
+      expect(recovery).toHaveBeenCalledTimes(reviewerMutationPolicy === "mutation_authorized" ? 1 : 0);
+    } finally { recovery.mockRestore(); delete window.__HUSHH_NATIVE_TEST__; }
   });
 
   it("warms only Soul.md into browser RAM after unlock", async () => {

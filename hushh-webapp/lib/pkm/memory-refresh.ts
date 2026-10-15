@@ -10,6 +10,7 @@ import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { PROFILE_MEMORY_SCOPE_IDS, retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
 import {
   isVaultSessionEpochCurrent,
@@ -195,7 +196,7 @@ export async function refreshMemoryDocument(
     builtAt,
     account,
   });
-  if (document.complete && networkVerified && livingPrivate) {
+  if (document.complete && networkVerified && livingPrivate && !shouldSkipReviewerBackgroundWritesForAutomation()) {
     const stable = JSON.stringify([document.markdown.replace(builtAt, ""), document.sourceLinks]);
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stable));
     const sourceSignature = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
@@ -218,7 +219,7 @@ export async function refreshMemoryDocument(
         throw new DOMException(message, "AbortError");
       };
       const assertCurrentSources = () => {
-        if (!valid() || (changes.get(params.userId) ?? 0) !== change) {
+        if (!valid() || shouldSkipReviewerBackgroundWritesForAutomation() || (changes.get(params.userId) ?? 0) !== change) {
           cancelSuperseded("Memory sources changed");
         }
       };
@@ -247,7 +248,8 @@ export async function refreshMemoryDocument(
     // encrypted projection after source changes, including birthday changes.
     const requested = Object.keys((prior as { scopeSlices?: Record<string, unknown> } | undefined)?.scopeSlices ?? {});
     const retrieval = await retrieveApprovedMemoryScopes({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken,
-      approvedScopes: [...new Set([...PROFILE_MEMORY_SCOPE_IDS, ...requested])], ownerIdentity: account });
+      approvedScopes: [...new Set([...PROFILE_MEMORY_SCOPE_IDS, ...requested])], ownerIdentity: account,
+      assertActive: () => { if (!valid() || shouldSkipReviewerBackgroundWritesForAutomation()) throw new DOMException("Background memory refresh cancelled", "AbortError"); } });
     if (!retrieval.complete) {
       document = { ...document, complete: false };
     }

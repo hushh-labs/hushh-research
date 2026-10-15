@@ -309,6 +309,7 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
         scope_entries_lookup=lambda _owner: [
             {
                 "scope": "attr.financial.holdings",
+                "registry_handle": "s_owner_holdings",
                 "label": "Holdings",
                 "domain": "financial",
                 "path": "holdings",
@@ -336,6 +337,11 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
 
     assert [entry["scope"] for entry in result["items"]] == ["attr.financial.holdings"]
     assert result["items"][0]["match_reason"] == "substring_match"
+    assert "registry_handle" not in result["items"][0]
+    assert (
+        svc.get_exact_requestable_scope_entries("user-a", "user-b")[0]["registry_handle"]
+        == "s_owner_holdings"
+    )
 
     svc._execute_one = lambda _sql, _params=None: None
     without_connection = svc.get_information_scope_catalog("user-a", "user-b")
@@ -346,6 +352,7 @@ def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_rev
     entries = [
         {
             "scope": f"attr.professional.field_{index}",
+            "registry_handle": f"s_owner_field_{index}",
             "label": f"Professional field {index}",
             "description": "Synthetic test metadata",
             "domain": "professional",
@@ -373,6 +380,13 @@ def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_rev
     assert {item["scope"] for page in pages for item in page["items"]} == {
         entry["scope"] for entry in entries
     }
+    entries[0]["registry_handle"] = "s_rotated_owner_field"
+    rotated = svc.get_information_scope_catalog(
+        "user-a", "user-b", catalog_revision=pages[0]["catalogRevision"]
+    )
+    assert rotated["paginationReset"] is True
+    assert rotated["catalogRevision"] != pages[0]["catalogRevision"]
+    assert all("registry_handle" not in item for item in rotated["items"])
     entries.pop()
     refreshed = svc.get_information_scope_catalog(
         "user-a",
