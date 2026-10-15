@@ -50,12 +50,10 @@
       "substory.E14": "partial -> implemented_in_code",
       "substory.E15": "missing -> partial",
       "substory.A08": "partial -> implemented_in_code (v1.1)",
-      "substory.P11": "partial -> implemented_in_code (v1.1)",
-      "substory.P05": "partial -> implemented_in_code (v1.1)",
-      "substory.A04": "partial -> implemented_in_code (v1.1)"
+      "substory.P05": "partial -> implemented_in_code (v1.1)"
     },
     "coverageMatrixChanges": "oneChatRecall moves from separate to partial for the seven admitted inventory surfaces: the private agent receives a bounded, allowlisted packet, not every field or record.",
-    "v1_1": "Live Mirror v1.1 (branch feat/live-mirror-v1-1, 2026-10-15): conflict claims (A08), fix-at-source routes (P11), safe tables and in-app links (P05/A04), value-free lag telemetry (E15 partial). Frontend only; automated proof only."
+    "v1_1": "Live Mirror v1.1 (branch feat/live-mirror-v1-1, 2026-10-15): conflict claims with each side's source, currency, check or change time and version (A08); safe GFM tables and in-app links in the Profile preview (P05); fix-at-source links per source and per side (P11 stays partial: earnings and wallet activity are view-only); compact previews show rows only (A04 stays partial); value-free lag telemetry (E15 partial). Frontend only; automated proof only."
   },
   "productTruth": {
     "completeAlwaysOnMemory": false,
@@ -1209,7 +1207,7 @@
         {
           "path": "hushh-webapp/components/profile/safe-markdown.tsx",
           "line": 1,
-          "level": "automated_contract"
+          "level": "code"
         },
         {
           "path": "hushh-webapp/__tests__/components/safe-markdown.test.tsx",
@@ -1387,23 +1385,28 @@
       "given": "I find a wrong fact in Profile Live Mirror",
       "when": "I choose correct or delete and confirm",
       "then": "the source authority changes and both mirrors refresh without editing generated Markdown",
-      "status": "implemented_in_code",
-      "baseline": "Each source and record offers 'Fix at source', which opens the screen that owns the value (profile account, consents, connections, connectors, payouts, sent requests) through one route map built from existing routes. The Live Mirror has no write path; the bridge refreshes both mirrors after the source changes.",
-      "confidence": 0.96,
+      "status": "partial",
+      "baseline": "Each source and record links to the screen that owns its value (profile account, consents, connections, connectors, payouts, sent documents) through one route map built from existing routes, and each side of a disagreement links to its own source, including memory.md. The Live Mirror has no write path; the bridge refreshes both mirrors after a source change. Earnings and wallet activity are view-only at Payouts, so those records cannot be corrected or deleted there, and no journey proves a correction end to end.",
+      "confidence": 0.9,
       "evidence": [
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-presentation.ts",
           "line": 1,
-          "level": "automated_contract"
+          "level": "code"
         },
         {
-          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
           "line": 1,
           "level": "automated_contract"
         },
         {
-          "path": "hushh-webapp/__tests__/components/soul-memory-panel.test.tsx",
-          "line": 1,
+          "path": "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx",
+          "line": 189,
           "level": "automated_contract"
         }
       ]
@@ -1547,17 +1550,27 @@
       "given": "the structured mirror can produce Markdown",
       "when": "I open either agent mirror",
       "then": "headings, lists, tables and links render safely from the same projection",
-      "status": "implemented_in_code",
-      "baseline": "The compact previews and the Profile preview render from the same projection through the shared safe renderer; tables and in-app links render, owner links never do.",
-      "confidence": 0.96,
+      "status": "partial",
+      "baseline": "The Profile preview renders headings, lists, GFM tables and in-app links from the projection through the shared safe renderer, and owner links stay text. The compact previews (Memory workspace, the private agent's profile sheet) show rows from the same projection, not Markdown, so they render no tables.",
+      "confidence": 0.9,
       "evidence": [
         {
+          "path": "hushh-webapp/components/profile/safe-markdown.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
           "path": "hushh-webapp/components/profile/live-mirror-preview.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/safe-markdown.test.tsx",
           "line": 1,
           "level": "automated_contract"
         },
         {
-          "path": "hushh-webapp/__tests__/components/safe-markdown.test.tsx",
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
           "line": 1,
           "level": "automated_contract"
         }
@@ -1659,7 +1672,7 @@
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
           "line": 1,
-          "level": "automated_contract"
+          "level": "code"
         },
         {
           "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
@@ -2184,7 +2197,7 @@
         {
           "path": "hushh-webapp/lib/pkm/live-mirror-telemetry.ts",
           "line": 1,
-          "level": "automated_contract"
+          "level": "code"
         },
         {
           "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-telemetry.test.ts",
