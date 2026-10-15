@@ -652,7 +652,7 @@ struct NativeDrawerContent: View {
                                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain)
                                 .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
-                                .disabled(!row.enabled || !model.controlsEnabled)
+                                .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
                                 .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
                                 .accessibilityIdentifier("native-profile-row-\(row.id)")
                         }
@@ -714,7 +714,7 @@ struct NativeDrawerContent: View {
                 .padding(.horizontal, 16).contentShape(Rectangle())
         }.buttonStyle(.plain)
             .modifier(NativeProfileRowMeasurement(observe: profileRowObserver, row: row.id))
-            .disabled(!row.enabled || row.pending == true || !model.controlsEnabled)
+            .disabled(!row.enabled || row.pending == true || !model.controlsEnabled || model.choicePending)
             .modifier(NativeDrawerPendingChoice(pending: model.choicePending))
             .accessibilityIdentifier("native-profile-row-\(row.id)")
     }
