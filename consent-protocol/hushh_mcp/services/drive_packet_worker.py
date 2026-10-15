@@ -113,6 +113,10 @@ def compact_evidence(document):
         **(
             {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
         ),
+        # The file's creation time tells two undated originals of one record
+        # apart from two records. The builder and checker never show it to the
+        # model: a file time never dates coverage.
+        **({"created_time": document["created_time"]} if document.get("created_time") else {}),
     }
 
 

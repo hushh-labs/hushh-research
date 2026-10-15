@@ -104,3 +104,54 @@ def test_live_source_requires_explicit_opt_in(monkeypatch):
     with pytest.raises(LiveOptInRequired):
         UatReadOnlySource(owner_user_id="owner", db_port=6655, command=command)
     assert calls == []
+
+
+class IdentityConnection:
+    """A read-only connection whose schema has, or lacks, the identity cache."""
+
+    def __init__(self, names):
+        self.names, self.statements = names, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def execute(self, statement, params=None):
+        from unittest.mock import MagicMock
+
+        sql = " ".join(str(statement).split())
+        self.statements.append(sql)
+        result = MagicMock()
+        if "transaction_read_only" in sql:
+            result.scalar_one.return_value = "on"
+        elif "to_regclass('actor_identity_cache')" in sql:
+            result.scalar_one.return_value = self.names is not None
+        elif "FROM actor_identity_cache" in sql:
+            name = (self.names or {}).get(params["owner"])
+            result.mappings.return_value.first.return_value = (
+                {"display_name": name} if name is not None else None
+            )
+        return result
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        ({"owner": "  Avery Quill "}, ["Avery Quill"]),
+        ({"owner": " "}, []),
+        ({}, []),
+        (None, []),
+    ],
+    ids=["name_on_file", "blank_name", "no_row", "no_identity_cache"],
+)
+def test_owner_identity_is_read_read_only(names, expected):
+    from types import SimpleNamespace
+
+    connection = IdentityConnection(names)
+    source = UatReadOnlySource.__new__(UatReadOnlySource)
+    source.owner = "owner"
+    source.engine = SimpleNamespace(connect=lambda: connection)
+    assert source.owner_identity() == {"names": expected}
+    assert connection.statements and all(sql.startswith("SELECT") for sql in connection.statements)
