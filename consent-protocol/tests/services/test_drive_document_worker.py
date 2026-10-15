@@ -29,6 +29,7 @@ async def test_new_worker_lanes_refuse_before_claim_credentials_or_plaintext(
         owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value=mode)
     )
     store = SimpleNamespace(
+        due_owners=AsyncMock(return_value=["private-owner"]),
         claim=AsyncMock(return_value=None),
         enqueue=AsyncMock(return_value=0),
         claim_packet=AsyncMock(return_value=None),
@@ -359,3 +360,63 @@ async def test_completed_extraction_wakes_next_semantic_sweep(monkeypatch):
 
     assert result["outcomes"] == {"idle": 2, "ready": 2}
     wake.assert_awaited_once_with("documents")
+
+
+@pytest.mark.parametrize("revoke_during_context", [False, True])
+async def test_fact_consolidation_rechecks_authority_after_canonical_read(
+    monkeypatch, revoke_during_context
+):
+    mode = {"value": "shared"}
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard,
+        "get_owner_hosting_mode",
+        AsyncMock(side_effect=lambda _owner: mode["value"]),
+    )
+    job = {
+        "user_id": "owner",
+        "previous": {},
+        "unit_kind": "page",
+        "total_pages": 1,
+        "pages": [
+            {
+                "page_number": 1,
+                "text": "synthetic",
+                "status": "ready",
+                "quality": "complete",
+                "error_code": None,
+            }
+        ],
+    }
+    facts = SimpleNamespace(
+        enqueue=AsyncMock(),
+        claim=AsyncMock(return_value=job),
+        require_current=AsyncMock(),
+        commit_batch=AsyncMock(return_value={"complete": True}),
+        release=AsyncMock(),
+    )
+
+    async def context(**_kwargs):
+        if revoke_during_context:
+            mode["value"] = "byoc"
+        return {"keys": ["synthetic"]}
+
+    fold = AsyncMock(return_value={})
+    worker = DrivePacketWorker(
+        facts_store=facts,
+        packet_store=SimpleNamespace(canonical_key_context=AsyncMock(side_effect=context)),
+        page_assessor=AsyncMock(return_value={}),
+        consolidator=fold,
+        policy=lambda: "synthetic",
+        wake=AsyncMock(),
+    )
+    result = await worker.run_facts_one(user_id="owner")
+    if revoke_during_context:
+        assert result == "facts_unavailable"
+        fold.assert_not_awaited()
+        facts.commit_batch.assert_not_awaited()
+        facts.release.assert_awaited_once()
+    else:
+        assert result == "facts_complete"
+        fold.assert_awaited_once()
+        facts.commit_batch.assert_awaited_once()

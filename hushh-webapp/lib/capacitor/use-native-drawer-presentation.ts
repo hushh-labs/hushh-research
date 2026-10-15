@@ -4,9 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
 import { NativeDrawerPresentation, type NativeDrawerActions } from "./native-drawer-presentation";
-import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection } from "./native-drawers";
+import { nativeDrawers, nativeDrawersPlatformEligible, nativeDrawerAcknowledged, type NativeDrawerFamily, type NativeDrawerSection, type NativeProfilePage } from "./native-drawers";
 import { useNativeControlAppearance } from "./native-control-appearance";
-import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
+import { getNativeSessionPrivacyState, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
 export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
@@ -14,7 +14,7 @@ export type NativeDrawerPort = {
   profileMenuRows?: boolean;
   surfaceOpen?: boolean;
   onPresented?: () => void;
-  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; actions: NativeDrawerActions };
+  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; actions: NativeDrawerActions };
 };
 
 /** Both drawer families share one owner/privacy admission path. Only authored
@@ -39,27 +39,39 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     // an unchanged open state after a failed receipt.
     if (requested && supported === true && phase === "web") readmit(value => value + 1);
   }, [port.open, supported, phase]);
-  const publish = () => {
+  const publish = (force = false): boolean => {
     const live = replica.current, nextPort = current.current.port;
     if (!live || !current.current.theme || !nextPort.ready || live.owner !== nextPort.owner || live.epoch !== nextPort.vaultEpoch ||
-      snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return;
+      snapshotValidatedAuthSessionOwner()?.userId !== live.owner) return false;
     const next = nextPort.project(live.handles);
     const state = { ...live.presentation.identity, ...current.current.theme, privacyGeneration: live.privacy,
       title: nextPort.title, open: nextPort.open, enabled: true, backEnabled: !!next.actions.back,
       ...(contentHandoffSupported.current && nextPort.family === "profile" && nextPort.surfaceOpen !== undefined ? { surfaceOpen: nextPort.surfaceOpen } : {}),
-      searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections };
+      searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
+      ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId } : {}) };
     const fingerprint = JSON.stringify(state); // Private in-memory comparison only.
-    if (fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return; }
-    if (live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) live.fingerprint = fingerprint;
+    if (!force && fingerprint === live.fingerprint) { live.presentation.refreshActions(next.actions); return true; }
+    if (!live.presentation.publish({ ...state, updateSequence: ++live.update }, next.actions)) return false;
+    live.fingerprint = fingerprint;
+    return true;
   };
   useEffect(() => {
     if (!nativeDrawersPlatformEligible()) return;
     let active = true, observed = 0;
     let observer: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | null = null;
-    void subscribeNativeSessionPrivacy(event => {
+    const acceptPrivacy = (event: NativeSessionPrivacyState) => {
       if (!active || event.generation < (privacyRef.current?.generation ?? 0)) return;
       observed++; privacyRef.current = event; setPrivacy(event);
-    }).then(handle => {
+    };
+    // Validation receipts may release the cover without another native event.
+    // Observe the shared authoritative result; this consumer never releases it.
+    const removeObservation = subscribeNativePrivacyObservation(() => {
+      const state = nativePrivacyObservation().state;
+      if (state) acceptPrivacy(state);
+    });
+    const initialPrivacy = nativePrivacyObservation().state;
+    if (initialPrivacy) acceptPrivacy(initialPrivacy);
+    void subscribeNativeSessionPrivacy(acceptPrivacy).then(handle => {
       if (!active) { void handle.remove(); return; }
       observer = handle;
       const ordinal = observed;
@@ -74,7 +86,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
         (port.family !== "agent-profile" || capability.agentProfileMenu === true) &&
         (!port.profileMenuRows || capability.profileMenuRows === true));
     }).catch(() => { if (active) setSupported(false); });
-    return () => { active = false; void observer?.remove(); };
+    return () => { active = false; removeObservation(); void observer?.remove(); };
   }, [port.family, port.profileMenuRows]);
   useEffect(() => {
     if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner ||
@@ -89,7 +101,8 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers(), isCurrent, next => {
       if (active) setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
-    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); });
+    }, state => { if (isCurrent() && state.open) current.current.port.onPresented?.(); },
+    () => isCurrent() && publish(true));
     const instance = { presentation, update: 0, privacy: generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance; setPhase("preparing");
     void (async () => { if (await presentation.listen() && isCurrent()) publish(); })()

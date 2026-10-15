@@ -269,7 +269,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     if (page) return <NativeFeaturePage open={page.open} title="Drive sharing" owner={ownerId} layer="chat-drive-review"
       context={JSON.stringify([snapshotVaultSessionEpoch(), selected?.shareId ?? "activity"])} onReady={page.onReady}
       onBack={() => { if (selected) { setSelectedShareId(null); void loadBulk(); } else page.onBack(); }}>
-      {selected ? <div className="flex flex-col gap-3 p-4">{detail}</div> : rows}
+      {selected ? <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto px-7 pb-6 pt-7">{detail}</div> : rows}
     </NativeFeaturePage>;
     return <>{rows}
       <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>

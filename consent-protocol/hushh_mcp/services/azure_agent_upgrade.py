@@ -126,6 +126,8 @@ def upgrade_agent(
     *,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    guard: Callable[[], None] | None = None,
+    prune_images: bool = True,
 ) -> BackendHandle:
     """Synchronous: import the digest, re-fence, replace, acknowledge, wait for a verdict."""
     expected = str(spec.expected_service_uid or "").strip()
@@ -152,7 +154,7 @@ def upgrade_agent(
         require_connector_configuration(observation.app, connector_environment)
         running = backend.verified_handle(spec.hushh_id, observation)
         return _with_metadata(running, upgraded=False, source_image=spec.upgrade_target_image)
-    handoff = _prepare_handoff(spec, app)
+    handoff = _prepare_handoff(spec, app, guard=guard)
     try:
         step = import_image_step(scopes, registry, repository)
         body = resolve(step.body, {"imageDigest": digest})
@@ -185,6 +187,8 @@ def upgrade_agent(
         connector_environment=connector_environment,
         clock=clock,
         sleep=sleep,
+        guard=guard,
+        prune_images=prune_images,
     )
 
 
@@ -199,8 +203,12 @@ def _replace(
     connector_environment: list[dict[str, str]],
     clock: Callable[[], float],
     sleep: Callable[[float], None],
+    guard: Callable[[], None] | None = None,
+    prune_images: bool = True,
 ) -> BackendHandle:
     """Submit the one-image replacement, acknowledge it, and wait for its revision."""
+    from hushh_mcp.services.azure_upgrade_confirmation import confirm_replacement
+
     api = API_VERSIONS["container_apps"]
     suffix = revision_suffix(spec.upgrade_attempt_id or spec.upgrade_operation_id or "")
     body = replacement_body(
@@ -247,27 +255,35 @@ def _replace(
         spec.on_upgrade_ack(
             upgrade_acknowledgement(backend.app_id, spec, revision, target, connector_environment)
         )
-    try:  # the replace was sent: the revision verdict below, not this poll, decides
-        if arm.needs_poll(started):
-            arm.wait(started, "deploying_agent")
-    except (ArmError, OSError) as exc:
-        logger.warning("user_azure_backend.replace_poll_failed err=%s", type(exc).__name__)
     began = clock()
-    observation = _await_verdict(
-        backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
+    observation = confirm_replacement(
+        arm,
+        started,
+        read_verdict=lambda: _await_verdict(
+            backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
+        ),
     )
     handle = backend.verified_handle(spec.hushh_id, observation)
     handle = _verified_files(handle, spec, observation.app, connector_environment)
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
-    backend.prune_superseded_images(arm, observation.app, previous=previous, expected=target)
+    if prune_images:
+        backend.prune_superseded_images(
+            arm,
+            observation.app,
+            previous=previous,
+            expected=target,
+            **({"guard": guard} if guard is not None else {}),
+        )
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )
 
 
-def _prepare_handoff(spec: PodSpec, app: dict[str, Any]) -> Any:
+def _prepare_handoff(
+    spec: PodSpec, app: dict[str, Any], *, guard: Callable[[], None] | None = None
+) -> Any:
     """Fence the running agent's work before replacement (the GCP handoff, unchanged).
 
     Single revision mode keeps the old revision serving until the new one is ready,
@@ -289,7 +305,7 @@ def _prepare_handoff(spec: PodSpec, app: dict[str, Any]) -> Any:
     handoff = (client, revision)
     try:
         receipt = client.prepare_and_wait(
-            operation_id=spec.upgrade_operation_id, incarnation=revision
+            operation_id=spec.upgrade_operation_id, incarnation=revision, guard=guard
         )
         if spec.on_upgrade_idle is not None:
             spec.on_upgrade_idle(receipt)

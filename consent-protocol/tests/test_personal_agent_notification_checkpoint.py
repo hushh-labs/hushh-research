@@ -12,6 +12,7 @@ import pytest
 
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_notification_checkpoint import bind_notification_checkpoint
+from tests.fixtures.operator_mail import operator_grants
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.test_byoc_setup_job_azure_admission_postgres import _Client, _server
 
@@ -161,6 +162,117 @@ def test_prehost_intent_and_actual_receipt_extend_existing_inventory(pg):
     # A structurally valid next generation does not override the caller's stale CAS.
     assert _publish(pg, next_intent, 0) is None
     assert _publish(pg, next_intent, 2)
+
+
+def test_operator_topic_and_added_grant_custody_survive_retry_and_schema_rollback_refuses(pg):
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    topic = "projects/oauth-project/topics/" + STEM
+    plan = deepcopy(_plan())
+    plan["plannedResources"].append({"type": "pubsub_topic", "id": topic})
+    checkpoint = {**_checkpoint(step="oauth_mail_topic"), "plan": plan}
+    repository = PersonalAgentRegistryRepo(client=_Client(pg))
+    assert asyncio.run(repository.notification_checkpoint_admission_ready()) is False
+    assert _publish(pg, checkpoint) is None  # old schema refuses before operator PUT
+    pg.apply_file(root / "parked/963_personal_agent_operator_mail_custody.sql")
+    assert asyncio.run(repository.notification_checkpoint_admission_ready()) is True
+    assert _publish(pg, checkpoint)
+    with pytest.raises(Exception, match="forward recovery"):
+        pg.apply_file(root / "rollback/963_personal_agent_operator_mail_custody.rollback.sql")
+    pg.execute("ROLLBACK")
+    created = {
+        "step": "oauth_mail_topic",
+        "status": 200,
+        "ok": True,
+        "resourceObservation": {
+            "type": "pubsub_topic",
+            "id": topic,
+            "disposition": "created",
+            "identity": {"name": topic},
+        },
+    }
+    checkpoint.update(generation=2, phase="observed", completed=[created])
+    for invalid in [
+        {k: v for k, v in created.items() if k != "resourceObservation"},
+        {
+            **created,
+            "resourceObservation": {
+                **created["resourceObservation"],
+                "identity": {"name": "foreign"},
+            },
+        },
+    ]:
+        assert _publish(pg, {**checkpoint, "completed": [invalid]}, 1) is None
+    assert _publish(pg, checkpoint, 1)
+    checkpoint.update(generation=3, phase="intent", step="iam_gmail_publisher_on_topic")
+    assert _publish(pg, checkpoint, 2)
+    grants = operator_grants(topic, BOOTSTRAP)
+    result = {
+        "step": "iam_gmail_publisher_on_topic",
+        "status": 200,
+        "ok": True,
+        "operatorBindingObservations": grants,
+    }
+    checkpoint.update(generation=4, phase="observed", completed=[created, result])
+    saved = _publish(pg, checkpoint, 3)
+    assert saved["inventory"]["operatorBindingObservations"] == grants
+    checkpoint.update(generation=5, phase="intent")
+    assert _publish(pg, checkpoint, 4)
+    already = [{**value, "disposition": "already_present"} for value in grants]
+    checkpoint.update(
+        generation=6,
+        phase="observed",
+        completed=[created, {**result, "operatorBindingObservations": already}],
+    )
+    inventory = _publish(pg, checkpoint, 5)["inventory"]
+    assert inventory["operatorBindingObservations"] == grants + already
+    # A legitimate provisioning writer still cannot discard historical custody.
+    pg.execute("SELECT set_config('hussh.provision_attempt',%s,false)", (ATTEMPT,))
+    with pytest.raises(Exception, match="operator notification custody not retained"):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{substrateReceipt,operatorBindingObservations}','[]'::jsonb) WHERE user_id=%s",
+            (OWNER,),
+        )
+    for field in ("plannedResources", "resourceObservations"):
+        with pytest.raises(Exception, match="operator notification custody not retained"):
+            pg.execute(
+                "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,ARRAY['substrateReceipt',%s],'[]'::jsonb) WHERE user_id=%s",
+                (field, OWNER),
+            )
+    _assert_operator_archive(pg, topic, checkpoint, inventory, grants, already, created)
+
+
+def _assert_operator_archive(pg, topic, checkpoint, inventory, grants, already, created):
+    r = {
+        "ownerId": OWNER,
+        "hushhId": HID,
+        "attemptId": "erase-1",
+        "substrateInventory": inventory,
+        "registrySnapshot": {
+            "user_cloud_project": PROJECT,
+            "backend_metadata": {"notificationCheckpoint": checkpoint},
+        },
+    }
+    assert (
+        pg.execute("SELECT operator_mail_grants_qualified(%s::jsonb,%s)", (json.dumps(r), topic))[
+            0
+        ][0]
+        is True
+    )
+    missing = deepcopy(r)
+    missing["registrySnapshot"]["backend_metadata"] = {}
+    assert (
+        pg.execute(
+            "SELECT operator_mail_grants_qualified(%s::jsonb,%s)", (json.dumps(missing), topic)
+        )[0][0]
+        is False
+    )
+    archive = pg.execute(
+        "SELECT personal_agent_erasure_archive(%s::jsonb,'{}'::jsonb)", (json.dumps(r),)
+    )[0][0]
+    assert archive["receipts"]["operatorNotificationCustody"]["bindings"] == grants + already
+    assert archive["receipts"]["operatorNotificationCustody"]["topics"] == [
+        created["resourceObservation"]
+    ]
 
 
 @pytest.mark.parametrize(
@@ -417,6 +529,13 @@ def test_956_guard_composition_and_empty_rollback_preserve_existing_contracts(pg
     root = Path(__file__).resolve().parents[1] / "db/migrations"
     migration = (root / "parked/956_personal_agent_notification_checkpoint.sql").read_text()
     previous = (root / "parked/954_personal_agent_never_hosted_erasure.sql").read_text()
+    pg.apply_file(root / "parked/963_personal_agent_operator_mail_custody.sql")
+    assert pg.execute("SELECT operator_notification_custody_ready()")[0][0] is True
+    pg.apply_file(root / "rollback/963_personal_agent_operator_mail_custody.rollback.sql")
+    assert (
+        pg.execute("SELECT to_regprocedure('public.operator_notification_custody_ready()')")[0][0]
+        is None
+    )
     rollback = (
         root / "rollback/956_personal_agent_notification_checkpoint.rollback.sql"
     ).read_text()
@@ -557,7 +676,42 @@ def test_actual_direct_runtime_subscription_and_scheduler_receipts_are_accepted(
     assert _row(pg)["backend_metadata"]["notificationCheckpoint"]["completed"] == completed
 
 
-def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
+def _add_operator_cleanup_fixture(pg, observations, inventory):
+    pg.apply_file(
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/parked/963_personal_agent_operator_mail_custody.sql"
+    )
+    topic = "projects/oauth-project/topics/" + STEM
+    for observation in observations[1:]:
+        kind, rid = observation["type"], observation["id"]
+        suffix = {
+            "watch-job": "-watch-renew",
+            "direct-sub": "-direct-sub",
+            "dead-letter-sub": "-dead-letter-sub",
+            "mail-topic": "-dead-letter",
+        }[rid]
+        observation["id"] = STEM + suffix
+        observation["identity"]["name"] = (
+            observation["identity"]["name"].rsplit("/", 1)[0] + "/" + observation["id"]
+        )
+        if kind == "pubsub_subscription":
+            observation["identity"]["topic"] = (
+                topic if rid == "direct-sub" else f"projects/{PROJECT}/topics/{STEM}-dead-letter"
+            )
+        elif kind == "cloud_scheduler_job":
+            observation["identity"]["pubsubTarget"]["topicName"] = (
+                f"projects/{PROJECT}/topics/{STEM}-dead-letter"
+            )
+    observations.append(
+        {"type": "pubsub_topic", "id": topic, "disposition": "created", "identity": {"name": topic}}
+    )
+    inventory["plannedResources"] = [{"type": x["type"], "id": x["id"]} for x in observations]
+    inventory["resourceIds"] = sorted({x["id"] for x in observations})
+    inventory["operatorBindingObservations"] = operator_grants(topic, BOOTSTRAP)
+
+
+@pytest.mark.parametrize("operator_topic", [False, True])
+def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg, operator_topic):
     """Real guards cannot reuse one deletion to cover direct and DLQ subscriptions."""
     image = "repo/pod@sha256:" + "a" * 64
     memory = {
@@ -638,6 +792,8 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
         "plannedResources": [{"type": x["type"], "id": x["id"]} for x in observations],
         "resourceObservations": observations,
     }
+    if operator_topic:
+        _add_operator_cleanup_fixture(pg, observations, inventory)
     creation = {
         "service": SERVICE,
         "serviceUid": "uid-1",
@@ -670,6 +826,12 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
             },
         },
     }
+    if operator_topic:
+        snapshot["backend_metadata"]["notificationCheckpoint"] = {
+            **_checkpoint(2, "observed", "oauth_mail_topic"),
+            "plan": {**_plan(), "plannedResources": inventory["plannedResources"][1:]},
+            "completed": [],
+        }
     compute = {
         "serviceName": f"projects/{PROJECT}/locations/{REGION}/services/{SERVICE}",
         "serviceUid": "uid-1",
@@ -707,6 +869,21 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
         )[0][0]
         is True
     )
+    if operator_topic:
+        receipt = {
+            "ownerId": OWNER,
+            "attemptId": "erase-1",
+            "resourceObservation": observations[-1],
+            "status": "admitted",
+        }
+        # Dependencies are deliberately unsettled; even the exact operator grants cannot bypass them.
+        assert (
+            pg.execute(
+                "SELECT valid_erasure_mail_receipt(%s::jsonb,'pubsub_topic','admission',%s::jsonb)",
+                (json.dumps(r), json.dumps(receipt)),
+            )[0][0]
+            is False
+        )
     pg.execute("TRUNCATE personal_agent_registry CASCADE")
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,deployment_target,user_cloud_project,user_cloud_region,user_cloud_bootstrap_sa,backend_metadata) VALUES (%s,%s,'suspended','user_gcp',%s,%s,%s,%s::jsonb)",
@@ -758,8 +935,12 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
                 is False
             )
             forged = deepcopy(r)
-            forged["mailErasure"]["pubsub_subscription"]["resources"]["dead-letter-sub"] = deepcopy(
-                forged["mailErasure"]["pubsub_subscription"]["resources"]["direct-sub"]
+            forged["mailErasure"]["pubsub_subscription"]["resources"][
+                STEM + "-dead-letter-sub" if operator_topic else "dead-letter-sub"
+            ] = deepcopy(
+                forged["mailErasure"]["pubsub_subscription"]["resources"][
+                    STEM + "-direct-sub" if operator_topic else "direct-sub"
+                ]
             )
             assert (
                 pg.execute(
@@ -783,8 +964,8 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
         is True
     )
     assert set(r["mailErasure"]["pubsub_subscription"]["resources"]) == {
-        "direct-sub",
-        "dead-letter-sub",
+        STEM + "-direct-sub" if operator_topic else "direct-sub",
+        STEM + "-dead-letter-sub" if operator_topic else "dead-letter-sub",
     }
     archived = pg.execute(
         "SELECT personal_agent_erasure_archive(%s::jsonb,'{}'::jsonb)", (json.dumps(r),)
@@ -800,10 +981,13 @@ def test_two_subscriptions_need_independent_qualified_deletions_and_archive(pg):
     assert pg.execute("SELECT notification_checkpoint_admission_ready()")[0][0] is True
     with pytest.raises(Exception, match="personal agent erasure reserved"):
         pg.execute(
-            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{erasure,mailErasure,pubsub_subscription,resources,dead-letter-sub,deletion}',%s::jsonb) WHERE user_id=%s",
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,ARRAY['erasure','mailErasure','pubsub_subscription','resources',%s,'deletion'],%s::jsonb) WHERE user_id=%s",
             (
+                STEM + "-dead-letter-sub" if operator_topic else "dead-letter-sub",
                 json.dumps(
-                    r["mailErasure"]["pubsub_subscription"]["resources"]["direct-sub"]["deletion"]
+                    r["mailErasure"]["pubsub_subscription"]["resources"][
+                        STEM + "-direct-sub" if operator_topic else "direct-sub"
+                    ]["deletion"]
                 ),
                 OWNER,
             ),

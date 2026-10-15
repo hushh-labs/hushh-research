@@ -72,7 +72,14 @@ class AzureSubscription(BaseModel):
 class AzureAuthorizeCompleteResponse(BaseModel):
     #: ``continue``: the account was identified; sign in again at ``authorizationUrl``
     #: (its own directory) for Azure. Microsoft usually completes that without asking.
-    status: Literal["setup_started", "needs_subscription", "upgrade_started", "continue"]
+    status: Literal[
+        "setup_started",
+        "needs_subscription",
+        "upgrade_started",
+        "continue",
+        "cleanup_pending",
+        "cleanup_review_required",
+    ]
     jobId: Optional[str] = None
     operationId: Optional[str] = None
     releaseId: Optional[str] = None
@@ -308,6 +315,18 @@ async def _claim_job(
         return job_id, True
     current = await repo.get(user_id)
     if current and current.get("status") == "running" and current.get("project_id") == group_ref:
+        bound = any(
+            isinstance(item, dict)
+            and item.get("stage") in ("azure_setup_intent", "azure_setup_prior_intent")
+            for item in current.get("stages", [])
+        )
+        if bound and jobs.is_stale(current):
+            raise _refuse(
+                409,
+                "AZURE_SETUP_RECONCILIATION_REQUIRED",
+                "Your previous cloud setup needs its cloud operations checked before retrying. "
+                "Existing resources are preserved; contact support to continue safely.",
+            )
         selected = any(
             item.get("stage") == "files_selection" and item.get("enabled") is True
             for item in current.get("stages", [])
@@ -394,6 +413,12 @@ async def complete_azure_authorize(
         if selection.kind in ("setup", "discover"):
             row = await _require_setup_admission(firebase_uid)
             _require_files_available(selection.files_enabled)
+        if selection.kind == "teardown":
+            from api.routes.account_cloud_cleanup import complete_azure_cleanup
+
+            return await complete_azure_cleanup(
+                firebase_uid, body.state, selection, body.code, _spawn
+            )
         if selection.kind == "discover":
             return await _continue_in_home_directory(firebase_uid, body.state, selection, body.code)
         token = await asyncio.to_thread(entra.redeem, body.state, selection, body.code)

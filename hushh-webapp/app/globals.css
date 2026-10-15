@@ -2499,11 +2499,12 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 /* Inner views use the reference's balanced Back / title / Close header. */
+:root { --profile-pane-inline-gutter: 28px; }
 .profile-pane-header--inner {
   display: grid !important;
   align-items: center;
   min-height: 79px;
-  padding: 16px !important;
+  padding: 16px var(--profile-pane-inline-gutter) !important;
 }
 
 .profile-pane-header--inner > div:first-child {
@@ -2828,7 +2829,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
    Keep these selectors inside the pane stack: route-level Profile remains on
    the app's ordinary settings presentation. */
 .profile-pane-scroll-root .profile-pane-page--inner {
-  padding-inline: 28px !important;
+  padding-inline: var(--profile-pane-inline-gutter) !important;
   padding-bottom: 28px !important;
 }
 
@@ -2864,13 +2865,13 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   background: var(--profile-pane-hair) !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   width: 24px !important;
   height: 24px !important;
   color: var(--ios-account-label) !important;
 }
 
-.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] svg {
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg {
   width: 24px !important;
   height: 24px !important;
   stroke-width: 1.8 !important;
@@ -2905,9 +2906,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (max-width: 440px) {
-  .profile-pane-scroll-root .profile-pane-page--inner {
-    padding-inline: 12px !important;
-  }
+  :root { --profile-pane-inline-gutter: 12px; }
 
   .profile-pane-scroll-root [data-profile-stack-content="true"] {
     padding-top: 17px !important;
@@ -3123,7 +3122,7 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   box-shadow: none;
   overflow: hidden;
 }
-.native-feature-page-overlay[data-slot="dialog-overlay"] {
+.native-feature-page-overlay:not(.native-feature-pane-overlay)[data-slot="dialog-overlay"] {
   inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
   background: transparent;
   backdrop-filter: none;
@@ -3148,7 +3147,8 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   background: var(--background);
 }
 .native-feature-page[data-native-feature-pane="profile"] .native-feature-page-body { flex: 1; }
-.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header { padding: 12px 16px; }
+.native-feature-page[data-native-feature-pane="profile"] .native-feature-page-header { padding: 12px var(--page-inline-gutter-standard); }
+.native-feature-page[data-content-inset="profile"] .native-feature-page-header { padding-inline: var(--profile-pane-inline-gutter); }
 .native-feature-page[data-native-feature-pane="profile"][data-native-feature-side="left"] {
   inset: 0 auto 0 0;
   width: min(360px, 88vw);
@@ -6530,6 +6530,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .agent-chat-composer-surface {
   border-radius: 1.5rem;
 }
+/* Uniform rows align as a group, not per-row: a title-only sibling in a
+ * group with supporting copy must share the same title baseline. Groups
+ * containing only titles retain centered icons, titles and trailing actions. */
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout] [data-slot="settings-row-main"] {
+  align-self: stretch;
+}
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout] [data-slot="settings-row-copy"] {
+  align-self: flex-start;
+}
+
 .agent-chat-composer-compact {
   padding: 0.25rem 0.375rem 0.25rem 1rem;
 }
@@ -8043,11 +8055,68 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   visibility: hidden !important;
 }
 
+/* Profile is a full mobile surface, including its opening preview. History
+   shares that mobile boundary; desktop cards stay bounded. Match a
+   landscape phone by its coarse pointer and short side, not width alone. */
+@media (pointer: coarse) {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet[data-slot="sheet-content"], [data-profile-preview]) {
+    --app-side-pane-top-inset: 0px;
+    --app-side-pane-bottom-inset: 0px;
+    --app-side-pane-height: 100dvh;
+    top: 0 !important;
+    bottom: 0 !important;
+    /* Fixed insets fill the viewport exactly; WebKit rounds 100dvh early. */
+    height: auto !important;
+  }
+}
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  html:not(.native-reserved-chrome) .profile-pane-sheet[data-slot="sheet-content"],
+  html:not(.native-reserved-chrome) [data-profile-preview],
+  html:not(.native-reserved-chrome) [data-agent-history-drawer],
+  html:not(.native-reserved-chrome) [data-chat-detail-pane][data-app-side-pane],
+  html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is([data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]) {
+    --app-side-pane-right-inset: 0px;
+    --app-side-pane-left-inset: 0px;
+    --app-side-pane-top-inset: 0px;
+    --app-side-pane-bottom-inset: 0px;
+    --app-side-pane-height: 100dvh;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    max-width: none !important;
+    height: auto !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+  html:not(.native-reserved-chrome) [data-agent-history-drawer],
+  html:not(.native-reserved-chrome) [data-chat-detail-pane][data-app-side-pane],
+  html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
+    left: 0 !important;
+  }
+}
+@media (max-width: 639px), (pointer: coarse) {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header {
+    padding-top: calc(16px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
+    padding-right: max(68px, calc(52px + env(safe-area-inset-right, 0px))) !important;
+  }
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header--inner,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-header--inner {
+    padding-right: max(16px, env(safe-area-inset-right, 0px)) !important;
+  }
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-close,
+  html.native-full-window-overlays :is(.profile-pane-sheet, [data-chat-detail-pane]) .profile-pane-close {
+    top: calc(17px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))) !important;
+    right: max(16px, env(safe-area-inset-right, 0px)) !important;
+  }
+}
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
   html:not(.native-reserved-chrome) [data-agent-history-sidebar="drawer"],
   html.native-full-window-overlays [data-agent-history-sidebar="drawer"] {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-top: var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px));
+    padding-bottom: var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px));
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }

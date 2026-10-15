@@ -327,7 +327,6 @@ function isSelectionTargeted(
   index: number,
   optionsLength: number,
 ): boolean {
-  if (resolveVisualIndex(api, optionsLength) !== index) return false;
   const engine = api.internalEngine?.();
   const width = engine?.slideRects?.[0]?.width;
   const target = engine?.target?.get?.();
@@ -335,7 +334,7 @@ function isSelectionTargeted(
       typeof target === "number" && Number.isFinite(target)) {
     return Math.abs(target + index * width) <= 1;
   }
-  return api.selectedScrollSnap() === index;
+  return resolveVisualIndex(api, optionsLength) === index;
 }
 
 /** Embla's selection changes before the outgoing pane has finished moving. */
@@ -862,17 +861,7 @@ export function SwipeViews({
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
     const engine = emblaApi.internalEngine?.();
     const width = engine?.slideRects?.[0]?.width;
-    const pendingTarget = engine?.target?.get?.();
-    // Compare the destination, not the pane currently passing the viewport.
-    // A swipe's selection echo must not restart its release physics, and a
-    // tap on a passing pane must retarget an interrupted flight.
-    const alreadyTargeted =
-      typeof width === "number" && width > 0 &&
-      typeof pendingTarget === "number" && Number.isFinite(pendingTarget)
-        ? Math.abs(pendingTarget + targetIdx * width) <= 1
-        : targetIdx === resolveVisualIndex(emblaApi, options.length);
-
-    if (targetIdx !== -1 && !alreadyTargeted) {
+    if (targetIdx !== -1 && !isSelectionTargeted(emblaApi, targetIdx, options.length)) {
       scrollToSelection(emblaApi, targetIdx);
     } else {
       const rendered = engine?.offsetLocation?.get?.();

@@ -41,6 +41,9 @@ export class ComputerUseTaskController {
       || !Number.isSafeInteger(snapshot.controlEpoch) || snapshot.controlEpoch < 1
       || !Number.isSafeInteger(snapshot.nextSequence) || snapshot.nextSequence < 1
       || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0
+      || (previous?.viewport && !snapshot.viewport)
+      || (previous?.viewport && snapshot.viewport && snapshot.controlEpoch === previous.controlEpoch
+        && (snapshot.viewport.width !== previous.viewport.width || snapshot.viewport.height !== previous.viewport.height))
       || (previous && (snapshot.controlEpoch < previous.controlEpoch
         || snapshot.nextSequence < previous.nextSequence || snapshot.revision < previous.revision))) {
       throw new Error("BROWSER_TASK_RESPONSE_REFUSED");
@@ -117,6 +120,11 @@ export class ComputerUseTaskController {
     if (this.inputs.length >= 16 || (action.operation === "type" && action.text.length > 4096)) {
       return Promise.reject(new Error("BROWSER_INPUT_BUSY"));
     }
+    if (action.operation === "resize" && (!snapshot.viewport || snapshot.review || this.request
+      || !Number.isSafeInteger(action.width) || action.width < 320 || action.width > 1920
+      || !Number.isSafeInteger(action.height) || action.height < 240 || action.height > 1080)) {
+      return Promise.reject(new Error("BROWSER_VIEWPORT_REFUSED"));
+    }
     return new Promise((resolve, reject) => {
       this.inputs.push({ action, epoch: snapshot.controlEpoch, resolve, reject });
       void this.flushInputs();
@@ -172,8 +180,13 @@ export class ComputerUseTaskController {
             if (receipt.nextSequence <= snapshot.nextSequence) {
               throw new Error("BROWSER_INPUT_UNCONFIRMED");
             }
+            if (input.action.operation === "resize" && (receipt.controlOwner !== "owner"
+              || receipt.controlEpoch <= snapshot.controlEpoch
+              || receipt.viewport?.width !== input.action.width || receipt.viewport?.height !== input.action.height)) {
+              throw new Error("BROWSER_VIEWPORT_UNCONFIRMED");
+            }
             return receipt;
-          });
+          }, input.action.operation === "resize");
           if (this.state.snapshot?.phase === "outcome_uncertain") throw new Error("BROWSER_OUTCOME_UNCERTAIN");
           input.resolve();
         } catch {
@@ -187,13 +200,14 @@ export class ComputerUseTaskController {
 
   acceptsFrame(frame: ComputerUseFrame): boolean {
     const { snapshot, verified } = this.state;
-    return Boolean(snapshot && verified && snapshot.capability === "ready"
+    return Boolean(snapshot && verified && !this.state.controlling && snapshot.capability === "ready"
       && !isComputerUseTerminal(snapshot.phase)
       && sameComputerUseBinding(this.binding, frame.binding)
       && frame.controlEpoch === snapshot.controlEpoch
       && Number.isSafeInteger(frame.sequence) && frame.sequence >= 0
       && Number.isSafeInteger(frame.width) && frame.width >= 320 && frame.width <= 1920
       && Number.isSafeInteger(frame.height) && frame.height >= 240 && frame.height <= 1080
+      && (!snapshot.viewport || (frame.width === snapshot.viewport.width && frame.height === snapshot.viewport.height))
       && frame.png.byteLength >= 8 && frame.png.byteLength <= 4 * 1024 * 1024
       && [137, 80, 78, 71, 13, 10, 26, 10].every((value, i) => frame.png[i] === value));
   }

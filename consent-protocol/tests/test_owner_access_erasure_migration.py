@@ -7,8 +7,11 @@ so the Python shape and the SQL validator cannot drift apart unnoticed.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PARKED = ROOT / "db/migrations/parked"
 MIGRATION = PARKED / "949_personal_agent_owner_access_erasure.sql"
 ROLLBACK = ROOT / "db/migrations/rollback/949_personal_agent_owner_access_erasure.rollback.sql"
+PROVIDER_MIGRATION = PARKED / "960_owner_erasure_provider_outcomes.sql"
+PROVIDER_ROLLBACK = ROOT / "db/migrations/rollback/960_owner_erasure_provider_outcomes.rollback.sql"
 OWNER = "synthetic-owner"
 HUSHH_ID = "ha1_abcdefghijklmnopqrstuvwxyz234567"
 TENANT = "11111111-1111-1111-1111-111111111111"
@@ -34,6 +39,8 @@ def test_949_is_manifested_after_948_with_a_rollback():
     ]
     assert ordered.index(MIGRATION.name) == ordered.index("948_personal_agent_user_azure.sql") + 1
     assert ROLLBACK.is_file()
+    assert ordered.index(PROVIDER_MIGRATION.name) > ordered.index(MIGRATION.name)
+    assert PROVIDER_ROLLBACK.is_file()
 
 
 def test_the_guard_is_943s_verbatim_plus_two_transitions():
@@ -66,6 +73,8 @@ def _pod_receipt(**pod: object) -> dict:
         "status": "erased", "erased": True, "hushhId": HUSHH_ID, "attemptId": "attempt-1",
         "service": "ca-hussh-one-pod", "serviceUid": "incarnation-1",
         "revision": "ca-hussh-one-pod--r1", "deleted": 6, "alreadyAbsent": 3, "records": 3,
+        "providerRevoked": 2, "providerUnconfirmed": 0, "providerUnavailable": 0,
+        "providerCoverage": "connector_history_v1",
         **pod,
     }  # fmt: skip
 
@@ -115,6 +124,7 @@ def pg(monkeypatch):
                 server.apply_file(path)
         server.apply_file(PARKED / "948_personal_agent_user_azure.sql")
         server.apply_file(MIGRATION)
+        server.apply_file(PROVIDER_MIGRATION)
         yield server
     finally:
         server.stop()
@@ -164,6 +174,90 @@ def _preflight(pg, reservation: dict) -> bool:
 
 
 @_needs_pg
+def test_actual_repository_preflight_fences_old_schema_before_key_destruction(pg):
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    class Database:
+        def execute_raw(self, query, parameters):
+            bound = re.sub(r":([a-z_]+)", r"%(\1)s", query)
+            rows = pg.execute(bound, parameters)
+            return SimpleNamespace(data=[{"verified": rows[0][0]}])
+
+    pg.apply_file(PROVIDER_ROLLBACK)
+    reservation = _reserve(pg)
+    repository = PersonalAgentRegistryRepo(client=Database())
+
+    def permitted():
+        return asyncio.run(
+            repository.verify_erasure_owner_access_preflight(user_id=OWNER, reservation=reservation)
+        )
+
+    assert permitted() is False
+    pg.apply_file(PROVIDER_MIGRATION)
+    # A counters-only schema is not safe for the actual v4 producer response.
+    pg.execute(
+        "ALTER FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb) "
+        "RENAME TO original_checkpoint_validator"
+    )
+    pg.execute(
+        "CREATE FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb) "
+        "RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ "
+        "SELECT NOT ($2->'agentErased' ? 'providerCoverage') "
+        "AND public.original_checkpoint_validator($1,$2) $$"
+    )
+    assert permitted() is False
+    pg.execute("DROP FUNCTION public.valid_erasure_owner_access_checkpoint(jsonb,jsonb)")
+    pg.execute(
+        "ALTER FUNCTION public.original_checkpoint_validator(jsonb,jsonb) "
+        "RENAME TO valid_erasure_owner_access_checkpoint"
+    )
+    assert permitted() is True
+    # A preflight may have returned but the irreversible pod request not finished.
+    # Removing support in this window must already be refused, before a checkpoint.
+    with pytest.raises(psycopg2.errors.RaiseException, match="forward recovery"):
+        pg.apply_file(PROVIDER_ROLLBACK)
+    pg.execute("ROLLBACK")
+    assert (
+        _retain_checkpoint(pg, reservation, _checkpoint(providerRevoked=0, providerUnavailable=1))
+        is True
+    )
+    with pytest.raises(psycopg2.errors.RaiseException, match="forward recovery"):
+        pg.apply_file(PROVIDER_ROLLBACK)
+
+
+@pytest.mark.parametrize("with_zero_counters", [False, True])
+@_needs_pg
+def test_legacy_checkpoint_remains_readable_without_claiming_provider_revocation(
+    pg, with_zero_counters
+):
+    reservation = _reserve(pg)
+    checkpoint = _checkpoint()
+    checkpoint["agentErased"] = {
+        key: value
+        for key, value in checkpoint["agentErased"].items()
+        if not key.startswith("provider")
+    }
+    if with_zero_counters:
+        checkpoint["agentErased"].update(
+            providerRevoked=0, providerUnconfirmed=0, providerUnavailable=0
+        )
+    assert _retain_checkpoint(pg, reservation, checkpoint) is True
+    retained = pg.execute(
+        "SELECT backend_metadata#>'{erasure,agentCryptoErase}' "
+        "FROM personal_agent_registry WHERE user_id=%s",
+        (OWNER,),
+    )[0][0]
+    assert retained == checkpoint
+    assert (
+        pg.execute(
+            "SELECT erasure_provider_revocation_complete(%s::jsonb)",
+            (json.dumps({**reservation, "agentCryptoErase": retained}),),
+        )[0][0]
+        is False
+    )
+
+
+@_needs_pg
 def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
     reservation, checkpoint, receipt = _reserve(pg), _checkpoint(), _receipt()
     assert _preflight(pg, reservation) is True
@@ -177,6 +271,13 @@ def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
     assert _retain_checkpoint(pg, reservation, _checkpoint(deleted=0, alreadyAbsent=9)) is False
     assert _retain(pg, reservation, receipt) is False  # expected must carry the checkpoint
     checkpointed = {**reservation, "agentCryptoErase": checkpoint}
+    assert (
+        pg.execute(
+            "SELECT erasure_provider_revocation_complete(%s::jsonb)",
+            (json.dumps(checkpointed),),
+        )[0][0]
+        is True
+    )
     assert _preflight(pg, checkpointed) is False
     assert _retain(pg, checkpointed, receipt) is True
     assert _retain(pg, checkpointed, receipt) is True  # an identical retry is acknowledged
@@ -204,6 +305,22 @@ def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
         lambda c: {**c, "agentErased": {**c["agentErased"], "content": "private"}},
         lambda c: {**c, "agentErased": {**c["agentErased"], "deleted": -1}},
         lambda c: {**c, "agentErased": {**c["agentErased"], "records": "3"}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "providerRevoked": True}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "providerUnconfirmed": 127}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "providerUnavailable": 1}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "providerCoverage": "legacy"}},
+        lambda c: {
+            **c,
+            "agentErased": {
+                k: v
+                for k, v in c["agentErased"].items()
+                if k not in {"providerRevoked", "providerUnconfirmed", "providerUnavailable"}
+            },
+        },
+        lambda c: {
+            **c,
+            "agentErased": {k: v for k, v in c["agentErased"].items() if k != "providerRevoked"},
+        },
     ],
 )
 @_needs_pg
@@ -280,6 +397,7 @@ def test_the_rollback_round_trips_and_refuses_to_drop_a_retained_receipt(pg):
         is None
     )
     pg.apply_file(MIGRATION)
+    pg.apply_file(PROVIDER_MIGRATION)
     checkpointed = _checkpointed(pg)  # a retained checkpoint alone already refuses
     with pytest.raises(psycopg2.errors.RaiseException, match="reconciled before rollback"):
         pg.apply_file(ROLLBACK)

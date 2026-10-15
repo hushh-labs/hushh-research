@@ -104,6 +104,7 @@ def test_pod_surface_stays_within_reviewed_routes():
             "/pod/diagnostics/model",
             "/pod/info",
             "/pod/migration/erasure/crypto-erase",
+            "/pod/migration/erasure/crypto-erase/preflight",
             "/pod/migration/erasure/fence",
             "/pod/migration/erasure/memory/binding",
             "/pod/migration/erasure/memory/reconcile",

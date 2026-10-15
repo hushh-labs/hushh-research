@@ -207,6 +207,7 @@ def prune_superseded_images(
     token: Callable[[], str] = _person_token,
     registry: Optional[Callable[[str, str], RegistryDataPlane]] = None,
     expected: str = "",
+    guard: Callable[[], None] | None = None,
 ) -> list[str]:
     """Delete superseded digests; returns what was deleted. Never raises.
 
@@ -215,6 +216,7 @@ def prune_superseded_images(
     read back from an app body alone. At most ``_MAX_DELETES`` per update, so a slow
     registry cannot hold the update's lease for long.
     """
+    deleted: list[str] = []
     try:
         current = running_image(app)
         match = _IMAGE.match(current)
@@ -228,12 +230,18 @@ def prune_superseded_images(
         )
         protected = {match.group(3), _digest(previous), *referenced_digests(revisions)}
         plane = (registry or RegistryDataPlane)(match.group(1), POD_IMAGE_REPOSITORY)
+        if guard is not None:
+            guard()
         plane.authorize(arm_token, tenant_id)
         candidates = prune_candidates(plane.manifests(), protected=protected)[:_MAX_DELETES]
-        deleted = [d for d in candidates if plane.delete(d)]
+        for digest in candidates:
+            if guard is not None:
+                guard()
+            if plane.delete(digest):
+                deleted.append(digest)
     except Exception as exc:  # noqa: BLE001 - a full registry costs cents; a failed update does not
         logger.info("azure_registry_prune.skipped err=%s reason=%s", type(exc).__name__, exc)
-        return []
+        return deleted
     logger.info("azure_registry_prune.done deleted=%s kept=%s", len(deleted), len(protected))
     return deleted
 
@@ -252,7 +260,13 @@ class RegistryPruneHook:
         raise NotImplementedError
 
     def prune_superseded_images(
-        self, arm: ArmClient, app: dict[str, Any], *, previous: str, expected: str
+        self,
+        arm: ArmClient,
+        app: dict[str, Any],
+        *,
+        previous: str,
+        expected: str,
+        guard: Callable[[], None] | None = None,
     ) -> list[str]:
         """After a confirmed update only: keep the current and previous image. Never raises."""
         return prune_superseded_images(
@@ -262,6 +276,7 @@ class RegistryPruneHook:
             previous=previous,
             tenant_id=self._tenant,
             expected=expected,
+            **({"guard": guard} if guard is not None else {}),
         )
 
 

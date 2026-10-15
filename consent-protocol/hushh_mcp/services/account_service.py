@@ -2059,15 +2059,22 @@ class AccountService:
             # deprovision to an explicit operator step.
             return result
         from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_owner_access_erasure import owner_access_backend
         from hushh_mcp.services.personal_agent_provisioning_service import (
             PersonalAgentProvisioningService as Service,
         )
         from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
         try:  # built as the route builds it; a bare Service() raised TypeError from 2026-09-08
-            await Service(
-                registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
-            ).deprovision(user_id=user_id)
+            registry = PersonalAgentRegistryRepo()
+            service = Service(registry=registry, backend=resolve_compute_backend())
+            owner_row = await registry.get(user_id)
+            if owner_access_backend(service, owner_row) is not None:
+                # This backend needs fresh cloud consent and explicit whole-parent
+                # cleanup terms. A failed ordinary account DELETE must not destroy
+                # pod keys before that review. The cleanup flow owns preparation.
+                return {**result, "cleanup_provider": (owner_row or {}).get("deployment_target")}
+            await service.deprovision(user_id=user_id)
         except Exception as exc:
             logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)
             return result

@@ -150,8 +150,10 @@ describe("Profile Live Mirror", () => {
   it("opens the existing Saved and Add workspace only while unlocked", () => {
     const rendered = render(<LivingMemoryDocument />);
     fireEvent.click(screen.getByRole("button", { name: /Saved and Add/ }));
-    expect(m.navigate).toHaveBeenCalledWith("/one/pkm");
+    expect(m.navigate).toHaveBeenCalledExactlyOnceWith("/one/pkm");
+    expect(screen.getByText(/SYNTHETIC_A_NAME/)).toBeInTheDocument();
     m.unlocked = false;
+    m.epoch++;
     rendered.rerender(<LivingMemoryDocument />);
     expect(screen.queryByRole("button", { name: /Saved and Add/ })).toBeNull();
   });

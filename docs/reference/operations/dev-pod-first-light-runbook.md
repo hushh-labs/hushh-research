@@ -262,6 +262,34 @@ transient failure, but does not establish its cause. Verify serving digest,
 durable key/cursor, private IAM and unchanged service identity before recording
 recovery. Isolated maintenance never substitutes for Settings owner approval.
 
+Cancelling an Azure update fences further worker writes and joins the actual
+thread before releasing local lifecycle authority. Handoff polling and optional
+image pruning recheck that fence. A completed local thread does not prove a lost
+ARM request settled: retain its provider receipt and upgrade lease for observed
+reconciliation. Registry pruning reports only effects it actually confirmed.
+
+### Provider revocation during account erasure
+
+Inventory sealed credential history, including cleared and superseded logins:
+a failed disconnect may have stopped local use without revoking Google access.
+Group Google grants by verified OAuth project and account. HTTP 200 confirms
+revocation; `invalid_token` confirms only that candidate is absent. Continue
+other candidates before reporting the grant settled. Provider failures and
+inventory overflow remain explicit unconfirmed outcomes. Keep tokens in memory;
+retain only bounded counts and hashed grant receipts. These source checks do not
+establish live provider revocation or complete cloud-resource deletion.
+
+The authenticated full-cleanup route requires confirmed revocation before key
+destruction. An outage leaves encrypted credentials behind the same closed fence
+for retry. Tombstone version 4 identifies historical-credential coverage; older
+tombstones remain readable but report provider coverage as unavailable. Never
+mint a new key or convert a legacy zero counter into a cleanup success. If an old
+operation already destroyed its credential key, external provider recovery needs
+separate evidence. Internal local-only erasure is not full-account completion.
+With the original key intact, requalify only the same fenced inventory and
+replace provider metadata conditionally against the observed object generation.
+A changed inventory or a competing tombstone refuses key destruction.
+
 ### Azure Files activation on an existing pod
 
 Use the existing Files setup offer and exact release approval. Azure capability

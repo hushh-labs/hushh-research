@@ -427,6 +427,8 @@ def reconcile_mail_resource(
     state: dict[str, Any],
     retain_receipt: Callable[[str, dict[str, Any]], bool],
     session: Any = None,
+    operator_topic: str | None = None,
+    verify_operator_topic: Callable[[], None] | None = None,
 ) -> None:
     """Reconcile one acknowledged creation; uncertain deletes never replay.
 
@@ -451,6 +453,12 @@ def reconcile_mail_resource(
         + (f"locations/{region}/" if kind == "cloud_scheduler_job" else "")
         + f"{paths[kind]}/{rid}"
     )
+    if rid.startswith("projects/"):
+        if kind != "pubsub_topic" or operator_topic != rid or verify_operator_topic is None:
+            raise SubstrateDeleteError("operator topic cleanup authority unavailable")
+        name = operator_topic
+    elif operator_topic is not None:
+        raise SubstrateDeleteError("operator topic cleanup target changed")
     identity = _mail_creation_identity(observation.get("identity"), kind, name)
     if identity is None or identity != observation.get("identity"):
         raise SubstrateDeleteError("mail creation identity unverified")
@@ -490,6 +498,8 @@ def reconcile_mail_resource(
             or _mail_creation_identity(observed.json(), kind, name) != identity
         ):
             raise SubstrateDeleteError("mail resource relationship unverified")
+        if verify_operator_topic is not None:
+            verify_operator_topic()
         retain("admission", "admitted")
         response = session.delete(url, headers=headers, timeout=30, allow_redirects=False)
         if response.status_code != 200 or response.json() != {}:

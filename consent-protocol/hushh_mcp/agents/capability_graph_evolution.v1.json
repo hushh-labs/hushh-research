@@ -1437,6 +1437,22 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.delete_account",
+      "from_revision": "710bd535b7febc69",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.delete_account",
+      "from_revision": "9bce17c8a5ad739b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:profile.world_model.open",
       "from_revision": "710bd535b7febc69",
       "from_version": 1,
@@ -1541,6 +1557,46 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.world_model.invite",
+      "from_revision": "710bd535b7febc69",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.world_model.reject",
+      "from_revision": "710bd535b7febc69",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.world_model.research",
+      "from_revision": "710bd535b7febc69",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.delete_account",
+      "from_revision": "a7faf3fd04605e90",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "85499847624cc916",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:setup.finish_connections",
       "from_revision": "f5e5938138c09753",
       "from_version": 1,
@@ -1558,6 +1614,14 @@
     {
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "f5e5938138c09753",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.delete_account",
       "from_revision": "f5e5938138c09753",
       "from_version": 1,
       "to_version": 1,

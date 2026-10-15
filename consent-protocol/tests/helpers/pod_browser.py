@@ -10,6 +10,7 @@ from hushh_mcp.services.pod_browser.contracts import (
     BrowserNetworkPermit,
     BrowserReadiness,
     BrowserRefused,
+    BrowserViewport,
 )
 from hushh_mcp.services.pod_browser.control import BrowserControl
 
@@ -85,6 +86,7 @@ class Executor:
     fail: bool = False
     entered: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event | None = None
+    viewport: BrowserViewport = field(default_factory=BrowserViewport)
 
     async def initialize(self):
         self.calls.append("initialize")
@@ -96,10 +98,14 @@ class Executor:
             await self.release.wait()
         if self.fail:
             raise BrowserRefused("BROWSER_TRANSPORT_UNAVAILABLE")
+        if action.operation == "resize":
+            self.viewport = BrowserViewport.model_validate(
+                {"width": action.width, "height": action.height}
+            )
         return BrowserFrame(
             sequence=action.sequence,
-            width=1280,
-            height=720,
+            width=self.viewport.width,
+            height=self.viewport.height,
             png=b"\x89PNG\r\n\x1a\nfixture",
             url="https://example.com/",
         )

@@ -60,7 +60,7 @@ def _spec() -> PodSpec:
     return PodSpec(hushh_id=_HUSHH_ID, phone_e164_hash="h", pod_pubkey="", billing_space_id="b")
 
 
-def _run(arm: FakeArm, *, http=None, stages=None, credentials=None):
+def _run(arm: FakeArm, *, http=None, stages=None, credentials=None, bind_setup=None, guard=None):
     stages = stages if stages is not None else []
     return setup.run_agent_setup(
         access_token=_PERSON_TOKEN,
@@ -75,6 +75,8 @@ def _run(arm: FakeArm, *, http=None, stages=None, credentials=None):
         image_credentials=credentials,
         http=http or _Http(),
         sleep=lambda _s: None,
+        bind_setup=bind_setup,
+        guard=guard,
     )
 
 
@@ -88,6 +90,46 @@ def test_a_fresh_setup_runs_every_stage_in_order_and_proves_the_agent():
     assert http.urls == [f"https://{result.fqdn}/health"]
     assert result.resource_group == resource_group_name(_HUSHH_ID)
     assert result.image_digest == "sha256:" + "b" * 64
+
+
+def test_setup_freezes_its_binding_before_any_write_and_checks_each_mutation():
+    arm, bindings, admissions = FakeArm(), [], []
+
+    def bind(inputs):
+        assert arm.writes() == []
+        bindings.append(inputs)
+
+    def guard():
+        assert len(bindings) == 1
+        admissions.append(len(arm.writes()))
+
+    result = _run(arm, bind_setup=bind, guard=guard)
+    assert bindings[0].nonce == result.nonce
+    assert admissions == list(range(len(arm.writes())))
+
+
+@pytest.mark.parametrize("refuse_binding", [True, False])
+def test_erasure_fences_setup_before_initial_write_or_between_writes_in_one_stage(refuse_binding):
+    from hushh_mcp.services.byoc_setup_job_service import JobSuperseded
+
+    arm = FakeArm()
+
+    def bind(_inputs):
+        if refuse_binding:
+            raise JobSuperseded("binding refused")
+
+    def guard():
+        if any("/storageAccounts/" in path for _method, path in arm.writes()):
+            raise JobSuperseded("erasure reserved")
+
+    with pytest.raises(JobSuperseded):
+        _run(arm, bind_setup=bind, guard=guard)
+    if refuse_binding:
+        assert arm.writes() == []
+    else:
+        storage = [path for _method, path in arm.writes() if "/storageAccounts/" in path]
+        assert len(storage) == 1 and "/blobServices/" not in storage[0]
+        assert not any("/registries/" in path for _method, path in arm.writes())
 
 
 def test_nothing_is_ever_sent_with_an_unresolved_placeholder_or_the_secret_in_a_log():

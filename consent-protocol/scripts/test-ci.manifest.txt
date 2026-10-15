@@ -522,6 +522,7 @@ tests/test_adk_pin_contract.py
 # unlisted test never runs in any lane, so a guard outside this manifest is
 # decoration.
 tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+tests/test_tmp_cleanup_preserves_worktrees.py
 tests/test_capability_graph_gate_compares_against_base.py
 # (2026-09-26) scripts/ci is split between the frontend and backend path
 # filters by the lane that runs each script; this proves every script a lane
@@ -1007,6 +1008,9 @@ tests/test_azure_openai_model_diagnostic.py
 tests/test_azure_openai_turn_doors.py
 # Azure lane hub-azure (2026-10-02)
 tests/test_azure_arm_client.py
+tests/test_azure_setup_authority_postgres.py
+tests/test_azure_resource_teardown.py
+tests/test_azure_resource_teardown_postgres.py
 tests/test_azure_federation.py
 tests/test_azure_entra_authorizer.py
 tests/test_azure_home_directory.py

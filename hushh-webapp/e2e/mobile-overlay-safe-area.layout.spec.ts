@@ -61,7 +61,7 @@ test("native rotation overrides a stale portrait safe-area probe", async ({ page
 
 test("opening mobile Profile preserves the canvas and exits beyond its bounded inset", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.setContent(`<html class="native-ios"><head><style>${css}</style></head><body><div class="foundation-public-ambient"></div><nav class="kai-bottom-nav-pill"></nav></body></html>`);
+  await page.setContent(`<html class="native-ios" style="--app-native-safe-area-top:59px"><head><style>${css}</style></head><body><div class="foundation-public-ambient"></div><nav class="kai-bottom-nav-pill"></nav></body></html>`);
   const snapshot = () => page.evaluate(() => ({
     background: getComputedStyle(document.body).backgroundColor,
     ambient: getComputedStyle(document.querySelector(".foundation-public-ambient")!).display,
@@ -74,21 +74,18 @@ test("opening mobile Profile preserves the canvas and exits beyond its bounded i
     pane.dataset.slot = "sheet-content";
     pane.dataset.sheetSide = "right";
     pane.dataset.state = "open";
-    pane.innerHTML = '<div class="profile-home-screen profile-account-content" data-profile-stack="true">Profile</div>';
+    pane.style.position = "fixed";
+    pane.innerHTML = '<header class="profile-pane-header"><h2>Profile</h2></header><button class="profile-pane-close" style="position:absolute;width:44px;height:44px" aria-label="Close Profile">Close</button><div class="profile-home-screen profile-account-content" data-profile-stack="true">Profile</div>';
     document.body.append(pane);
   }, profileClass);
   expect(await snapshot()).toEqual(before);
   const pane = page.locator(".profile-pane-sheet");
-  await pane.evaluate(async node => {
-    await Promise.all(node.getAnimations().filter(a => a.effect instanceof KeyframeEffect && a.effect.target === node && Number.isFinite(Number(a.effect.getTiming().iterations))).map(a => a.finished));
-  });
-  const frame = (await pane.boundingBox())!;
-  const gutter = 12; // clamp(12px, 2.5vw, 18px) at a 390px viewport.
-  expect(Math.abs(frame.x - gutter)).toBeLessThanOrEqual(1 / 64);
-  expect(Math.abs(frame.y - 59)).toBeLessThanOrEqual(1 / 64);
-  expect(Math.abs(frame.width - (390 - 2 * gutter))).toBeLessThanOrEqual(1 / 64);
-  expect(frame.height).toBeGreaterThan(0);
-  expect(frame.y + frame.height).toBeLessThanOrEqual(844 - gutter + 1 / 64);
+  // The frame is edge-to-edge; its actual controls, not the frame, clear the
+  // status area even when WKWebView reports a zero env() inset.
+  expect((await pane.boundingBox())!.y).toBe(0);
+  expect((await pane.boundingBox())!.height).toBe(844);
+  expect((await pane.getByRole("heading", { name: "Profile" }).boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  expect((await pane.getByRole("button", { name: "Close Profile" }).boundingBox())!.y).toBeGreaterThanOrEqual(59);
   await pane.evaluate(node => {
     node.setAttribute("data-state", "closed");
     const animation = node.getAnimations().find(a => a instanceof CSSAnimation && a.animationName === "sheet-surface-exit" && a.effect instanceof KeyframeEffect && a.effect.target === node);

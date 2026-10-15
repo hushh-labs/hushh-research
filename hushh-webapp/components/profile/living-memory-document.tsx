@@ -281,14 +281,16 @@ export function LivingMemoryDocument() {
   if (state.status === "locked") {
     return <section aria-label="Live memory" className="min-w-0"><StatusLine status={liveMirrorStatus("locked")} /></section>;
   }
-  const title = <SectionLabel as="h2" id={headingId} className="px-1">Live memory</SectionLabel>;
+  const title = <>
+    <SectionLabel as="h2" id={headingId} className="px-1">Live memory</SectionLabel>
+    <SettingsGroup embedded separatorInset>
+      <SettingsRow title="Saved and Add" description="Open saved memories, sharing and prices."
+        voiceControlId="profile_memory_workspace" voiceActionId="route.one_pkm"
+        chevron onClick={() => router.push(ROUTES.PKM)} />
+    </SettingsGroup>
+  </>;
   return (
     <section aria-labelledby={headingId} className="min-w-0 space-y-3">
-      <SettingsGroup>
-        <SettingsRow title="Saved and Add" description="Open saved memories, sharing and prices."
-          voiceControlId="profile_memory_workspace" voiceActionId="route.one_pkm" chevron
-          onClick={() => router.push(ROUTES.PKM)} />
-      </SettingsGroup>
       {state.status === "loading" ? (
         <>
           {title}

@@ -281,6 +281,7 @@ class UserGcpBackend:
         min_instances: Optional[int] = None,
         live: Optional[bool] = None,
         bootstrap_sa: Optional[str] = None,
+        hushh_id: Optional[str] = None,
     ) -> None:
         self._user_project = (
             user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
@@ -307,6 +308,7 @@ class UserGcpBackend:
         self._bootstrap_sa = (
             bootstrap_sa if bootstrap_sa is not None else _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
         )
+        self._owner_hushh_id = hushh_id
         # Reuse the GCP renderer, pinned to the USER's project/region (never live here;
         # the inner backend only renders — this class owns provisioning semantics).
         self._inner = GcpBackend(
@@ -835,6 +837,14 @@ class UserGcpBackend:
                 "holds standing broad credentials into the user's project"
             ),
         }
+        if oauth_topic:
+            plan["resources"].append(
+                {
+                    "type": "pubsub_topic",
+                    "id": oauth_topic,
+                    "purpose": "owner-specific OAuth-project Gmail topic",
+                }
+            )
         if spec.files_library_enabled:
             from hushh_mcp.services.pod_files.provisioning import extend_plan
 
@@ -1450,6 +1460,7 @@ class UserGcpBackend:
         observation: dict[str, Any],
         state: dict[str, Any],
         retain_receipt: Callable[[str, dict[str, Any]], bool],
+        operator_bindings: list[dict] | None = None,
     ) -> None:
         import asyncio
 
@@ -1458,6 +1469,43 @@ class UserGcpBackend:
 
         if not self._live or not self._user_project or not self._bootstrap_sa:
             raise RuntimeError("mail cleanup authority unavailable")
+        if str(observation.get("id") or "").startswith("projects/"):
+            import requests
+
+            from hushh_mcp.services.gcp_attached_operator import attached_operator_headers
+            from hushh_mcp.services.gcp_operator_mail import (
+                bound_operator_topic,
+                verify_exclusive_topic,
+            )
+
+            bootstrap = self._bootstrap_sa.removeprefix("serviceAccount:")
+            topic = bound_operator_topic(
+                hushh_id=self._owner_hushh_id,
+                topic=observation["id"],
+                owner_project=self._user_project,
+                bootstrap=bootstrap,
+            )
+            headers, _ = await asyncio.to_thread(
+                attached_operator_headers, expected_service_account=self._hushh_invoker_sa or ""
+            )
+            await asyncio.to_thread(
+                reconcile_mail_resource,
+                token=headers["Authorization"].removeprefix("Bearer "),
+                project=self._user_project,
+                region=self._user_region,
+                observation=observation,
+                state=state,
+                retain_receipt=retain_receipt,
+                operator_topic=topic,
+                verify_operator_topic=lambda: verify_exclusive_topic(
+                    session=requests,
+                    headers=headers,
+                    topic=topic,
+                    bootstrap=bootstrap,
+                    observations=operator_bindings,
+                ),
+            )
+            return
         token = await asyncio.to_thread(
             mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
         )

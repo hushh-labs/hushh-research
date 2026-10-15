@@ -47,7 +47,7 @@ _PROVIDER_POLL_SECONDS = 5.0
 _PROVIDER_POLL_LIMIT = 60
 #: Stages whose resources hold the agent's identity, keys and memory.
 CUSTODY_STAGES: frozenset[str] = frozenset(
-    {"creating_identity", "creating_key_vault", "creating_storage"}
+    {"creating_resource_group", "creating_identity", "creating_key_vault", "creating_storage"}
 )
 
 
@@ -113,12 +113,14 @@ class SetupApplier:
         sleep: Callable[[float], None] = time.sleep,
         image_source_credentials: Optional[Callable[[], dict[str, str]]] = None,
         adopt: bool = False,
+        guard: Callable[[], None] | None = None,
     ) -> None:
         self._arm = arm
         self._advance = advance
         self._sleep = sleep
         self._image_credentials = image_source_credentials
         self._adopt = adopt
+        self._guard = guard or (lambda: None)
 
     def apply(
         self,
@@ -178,6 +180,7 @@ class SetupApplier:
             if existing is not None:
                 _capture(step, existing, values)
                 return
+        self._guard()
         body = self._arm.put(
             step.path, api_version=api, body=resolve(step.body, values), op=step.stage
         )
@@ -188,6 +191,7 @@ class SetupApplier:
         body = resolve(step.body, values)
         if step.path.endswith("/importImage") and self._image_credentials is not None:
             body["source"]["credentials"] = self._image_credentials()
+        self._guard()
         self._arm.post(step.path, api_version=api, body=body, op=step.stage)
         if step.path.endswith("/register"):
             self._await_registration(step.path.removesuffix("/register"), api)
@@ -212,6 +216,7 @@ class SetupApplier:
         path = resolve(step.path, values)
         for delay in (*_PRINCIPAL_SETTLE_DELAYS, None):
             try:
+                self._guard()
                 self._arm.put(path, api_version=api, body=body, op=step.stage)
                 return
             except ArmError as exc:

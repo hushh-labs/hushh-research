@@ -18715,7 +18715,7 @@
         "requires_trusted_tap": true,
         "surface": "render.confirmation_card"
       },
-      "description": "Deletes investor/ria persona or full account depending on selected target.",
+      "description": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "execution": {
         "binding_ref": "semantic_action:profile.delete_account",
         "executor": {
@@ -43162,7 +43162,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "dee1ed08a5a3fb79417e3f48e210bf7fc342ff1ec995180f323e26aaa31d77ee",
+      "projection_digest": "a88a34dec2d04e3be0b17fefd98db29e6db99ec4b750b1e7935219931ee0a76a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43172,7 +43172,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "646aedf354cc98510ce760e3a2c0f1512c91324310d8f327f985debb156181dc",
+        "capability_graph_evolution": "611b7d9c07656cb46f3e6e51b302bab6ccd85bbf32a418e69b63271255c6d2dd",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
@@ -43181,7 +43181,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "96660966896e11dd",
+      "source_revision": "de6d576a06f1dde6",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44699,7 +44699,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "96660966896e11dd",
+    "source_revision": "de6d576a06f1dde6",
     "web": {
       "actions": [
         {
@@ -44742,7 +44742,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "f93ec61e382fe0d224128381006d9c8ba54288303988a06b07532ca7c18f67bd",
+      "projection_digest": "f328f59fdae18c950914d00d19131cf5ac582ab0cf2ac9870cefc45e8d82c62e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44752,7 +44752,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "646aedf354cc98510ce760e3a2c0f1512c91324310d8f327f985debb156181dc",
+        "capability_graph_evolution": "611b7d9c07656cb46f3e6e51b302bab6ccd85bbf32a418e69b63271255c6d2dd",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
@@ -44761,7 +44761,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "96660966896e11dd",
+      "source_revision": "de6d576a06f1dde6",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46318,7 +46318,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "96660966896e11dd",
+  "revision": "de6d576a06f1dde6",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -48269,6 +48269,7 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:profile.delete_account",
       "actions:route.one_pkm",
       "actions:route.profile_payouts",
       "actions:setup.finish_connections",
@@ -48283,6 +48284,7 @@
       "actions:route.profile_payouts"
     ],
     "deprecated": [
+      "actions:profile.delete_account",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
       "workflows:workflow.setup.connections"
@@ -50578,21 +50580,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "646aedf354cc98510ce760e3a2c0f1512c91324310d8f327f985debb156181dc",
+    "capability_graph_evolution": "611b7d9c07656cb46f3e6e51b302bab6ccd85bbf32a418e69b63271255c6d2dd",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "fe9a0bf4537a34442f2b6803e14108ebd6410cda01b6eae7e5ca00329a796a34",
+    "kai_action_gateway": "64e90c386340648c157d6420df5ee734a7ff59440de6e59dcb33f60af9e5bee6",
     "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "2fba71595b29b91b67d211f52e4d068ff05d3382ca0f271f8a14a1ade98af0f8",
-    "route_orchestration_index": "fae985bdad9bd7a20314de561610eefab7c7cbaec2680ffc4ab86e76671d326f",
+    "route_orchestration_index": "938b6cc25979a0f3c70760b46ba3d18b0e7a13c9cb26a3c5ada002b09b97508e",
     "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
   },
-  "source_revision": "96660966896e11dd",
+  "source_revision": "de6d576a06f1dde6",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "96660966896e11dd",
+    "current_graph_revision": "de6d576a06f1dde6",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

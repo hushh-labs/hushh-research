@@ -15,6 +15,30 @@ def test_service_incarnation_uses_ready_revision_then_traffic() -> None:
     assert service_incarnation({"status": {}}) is None
 
 
+def test_handoff_wait_rechecks_its_authority_before_each_observation():
+    calls = []
+
+    def guard():
+        if len(calls) >= 2:
+            raise PermissionError("synthetic worker revoked")
+
+    client = PodUpgradeHandoffClient(url="https://pod.example", hushh_id="ha1-test")
+
+    def request(method, path, **_):
+        calls.append((method, path))
+        return {}
+
+    client._request = request
+    with pytest.raises(PermissionError):
+        client.prepare_and_wait(
+            operation_id="operation-1", incarnation="revision-1", guard=guard, poll_seconds=0.05
+        )
+    assert calls == [
+        ("POST", "/api/one/pod/upgrade/prepare"),
+        ("GET", "/api/one/pod/upgrade/status"),
+    ]
+
+
 @pytest.mark.parametrize("refusal", [None, "owner", "revision", "operation", "epoch"])
 def test_model_maintenance_admits_only_the_current_owner_runtime_and_operation(refusal):
     info = {"hushhId": "ha1-test", "revision": "rev-a", "podMode": True}

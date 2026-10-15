@@ -1869,9 +1869,21 @@ def test_notification_prerequisite_unavailable_preserves_core_bootstrap(monkeypa
     assert not any("oauth-developer-project" in call["url"] for call in session.calls)
 
 
-def test_notification_checkpoint_receives_only_capability_steps_and_owner_receipts():
+@pytest.mark.parametrize("topic_status", [200, 409])
+def test_notification_checkpoint_receives_only_capability_steps_and_owner_receipts(topic_status):
     plan = _plan()
-    bootstrap = _boot(_Session())
+
+    class TopicSession(_Session):
+        def request(self, method, url, **kwargs):
+            if (
+                method == "PUT"
+                and url == "https://pubsub.googleapis.com/v1/" + plan["gmailNotifications"]["topic"]
+            ):
+                self.calls.append({"method": method, "url": url, **kwargs})
+                return _Response(topic_status, {"name": plan["gmailNotifications"]["topic"]})
+            return super().request(method, url, **kwargs)
+
+    bootstrap = _boot(TopicSession())
     observed = []
     result = bootstrap.apply(
         plan,
@@ -1898,6 +1910,11 @@ def test_notification_checkpoint_receives_only_capability_steps_and_owner_receip
     )
     assert "bindingObservations" not in operator
     assert "operatorBindingObservations" in operator
+    topic = next(item for item in result["steps"] if item["step"] == "oauth_mail_topic")
+    if topic_status == 200:
+        assert topic["resourceObservation"]["id"] == plan["gmailNotifications"]["topic"]
+    else:
+        assert "resourceObservation" not in topic
     assert not any(
         "oauth-developer-project" in binding["policyResource"]
         for item in result["steps"]

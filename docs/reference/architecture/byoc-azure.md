@@ -382,6 +382,15 @@ reaches each one through a typed capability in
   preflight proves that the checkpoint and the receipt can be retained before the
   agent erases anything. The account stays refused while those resources exist. The
   person deletes the resource group; Hussh no longer can.
+- **Provider outcomes (local candidate).** Dev-only migration 960 accepts and
+  retains the pod's exact provider-revocation counters alongside its original
+  receipt. The preflight tests that response against the installed validator
+  before key destruction; old schemas refuse. Unknown or unconfirmed provider
+  outcomes remain incomplete. The 960 rollback serializes against erasure
+  admission and refuses active Azure reservations or retained new outcomes.
+  Full resource deletion under fresh owner authorization still needs its own
+  durable inventory, worker drain and final absence receipts; this correction
+  does not supply them. Never delete an entire group containing unrelated work.
 - **Residual window.** Suppose the database becomes unavailable after the
   preflight, and stays down past the last revocation, so the receipt cannot be
   stored. A retry then cannot finish, because Hussh's removal grant is already gone.
@@ -487,9 +496,18 @@ reaches each one through a typed capability in
   403 after a real idle deletion, and the full rebuild in a real subscription.
   `pod_wake`'s confirmed-gone check cannot resolve an Azure backend: its spec
   carries no Azure coordinates.
-- **Full teardown** under a sign-in is not built; erasure crypto-erases the agent,
-  revokes access and the receipt names the resource group to delete. Account
-  deletion stays refused while that resource group exists.
+- **Full teardown** under a sign-in remains incomplete. Dev-only migration 961
+  retains original setup bindings and fresh-worker/provider receipts before
+  writes, preserving them through retries and erasure. The dedicated worker
+  session is held until the actual setup thread exits; this is not proof that
+  an accepted cloud operation has settled. Completion capacity is reserved
+  before dispatch; HTTP redirects and uncertain write replay are refused.
+  Journal admission fences the resource group; it is not evidence that every
+  resource in that group is owned by this agent. Rebuild/update worker drain,
+  unresolved provider reconciliation and verified individual-resource deletion
+  need separate qualification. The attempt-bound teardown callback still
+  refuses before token redemption. Account deletion remains refused while
+  owned resources are unresolved; unrelated resources must be preserved.
 - **Registry retention:** every imported digest stays in the person's Basic
   registry; pruning to the current and previous digest is not built.
 - **Placement** is fixed to `eastus2` (where the model was measured available).

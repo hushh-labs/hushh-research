@@ -454,6 +454,7 @@ for (const [tab, definition] of Object.entries(navigationIcons)) {
 // SF Symbol mapping. Template alpha preserves duotone; an optional second
 // layer preserves the account glyphs' app-authoritative accent strokes.
 const profileAssets = [];
+const profileGlyphSize = 28; // Shared SettingsRow glyph, inside its 32-point well.
 const profileLoader = await createServer({
   configFile: false, root: WEB_ROOT, appType: "custom", logLevel: "error",
   resolve: { alias: { "@": WEB_ROOT } },
@@ -462,9 +463,23 @@ const profileLoader = await createServer({
 });
 try {
   const { PROFILE_MENU_GROUPS } = await profileLoader.ssrLoadModule("/components/profile/profile-menu-model.ts");
-  for (const entry of PROFILE_MENU_GROUPS.flatMap(group => group.entries)) {
+  const rows = await profileLoader.ssrLoadModule("/components/icons/agents/row-icons.tsx");
+  const accountIcons = await profileLoader.ssrLoadModule("/components/icons/agents/index.ts");
+  const formIcons = [
+    { id: "style-name", icon: rows.PreferredNameRowIcon },
+    { id: "style-tone", icon: rows.ToneRowIcon },
+    { id: "style-length", icon: rows.ReplyLengthRowIcon },
+    { id: "style-language", icon: rows.LanguageRowIcon },
+    { id: "style-punctuation", icon: rows.PunctuationRowIcon },
+    { id: "account-mail", icon: accountIcons.GmailAgentIcon },
+    { id: "account-phone", icon: accountIcons.PhoneRowIcon },
+    { id: "account-wallet", icon: accountIcons.WalletAgentIcon },
+    { id: "account-reset", icon: accountIcons.ResetRowIcon },
+    { id: "account-delete", icon: accountIcons.DeleteRowIcon },
+  ];
+  for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {
     if (!/^[a-z][a-z-]*$/.test(entry.id)) throw new Error("Invalid authored Profile asset id");
-    const markup = renderToStaticMarkup(createElement(entry.icon, { size: 22 }));
+    const markup = renderToStaticMarkup(createElement(entry.icon, { size: profileGlyphSize }));
     const document = new JSDOM(markup, { contentType: "image/svg+xml" }).window.document;
     const svg = document.documentElement;
     svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
@@ -491,7 +506,7 @@ try {
       for (const scale of [1, 2, 3]) {
         const filename = `icon@${scale}x.png`;
         await emit(`${directory}/${filename}`, await sharp(Buffer.from(artwork.outerHTML))
-          .resize(22 * scale, 22 * scale).png().toBuffer());
+          .resize(profileGlyphSize * scale, profileGlyphSize * scale).png().toBuffer());
         images.push({ filename, idiom: "universal", scale: `${scale}x` });
       }
       await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({

@@ -1469,6 +1469,10 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
         if outcome == "database_failure"
         else blocked
     )
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        lambda: SimpleNamespace(get=AsyncMock(return_value=None)),
+    )
     transaction = AsyncMock(side_effect=[first, completed])
     cleanup = AsyncMock()
     if outcome == "pending":

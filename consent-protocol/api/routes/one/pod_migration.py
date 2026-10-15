@@ -242,6 +242,17 @@ async def fence_erasure(
     return {"status": "fenced", **payload}
 
 
+@router.post("/erasure/crypto-erase/preflight")
+async def crypto_erase_preflight(
+    body: ErasureFenceRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Advertise current strict erasure behavior without opening, fencing or deleting state."""
+    payload = body.model_dump()
+    _require_erasure_caller(payload, x_hussh_hub_proof, purpose="crypto-erase-preflight")
+    return {"status": "ready", "providerCoverage": "connector_history_v1", **payload}
+
+
 @router.post("/erasure/crypto-erase")
 async def crypto_erase_pod(
     body: ErasureFenceRequest,
@@ -270,6 +281,7 @@ async def crypto_erase_pod(
                 os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT
             ).strip(),
             open_fenced_log=lambda: _fenced_log(body),
+            require_provider_revocation=True,
         )
     except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
         logger.warning("pod_migration.crypto_erase_incomplete")

@@ -131,8 +131,7 @@ async function measure(
   });
 }
 
-test.describe("Profile pane custom close layout", () => {
-  test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
+async function withNativeFeatureFixture(run: (fixture: { css: string; modules: string; script: string }) => Promise<void>) {
     const { build } = await import("vite");
     const { Scanner } = await import("@tailwindcss/oxide");
     const { compile } = await import("tailwindcss");
@@ -180,6 +179,14 @@ test.describe("Profile pane custom close layout", () => {
       });
       const css = stripAppFontFaces(optimize(compiler.build([...candidates]), { minify: true }).code);
       const script = fs.readFileSync(path.join(output, "fixture.js"), "utf8");
+      const modules = fs.existsSync(path.join(output, "fixture.css")) ? fs.readFileSync(path.join(output, "fixture.css"), "utf8") : "";
+      await run({ css, modules, script });
+    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+}
+
+test.describe("Profile pane custom close layout", () => {
+  test("keeps the real feature-page Back inside its reserved band after production CSS optimization", async ({ page }) => {
+    await withNativeFeatureFixture(async ({ css, modules, script }) => {
       for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         await page.setViewportSize(viewport);
         await page.setContent(`<style>${css}:root { --agent-chat-header-height:116px; --app-bottom-content-clearance:149px; --page-inline-gutter-standard:24px; }</style><div id="root"></div>`);
@@ -239,9 +246,9 @@ test.describe("Profile pane custom close layout", () => {
       // The same product component/CSS must keep nested details in the full
       // pane, not return to the shorter reserved-band layout. Bridge acceptance
       // is covered by the focused lifecycle tests, not this geometry fixture.
-      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }]) {
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 1366 }, { width: 1440, height: 900 }]) {
         await page.setViewportSize(viewport);
-        await page.setContent(`<style>${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
+        await page.setContent(`<style>${modules}${css}:root { --app-safe-area-top-effective:0px; }</style><div id="root" data-pane="true"></div>`);
         await page.addScriptTag({ content: script });
         const pane = page.locator('[data-native-feature-pane="profile"]');
         await expect(pane).toBeVisible();
@@ -256,8 +263,102 @@ test.describe("Profile pane custom close layout", () => {
         expect(control!.width).toBe(44);
         expect(control!.height).toBe(44);
         expect(control!.y).toBeCloseTo(leading!.y, 0);
+        const content = await page.locator('[data-content-start]').boundingBox();
+        expect(Math.abs(leading!.x - content!.x)).toBeLessThanOrEqual(0.5);
+        const formerHeaderInset = await page.addStyleTag({ content:
+          '.native-feature-page[data-content-inset="profile"] .native-feature-page-header { padding-inline:16px; }',
+        });
+        const brokenLeading = await back.boundingBox();
+        expect(Math.abs(brokenLeading!.x - content!.x)).toBeGreaterThan(1);
+        await formerHeaderInset.evaluate(node => node.remove());
+        const glyphs = page.locator('[data-icon-tone="capability"] svg');
+        expect(await glyphs.count()).toBe(2);
+        for (const glyph of await glyphs.all()) {
+          expect(await glyph.getAttribute("viewBox")).toBe("0 0 256 256");
+          const glyphBounds = await glyph.boundingBox();
+          expect(glyphBounds!.width).toBe(28);
+          expect(glyphBounds!.height).toBe(28);
+        }
+        // The former pane/account rules shrank only nested glyphs, despite
+        // their shared registry source. Exercise the real optimized cascade.
+        const smallGlyphRule = await page.addStyleTag({ content:
+          '.profile-pane-scroll-root [data-profile-stack-content="true"] [data-icon-tone="capability"] svg { width:24px !important; height:24px !important; }',
+        });
+        expect((await glyphs.first().boundingBox())!.width).toBe(24);
+        await smallGlyphRule.evaluate(node => node.remove());
+        expect((await glyphs.first().boundingBox())!.width).toBe(28);
+        // A nested Profile pane inherits the shared modal backdrop. Only
+        // bounded feature pages may suppress it; transparent details caused
+        // the reported disappearance during the menu/content handoff.
+        const scrim = page.locator('.native-feature-pane-overlay[data-slot="dialog-overlay"]');
+        const material = () => scrim.evaluate(node => {
+          const style = getComputedStyle(node);
+          return { color: style.backgroundColor, filter: style.backdropFilter };
+        });
+        await expect(scrim).toBeVisible();
+        const settled = await material();
+        expect(settled.color).not.toBe("rgba(0, 0, 0, 0)");
+        expect(settled.filter).not.toBe("none");
+        // Negative control: reinstate the former overbroad selector without
+        // changing the component, geometry or native admission fixture.
+        const brokenRule = await page.addStyleTag({ content:
+          '.native-feature-page-overlay[data-slot="dialog-overlay"] { background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; animation:none; }',
+        });
+        expect(await scrim.evaluate(node => node.matches('.native-feature-page-overlay[data-slot="dialog-overlay"]'))).toBe(true);
+        await expect.poll(async () => (await material()).color).toBe("rgba(0, 0, 0, 0)");
+        await expect.poll(async () => (await material()).filter).toBe("none");
+        await brokenRule.evaluate(node => node.remove());
+        await expect.poll(material).toEqual(settled);
       }
-    } finally { fs.rmSync(output, { recursive: true, force: true }); }
+    });
+  });
+
+  test("keeps the native Profile heading coherent with its active nested body", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await withNativeFeatureFixture(async ({ css, modules, script }) => {
+      // Real navigator, normal clicks and optimized product CSS. Contrast the
+      // screen heights and retain nonzero return scroll; do not delay effects
+      // or fake animation frames to manufacture the original hard cut.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.setContent(`<style>${modules}${css}</style><div id="root" data-pane="true" data-stack="true"></div>`);
+      await page.addScriptTag({ content: script });
+      const stack = page.locator('[data-profile-stack="true"]');
+      const scroll = page.locator('[data-native-feature-scroll-root="true"]');
+      await expect(stack).toBeVisible();
+      await scroll.evaluate(node => { node.scrollTop = 180; });
+      expect(await scroll.evaluate(node => node.scrollTop)).toBe(180);
+      await page.evaluate(() => {
+        const samples: { body: string; title: string }[] = [];
+        (window as unknown as { profileSamples: typeof samples }).profileSamples = samples;
+        const pane = document.querySelector('.native-feature-page')!;
+        function record() {
+          const active = pane.querySelector<HTMLElement>('[data-profile-stack-active="true"]');
+          if (active) samples.push({ body: active.dataset.profileStackScreen!,
+            title: pane.querySelector('[data-slot="dialog-title"]')?.textContent ?? "" });
+        }
+        // This observes committed public DOM metadata only. No geometry read
+        // may manufacture a transition or infer a product action.
+        new MutationObserver(record).observe(pane, { childList: true, characterData: true,
+          subtree: true, attributes: true, attributeFilter: ["data-profile-stack-active"] });
+        record();
+      });
+      await page.getByRole("button", { name: "Open Voice", exact: true }).click();
+      await expect(page.locator('[data-profile-stack-screen="voice"][data-profile-stack-active="true"]')).toBeVisible();
+      await expect.poll(() => scroll.evaluate(node => node.scrollTop)).toBe(0);
+      await expect(page.locator('.native-feature-page-header [data-slot="dialog-title"]')).toHaveText("Voice");
+      await page.getByRole("button", { name: "Back in Profile", exact: true }).click();
+      await expect(page.locator('[data-profile-stack-screen="preferences"][data-profile-stack-active="true"]')).toBeVisible();
+      await expect.poll(() => scroll.evaluate(node => node.scrollTop),
+        { message: "Nested Back must preserve the pre-layout outgoing scroll position" }).toBe(180);
+      await expect(page.locator('.native-feature-page-header [data-slot="dialog-title"]')).toHaveText("Preferences");
+      const samples = await page.evaluate(() => (window as unknown as {
+        profileSamples: { body: string; title: string }[];
+      }).profileSamples);
+      expect(samples.some(sample => sample.body === "voice")).toBe(true);
+      expect(samples.some(sample => sample.body === "preferences")).toBe(true);
+      expect(samples.filter(sample => sample.title !== (sample.body === "voice" ? "Voice" : "Preferences")),
+        "A nested request cannot reveal its new heading over the previous active body").toEqual([]);
+    });
   });
 
   test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {
@@ -462,37 +563,6 @@ test.describe("Profile pane custom close layout", () => {
       expect(geometry.titleSize).toBe("13px");
       expect(geometry.descriptionSize).toBe("12px");
       expect(geometry.overflows).toBe(false);
-    }
-  });
-
-  test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {
-    const globals = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
-    const start = globals.indexOf("/* Acknowledged native seats bound web overlays; panel motion stays React. */");
-    const end = globals.indexOf("/* Opt-in stationary chrome:", start);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.setContent(`<style>
-      :root { --native-overlay-top: 116px; --native-overlay-bottom: 149px; }
-      section { position: fixed; inset: 0; }
-      ${globals.slice(start, end)}
-    </style>
-    <section id="profile" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right"></section>
-    <section id="preview" data-profile-preview></section>
-    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left"></section>`);
-    for (const mode of [
-      { classes: "native-reserved-chrome native-full-window-overlays", top: 0, height: 844 },
-      { classes: "native-reserved-chrome", top: 116, height: 579 },
-      { classes: "", top: 0, height: 844 },
-    ]) {
-      await page.evaluate(classes => { document.documentElement.className = classes; }, mode.classes);
-      // No coverage attribute: initial sampling must already use authored
-      // full-height geometry, while the separate admission gate stays closed.
-      for (const family of ["profile", "preview", "history"]) {
-        const bounds = await page.locator(`#${family}`).evaluate(node => node.getBoundingClientRect().toJSON());
-        expect(bounds.y, `${mode.classes}:${family}`).toBeCloseTo(mode.top, 0);
-        expect(bounds.height, `${mode.classes}:${family}`).toBeCloseTo(mode.height, 0);
-      }
     }
   });
 

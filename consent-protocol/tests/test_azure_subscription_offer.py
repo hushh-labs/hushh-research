@@ -26,7 +26,7 @@ from hushh_mcp.services.azure_subscription_offer import (
 )
 from hushh_mcp.services.byoc_setup_job_service import JobSuperseded
 from hushh_mcp.services.compute_backend import PodSpec
-from tests.test_azure_setup_job import _result
+from tests.test_azure_setup_job import _fixture_authority, _result
 from tests.test_byoc_azure_routes import (  # noqa: F401 - fixture
     _COMPLETE,
     _SUB,
@@ -65,6 +65,9 @@ class _Arm:
 
 
 class _Jobs:
+    async def assert_azure_worker_admitted(self, *, user_id, job_id):
+        return None
+
     """The job row as ``ByocSetupJobRepo`` keeps it: ``advance`` moves ``stage``."""
 
     def __init__(self, job_id: str = "j1") -> None:
@@ -214,6 +217,7 @@ async def _run(jobs: _Jobs, reader) -> None:
         return await note_subscription_offer(repo, read=reader, **kwargs)
 
     await job.run_azure_setup_job(
+        authority_factory=_fixture_authority,
         user_id="u1", job_id="j1", access_token=_TOKEN, tenant_id="t", subscription_id=_SUB,
         location="eastus2", spec=_spec(), source_image="r.example.com/p@sha256:" + "b" * 64,
         repo=jobs, setup=setup, publish=publish, note_offer=note,

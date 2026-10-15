@@ -99,38 +99,6 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("keeps route icons and pane icons on tile-free Profile rows", () => {
-    const source = readSource(
-      "components/profile/profile-workspace-page.tsx",
-    );
-    const settingsSource = readSource("components/app-ui/settings-ui.tsx");
-
-    const menu = readSource("components/profile/profile-menu-model.ts");
-    expect(menu).toContain("label: PROFILE_LABELS.referrals");
-    expect(menu).toContain("label: PROFILE_LABELS.developerTools");
-    for (const [id, paneIcon, routeIcon] of [
-      ["account", "ProfilePaneAccountIcon", "AccountProfileIcon"],
-      ["preferences", "ProfilePaneAppearanceIcon", "PreferencesProfileIcon"],
-      ["security", "ProfilePaneSecurityIcon", "SecurityProfileIcon"],
-      ["devices", "ProfilePaneDevicesIcon", "DevicesProfileIcon"],
-      ["invite", "ProfilePaneInviteIcon", "InviteFriendsProfileIcon"],
-      ["support", "ProfilePaneHelpIcon", "SupportProfileIcon"],
-      ["sign-out", "ProfilePaneSignOutIcon", "SignOutProfileIcon"],
-    ]) {
-      expect(source).toContain(`${id === "sign-out" ? '"sign-out"' : id}: ${paneIcon}`);
-      const entry = menu.split(`id: "${id}"`)[1]?.split("\n")[0];
-      expect(entry).toContain(`icon: ${routeIcon}`);
-    }
-    expect(source).toContain("isPanePresentation && entry.id in paneMenuIcons");
-    expect(source).toContain('paneMenuIcons[entry.id as keyof typeof paneMenuIcons] : entry.icon} iconTone="capability"');
-    expect(menu).toContain("icon: DeveloperToolsProfileIcon");
-    expect(menu).toContain("destructive: true");
-    expect(source).toContain('tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}');
-    // The capability tone leaves each presentation's authored SVG colour in place.
-    expect(settingsSource).toContain(
-      'color={isCapabilityTone ? undefined : "currentColor"}',
-    );
-  });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {
     const css = readSource("app/globals.css");

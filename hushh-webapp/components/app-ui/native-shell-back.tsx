@@ -238,7 +238,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     });
   }, [prepared, hidden, inPlaceUpdates, theme, allowed]);
 
-  return <div ref={slot} className="pointer-events-auto -ml-3.5 flex h-11 w-11 items-center justify-center">
+  return <div ref={slot} className="pointer-events-auto flex h-11 w-11 items-center justify-center">
     <ShellActionSurface ref={button} variant="icon" aria-label={label} onClick={onBack}
       disabled={hidden} aria-hidden={hidden || undefined} tabIndex={hidden ? -1 : undefined}
       style={{ visibility: hidden ? "hidden" : undefined }}

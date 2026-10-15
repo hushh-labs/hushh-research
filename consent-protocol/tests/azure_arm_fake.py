@@ -8,12 +8,24 @@ Not a mock of method calls: it holds resources by ARM id, fills in what Azure fi
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional
+from contextlib import asynccontextmanager
+from typing import Any, Callable, Optional
 
 from hushh_mcp.services.azure_arm_client import ArmError, ArmResponse
 
 POD_PRINCIPAL = "66666666-6666-6666-6666-666666666666"
 POD_CLIENT = "77777777-7777-7777-7777-777777777777"
+
+
+@asynccontextmanager
+async def unit_upgrade_authority(_spec=None, **_kwargs):
+    """Lifecycle-unit adapter only; PostgreSQL/real ARM tests prove journaling."""
+
+    class Authority:
+        def assert_admitted(self):
+            return None
+
+    yield Authority()
 
 
 class FakeArm:
@@ -24,6 +36,26 @@ class FakeArm:
         self.failures: dict[tuple[str, str], list[ArmError]] = {}
         self.forbidden: set[str] = set()
         self.revision = 1
+        self._write_guard: Callable[[], None] = lambda: None
+
+    def with_write_guard(self, guard: Callable[[], None]):
+        guarded = copy.copy(self)
+        previous = self._write_guard
+
+        def combined():
+            previous()
+            guard()
+
+        guarded._write_guard = combined
+        return guarded
+
+    def with_mutations(self, journal):
+        # This fixture models resource behavior, not durable provider receipts.
+        # test_azure_setup_authority_postgres exercises the real transport/ledger.
+        return copy.copy(self)
+
+    def confirm_observed_mutation(self, response, *, succeeded):
+        return None
 
     def fail(self, method: str, suffix: str, *errors: ArmError) -> None:
         self.failures[(method, suffix)] = list(errors)
@@ -88,6 +120,7 @@ class FakeArm:
             raise
 
     def put(self, path: str, *, api_version: str, body: dict, op: str = "") -> dict[str, Any]:
+        self._write_guard()
         self.calls.append(("PUT", path, copy.deepcopy(body)))
         self._maybe_fail("PUT", path)
         self.resources[path] = self._enrich(path, body)
@@ -96,11 +129,13 @@ class FakeArm:
     def post(
         self, path: str, *, api_version: str, body: Optional[dict] = None, op: str = ""
     ) -> dict:
+        self._write_guard()
         self.calls.append(("POST", path, copy.deepcopy(body)))
         self._maybe_fail("POST", path)
         return {"status": "Succeeded"}
 
     def delete(self, path: str, *, api_version: str, op: str = "") -> bool:
+        self._write_guard()
         self.calls.append(("DELETE", path, None))
         self._maybe_fail("DELETE", path)
         return self.resources.pop(path, None) is not None

@@ -135,6 +135,16 @@ export function AgentConnectionsDrawer({
     // Entry completion owns autofocus. Avoid forcing layout during the opening
     // commit; the existing keyboard gap handler admits Escape and Tab meanwhile.
   }, [open, triggerRef, historyRenderer]);
+  useLayoutEffect(() => {
+    if (!historyDisplayed || mode !== "chats" || externalModalOpen) return;
+    const active = document.activeElement;
+    // Returning from Connectors makes its focused Back control inert in this
+    // commit. Transfer focus before paint, not after a later animation frame,
+    // so a second Escape cannot be delivered to the retired child.
+    if (active instanceof HTMLElement && active.closest("[hidden], [inert]")) {
+      focused()[0]?.focus({ preventScroll: true });
+    }
+  }, [historyDisplayed, mode, externalModalOpen]);
   useEffect(() => {
     if (open) return;
     if (modeAtOpen.current === "chats" && onRestoreHistoryFocus) {
@@ -296,6 +306,7 @@ export function AgentConnectionsDrawer({
             data-agent-history-drawer
             data-native-panel-group="history"
             data-state={historyDisplayed ? "open" : "closed"}
+            data-app-side-pane
             aria-modal={externalModalOpen ? undefined : true}
             aria-label="Agent chat history"
             aria-hidden={!historyDisplayed || externalModalOpen}

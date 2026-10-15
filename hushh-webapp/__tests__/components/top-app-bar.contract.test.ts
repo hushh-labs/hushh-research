@@ -212,11 +212,9 @@ describe("Top app bar responsive contract", () => {
   it("never clips the back button's circle at the header's left edge", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    // The back button's 44px box is pulled left (-ml-3.5) so its glyph sits on
-    // the content column; its pressed/focus circle therefore extends past the
-    // header's left edge. The header must clip only vertically (for the
-    // max-height collapse), never horizontally.
-    expect(read("components/app-ui/native-shell-back.tsx")).toContain('className="pointer-events-auto -ml-3.5 flex h-11 w-11');
+    // The entire target stays inside the authored content frame. Collapse
+    // clips vertically only, preserving focus/pressed paint at its edge.
+    expect(read("components/app-ui/native-shell-back.tsx")).not.toContain("-ml-3.5");
     const headerStart = source.indexOf('data-testid="top-app-bar-header"');
     const headerOpen = source.slice(headerStart, source.indexOf(">", source.indexOf("}}", headerStart)));
     expect(headerOpen).toContain('overflowX: "visible"');

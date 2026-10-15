@@ -19,7 +19,7 @@ import pytest
 
 from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
 from hushh_mcp.services.azure_setup_plan import group_id
-from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
 from tests.pkm_conformance import postgres_harness
 from tests.pkm_conformance.postgres_harness import TempPostgres, find_pg_bin
 
@@ -155,6 +155,93 @@ def test_a_google_cloud_project_is_still_admitted(pg):
     assert _start(pg, "owner-project-123")
 
 
+def test_setup_binding_survives_erasure_and_stops_further_cloud_mutations(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    # An unused migration can roll back; retained bindings below must refuse it.
+    pg.apply_file(ROOT / "db/migrations/rollback/961_azure_setup_erasure_binding.rollback.sql")
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    assert _start(pg, group_id(SUB, GROUP))
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    intent = {
+        "version": 1,
+        "jobId": "job-1",
+        "hushhId": HUSHH_ID,
+        "tenantId": TENANT,
+        "subscriptionId": SUB,
+        "resourceGroup": GROUP,
+        "location": "eastus2",
+        "setupNonce": "0" * 16,
+    }
+
+    def retain(value, owner=OWNER, job="job-1"):
+        return asyncio.run(repo.retain_azure_setup_intent(user_id=owner, job_id=job, intent=value))
+
+    with pytest.raises(JobSuperseded):
+        asyncio.run(repo.assert_azure_worker_admitted(user_id=OWNER, job_id="job-1"))
+    pg.execute("ALTER TABLE byoc_setup_jobs DISABLE TRIGGER zw_byoc_azure_erasure")
+    assert retain(intent) is False
+    pg.execute("ALTER TABLE byoc_setup_jobs ENABLE TRIGGER zw_byoc_azure_erasure")
+    assert retain(intent) is True and retain(intent) is True
+    pg.execute(
+        "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+    )
+    with pytest.raises(JobSuperseded):
+        asyncio.run(repo.assert_azure_worker_admitted(user_id=OWNER, job_id="job-1"))
+    pg.execute(
+        "ALTER TABLE personal_agent_registry ENABLE TRIGGER zz_personal_agent_erasure_registry"
+    )
+    for changed in (
+        {**intent, "setupNonce": "1" * 16},
+        {**intent, "jobId": "job-2"},
+        {**intent, "ownerToken": "forbidden"},
+        {**intent, "resourceGroup": "foreign"},
+    ):
+        assert retain(changed) is False
+    assert retain(intent, owner="foreign") is False
+    asyncio.run(repo.assert_azure_worker_admitted(user_id=OWNER, job_id="job-1"))
+    pg.execute("SELECT reserve_personal_agent_erasure(%s,%s)", (OWNER, "attempt-1"))
+    assert retain(intent) is False
+    with pytest.raises(JobSuperseded):
+        asyncio.run(repo.assert_azure_worker_admitted(user_id=OWNER, job_id="job-1"))
+    # No job replacement/deletion may discard the original evidence during cleanup.
+    for query in (
+        "DELETE FROM byoc_setup_jobs WHERE user_id=%s",
+        "UPDATE byoc_setup_jobs SET job_id='replacement' WHERE user_id=%s",
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="fenced for erasure"):
+            pg.execute(query, (OWNER,))
+    stages = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+    assert stages == [{"stage": "azure_setup_intent", "intent": intent}]
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    rollback = ROOT / "db/migrations/rollback/961_azure_setup_erasure_binding.rollback.sql"
+    with pytest.raises(psycopg2.errors.RaiseException, match="forward recovery"):
+        pg.apply_file(rollback)
+
+
+def test_raw_job_replacement_cannot_race_an_erasure_owner_lock(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    assert _start(pg, group_id(SUB, GROUP))
+    blocker = psycopg2.connect(host=str(pg.dir), port=pg.port, user="hushh", dbname="postgres")
+    try:
+        with blocker.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,171))", (OWNER,))
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="admission is busy"):
+            pg.execute(
+                "UPDATE byoc_setup_jobs SET job_id='replacement',stages='[]'::jsonb "
+                "WHERE user_id=%s",
+                (OWNER,),
+            )
+        assert (
+            pg.execute("SELECT job_id FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+            == "job-1"
+        )
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+
 @pytest.mark.parametrize(
     "project_id",
     [
@@ -199,3 +286,90 @@ def test_without_951_an_azure_job_is_refused(monkeypatch):
             _start(server, group_id(SUB, GROUP))
     finally:
         server.stop()
+
+
+async def test_retry_preserves_original_azure_setup_binding_and_refuses_stale_running_reset(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    target = group_id(SUB, GROUP)
+    assert await repo.start(user_id=OWNER, job_id="original", project_id=target)
+    intent = {
+        "version": 1,
+        "jobId": "original",
+        "hushhId": HUSHH_ID,
+        "tenantId": TENANT,
+        "subscriptionId": SUB,
+        "resourceGroup": GROUP,
+        "location": "eastus2",
+        "setupNonce": "0" * 16,
+    }
+    assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id="original", intent=intent)
+    pg.execute(
+        "UPDATE byoc_setup_jobs SET updated_at=now()-interval '1 hour' WHERE user_id=%s", (OWNER,)
+    )
+    assert await repo.start(user_id=OWNER, job_id="retry", project_id=target) is False
+    assert (
+        pg.execute("SELECT job_id FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+        == "original"
+    )
+    # A terminal local failure can retry in the same cloud without discarding
+    # which resources the previous attempt may have created.
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="retry", project_id=target)
+    history = [{"stage": "azure_setup_prior_intent", "intent": intent}]
+    assert (
+        pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0] == history
+    )
+    next_intent = {**intent, "jobId": "retry", "setupNonce": "1" * 16}
+    assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id="retry", intent=next_intent)
+    for query in (
+        "UPDATE byoc_setup_jobs SET stages='[]'::jsonb WHERE user_id=%s",
+        "UPDATE byoc_setup_jobs SET project_id='owner-project-123' WHERE user_id=%s",
+        "DELETE FROM byoc_setup_jobs WHERE user_id=%s",
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="Azure setup recovery"):
+            pg.execute(query, (OWNER,))
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="third", project_id=target)
+    assert pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0] == [
+        *history,
+        {"stage": "azure_setup_prior_intent", "intent": next_intent},
+    ]
+
+
+async def test_setup_history_cap_refuses_new_writes_but_allows_failure_settlement(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    target = group_id(SUB, GROUP)
+    for number in range(64):
+        job = f"attempt-{number}"
+        assert await repo.start(user_id=OWNER, job_id=job, project_id=target)
+        intent = {
+            "version": 1,
+            "jobId": job,
+            "hushhId": HUSHH_ID,
+            "tenantId": TENANT,
+            "subscriptionId": SUB,
+            "resourceGroup": GROUP,
+            "location": "eastus2",
+            "setupNonce": format(number, "016x"),
+        }
+        assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id=job, intent=intent)
+        pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="overflow", project_id=target)
+    assert (
+        await repo.retain_azure_setup_intent(
+            user_id=OWNER,
+            job_id="overflow",
+            intent={**intent, "jobId": "overflow"},
+        )
+        is False
+    )
+    # Refusing the 65th binding must not wedge the job's terminal bookkeeping.
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    status, stages = pg.execute(
+        "SELECT status,stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,)
+    )[0]
+    assert status == "failed" and len(stages) == 64

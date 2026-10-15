@@ -225,6 +225,8 @@ class DrivePacketWorker:
                         if complete
                         else None
                     )
+                    await self._facts_current(job)
+                    self._policy_current(policy)
                     folded = await self.consolidator(
                         user_id=user_id,
                         previous=job["previous"],

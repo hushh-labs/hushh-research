@@ -14,6 +14,7 @@ same vocabulary living in two files, with nothing comparing them.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -28,6 +29,50 @@ _SERVICE = _BACKEND / "hushh_mcp" / "services" / "personal_agent_provisioning_se
 #: Statuses the provisioning service can put on a row. Extracted from the source rather
 #: than written down here, so this cannot drift the way the two constants did.
 _STATUS_WRITE = re.compile(r'status\s*=\s*"([a-z_]+)"')
+
+
+def _registry_payload_statuses(source: str) -> set[str]:
+    """Read registry mutations only; nested receipt probes are not registry writes."""
+    statuses: set[str] = set()
+    for function in ast.walk(ast.parse(source)):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        assignments = {
+            target.id: statement.value
+            for statement in ast.walk(function)
+            if isinstance(statement, ast.Assign)
+            for target in statement.targets
+            if isinstance(target, ast.Name)
+        }
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in {"insert", "upsert", "update"} or not node.args:
+                continue
+            table = node.func.value
+            if not (
+                isinstance(table, ast.Call)
+                and isinstance(table.func, ast.Attribute)
+                and table.func.attr == "table"
+                and len(table.args) == 1
+                and isinstance(table.args[0], ast.Name)
+                and table.args[0].id == "_REGISTRY"
+            ):
+                continue
+            payload = node.args[0]
+            if isinstance(payload, ast.Name):
+                payload = assignments.get(payload.id)
+            if not isinstance(payload, ast.Dict):
+                continue
+            for key, value in zip(payload.keys, payload.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "status"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    statuses.add(value.value)
+    return statuses
 
 
 def _written_statuses() -> set[str]:
@@ -48,14 +93,11 @@ def _written_statuses() -> set[str]:
     # it" -- a false alarm from the guard, which is how a guard gets weakened
     # rather than fixed. Shared here so all three ask the same question.
     repo = _BACKEND / "hushh_mcp" / "services" / "personal_agent_registry_repo.py"
-    written |= set(re.findall(r'"status":\s*"([a-z_]+)"', repo.read_text(encoding="utf-8")))
-    # The tombstone TABLE's own lifecycle status, written by the same module; it
-    # never touches personal_agent_registry.status. Excluded by name so a
-    # registry writer of the same string would still be caught.
-    # Dev lifecycle SQL is also an authored registry writer.
+    written |= _registry_payload_statuses(repo.read_text(encoding="utf-8"))
+    # Dev lifecycle SQL is also an authored registry writer. Receipt probes and
+    # the separate tombstone table are excluded structurally, never by status name.
     erasure = _BACKEND / "db/migrations/parked/916_personal_agent_erasure_admission.sql"
     written |= set(re.findall(r"\bstatus\s*=\s*'([a-z_]+)'", erasure.read_text()))
-    written -= {"deprovision_requested"}
     return written
 
 
@@ -135,3 +177,23 @@ def test_the_database_check_admits_every_status_code_writes() -> None:
         "CHECK refuses -- the write will fail at runtime exactly the way needs_reinit "
         "did on dev, and the row will silently keep its stale status"
     )
+
+
+def test_registry_status_guard_ignores_probes_but_detects_actual_mutations() -> None:
+    probe = "\n".join(
+        [
+            "async def preflight(self):",
+            '    probe = {"agentErased": {"status": "erased"}}',
+            '    self._db().execute_raw("SELECT verify(:probe)", probe)',
+        ]
+    )
+    assert _registry_payload_statuses(probe) == set()
+    for payload in ('{"status": "erased"}', "data"):
+        mutation = "\n".join(
+            [
+                "def write(self):",
+                '    data = {"status": "erased"}',
+                f"    self._db().table(_REGISTRY).update({payload}).execute()",
+            ]
+        )
+        assert _registry_payload_statuses(probe + "\n" + mutation) == {"erased"}

@@ -22,7 +22,7 @@ import re
 import time
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -194,13 +194,25 @@ async def refresh(
     return _grant(*await _call(post, TOKEN_URL, form))
 
 
-async def revoke(token: str, *, post: Optional[Post] = None) -> bool:
-    """Revoke a login at Google. True when Google confirmed or already forgot it."""
+RevocationOutcome = Literal["grant_revoked", "token_absent", "unconfirmed"]
+
+
+async def revoke_outcome(token: str, *, post: Optional[Post] = None) -> RevocationOutcome:
+    """Separate a grant revocation from absence of only the submitted token."""
     try:
         status, body = await _call(post, REVOKE_URL, {"token": token})
     except GoogleOAuthError:
-        return False
-    return status == 200 or (status == 400 and body.get("error") == "invalid_token")
+        return "unconfirmed"
+    if status == 200:
+        return "grant_revoked"
+    if status == 400 and body.get("error") == "invalid_token":
+        return "token_absent"
+    return "unconfirmed"
+
+
+async def revoke(token: str, *, post: Optional[Post] = None) -> bool:
+    """Revoke one login. Preserve the single-token disconnect contract."""
+    return await revoke_outcome(token, post=post) != "unconfirmed"
 
 
 def id_token_subject(

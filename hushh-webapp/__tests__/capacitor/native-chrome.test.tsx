@@ -6,17 +6,17 @@ import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
-import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
-import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
-import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
+import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
@@ -25,8 +25,216 @@ import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-d
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
-import { projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
+import { NativeProfilePresentation, projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
+import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
+import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
+import { NativeProfileNamePresentation } from "@/lib/capacitor/native-profile-name-presentation";
+import { NativeProfileStyleFence, STYLE_CHOICE_OPTIONS, validNativeProfileStyleProjection, type NativeProfileStyleProjection } from "@/lib/capacitor/native-profile-style-scene";
+import { NativeProfileScenePresentation } from "@/lib/capacitor/native-profile-scene-presentation";
+
+function publicNameScene(): NativeProfileNameProjection {
+  return { documentId: "public-form-document", ownerEpoch: "public-form-owner", ownerGeneration: 1,
+    revision: 1, family: "profile", scene: "account-name", appearance: "light", accentHex: "#007aff",
+    foregroundHex: "#808080", updateSequence: 1, privacyGeneration: 0, draftRevision: 0,
+    acknowledgedEditRevision: 0, draft: "Public Example", canSave: true, busy: false, error: null };
+}
+
+describe("ordinary private Profile form contract", () => {
+  it("admits only closed Writing Style values and consumes a current acknowledged Save once", async () => {
+    const state: NativeProfileStyleProjection = { ...publicNameScene(), scene: "writing-style", draft: { tone: "warm" },
+      choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
+    expect(validNativeProfileStyleProjection(state)).toBe(true);
+    expect(validNativeProfileStyleProjection({ ...state, vaultKey: "synthetic-not-a-key" } as never)).toBe(false);
+    expect(validNativeProfileStyleProjection({ ...state, draft: { tone: "invented" } } as never)).toBe(false);
+    expect(validNativeProfileStyleProjection({ ...state, draft: { credentials: "synthetic" } } as never)).toBe(false);
+    const fence = new NativeProfileStyleFence(state);
+    expect(fence.update(state)).toBe(true);
+    const event = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, editRevision: 1,
+      field: "tone" as const, value: "direct" as const, composing: false };
+    expect(fence.consumeEdit({ ...event, value: "invented" } as never)).toBe(false);
+    expect(fence.consumeEdit({ ...event, ownerEpoch: "old-owner" })).toBe(false);
+    expect(fence.consumeEdit(event)).toBe(true);
+    const action = { ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 2, privacyGeneration: 0, editRevision: 1, sequence: 1, action: "save" as const };
+    expect(fence.allows(action)).toBe(false);
+    expect(fence.update({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, draft: { tone: "direct" } })).toBe(true);
+    const confirm = vi.fn(async () => ({ valid: true }));
+    expect(await fence.consumeAction(action, confirm, () => true)).toBe(true);
+    expect(await fence.consumeAction(action, confirm, () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    fence.retire();
+    expect(fence.consumeEdit({ ...event, editRevision: 2 })).toBe(false);
+  });
+
+  it("keeps a Writing Style sheet after confirmed Save and never repeats its operation", async () => {
+    const state: NativeProfileStyleProjection = { ...publicNameScene(), scene: "writing-style", draft: { tone: "warm" },
+      choices: STYLE_CHOICE_OPTIONS, unavailable: false, suggested: false };
+    const listeners = new Map<string, (event: never) => void>();
+    const settle = vi.fn(async () => ({ valid: true }));
+    const retire = vi.fn(async () => ({ ...fenceIdentity(state), scene: "writing-style" as const, updateSequence: 1, privacyGeneration: 0, phase: "retired" as const }));
+    const source = { getCapabilities: async () => ({ generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: async (key: string, listener: (event: never) => void) => { listeners.set(key, listener); return { remove: async () => { listeners.delete(key); } }; } };
+    const phases: string[] = [];
+    const presentation = new NativeProfileScenePresentation(state, { source: source as never,
+      apply: async next => ({ ...fenceIdentity(next), scene: "writing-style", updateSequence: next.updateSequence, privacyGeneration: next.privacyGeneration, phase: "active" }),
+      confirm: async () => ({ valid: true }), settle, retire,
+      edits: callback => source.addListener("edit", callback), choices: callback => source.addListener("action", callback),
+    }, new NativeProfileStyleFence(state), validNativeProfileStyleProjection, () => true, phase => phases.push(phase), false);
+    const commit = vi.fn(async () => ({ kind: "saved" as const, value: undefined }));
+    const actions = { edit: vi.fn(), commit, saved: vi.fn(), cancel: vi.fn() };
+    expect(await presentation.listen()).toBe(true);
+    expect(presentation.publish(state, actions)).toBe(true);
+    await waitFor(() => expect(phases).toEqual(["active"]));
+    const event = { ...fenceIdentity(state), scene: "writing-style", updateSequence: 1, privacyGeneration: 0, editRevision: 0, sequence: 1, action: "save" };
+    listeners.get("action")?.(event as never);
+    await waitFor(() => expect(settle).toHaveBeenCalledWith(event, true));
+    listeners.get("action")?.(event as never);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(retire).not.toHaveBeenCalled();
+    await presentation.retire();
+    expect(retire).toHaveBeenCalledTimes(1);
+  });
+  it("skips an intermediate React edit echo without retiring the retained native editor", async () => {
+    const state = publicNameScene();
+    const listeners = new Map<string, (value: unknown) => void>();
+    const phases: string[] = [];
+    const retire = vi.fn(async () => formRetirement(state));
+    const apply = vi.fn(async (next: NativeProfileNameProjection) => ({ ...fenceIdentity(next),
+      phase: "active" as const, updateSequence: next.updateSequence, privacyGeneration: next.privacyGeneration }));
+    const plugin = { applyProfileNameScene: apply, retireProfileNameScene: retire,
+      getCapabilities: async () => ({ contractVersion: 1, supported: true,
+        generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: async (name: string, listener: (value: unknown) => void) => {
+        listeners.set(name, listener); return { remove: async () => { listeners.delete(name); } };
+      } };
+    const presentation = new NativeProfileNamePresentation(state, plugin as never, () => true, phase => phases.push(phase));
+    const actions = { edit: vi.fn(), save: vi.fn(), saved: vi.fn(), cancel: vi.fn() };
+    expect(await presentation.listen()).toBe(true);
+    expect(presentation.publish(state, actions)).toBe(true);
+    await waitFor(() => expect(phases).toEqual(["active"]));
+    const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0, composing: false };
+    listeners.get("profileNameEdit")?.({ ...event, editRevision: 1, text: "Public A" });
+    listeners.get("profileNameEdit")?.({ ...event, editRevision: 2, text: "Public AB" });
+    expect(presentation.publish({ ...state, updateSequence: 2, acknowledgedEditRevision: 1, draft: "Public A" }, actions)).toBe(false);
+    expect(presentation.publish({ ...state, updateSequence: 3, acknowledgedEditRevision: 2, draft: "Public AB" }, actions)).toBe(true);
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
+    expect(phases).not.toContain("blocked");
+    expect(retire).not.toHaveBeenCalled();
+    expect(actions.save).not.toHaveBeenCalled();
+    await presentation.retire();
+  });
+
+  it("bounds stalled listener admission and removes its late handle without presenting a form", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = publicNameScene();
+      const late = deferred<{ remove: () => Promise<void> }>();
+      const remove = vi.fn(async () => undefined);
+      const phases: string[] = [];
+      const apply = vi.fn();
+      const plugin = { addListener: () => late.promise, applyProfileNameScene: apply,
+        retireProfileNameScene: async () => formRetirement({ ...state, updateSequence: 0 }),
+        getCapabilities: async () => ({ contractVersion: 1, supported: true,
+          generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      };
+      const presentation = new NativeProfileNamePresentation(state, plugin as never, () => true, phase => phases.push(phase));
+      const pending = presentation.listen();
+      expect(presentation.publish(state, { edit: vi.fn(), save: vi.fn(), saved: vi.fn(), cancel: vi.fn() })).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(phases).toEqual(["blocked", "fallback"]);
+      expect(await pending).toBe(false);
+      expect(apply).not.toHaveBeenCalled();
+      late.resolve({ remove });
+      await Promise.resolve();
+      expect(remove).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("admits only a bounded name scene, never credentials or another owner's edit", () => {
+    const state = publicNameScene();
+    expect(validNativeProfileNameProjection(state)).toBe(true);
+    expect(validNativeProfileNameProjection({ ...state, vaultKey: "synthetic-forbidden" } as NativeProfileNameProjection)).toBe(false);
+    const fence = new NativeProfileNameFence(state);
+    expect(fence.update(state)).toBe(true);
+    const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      editRevision: 1, text: "Public New Name", composing: true };
+    expect(fence.consumeEdit({ ...event, ownerEpoch: "another-owner" })).toBe(false);
+    expect(fence.consumeEdit(event)).toBe(true);
+    expect(fence.consumeEdit({ ...event, text: "Reordered old edit" })).toBe(false);
+    expect(fence.allows({ ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 1, action: "save" })).toBe(false);
+  });
+
+  it("consumes an acknowledged Save once and refuses a changed owner after confirmation", async () => {
+    const state = publicNameScene();
+    const fence = new NativeProfileNameFence(state);
+    fence.update(state);
+    const action = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 0, action: "save" as const };
+    const reply = deferred<{ valid: boolean }>();
+    let current = true;
+    const pending = fence.consumeAction(action, () => reply.promise, () => current);
+    expect(await fence.consumeAction(action, async () => ({ valid: true }), () => true)).toBe(false);
+    current = false;
+    reply.resolve({ valid: true });
+    expect(await pending).toBe(false);
+    const positive = new NativeProfileNameFence(state);
+    positive.update(state);
+    expect(await positive.consumeAction(action, async () => ({ valid: true }), () => true)).toBe(true);
+    positive.retire();
+    expect(positive.allows({ ...action, sequence: 2 })).toBe(false);
+  });
+
+  it("keeps a terminal Cancel through an appearance update but rejects an old Save", async () => {
+    const state = publicNameScene();
+    const fence = new NativeProfileNameFence(state);
+    fence.update(state);
+    const action = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
+      sequence: 1, editRevision: 0, action: "cancel" as const };
+    const reply = deferred<{ valid: boolean }>();
+    const pending = fence.consumeAction(action, () => reply.promise, () => true);
+    expect(fence.update({ ...state, updateSequence: 2, appearance: "dark" })).toBe(true);
+    reply.resolve({ valid: true });
+    expect(await pending).toBe(true);
+    expect(fence.allows({ ...action, sequence: 2, action: "save" })).toBe(false);
+    expect(fence.allows({ ...action, sequence: 2, privacyGeneration: 1 })).toBe(false);
+  });
+
+  it("never reveals fallback until the owned native form finishes retirement", async () => {
+    const state = publicNameScene();
+    const retired = deferred<ReturnType<typeof formRetirement>>();
+    const phases: string[] = [];
+    const handles = new Map<string, (value: unknown) => void>();
+    const plugin = {
+      getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, generation: nativeDrawerIsolation().generation, isolated: nativeDrawerIsolation().isolated }),
+      addListener: vi.fn(async (name: string, listener: (value: unknown) => void) => {
+        handles.set(name, listener); return { remove: async () => { handles.delete(name); } };
+      }),
+      applyProfileNameScene: vi.fn(async () => { throw new Error("synthetic uncertain apply"); }),
+      confirmProfileNameAction: vi.fn(async () => ({ valid: true })),
+      settleProfileNameAction: vi.fn(async () => ({ valid: true })),
+      retireProfileNameScene: vi.fn(() => retired.promise),
+      apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
+    };
+    const presentation = new NativeProfileNamePresentation(state, plugin, () => true, phase => phases.push(phase));
+    expect(await presentation.listen()).toBe(true);
+    const save = vi.fn(async () => ({ kind: "retained" as const }));
+    presentation.publish(state, { edit: vi.fn(), save, saved: vi.fn(), cancel: vi.fn() });
+    await waitFor(() => expect(phases).toEqual(["blocked"]));
+    expect(save).not.toHaveBeenCalled();
+    retired.resolve(formRetirement(state));
+    await waitFor(() => expect(phases).toEqual(["blocked", "fallback"]));
+    expect(handles.size).toBe(0);
+  });
+});
+
+function fenceIdentity(state: Pick<NativeProfileNameProjection, "documentId" | "ownerEpoch" | "ownerGeneration" | "revision">) {
+  return { documentId: state.documentId, ownerEpoch: state.ownerEpoch, ownerGeneration: state.ownerGeneration,
+    revision: state.revision, family: "profile" as const, scene: "account-name" as const };
+}
+function formRetirement(state: NativeProfileNameProjection) {
+  return { ...fenceIdentity(state), updateSequence: state.updateSequence, privacyGeneration: state.privacyGeneration, phase: "retired" as const };
+}
 
 // Keep qualification-only lifecycle coverage without enabling it in the app.
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
@@ -47,9 +255,17 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
+const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
+  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
-  registerPlugin: (plugin: string) => plugin === "HushhNativeDock" ? { ...dockBridge,
+  registerPlugin: (plugin: string) => plugin === "HushhNativeDrawers" ? { ...drawerBridge,
+    addListener: async (name: string, callback: (event: unknown) => void) => {
+      const listeners = drawerBridge.listeners.get(name) ?? new Set<(event: unknown) => void>();
+      listeners.add(callback); drawerBridge.listeners.set(name, listeners);
+      return { remove: async () => { listeners.delete(callback); } };
+    },
+  } : plugin === "HushhNativeDock" ? { ...dockBridge,
     addListener: async (name: string, callback: (event: unknown) => void) => {
       await dockBridge.subscribe(name);
       dockBridge.callbacks.set(name, callback);
@@ -64,17 +280,81 @@ vi.mock("@capacitor/core", () => ({
     return { remove: async () => { listeners.delete(callback); if (!listeners.size) bridge.callbacks.delete(name); } };
   } }),
 }));
-const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>() }));
+const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>(),
+  observations: new Set<() => void>(), epoch: 0,
+  state: { generation: 0, shielded: false, appIsActive: true, cause: "inactive" as const } }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
-  subscribeNativePrivacyObservation: () => () => undefined,
-  nativePrivacyObservation: () => ({ state: { generation: 0, shielded: false, appIsActive: true }, epoch: 0 }),
-  getNativeSessionPrivacyState: async () => ({ generation: 0, shielded: false, appIsActive: true }),
+  subscribeNativePrivacyObservation: (callback: () => void) => {
+    privacy.observations.add(callback); return () => { privacy.observations.delete(callback); };
+  },
+  nativePrivacyObservation: () => ({ state: privacy.state, epoch: privacy.epoch }),
+  getNativeSessionPrivacyState: async () => privacy.state,
   subscribeNativeSessionPrivacy: async (callback: (event: { generation: number; shielded: boolean; appIsActive: boolean }) => void) => {
     privacy.callbacks.add(callback);
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
+describe("native drawer resume admission", () => {
+  it("readmits after an accepted privacy release without a native event and rejects old choices", async () => {
+    const original = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    bridge.platform = "ios"; bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    privacy.epoch = 0;
+    publishValidatedAuthSessionOwner("synthetic-resume-owner");
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true, value: { contractVersion: 1, enabled: true } });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      historyActions: true, generation: 0, isolated: false });
+    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.retire.mockReset().mockImplementation(async identity => ({ ...identity, phase: "retired", updateSequence: 1, privacyGeneration: privacy.state.generation }));
+    drawerBridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
+    const action = vi.fn();
+    function Drawer() {
+      const phase = useNativeDrawerPresentation({ family: "history", owner: "synthetic-resume-owner",
+        vaultEpoch: snapshotVaultSessionEpoch(), ready: true, open: true, title: "Public samples",
+        project: () => ({ sections: [{ id: "samples", rows: [{ id: "sample", label: "Sample chat", enabled: true }] }],
+          actions: { rows: new Map([["sample", action]]), open: vi.fn(), close: vi.fn() } }) });
+      return <output>{phase}</output>;
+    }
+    const view = render(<Drawer />);
+    try {
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const old = drawerBridge.apply.mock.calls[0][0];
+      const transition = (shielded: boolean, appIsActive: boolean, nativeEvent: boolean) => act(() => {
+        privacy.state = { generation: 1, shielded, appIsActive, cause: "inactive" };
+        privacy.epoch++;
+        privacy.observations.forEach(callback => callback());
+        if (nativeEvent) privacy.callbacks.forEach(callback => callback(privacy.state));
+      });
+      transition(true, false, true);
+      await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
+      transition(true, true, true);
+      expect(drawerBridge.apply).toHaveBeenCalledOnce();
+      transition(false, true, false); // Auth validation receipt, no listener event.
+      await waitFor(() => expect(drawerBridge.apply).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(view.getByText("native")).toBeInTheDocument());
+      const next = drawerBridge.apply.mock.calls[1][0];
+      expect(next.privacyGeneration).toBe(1);
+      expect(next.revision).toBeGreaterThan(old.revision);
+      const emit = (state: NativeDrawerProjection, sequence: number) => act(() => {
+        drawerBridge.listeners.get("choice")?.forEach(callback => callback({ ...state,
+          action: "row", rowId: "sample", sequence, interactionGeneration: 1 }));
+      });
+      emit(old, 1);
+      expect(drawerBridge.confirmChoice).not.toHaveBeenCalled();
+      emit(next, 2);
+      await waitFor(() => expect(action).toHaveBeenCalledOnce());
+    } finally {
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" }; privacy.epoch = 0;
+      publishValidatedAuthSessionOwner(null);
+      if (original) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", original);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
+});
 describe("private native drawer action boundary", () => {
   it("selects recovery before discovery unless the wrapper explicitly bootstraps qualification", () => {
     const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
@@ -138,6 +418,38 @@ describe("private native drawer action boundary", () => {
       { ...menu, family: "history" },
     ]) expect(validNativeDrawerProjection(invalid as NativeDrawerProjection)).toBe(false);
     expect(validNativeDrawerProjection({ ...menu, open: false, surfaceOpen: false })).toBe(true);
+  });
+
+  it("admits only the active native Profile destination and fences an Account round trip", async () => {
+    const root = { ...state(), family: "profile" as const, surfaceOpen: true, backEnabled: true };
+    const account: NativeDrawerProjection = { ...root, profileDestinationId: "account-first", profileStack: [
+      { id: "account", title: "Your account", sections: [{ id: "account-details", rows: [
+        { id: "edit-name", label: "Display name", enabled: true },
+        { id: "mail", label: "Mail", enabled: true, readOnly: true },
+      ] }] },
+    ] };
+    expect(validNativeDrawerProjection(account)).toBe(true);
+    const event = { ...choice(), family: "profile" as const, rowId: "edit-name" };
+    expect(nativeDrawerChoiceAllowed(event, account)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...event, rowId: root.sections[0].rows[0].id }, account)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...event, rowId: "mail" }, account)).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileDestinationId: undefined })).toBe(false);
+    expect(validNativeDrawerProjection({ ...account, profileStack: [{ ...account.profileStack![0], id: "arbitrary-route" }] } as never)).toBe(false);
+    const fence = new NativeDrawerChoiceFence(root);
+    fence.update(account);
+    const reply = deferred<{ valid: boolean }>();
+    const stale = fence.consume(event, () => reply.promise, () => true);
+    fence.update({ ...root, profileStack: [], updateSequence: 2 });
+    fence.update({ ...account, profileDestinationId: "account-returned", updateSequence: 3 });
+    reply.resolve({ valid: true });
+    expect(await stale).toBe(false);
+    expect(fence.allows({ ...event, sequence: 2, updateSequence: 3 })).toBe(true);
+
+    const name = { ...publicNameScene(), destinationId: "account-first" };
+    const nameFence = new NativeProfileNameFence(name);
+    expect(nameFence.update(name)).toBe(true);
+    expect(nameFence.update({ ...name, updateSequence: 2, destinationId: "account-returned" })).toBe(false);
+    expect(nameFence.allows({ ...name, sequence: 1, editRevision: 0, action: "save", destinationId: "account-returned" })).toBe(false);
   });
 
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
@@ -229,6 +541,7 @@ describe("private native drawer action boundary", () => {
   function presentationBridge() {
     const listeners = new Set<(event: NativeDrawerChoice) => void>();
     const isolationListeners = new Set<(event: NativeDrawerIsolation) => void>();
+    const readmissionListeners = new Set<(event: NativeDrawerReadmission) => void>();
     let isolation = { ...nativeDrawerIsolation() };
     const remove = vi.fn(async () => undefined);
     const apply = vi.fn(async (projection: NativeDrawerProjection) => ({ ...projection, phase: "active" as const }));
@@ -236,19 +549,89 @@ describe("private native drawer action boundary", () => {
     const plugin: HushhNativeDrawersPlugin = {
       getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, ...isolation }),
       apply, retire, confirmChoice: vi.fn(async () => ({ valid: true })),
-      addListener: async (name: "choice" | "isolationChanged", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void)) => {
+      addListener: async (name: "choice" | "isolationChanged" | "readmissionRequested", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void) | ((event: NativeDrawerReadmission) => void)) => {
         if (name === "choice") listeners.add(callback as (event: NativeDrawerChoice) => void);
+        else if (name === "readmissionRequested") readmissionListeners.add(callback as (event: NativeDrawerReadmission) => void);
         else isolationListeners.add(callback as (event: NativeDrawerIsolation) => void);
         return { remove: async () => { listeners.delete(callback as (event: NativeDrawerChoice) => void);
+          readmissionListeners.delete(callback as (event: NativeDrawerReadmission) => void);
           isolationListeners.delete(callback as (event: NativeDrawerIsolation) => void); await remove(); } };
       },
     };
     return { plugin, apply, retire, remove, emit: (event: NativeDrawerChoice) => listeners.forEach(callback => callback(event)),
+      readmit: (event: NativeDrawerReadmission) => readmissionListeners.forEach(callback => callback(event)),
       isolate: (isolated: boolean, notify = true) => {
         isolation = { generation: isolation.generation + 1, isolated };
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
+
+  it.each([false, true])("quarantines an uncertain Back unless its destination was superseded=%s", async superseded => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, profileNavigationStack: true });
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockImplementationOnce(() => confirmation.promise);
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: false }));
+    const account: NativeDrawerProjection = { ...state(), family: "profile", surfaceOpen: true, backEnabled: true,
+      profileDestinationId: "account-first", profileStack: [{ id: "account", title: "Your account", sections: [] }] };
+    const phases = vi.fn(), back = vi.fn();
+    const presentation = new NativeDrawerPresentation(account, bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn(), back };
+    await presentation.listen();
+    presentation.publish(account, actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit({ ...choice(), family: "profile", action: "back", rowId: undefined });
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    presentation.publish({ ...account, updateSequence: 2, appearance: "dark",
+      profileDestinationId: superseded ? "account-returned" : "account-first" }, actions);
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    confirmation.resolve({ valid: false });
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(phases.mock.calls.some(([phase]) => phase === "quarantined")).toBe(!superseded);
+    expect(back).not.toHaveBeenCalled();
+    await presentation.retire();
+  });
+
+  it("refreshes a timed-out drawer presentation once without repeating any operation", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalReadmission: true });
+    const refresh = vi.fn(() => true), close = vi.fn(), phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases, undefined, refresh);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const request = { ...state(), interactionGeneration: 3 };
+    for (const stale of [{ ...request, ownerEpoch: "old-owner" }, { ...request, privacyGeneration: 7 },
+      { ...request, updateSequence: 0 }, { ...request, interactionGeneration: NaN }]) bridge.readmit(stale);
+    expect(refresh).not.toHaveBeenCalled();
+    bridge.readmit(request); bridge.readmit(request);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+    await presentation.retire();
+    bridge.readmit({ ...request, interactionGeneration: 4 });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("withdraws a timeout readmission when the feature owner no longer has authority", async () => {
+    const bridge = presentationBridge();
+    const capability = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capability, terminalReadmission: true });
+    let current = true;
+    const refresh = vi.fn(() => true), phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => current, phases, undefined, refresh);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    current = false;
+    bridge.readmit({ ...state(), interactionGeneration: 3 });
+    await waitFor(() => expect(bridge.retire).toHaveBeenCalledOnce());
+    expect(refresh).not.toHaveBeenCalled();
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+  });
 
   it("completes one emitted Close through compatible content refreshes without replaying or using obsolete authority", async () => {
     const bridge = presentationBridge();
@@ -557,6 +940,29 @@ describe("owned panel pose transport", () => {
 });
 
 describe("private dock event boundary", () => {
+  it("samples the CSS resting seat independently of native scroll lag without accumulating displacement", () => {
+    const motion = document.createElement("div"), seat = document.createElement("div");
+    motion.dataset.bottomShellMotionStack = "";
+    motion.append(seat); document.body.append(motion);
+    vi.stubGlobal("DOMMatrixReadOnly", class {
+      is2D = true; a = 1; b = 0; c = 0; d = 1; f = 0;
+      constructor(value: string) { this.f = value === "matrix(1, 0, 0, 1, 0, 27.5)" ? 27.5 : 55; }
+    });
+    const rect = vi.spyOn(seat, "getBoundingClientRect");
+    try {
+      for (const offset of [27.5, 55, 27.5]) {
+        motion.style.transform = `matrix(1, 0, 0, 1, 0, ${offset})`;
+        rect.mockReturnValue({ x: 16, y: 700 + offset, width: 358, height: 52 } as DOMRect);
+        expect(nativeDockRestingFrame(seat)).toEqual({ x: 16, y: 700, width: 358, height: 52 });
+      }
+      // Keyboard/reduced-motion CSS can remove the effective transform even
+      // while a previous progress snapshot is nonzero. Compensate pixels only.
+      motion.style.transform = "none";
+      rect.mockReturnValue({ x: 16, y: 492, width: 358, height: 52 } as DOMRect);
+      expect(nativeDockRestingFrame(seat)?.y).toBe(492);
+    } finally { motion.remove(); rect.mockRestore(); vi.unstubAllGlobals(); }
+  });
+
   const identity = { documentId: "dock-document", ownerEpoch: "dock-owner", revision: 1 };
   const input = (overrides: Partial<DockEvent> = {}): DockEvent => ({
     ...identity, sequence: 1, updateSequence: 1, editRevision: 1, editorRevision: 0, privacyGeneration: 0,
@@ -1655,6 +2061,10 @@ describe("native chrome presentation lease", () => {
     const rehearsal = render(<ChatHarness kind={kind} />);
     await waitFor(() => expect(rehearsal.getByTestId(statusId)).toHaveTextContent('"outcome":"rejected"'));
     const status = rehearsal.getByTestId(statusId).textContent!;
+    const publicStatus = JSON.parse(status.replace("NATIVE_SELECTOR_STATUS ", ""));
+    for (const key of ["overlayBlocked", "inertBlocked", "moving", "suppressed", "voiceBlocked", "documentHidden"]) {
+      expect(typeof publicStatus[key]).toBe("boolean");
+    }
     expect(status).toContain('"code":"other"');
     expect(status).not.toContain("synthetic-private-response");
     expect(status).not.toContain("synthetic-owner");
@@ -2084,6 +2494,44 @@ describe("native chrome presentation lease", () => {
       backReplacement: true, profileBackReplacement: true, historyReplacement: true, inPlaceUpdates: true, retainedControls });
     return kind === "history" ? bridge.prepareHistoryReplacement : bridge.prepareBackReplacement;
   }
+
+  it("retains pane-bound Back on nested binding changes but retires on a changed pane", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true, profileBackReplacement: true });
+    const oldAction = vi.fn(), nextAction = vi.fn();
+    function Back({ context, generation = 1, action }: { context: string; generation?: number; action: () => void }) {
+      const ref = useRef<HTMLButtonElement>(null);
+      return <NativeChatChrome kind="profile-back" label="Back in Profile" owner="synthetic-owner" context={context}
+        eligible focusRef={ref} onActivate={action} contentPane={{ documentId: bridge.documentId, ownerEpoch: "pane-owner", generation: 1, privacyGeneration: generation }}>
+        <button ref={ref}>Back in Profile</button>
+      </NativeChatChrome>;
+    }
+    const view = render(<Back context="preferences" action={oldAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const old = bridge.prepare.mock.calls[0][0];
+    const retired = bridge.retire.mock.calls.length;
+    view.rerender(<Back context="voice" action={nextAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    expect(bridge.suspend).not.toHaveBeenCalled();
+    expect(bridge.retire).toHaveBeenCalledTimes(retired);
+    expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
+    expect(bridge.confirmChoice).not.toHaveBeenCalled();
+    const next = bridge.prepareBackReplacement.mock.calls[0][0];
+    expect(next.contentPane).toEqual(old.contentPane);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...next, sequence: 2, updateSequence: 0, privacyGeneration: 0 }));
+    await waitFor(() => expect(nextAction).toHaveBeenCalledOnce());
+    expect(oldAction).not.toHaveBeenCalled();
+    view.rerender(<Back context="voice" generation={2} action={nextAction} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
+    expect(bridge.retire).toHaveBeenCalledTimes(retired + 1);
+    expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce();
+    const rebound = bridge.prepare.mock.calls.at(-1)![0];
+    expect(rebound.contentPane).toEqual({ ...old.contentPane, privacyGeneration: 2 });
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...next, sequence: 3, updateSequence: 0, privacyGeneration: 0 }));
+    expect(nextAction).toHaveBeenCalledOnce();
+  });
 
   it.each([
     ["back", false], ["history", false], ["profile-back", false],
@@ -2627,6 +3075,215 @@ describe("native chrome presentation lease", () => {
     expect(originalPane).not.toBeVisible();
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 4, updateSequence, privacyGeneration: 0 }));
     expect(close).toHaveBeenCalledTimes(2);
+    view.unmount();
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
+  });
+  it("keeps Account navigation inside one native Profile presentation without a DOM detail handoff", async () => {
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileNameScene: true,
+      generation: 0, isolated: false });
+    drawerBridge.apply.mockReset().mockImplementation(async state => ({ ...state, phase: "active" }));
+    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
+      updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
+    const scene = (account: boolean) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account}
+      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
+      page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
+      account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-info", rows: [
+        { id: "edit-name", label: "Display name", enabled: true },
+      ] }] }, rows: new Map([["edit-name", vi.fn()]]), editor: () => null }}>
+      <p>React account exception</p>
+    </NativeProfilePresentation>;
+    const view = render(scene(false));
+    try {
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
+      const identity = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
+      const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(firstVisit.revision).toBe(identity.revision);
+      expect(view.queryByText("React account exception")).toBeNull();
+      expect(bridge.acquireContentPane).not.toHaveBeenCalled();
+      expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);
+      view.rerender(scene(false));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
+      view.rerender(scene(true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileDestinationId).not.toBe(firstVisit.profileDestinationId));
+      expect(drawerBridge.apply.mock.calls.at(-1)![0].revision).toBe(identity.revision);
+    } finally {
+      view.unmount(); await act(async () => { await Promise.resolve(); }); publishValidatedAuthSessionOwner(null);
+    }
+  });
+
+  it.each(["return", "new-detail", "close", "owner"] as const)("retains the outgoing Profile display without stale Back authority during %s handoff", async outcome => {
+    measureSlot();
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, generation: 0, isolated: false });
+    const rootAdmission = deferred<unknown>();
+    let holdReturn = false;
+    let returning: NativeDrawerProjection | undefined;
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && holdReturn) { returning = state; return rootAdmission.promise; }
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retire.mockImplementation(async identity => {
+      const latest = drawerBridge.apply.mock.calls.at(-1)![0];
+      return { ...identity, phase: "retired", updateSequence: latest.updateSequence,
+        privacyGeneration: latest.privacyGeneration };
+    });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    const back = vi.fn(), close = vi.fn();
+    const scene = (detail: "preferences" | "security" | null, open = true, lifetime = "owner-a:vault-a") => <NativeProfilePresentation lifetime={lifetime} detail={!!detail}
+      menu={{ owner: "owner-a", ready: true, open, surfaceOpen: open, name: "Public sample", email: null, groups, actions, onClose: close }}
+      page={{ pane: true, title: detail === "preferences" ? "Preferences" : detail === "security" ? "Security" : "Profile",
+        owner: "owner-a", context: detail ?? "root", onBack: back, onClose: close }}>
+      <p>{detail === "preferences" ? "Public preference controls" : detail === "security" ? "Public security controls" : "Menu destination"}</p>
+    </NativeProfilePresentation>;
+    const view = render(scene("preferences"));
+    await waitFor(() => expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible());
+    await waitFor(() => expect(drawerBridge.apply.mock.calls.some(([state]) => !state.open)).toBe(true));
+    const pane = view.getByRole("dialog", { name: "Preferences" });
+    holdReturn = true;
+    view.rerender(scene(null));
+    await waitFor(() => expect(returning).toBeDefined());
+    expect(pane).toBeVisible();
+    expect(view.getByRole("dialog", { name: "Preferences" })).toBe(pane);
+    expect(view.getByText("Public preference controls").closest("[inert]")).not.toBeNull();
+    expect(view.queryByText("Menu destination")).toBeNull();
+    expect(pane.querySelector('button[aria-label="Back in Profile"]')).toBeDisabled();
+    // An obsolete Back (including Escape) cannot pop the already-requested
+    // parent again. Close retains the current lifetime callback.
+    fireEvent.keyDown(pane, { key: "Escape" });
+    expect(back).not.toHaveBeenCalled();
+    expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    if (outcome === "new-detail") {
+      view.rerender(scene("security"));
+      expect(view.getByRole("dialog", { name: "Security" })).toBe(pane);
+      expect(view.getByText("Public security controls").closest("[inert]")).toBeNull();
+      expect(view.queryByText("Public preference controls")).toBeNull();
+    } else if (outcome === "close") {
+      view.rerender(scene(null, false));
+      await waitFor(() => expect(view.queryByText("Public preference controls")).toBeNull());
+    } else if (outcome === "owner") {
+      // The owner/vault lease invalidates the private display immediately.
+      view.rerender(scene(null, true, "owner-a:vault-b"));
+      expect(view.queryByText("Public preference controls")).toBeNull();
+    }
+    await act(async () => { rootAdmission.resolve({ ...returning!, phase: "active" }); });
+    if (outcome === "new-detail") {
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].open).toBe(false));
+      expect(view.getByRole("dialog", { name: "Security" })).toBeVisible();
+      expect(view.getByText("Public security controls")).toBeVisible();
+      expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull());
+      await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalledOnce());
+    }
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+  });
+  it.each(["current", "owner", "closed"] as const)("settles Profile readiness after an appearance change during activation only for the %s pane", async outcome => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const activation = deferred<ChromeAcknowledgement>(), update = deferred<ChromeUpdateAcknowledgement>();
+    let held: ChromeProjection | undefined, heldUpdate = false;
+    bridge.activate.mockImplementation(async value => {
+      if (value.controlId === "profile-back" && !held) { held = value; return activation.promise; }
+      return { ...value, phase: "active" };
+    });
+    bridge.update.mockImplementation(async value => {
+      if (value.revision === held?.revision && value.controlId === "profile-back" && value.appearance === "dark" && !heldUpdate) {
+        heldUpdate = true; return update.promise;
+      }
+      return value;
+    });
+    const ready = vi.fn(), replacementReady = vi.fn(), back = vi.fn(), close = vi.fn();
+    function Destination({ owner = "owner-a", open = true }: { owner?: string; open?: boolean }) {
+      useNativeNavigationBlocked(true); // Menu remains authoritative during preparation.
+      return <NativeFeaturePage pane open={open} title="Preferences" owner={owner} context="pane"
+        onBack={back} onClose={close} onReady={owner === "owner-a" ? ready : replacementReady}><p>Public preferences</p></NativeFeaturePage>;
+    }
+    const view = render(<Destination />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const retirements = bridge.retire.mock.calls.length;
+    expect(ready).not.toHaveBeenCalled();
+    act(() => document.documentElement.classList.add("dark"));
+    await act(async () => activation.resolve({ ...held!, phase: "active" }));
+    await waitFor(() => expect(heldUpdate).toBe(true));
+    const currentUpdate = bridge.update.mock.calls.find(([p]) => p.controlId === "profile-back" && p.revision === held!.revision && p.appearance === "dark")![0];
+    expect(ready).not.toHaveBeenCalled();
+    if (outcome === "owner") view.rerender(<Destination owner="owner-b" />);
+    if (outcome === "closed") view.rerender(<Destination open={false} />);
+    await act(async () => update.resolve(currentUpdate));
+    if (outcome === "current") {
+      await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+      expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible();
+      expect(bridge.prepare).toHaveBeenCalledTimes(2);
+      expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+      expect(currentUpdate.enabled).toBe(false); // Ready is staging, not touch authority.
+      act(() => bridge.callbacks.get("readmissionRequested")?.(undefined));
+      await waitFor(() => expect(bridge.update.mock.calls.filter(([p]) => p.controlId === "profile-back").length).toBeGreaterThan(1));
+      expect(ready).toHaveBeenCalledOnce();
+    } else {
+      expect(ready).not.toHaveBeenCalled();
+      if (outcome === "closed") expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull();
+    }
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...currentUpdate, sequence: 1, privacyGeneration: 0 }));
+    expect(back).not.toHaveBeenCalled(); expect(close).not.toHaveBeenCalled();
+    view.unmount();
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
+  });
+  it.each(["profile-back", "profile-close"] as const)("revokes pending %s on dismissal while retaining the exiting pane's isolation", async controlId => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(node => {
+      const style = computedStyle(node);
+      return node.matches('[data-slot="dialog-content"]') ? new Proxy(style, {
+        get: (target, key) => key === "animationName"
+          ? node.getAttribute("data-state") === "closed" ? "pane-exit" : "none"
+          : key === "display" ? "block" : Reflect.get(target, key, target),
+      }) : style;
+    });
+    const back = vi.fn(), close = vi.fn(), ready = vi.fn();
+    const pane = (open: boolean) => <NativeFeaturePage pane open={open} title="Preferences" owner="owner-a" context="pane"
+      onBack={back} onClose={close} onReady={ready}><p>Public preferences</p></NativeFeaturePage>;
+    const view = render(pane(true));
+    await waitFor(() => expect(ready).toHaveBeenCalledOnce());
+    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === controlId)).toBe(true));
+    let confirm: ((receipt: { valid: boolean }) => void) | undefined;
+    bridge.confirmChoice.mockImplementation(() => new Promise(resolve => { confirm = resolve; }));
+    const projection = bridge.prepare.mock.calls.find(([p]) => p.controlId === controlId)![0];
+    const updateSequence = bridge.update.mock.calls.filter(([p]) => p.controlId === controlId).at(-1)?.[0].updateSequence ?? 0;
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...projection, sequence: 1, updateSequence, privacyGeneration: 0 }));
+    await waitFor(() => expect(bridge.confirmChoice).toHaveBeenCalledOnce());
+    view.rerender(pane(false));
+    const exiting = document.querySelector('[data-slot="dialog-content"][data-state="closed"]');
+    expect(exiting).not.toBeNull();
+    expect(nativeShellOverlayBlocked()).toBe(true); // DOM exit still owns isolation.
+    await act(async () => { confirm?.({ valid: true }); });
+    expect(back).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(exiting!.querySelector('button[aria-label="Back in Profile"]')).toBeDisabled();
+    expect(exiting!.querySelector('button[aria-label="Close Profile"]')).toBeDisabled();
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
   });

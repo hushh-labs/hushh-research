@@ -47,6 +47,10 @@ TARGET = f"{_SOURCE}@{_NEW}"
 
 @pytest.fixture(autouse=True)
 def _hub_caller(monkeypatch):
+    from hushh_mcp.services import azure_hosted_authority
+    from tests.azure_arm_fake import unit_upgrade_authority
+
+    monkeypatch.setattr(azure_hosted_authority, "upgrade_authority", unit_upgrade_authority)
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     monkeypatch.setenv(
         "HUSSH_CONSENT_PLANE_SA", "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"

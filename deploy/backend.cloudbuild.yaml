@@ -632,7 +632,9 @@ substitutions:
   # local | service. Empty/local keeps in-process signing.
   _WALLET_PASS_PROVIDER: ""
   # WorkOS enterprise SSO. Empty keeps the feature off (routes answer 404).
+  _WORKOS_SSO_ENABLED: ""
   # The redirect URI is the web /login URL registered in the WorkOS dashboard.
+  _WORKOS_REDIRECT_URI: ""
   # Comma-separated origins SSO may return to (every hostname the app is served on).
   _WORKOS_REDIRECT_ORIGINS: ""
   _ONE_EMAIL_ADDRESS: ""
@@ -715,7 +717,3 @@ substitutions:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: "E2_HIGHCPU_8"
-
-  # Optional WorkOS identity flow; default remains disabled.
-  _WORKOS_SSO_ENABLED: ""
-  _WORKOS_REDIRECT_URI: ""

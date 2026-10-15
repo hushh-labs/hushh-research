@@ -231,13 +231,17 @@ class SandboxedPlaywrightExecutor:
                         await page.mouse.up()
                 case "observe":
                     pass
+                case "resize":
+                    await page.set_viewport_size(
+                        {"width": _argument(action.width), "height": _argument(action.height)}
+                    )
             png = await page.screenshot(type="png", timeout=10000)
             if self._uncertain:
                 raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN")
             return BrowserFrame(
                 sequence=action.sequence,
-                width=1280,
-                height=720,
+                width=_argument(page.viewport_size)["width"],
+                height=_argument(page.viewport_size)["height"],
                 url=page.url,
                 png=png,
             )

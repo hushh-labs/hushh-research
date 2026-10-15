@@ -4202,7 +4202,20 @@ The existing one-time UAT exception keeps its exact target and expiry; its
 matched deployment helpers survive the older checkout. Forty-two deployment
 contracts, 54 frontend cases and 16 Wallet browser cases pass. The merged
 candidate still requires its own full core and CI; the separate `67aacf0098`
-Dev candidate does not establish this merge's deployment or paid acceptance.
+candidate does not establish this merge's deployment or paid acceptance.
+
+Concurrent infrastructure work through `9b54e8f566` is preserved in the same
+normal merge, including owner cleanup admission, private-pod recovery and native
+presentation. Generated projections are rebuilt from the combined authored
+contracts. The exact main-revision rejection for account deletion preserves the
+new staged cleanup review; it does not authorize a deletion or cloud teardown.
+Three independently inspected source-size observations record only the additive
+cleanup/wallet-request union, retaining the scanner and existing budgets. These
+are source integration results, not completed payment acceptance. The superseded
+`67aacf0098` workflow was requested to stop; its earlier successful local core
+does not qualify the combined source. Shared Chrome remains untouched, no
+funding or operating capital is repeated, and the Dev 20 private-image recovery
+and upgrade qualification hold remains in force.
 
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled

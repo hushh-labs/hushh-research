@@ -73,7 +73,7 @@ describe("acknowledgeOneSetupExit", () => {
     // The onboarding guard admits /one off this latch, so it MUST be set before
     // any await — otherwise a slow/hung network re-traps the person on the hub.
     expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
-    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
+    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
   });
 
   it("retries the durable setupCompleted write until it lands", async () => {
@@ -92,7 +92,7 @@ describe("acknowledgeOneSetupExit", () => {
 
     expect(await settled).toBe("ok");
     expect(syncKaiSetupStateMock).toHaveBeenCalledTimes(3);
-    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
+    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
     vi.useRealTimers();
   });
 
@@ -113,7 +113,7 @@ describe("acknowledgeOneSetupExit", () => {
     // later). Skip is never a dead end.
     expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
     expect(syncKaiSetupStateMock).toHaveBeenCalledTimes(3);
-    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
+    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
     vi.useRealTimers();
   });
 
@@ -122,8 +122,8 @@ describe("acknowledgeOneSetupExit", () => {
     syncOnboardingJourneyMock.mockReturnValue(new Promise<void>(done => { resolve = done; }));
     const finished = acknowledgeOneSetupExit({ userId: "new-owner", skipped: false });
     await Promise.resolve(); await Promise.resolve();
-    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
+    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
     resolve(); await finished;
-    expect(useOneConversationSession.getState()).not.toHaveProperty("pendingProfileResearch");
+    expect(useOneConversationSession.getState().pendingProfileResearch).toBeNull();
   });
 });

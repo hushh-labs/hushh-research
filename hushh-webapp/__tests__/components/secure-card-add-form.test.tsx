@@ -78,8 +78,11 @@ it("offers camera and gallery, links validation errors, and has no security-code
 });
 it("submits once, preserves retry identity and clears details after success", async () => {
   const save = vi.fn().mockRejectedValueOnce(new Error("private diagnostic")).mockResolvedValueOnce(undefined);
-  render(<SecureCardAddForm onSubmit={save} />); fillRequired(); await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
-  submit(); submit(); await waitFor(() => expect(notify.error).toHaveBeenCalled());
+  const cancel = vi.fn(); render(<SecureCardAddForm backRoute="/one/wallet" onCancel={cancel} onSubmit={save} />); fillRequired(); await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  submit(); submit();
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(cancel).not.toHaveBeenCalled();
+  await waitFor(() => expect(notify.error).toHaveBeenCalled());
   expect(save).toHaveBeenCalledTimes(1); const first = save.mock.calls[0][0]; expect(first).not.toHaveProperty("cvv"); expect(first).not.toHaveProperty("pin");
   expect(screen.queryByText("private diagnostic")).toBeNull(); submit(); await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1][0].draftId).toBe(first.draftId); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue(""));

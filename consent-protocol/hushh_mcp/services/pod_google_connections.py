@@ -32,13 +32,19 @@ from hushh_mcp.services.pod_connector_tokens import (
     NEEDS_REAUTH,
     NOT_CONNECTED,
     PROVIDER_UNREACHABLE,
+    SCOPE_NOT_GRANTED,
     ConnectorTokenError,
     google_token_source,
 )
 
-#: A token refusal as the status the Calendar tools already explain. 401 and 403 make
-#: the tools ask the owner to connect or widen the grant; the rest are honest outages.
+#: Typed grant failures may offer owner reauthorization. HTTP status alone must
+#: never turn an owner mismatch or provider outage into a connection directive.
 _STATUS = {NOT_CONNECTED: 401, NEEDS_REAUTH: 401, CREDENTIALS_UNAVAILABLE: 503}
+_REASONS = {
+    NOT_CONNECTED: "google_not_connected",
+    NEEDS_REAUTH: "google_reauthorization_required",
+    SCOPE_NOT_GRANTED: "google_permission_required",
+}
 _SERVICES = frozenset({"calendar", "gmail", "drive"})
 
 
@@ -62,7 +68,15 @@ class PodGoogleConnections:
         except credentials.ConnectorCredentialsUnavailable:
             raise GoogleConnectionError("Google connection unavailable", status_code=503) from None
         if held is None or held.status != credentials.STATUS_CONNECTED:
-            raise GoogleConnectionError("Connect Google first", status_code=401)
+            raise GoogleConnectionError(
+                "Connect Google first",
+                status_code=401,
+                reason_code=_REASONS[
+                    NEEDS_REAUTH
+                    if held and held.status == credentials.STATUS_NEEDS_REAUTH
+                    else NOT_CONNECTED
+                ],
+            )
         if self.credential_id is not None and held.credential_id != self.credential_id:
             raise GoogleConnectionError("Google connection changed; review again", status_code=409)
         self.credential_id = held.credential_id
@@ -129,7 +143,9 @@ class PodGoogleConnections:
         except ConnectorTokenError as exc:
             status = _STATUS.get(exc.code, 502 if exc.code == PROVIDER_UNREACHABLE else 403)
             raise GoogleConnectionError(
-                "Google connection is not ready on your agent", status_code=status
+                "Google connection is not ready on your agent",
+                status_code=status,
+                reason_code=_REASONS.get(exc.code),
             ) from None
         self.require_current(service)
         return token

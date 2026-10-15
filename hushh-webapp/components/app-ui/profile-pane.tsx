@@ -360,6 +360,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
         className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
         aria-label="Profile"
         data-testid="profile-pane"
+        data-app-side-pane
         data-native-panel-group="profile"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -390,9 +391,8 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
                 eligible={false}
                 onActivate={() => {
-                  if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
-                    popProfilePaneLocation(pathname, searchParams);
-                  }
+                  if (unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) return;
+                  popProfilePaneLocation(pathname, searchParams);
                 }}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
@@ -400,9 +400,11 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                   ref={backRef}
                   type="button"
                   aria-label="Back in Profile"
-                  onClick={() => { appHaptic("light"); if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
-                      popProfilePaneLocation(pathname, searchParams);
-                    } }}
+                  onClick={() => {
+                    appHaptic("light");
+                    if (unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) return;
+                    popProfilePaneLocation(pathname, searchParams);
+                  }}
                   className="size-11"
                 >
                   <ArrowLeft className="h-5 w-5" />

@@ -73,6 +73,11 @@ export interface SecureCardAddFormProps {
 export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
+  useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
+    if (!active || !onCancel) return false;
+    if (!saving.current) onCancel();
+    return true;
+  });
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
   const [pan, setPan] = useState(initialPan ?? "");
@@ -85,10 +90,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
-  useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
-    if (!saving.current) onCancel?.();
-    return true;
-  });
   const [additionalOpen, setAdditionalOpen] = useState(false);
   useEffect(() => { if (!active) { setScanReading(null); } }, [active]);
   useEffect(() => {

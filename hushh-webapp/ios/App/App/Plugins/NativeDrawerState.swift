@@ -25,6 +25,8 @@ struct NativeDrawerRow: Codable, Identifiable {
     let destructive: Bool?
     let selected: Bool?
     let pending: Bool?
+    var readOnly: Bool? = nil
+    var artworkId: String? = nil
     var renameActionId: String? = nil
     var deleteActionId: String? = nil
     var iconHex: String? = nil
@@ -36,6 +38,12 @@ struct NativeDrawerSection: Codable, Identifiable {
     let id: String
     let title: String?
     let rows: [NativeDrawerRow]
+}
+
+struct NativeProfilePage: Codable, Identifiable {
+    let id: String
+    let title: String
+    let sections: [NativeDrawerSection]
 }
 
 struct NativeDrawerProjection: Codable {
@@ -58,17 +66,28 @@ struct NativeDrawerProjection: Codable {
     var loading: Bool? = nil
     /// Profile menu visibility is distinct from its enclosing drawer lifetime.
     var surfaceOpen: Bool? = nil
+    var profileStack: [NativeProfilePage]? = nil
+    var profileDestinationId: String? = nil
+    var activeSections: [NativeDrawerSection] { profileStack?.last?.sections ?? sections }
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId"]
         guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
-        for section in sections {
+        var allSections = sections
+        if let stack = options["profileStack"] {
+            guard let pages = stack as? [[String: Any]] else { return false }
+            for page in pages {
+                guard Set(page.keys).isSubset(of: ["id", "title", "sections"]), let sections = page["sections"] as? [[String: Any]] else { return false }
+                allSections += sections
+            }
+        }
+        for section in allSections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId"]) else { return false }
             }
         }
         return true
@@ -80,9 +99,15 @@ struct NativeDrawerProjection: Codable {
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil,
               Self.text(title, 256), sections.count <= 32,
               surfaceOpen == nil || family == "profile" && (!open || surfaceOpen == true) else { return false }
+        if let stack = profileStack {
+            guard family == "profile", stack.count <= 1,
+                  stack.isEmpty || backEnabled && profileDestinationId.map(NativeDrawerIdentity.identifier) == true,
+                  stack.allSatisfy({ $0.id == "account" && Self.text($0.title, 256) && $0.sections.count <= 32 }) else { return false }
+        }
+        if let id = profileDestinationId { guard profileStack?.isEmpty == false, NativeDrawerIdentity.identifier(id) else { return false } }
         var ids = Set<String>()
         var count = 0
-        for section in sections {
+        for section in sections + (profileStack?.flatMap(\.sections) ?? []) {
             guard NativeDrawerIdentity.identifier(section.id), ids.insert(section.id).inserted,
                   section.title == nil || Self.text(section.title!, 256) else { return false }
             for row in section.rows {
@@ -90,6 +115,7 @@ struct NativeDrawerProjection: Codable {
                 guard count <= 500, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted,
                       Self.text(row.label, 4096), row.detail == nil || Self.text(row.detail!, 4096),
                       row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!),
+                      row.artworkId == nil || NativeDrawerIdentity.identifier(row.artworkId!),
                       row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
                       row.trailing == nil || Self.text(row.trailing!, 32) else { return false }
                 for action in [row.renameActionId, row.deleteActionId].compactMap({ $0 }) {
@@ -113,8 +139,8 @@ struct NativeDrawerProjection: Codable {
         if action == "close" { return row == nil }
         if action == "back" { return backEnabled && row == nil }
         guard action == "row", let row else { return false }
-        return sections.contains { $0.rows.contains {
-            guard $0.enabled, $0.pending != true else { return false }
+        return activeSections.contains { $0.rows.contains {
+            guard $0.enabled, $0.readOnly != true, $0.pending != true else { return false }
             if $0.renameActionId == row {
                 return text.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 160 } == true
             }
@@ -168,6 +194,7 @@ struct NativeDrawerLease {
     private var terminalUpdateFloor = 0
     private var terminalOpen = false
     private var terminalEnabled = false
+    private var settlesBack = false
     private var pendingSettlements = Set<Int>()
     private(set) var interactionGeneration = 1
     private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
@@ -193,6 +220,7 @@ struct NativeDrawerLease {
         }
         terminalOpen = projection.open
         terminalEnabled = projection.enabled
+        settlesBack = projection.profileStack != nil
         updateSequence = projection.updateSequence
         privacyGeneration = projection.privacyGeneration
         return true
@@ -220,7 +248,7 @@ struct NativeDrawerLease {
               choice.interaction == interaction,
               choice.action == action, choice.row == row, choice.text == text else { return false }
         consumed = sequence
-        if action == "row" { pendingSettlements.insert(sequence) }
+        if action == "row" || action == "back" && settlesBack { pendingSettlements.insert(sequence) }
         emitted = emitted.filter { $0.key > sequence }
         return true
     }
@@ -230,8 +258,8 @@ struct NativeDrawerLease {
     mutating func settle(identity: NativeDrawerIdentity, privacy: Int, sequence: Int, success: Bool) -> Bool {
         guard self.identity == identity, privacyGeneration == privacy else { return false }
         let confirmed = pendingSettlements.contains(sequence)
-        let unconfirmedRow = emitted[sequence]?.action == "row"
-        guard confirmed || !success && unconfirmedRow else { return false }
+        let unconfirmed = emitted[sequence]?.action == "row" || emitted[sequence]?.action == "back"
+        guard confirmed || !success && unconfirmed else { return false }
         pendingSettlements.remove(sequence)
         emitted.removeValue(forKey: sequence)
         return true

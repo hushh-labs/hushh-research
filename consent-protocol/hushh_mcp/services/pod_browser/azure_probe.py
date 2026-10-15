@@ -33,7 +33,7 @@ API_VERSION = "2026-09-01-preview"
 DATA_PLANE_SCOPE = "https://management.azuredevcompute.io/.default"
 
 _MARKER = "hushh-azure-native-synthetic-v1\n"
-_COMMAND = "printf '%s\\n' 'hushh-azure-native-synthetic-v1'"
+_COMMAND = "test \"$(id -u)\" = 10002 && test \"$(id -g)\" = 10002 && printf '%s\\n' 'hushh-azure-native-synthetic-v1'"
 _SEGMENT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _MAX_RESPONSE = 65536
 
@@ -202,7 +202,13 @@ class _NativeClient:
         self.refusal_diagnostics: AzurePolicyRefusalDiagnostics | None = None
 
     async def request(
-        self, method: str, suffix: str = "", *, body: dict | None = None, labels: bool = False
+        self,
+        method: str,
+        suffix: str = "",
+        *,
+        body: dict | None = None,
+        labels: bool = False,
+        container: bool = False,
     ) -> tuple[int, object]:
         try:
             credential = await self.credential.get_token(DATA_PLANE_SCOPE)
@@ -215,6 +221,8 @@ class _NativeClient:
             params = {"api-version": API_VERSION}
             if labels:
                 params["labels"] = f"hushhProbe={self.probe_id}"
+            if container:
+                params["containerName"] = _CONTAINER_NAME
             if method == "POST" and not suffix:
                 self.create_attempted = True
             async with self.client.stream(
@@ -425,7 +433,8 @@ async def qualify_azure_sandbox(
                 status, result = await native.request(
                     "POST",
                     suffix + "/executeShellCommand",
-                    body={"command": _COMMAND, "containerName": _CONTAINER_NAME},
+                    body={"command": _COMMAND, "user": "10002:10002"},
+                    container=True,
                 )
                 if (
                     status != 200

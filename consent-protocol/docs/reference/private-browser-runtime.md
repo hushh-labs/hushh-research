@@ -33,9 +33,11 @@ Do not substitute `--no-sandbox`, privileged execution or the private-agent cont
 Azure's current native API read back the exact synthetic source and deny/full/enforced
 policy, but execution admission returned 403. The observed personal-identity token
 was refused despite the temporary role.
-Supported Microsoft Entra execution admission remains unresolved; this receipt
-does not establish that every personal or guest identity is unsupported. A policy
-receipt does not qualify Chromium or the private bridge.
+Microsoft now explicitly requires Entra identities and excludes personal Microsoft
+accounts for Sandboxes. Use an owner workload identity, Entra member or service
+principal with the exact group-scoped SandboxGroup Data Owner role for the next
+synthetic probe. Guest admission remains unqualified. A policy receipt does not
+qualify Chromium or the private bridge.
 The temporary sandbox, group, resource group and exact temporary role were removed
 and absence verified; the initial failed cleanup receipt is retained.
 
@@ -229,9 +231,11 @@ that immutable image; diagnostic process success is not browser acceptance:
 
 Source corrects the mount path and explicitly checks the worker identity before
 IPC/browser initialization. This is a fail-closed guard, not proof of a working
-privilege drop on this substrate. The observed root identity differs from the
-provider's documented non-root behavior. A supported native identity mechanism
-and Chromium namespace compatibility need provider-backed evidence before the
+privilege drop on this substrate. Google's current [sandbox CLI](https://docs.cloud.google.com/run/docs/reference/sandbox-cli)
+has no user selector, and Google's [Scion integration](https://github.com/GoogleCloudPlatform/scion/blob/main/pkg/runtime/cloudrun_sandbox_runtime.go)
+documents root execution without identity-change capabilities. Changing IAM or
+the image's `USER` does not establish a supported identity change. A native
+identity mechanism and Chromium namespace compatibility need provider-backed evidence before the
 probe can progress. Direct-egress denial, mailbox round trip, frame/preview,
 resource peaks and teardown remain unverified. No sandbox was exported or saved.
 After retaining the synthetic receipts, the task-owned job, temporary identity,
@@ -262,6 +266,22 @@ Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/ru
 [GCP resource allocation](https://docs.cloud.google.com/run/docs/configuring/services/sandboxes),
 [Azure SandboxGroups](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview),
 [Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).
+
+### Responsive owner control — source only
+
+The preview fits its containing screen without restarting the task. During
+exclusive owner control, **Fit this screen** and Phone/Tablet/Desktop sizes may
+reflow the remote page within 320–1920 by 240–1080 CSS pixels. Resize uses the
+existing input route and approval authority, advances the control epoch before
+dispatch, and commits dimensions only after a matching frame. A lost outcome
+remains uncertain; resizing never resumes the agent.
+
+Mouse, touch and keyboard input require a painted frame for the current epoch
+and dimensions. Reconnect, failed streams and layout changes invalidate old
+coordinates. Explicit handback obtains a fresh observation before model work.
+Historical task records without viewport metadata retain their original geometry
+and do not offer resizing. Focused fixtures establish these contracts, not live
+cloud preview latency or isolation.
 
 ## Remaining release gates
 

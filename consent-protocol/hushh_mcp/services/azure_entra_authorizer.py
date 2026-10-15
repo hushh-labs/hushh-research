@@ -58,8 +58,10 @@ _CHALLENGE_TENANT = re.compile(
 )
 
 #: ``rebuild``: re-create the hosting space Azure removed, adopting what survived.
-AuthorizationKind = Literal["setup", "upgrade", "discover", "rebuild"]
-_KINDS: tuple[str, ...] = ("setup", "upgrade", "discover", "rebuild")
+AuthorizationKind = Literal["setup", "upgrade", "discover", "rebuild", "teardown"]
+_KINDS: tuple[str, ...] = ("setup", "upgrade", "discover", "rebuild", "teardown")
+_ERASURE_ATTEMPT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_ERASURE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 class AzureAuthorizeError(Exception):
@@ -80,6 +82,8 @@ class AuthorizationState:
     authority: str
     nonce: str
     files_enabled: bool = False
+    erasure_attempt: str = ""
+    erasure_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -127,6 +131,8 @@ def make_state(
     subscription_id: str,
     authority: str,
     files_enabled: bool = False,
+    erasure_attempt: str = "",
+    erasure_digest: str = "",
 ) -> str:
     if (
         kind not in _KINDS
@@ -135,9 +141,12 @@ def make_state(
         or (files_enabled and kind not in {"setup", "discover"})
     ):
         raise AzureAuthorizeError("Unsupported authorization", code="BAD_STATE")
+    _require_erasure_binding(kind, subscription_id, authority, erasure_attempt, erasure_digest)
     exp = str(int(time.time()) + STATE_TTL_SECONDS)
     nonce = secrets.token_hex(16)
     raw = f"{user_id}|{kind}|{subscription_id}|{authority}|{nonce}"
+    if kind == "teardown":
+        raw += f"|{erasure_attempt}|{erasure_digest}"
     payload = _b64((raw + "|files" if files_enabled else raw).encode())
     return f"{_STATE_PREFIX}{exp}.{payload}.{keyed_digest('oauth-state', exp, payload)}"
 
@@ -154,9 +163,11 @@ def verify_state(state: str, user_id: str) -> AuthorizationState:
             raise AzureAuthorizeError("This sign-in expired; start it again", code="STATE_EXPIRED")
         fields = _unb64(payload).decode().split("|")
         files_enabled = len(fields) == 6 and fields[-1] == "files"
-        if len(fields) != 5 and not files_enabled:
+        teardown = len(fields) == 7 and fields[1] == "teardown"
+        if len(fields) != 5 and not files_enabled and not teardown:
             raise ValueError("invalid Files selection")
         uid, kind, subscription, authority, nonce = fields[:5]
+        erasure_attempt, erasure_digest = fields[5:] if teardown else ("", "")
     except AzureAuthorizeError:
         raise
     except Exception as exc:  # noqa: BLE001 - malformed input is a refusal, not a crash
@@ -169,7 +180,25 @@ def verify_state(state: str, user_id: str) -> AuthorizationState:
         or (files_enabled and kind not in {"setup", "discover"})
     ):
         raise AzureAuthorizeError("Malformed authorization state", code="BAD_STATE")
-    return AuthorizationState(uid, kind, subscription, authority, nonce, files_enabled)  # type: ignore[arg-type]
+    _require_erasure_binding(kind, subscription, authority, erasure_attempt, erasure_digest)
+    return AuthorizationState(  # type: ignore[arg-type]
+        uid, kind, subscription, authority, nonce, files_enabled, erasure_attempt, erasure_digest
+    )
+
+
+def _require_erasure_binding(
+    kind: str, subscription: str, authority: str, attempt: str, digest: str
+) -> None:
+    if kind == "teardown":
+        if (
+            not is_guid(subscription)
+            or not is_guid(authority)
+            or not _ERASURE_ATTEMPT.fullmatch(attempt)
+            or not _ERASURE_DIGEST.fullmatch(digest)
+        ):
+            raise AzureAuthorizeError("Erasure authorization is not bound", code="BAD_STATE")
+    elif attempt or digest:
+        raise AzureAuthorizeError("Unexpected erasure authorization", code="BAD_STATE")
 
 
 def code_verifier(state: str) -> str:
@@ -211,6 +240,8 @@ def begin(
     tenant_id: str = "",
     login_hint: str = "",
     files_enabled: bool = False,
+    erasure_attempt: str = "",
+    erasure_digest: str = "",
     session: Any = None,
 ) -> str:
     """The Microsoft consent URL for one online-only grant.
@@ -232,6 +263,8 @@ def begin(
         subscription_id=subscription,
         authority=authority,
         files_enabled=files_enabled,
+        erasure_attempt=erasure_attempt,
+        erasure_digest=erasure_digest,
     )
     params = {
         "client_id": federation.app_client_id(),

@@ -21,11 +21,60 @@ Existing owners retain their resources and selected configuration.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**2026-10-14; application deployed, Shared Files activation pending.** Exact `5c2d1483aa` passed the core mirror (615 s), [full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251). Verified ADC readback confirms backend `00172-7q4` and frontend `00146-l8q`, both 100% traffic; schema guard reports zero violations. The original failed helper-upload deployment remains retained. Frozen ADK `3501811eb6b` and concurrent root work are preserved. Owner pods retain their separately verified installed images.
+**Serving:** dev remains at `5c2d1483aa`, backend `00172-7q4` and frontend
+`00146-l8q`, both 100% traffic. The [15 October deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38709401259)
+passed schema 355 but refused misplaced optional Cloud Build defaults; governed
+rollback retained the prior application. Files 959 is applied; history cleanup
+249 stays deferred. No owner image changed.
 
-The continuation implements provider-neutral AI labels and encrypted resumable-upload custody with owner/lease/recovery fences. Focused SQL, AI and reviewer checks passed. [Candidate `a2b1e87d6e` hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38684157859) passed every lane except Linux History motion timing. The replacement preserves the 100 ms onset and 360/260 ms windows in the mandatory macOS performance lane; Linux retains geometry, stationary chat and gesture cancellation. The isolated motion case passes both engines (6.6 s total), and disabling transitions fails its original assertions. New exact-SHA CI remains required; earlier timing failures under host contention remain retained.
+**Candidate:** the isolated integration includes frozen infrastructure `7058898726`,
+local ADK `2462c0bc6f` and the concurrent UI corrections through `67aacf0098`.
+Root edits, PDF work and existing browser/device connections remain preserved.
+The resumed core run passed 20,579 backend cases but exposed route-inventory
+merge duplicates, missing accounting for two already-bounded Azure connection
+consumers and a status extractor that misread a read-only receipt probe. Targeted
+repairs pass 26 route, 36 connection/status and 27 status/pool checks; the original
+extractor fails its new regression control. The global connection cap stays three.
+Six canonical native icons were regenerated at the merged generator's 28-point
+size. The remaining canonical stages pass: 1,336 serial PostgreSQL cases,
+all-test import collection, MCP packaging, integration and the PKM upgrade gate,
+web typecheck/lint and the production build. The concurrent UI delta passes 36
+focused cases and two Chromium geometry/interaction cases. These are resumed
+local receipts with targeted repairs, not a single clean full-suite invocation.
+Exact-head hosted CI and live acceptance remain required; this candidate has not
+been deployed. The prior [exact `15d83d5bab` passed all 25 hosted
+checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
 
-**15 October candidate:** local core coverage was completed by resuming failed stages; all 27,310 backend tests import. Main `57a2c39744` is reconciled without losing placement authority, one AI step or encrypted local-first finalization. [Candidate `f1159af6d8` hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38700522850) passed governance, backend, both native builds, web build and macOS performance, but failed thirteen stale unit cases and Calendar/Wallet browser fixtures. Corrections preserve exact authority and geometry assertions, restore the missing shared onboarding ripple, and batch browser measurements without raising timeouts. Original failures remain retained. The corrected candidate still requires its own green hosted run and governed dev deployment. Read-only migration checks found no relocated-ID collisions or applied checksum mismatches; Files 959 is applied and history cleanup 249 stays deferred. Shared Files owner acceptance remains unperformed. Owner images and concurrent root/ADK/PDF work remain unchanged.
+**Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
+adapter. Dev 20 therefore builds a new immutable dev image with **no supported
+upgrade predecessors**. Isolated exact-image recovery must pass before adding a
+predecessor; publishing never installs it. The documented verified-image reuse
+path can later publish qualified metadata without rebuilding that executable.
+Shared Files owner acceptance remains unperformed.
+
+**Lifecycle correction — local, not deployed:** setup, updates and rebuilds
+retain exact admitted requests and join actual workers before release. Connector
+revocation requires validated historical coverage; legacy zero counters cannot
+qualify cleanup. Unknown cloud responses remain unresolved and are never replayed. A signed,
+non-destructive compatibility preflight refuses old pod images before key erasure;
+owner approval and complete cleanup composition remain required.
+
+| Cleanup boundary | Local evidence | Remaining release condition |
+| --- | --- | --- |
+| GCP operator-project Gmail | 476 affected checks pass, including real PostgreSQL full-topic admission/acknowledgement/deletion, retained creation/IAM history and attached-identity separation. Missing-proof and dropped-history negative controls fail | Dev-only963 schema and hub must serve before new notification plans; live disposable owner cleanup still required |
+| Azure | Owner inspection, exact resource/retention approval, fresh JIT callback and journalled teardown compose locally. 358 backend and 92 UI cases pass; removing the completion gate fails its negative control. The explicit checkpoint backend preserves fresh delegated authority; default-observer substitution fails its regression control | Generated UI contracts and typecheck pass. Responsive live review, combined core/hosted validation and disposable dev cleanup remain required; no personal account deletion was attempted |
+
+Live dev's latest verified ledger (15 October,20:22 UTC) stops at959;960/961/963
+are candidate migrations; 962 is now selected for governed dev rehearsal,
+with full completion/archive guards. Provider retention is not
+immediate physical erasure. Existing owners keep resources and hosting choices.
+See the [deletion runbook](../operations/account-deletion-rollout.md).
+
+**Browser correction — local, disabled:** 22 UI cases and headless checks of the
+actual component with optimized CSS at 390/820/1440 px pass, including mouse/touch;
+owner-only viewport changes fence old coordinates and wait for a fresh painted
+frame. GCP's native worker identity and Azure's execution/private bridge remain
+unqualified. No new cloud readiness or owner installation is claimed.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |

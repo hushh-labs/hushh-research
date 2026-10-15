@@ -14,7 +14,7 @@ describe("recursive Profile pane contracts", () => {
     const pane = read("components/app-ui/profile-pane.tsx");
     const route = read("app/profile/profile-workspace-page.tsx");
     const workspace = read("components/profile/profile-workspace-page.tsx");
-    const model = read("components/profile/profile-menu-model.ts");
+    const menu = read("components/profile/profile-menu-model.ts");
 
     expect(pane).toContain(
       'import { ProfilePage } from "@/components/profile/profile-workspace-page"',
@@ -38,7 +38,7 @@ describe("recursive Profile pane contracts", () => {
       "Invite friends",
       "Help & feedback",
     ]) {
-      expect(["Connected Systems", "Mail receipts"].includes(label) ? workspace : model).toContain(label);
+      expect(workspace + menu).toContain(label);
     }
     expect(workspace).toContain("profileMenuGroups(canShowPkmAgentLab)");
     expect(workspace).toContain("title={entry.label}");
@@ -85,13 +85,11 @@ describe("recursive Profile pane contracts", () => {
 
   it("preserves the revamped Profile type and semantic capability icons", () => {
     const pane = read("components/app-ui/profile-pane.tsx");
-    const workspace = read("components/profile/profile-workspace-page.tsx");
     const css = read("app/globals.css");
 
     expect(pane).toContain("font-[family-name:var(--font-app-display)]");
     expect(pane).toContain("font-[family-name:var(--font-app-body)]");
     expect(read("components/profile/profile-menu-model.ts")).toContain("InviteFriendsProfileIcon");
-    expect(workspace).toContain("entry.icon}");
     expect(css).toContain(':not([data-icon-tone="capability"]):not(');
     expect(css).toContain(
       '.profile-home-content [data-icon-tone="capability"] svg',

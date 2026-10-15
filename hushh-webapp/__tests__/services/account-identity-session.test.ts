@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 
-const { refreshShadow } = vi.hoisted(() => ({ refreshShadow: vi.fn() }));
+const { refreshShadow, writeIdentity } = vi.hoisted(() => ({ refreshShadow: vi.fn(), writeIdentity: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { refreshAccountIdentityShadow: refreshShadow },
+}));
+vi.mock("@/lib/services/api-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/api-client")>(),
+  apiJson: writeIdentity,
 }));
 
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
@@ -12,6 +16,7 @@ import { AccountIdentityService } from "@/lib/services/account-identity-service"
 describe("account identity session admission", () => {
   beforeEach(() => {
     refreshShadow.mockReset();
+    writeIdentity.mockReset();
     AccountIdentityService.invalidateCachedIdentity("owner-a");
     AccountIdentityService.invalidateCachedIdentity("owner-b");
   });
@@ -32,6 +37,56 @@ describe("account identity session admission", () => {
       .resolves.toBeNull();
     expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
     expect(AccountIdentityService.peekCachedIdentity("owner-b")).toBeNull();
+  });
+
+  it.each([
+    { success: true, user_id: "owner-b", identity: { user_id: "owner-a", display_name: "Wrong response" } },
+    { success: true, user_id: "owner-a", identity: { user_id: "owner-b", display_name: "Wrong identity" } },
+    { success: false, user_id: "owner-a", identity: { user_id: "owner-a", display_name: "Unconfirmed" } },
+    { success: true, identity: { user_id: "owner-a", display_name: "Unknown subject" } },
+  ])("refuses an unconfirmed or mismatched name write before caching: %j", async payload => {
+    writeIdentity.mockResolvedValue(payload);
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("token-a"), reload: vi.fn() } as unknown as User;
+    await expect(AccountIdentityService.updateDisplayName(user, "Requested Name")).rejects.toThrow("verify the name change");
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+    expect(AccountIdentityService.peekCachedIdentity("owner-b")).toBeNull();
+    expect(user.reload).not.toHaveBeenCalled();
+  });
+
+  it("caches a complete name result only for the confirmed request owner", async () => {
+    const identity = { user_id: "owner-a", display_name: "Stored Name", phone_verified: true };
+    writeIdentity.mockResolvedValue({ success: true, user_id: "owner-a", identity });
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("token-a"), reload: vi.fn().mockResolvedValue(undefined) } as unknown as User;
+    await expect(AccountIdentityService.updateDisplayName(user, "Requested Name")).resolves.toEqual(identity);
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")?.data).toEqual(identity);
+    expect(AccountIdentityService.peekCachedIdentity("owner-b")).toBeNull();
+    expect(refreshShadow).not.toHaveBeenCalled();
+  });
+
+  it("returns the provider-confirmed name without caching a partial identity", async () => {
+    writeIdentity.mockResolvedValue({ success: true, user_id: "owner-a", identity: null,
+      display_name: "Committed Name", shadow_sync: "pending" });
+    refreshShadow.mockResolvedValue(new Response(null, { status: 503 }));
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("token-a"), reload: vi.fn().mockResolvedValue(undefined) } as unknown as User;
+    await expect(AccountIdentityService.updateDisplayName(user, "Requested Name"))
+      .resolves.toEqual({ user_id: "owner-a", display_name: "Committed Name" });
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+    expect(writeIdentity).toHaveBeenCalledTimes(1);
+    expect(user.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not leave an older shadow cached after a provider-committed name write", async () => {
+    writeIdentity.mockResolvedValue({ success: true, user_id: "owner-a", identity: null,
+      display_name: "Committed Name", shadow_sync: "pending" });
+    refreshShadow.mockResolvedValue(Response.json({ identity: {
+      user_id: "owner-a", display_name: "Old Shadow", phone_verified: true,
+    } }));
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("token-a"), reload: vi.fn().mockResolvedValue(undefined) } as unknown as User;
+    await expect(AccountIdentityService.updateDisplayName(user, "Requested Name"))
+      .resolves.toEqual({ user_id: "owner-a", display_name: "Committed Name" });
+    expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+    expect(refreshShadow).toHaveBeenCalledWith("token-a", { force: true, requireSuccess: true });
+    expect(writeIdentity).toHaveBeenCalledTimes(1);
   });
 
   it.each([null, {}, { phone_verified: false }])("keeps a missing or malformed identity unknown: %j", async (identity) => {

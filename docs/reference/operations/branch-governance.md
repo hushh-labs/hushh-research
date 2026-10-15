@@ -415,6 +415,7 @@ Current operating note:
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
 - the current live branch protection review-bypass allowlist is whatever `config/ci-governance.json` `main.review_bypass_users` declares (kept in sync by `scripts/ci/apply-governance.py`); do not transcribe names here — they drift
 - the current live merge-queue bypass team is `Allowed Maintainers to Approve`, whose membership equals `main.merge_queue_bypass_users`
+- An approved but inactive team invitation is reported separately, never as active authority. The live verifier permits an unrelated `pending/member` invitation only after confirming the executing operator is already an active governed member of the exact queue team. Missing/inaccessible memberships, active extra actors and all protection drift still block; a pending invitation never authorizes its recipient to operate.
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path

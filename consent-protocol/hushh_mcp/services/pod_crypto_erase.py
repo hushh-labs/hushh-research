@@ -10,7 +10,7 @@ only after the pod confirms. Nothing here authenticates a request; the route doe
 
 ORDER, AND WHY
 --------------
-1. A **tombstone** is written create-only before anything is deleted. It binds the
+1. A **tombstone** is initially written create-only before anything is deleted. It binds the
    attempt and a digest of the owner, and lists chained records and inventoried
    browser session objects (including unpublished/forgotten intents), read while
    the key could still open the log. It is the durable marker: a retry finishes from
@@ -19,7 +19,11 @@ ORDER, AND WHY
    second history that claims to be the erased agent.
    Connector grants are inventoried behind the verified fence and revocation is
    attempted before the tombstone is written. Only bounded hashed receipts survive;
-   a provider outage does not block erasure of the person's local information.
+   Internal local-only erasure can report an external provider outage separately.
+   The authenticated full-cleanup route requires qualified historical revocation
+   before writing the tombstone or destroying retry credentials.
+   Legacy provider metadata may be qualified by compare-and-swap only while the
+   original wrapped key and exactly the same fenced object inventory survive.
 2. The **wrapped data key goes first**. From that moment every sealed object is
    ciphertext nobody can open. Then the identity key, the incarnation fence, the
    chained records. Derived projection slots become public closed markers.
@@ -45,14 +49,15 @@ import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 from hushh_mcp.services.pod_commit_log import ObjectStore, PodCommitLog, object_key_segments
-from hushh_mcp.services.pod_object_version import ABSENT
+from hushh_mcp.services.pod_object_version import ABSENT, ObjectVersion
 
 #: Plaintext on purpose: it must stay readable after the key is gone. It holds an
 #: attempt id, an owner digest and object names, never content.
 ERASURE_TOMBSTONE_OBJECT = "erasure/crypto-erase.json"
+_PROVIDER_COVERAGE = "connector_history_v1"
 _TOMBSTONE_KIND = "pod_crypto_erase_v1"
 _MAX_TOMBSTONE_BYTES = 8 * 1024 * 1024
 #: Memory bookkeeping after erasure: still "erasure" (every reader refuses it, and
@@ -66,6 +71,19 @@ _ERASED_HEAD = b'{"seq":"erased","state":"erased","version":2}'
 
 class PodCryptoEraseRefused(RuntimeError):
     """The pod did not erase. Never carries storage bodies or owner identifiers."""
+
+
+class ProviderRevocationOutcome(TypedDict):
+    providerRevoked: int
+    providerUnconfirmed: int
+    providerUnavailable: int
+    providerCoverage: NotRequired[Literal["connector_history_v1"]]
+
+
+class CryptoEraseOutcome(ProviderRevocationOutcome):
+    deleted: int
+    alreadyAbsent: int
+    records: int
 
 
 def owned_objects(wrapped_key_object: str) -> tuple[str, ...]:
@@ -99,12 +117,13 @@ def _tombstone(
 ) -> bytes:
     body = {
         "kind": _TOMBSTONE_KIND,
-        "version": 3,
+        "version": 4,
         "ownerDigest": _owner_digest(owner_id),
         "attemptId": attempt_id,
         "records": record_keys,
         "browserObjects": browser_keys,
         "providerRevocations": provider_revocations,
+        "providerCoverage": _PROVIDER_COVERAGE,
     }
     raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
     if len(raw) > _MAX_TOMBSTONE_BYTES:
@@ -165,16 +184,17 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
             or set(body)
             != (
                 {"kind", "version", "ownerDigest", "attemptId", "records"}
-                | ({"browserObjects"} if body.get("version") in (2, 3) else set())
-                | ({"providerRevocations"} if body.get("version") == 3 else set())
+                | ({"browserObjects"} if body.get("version") in (2, 3, 4) else set())
+                | ({"providerRevocations"} if body.get("version") in (3, 4) else set())
+                | ({"providerCoverage"} if body.get("version") == 4 else set())
             )
             or body["kind"] != _TOMBSTONE_KIND
             or type(body["version"]) is not int
-            or body["version"] not in {1, 2, 3}
+            or body["version"] not in {1, 2, 3, 4}
             or not isinstance(body["records"], list)
             or not all(_valid_record_key(key) for key in body["records"])
             or (
-                body["version"] in {2, 3}
+                body["version"] in {2, 3, 4}
                 and (
                     not isinstance(body["browserObjects"], list)
                     or len(body["browserObjects"]) > 10000
@@ -185,7 +205,11 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
                     )
                 )
             )
-            or (body["version"] == 3 and not _valid_provider_receipts(body["providerRevocations"]))
+            or (
+                body["version"] in {3, 4}
+                and not _valid_provider_receipts(body["providerRevocations"])
+            )
+            or (body["version"] == 4 and body["providerCoverage"] != _PROVIDER_COVERAGE)
         ):
             raise ValueError("shape")
     except ValueError:
@@ -200,16 +224,23 @@ def bound_browser_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[st
     return list(json.loads(raw).get("browserObjects", []))
 
 
-def provider_revocation_counts(raw: bytes, *, owner_id: str, attempt_id: str) -> dict[str, int]:
+def provider_revocation_counts(
+    raw: bytes, *, owner_id: str, attempt_id: str
+) -> ProviderRevocationOutcome:
     """A verified tombstone's provider outcome, independently of local key erasure."""
     bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
-    receipts = json.loads(raw).get("providerRevocations")
-    if receipts is None:  # legacy erasure gives no evidence of external revocation
+    body = json.loads(raw)
+    receipts = body.get("providerRevocations")
+    if body["version"] < 4:
+        # V3 inventoried only current logins; even zero failures cannot prove
+        # that a cleared or replaced grant was revoked. Keep its raw receipt,
+        # but do not translate incomplete historical coverage into completion.
         return {"providerRevoked": 0, "providerUnconfirmed": 0, "providerUnavailable": 1}
     return {
         "providerRevoked": receipts["revoked"],
         "providerUnconfirmed": receipts["unrevoked"],
         "providerUnavailable": receipts["unavailable"],
+        "providerCoverage": "connector_history_v1",
     }
 
 
@@ -220,8 +251,10 @@ async def _claim_tombstone(
     attempt_id: str,
     open_fenced_log: Callable[[], Awaitable[PodCommitLog]],
     provider_post: Any = None,
+    require_provider_revocation: bool = False,
+    previous: tuple[bytes, ObjectVersion] | None = None,
 ) -> bytes:
-    """Write the tombstone once; a concurrent erase that won it is adopted, never raced."""
+    """Claim once, or qualify provider coverage against the same intact inventory."""
     log = await open_fenced_log()
     browser = set()
 
@@ -245,6 +278,11 @@ async def _claim_tombstone(
             raise PodCryptoEraseRefused("the browser inventory exceeds its bound")
 
     keys = await log.fold_fenced(owner_id=owner_id, attempt_id=attempt_id, visit_reverse=collect)
+    if previous is not None:
+        old_records = bound_record_keys(previous[0], owner_id=owner_id, attempt_id=attempt_id)
+        old_browser = bound_browser_keys(previous[0], owner_id=owner_id, attempt_id=attempt_id)
+        if sorted(keys) != sorted(old_records) or sorted(browser) != sorted(old_browser):
+            raise PodCryptoEraseRefused("the retained erasure inventory changed")
     from hushh_mcp.services.pod_connector_connect import revoke_fenced  # noqa: PLC0415
 
     provider_revocations = await revoke_fenced(
@@ -252,12 +290,22 @@ async def _claim_tombstone(
     )
     if not _valid_provider_receipts(provider_revocations):
         raise PodCryptoEraseRefused("the provider receipt did not verify")
+    if require_provider_revocation and (
+        provider_revocations["unrevoked"] or provider_revocations["unavailable"]
+    ):
+        # Retain the fenced encrypted history and wrapped key so an explicit
+        # full-cleanup retry can still revoke its credentials. No tombstone
+        # may strand a failed revocation behind a destroyed key.
+        raise PodCryptoEraseRefused("provider revocation needs retry before key destruction")
     tombstone = _tombstone(owner_id, attempt_id, keys, sorted(browser), provider_revocations)
-    if await store.put_if_generation(ERASURE_TOMBSTONE_OBJECT, tombstone, ABSENT) is not None:
+    expected = previous[1] if previous is not None else ABSENT
+    if await store.put_if_generation(ERASURE_TOMBSTONE_OBJECT, tombstone, expected) is not None:
         return tombstone
     winner, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
     if not isinstance(winner, bytes):
         raise PodCryptoEraseRefused("the erasure tombstone could not be confirmed")
+    if previous is not None and winner != tombstone:
+        raise PodCryptoEraseRefused("the retained provider receipt changed during recovery")
     return winner
 
 
@@ -319,14 +367,17 @@ async def crypto_erase(
     wrapped_key_object: str,
     open_fenced_log: Callable[[], Awaitable[PodCommitLog]],
     provider_post: Any = None,
-) -> dict[str, int]:
-    """Destroy the key, then the objects; idempotent per attempt. Returns counts only.
+    require_provider_revocation: bool = False,
+) -> CryptoEraseOutcome:
+    """Destroy the key, then the objects; return bounded counts and verified coverage.
 
     ``open_fenced_log`` must close admission for exactly this attempt and return the
-    pod's log; it is called only while no tombstone exists, because afterwards the
-    key it needs is gone by design.
+    pod's log. A legacy or failed provider receipt may be qualified only while
+    the original wrapped key and exact fenced inventory remain intact. No key
+    is reminted. ``require_provider_revocation`` preserves encrypted retry
+    authority when external cleanup is not yet confirmed.
     """
-    raw, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
+    raw, generation = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
     if raw is None:
         raw = await _claim_tombstone(
             store,
@@ -334,10 +385,30 @@ async def crypto_erase(
             attempt_id=attempt_id,
             open_fenced_log=open_fenced_log,
             provider_post=provider_post,
+            require_provider_revocation=require_provider_revocation,
         )
+    providers = provider_revocation_counts(raw, owner_id=owner_id, attempt_id=attempt_id)
+    if require_provider_revocation and (
+        providers["providerUnconfirmed"] or providers["providerUnavailable"]
+    ):
+        if await store.get(wrapped_key_object) is None:
+            raise PodCryptoEraseRefused("provider recovery has no retained credential key")
+        raw = await _claim_tombstone(
+            store,
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            open_fenced_log=open_fenced_log,
+            provider_post=provider_post,
+            require_provider_revocation=True,
+            previous=(raw, generation),
+        )
+        providers = provider_revocation_counts(raw, owner_id=owner_id, attempt_id=attempt_id)
+        if providers["providerUnconfirmed"] or providers["providerUnavailable"]:
+            raise PodCryptoEraseRefused(
+                "provider revocation has not been qualified for full cleanup"
+            )
     records = bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
     browser = bound_browser_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
-    providers = provider_revocation_counts(raw, owner_id=owner_id, attempt_id=attempt_id)
     targets = (*owned_objects(wrapped_key_object), *records, *browser)
     deleted = 0
     for key in targets:

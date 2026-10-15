@@ -297,12 +297,13 @@ jobs:
             # the configs and lockfile that build and run them. components/icons
             # (12 of its 14 files, reached through index barrels) and
             # lib/morphy-ux (13 primitives that import one another) are listed
-            # whole, so a new import inside either stays covered; elsewhere only
-            # the closure's own files are named. Every frontend change
-            # scheduled this lane before; this filter would have scheduled it
-            # for 78 of the 378 merged PRs that touched the frontend from
-            # 2026-10-01 to 2026-10-15, most of them through globals.css,
-            # package.json or playwright.config.ts. Guarded by
+            # whole, so a new import inside either stays covered. Elsewhere
+            # name runtime inputs only: Vite/Oxc erases explicit type imports.
+            # Keep unrelated families excluded; blanket lib/** would also
+            # mask the Morphy negative control.
+            # The original narrower filter matched 78/378 frontend PRs from
+            # 2026-10-01 to 2026-10-15; that is not this expanded filter's count.
+            # Guarded by
             # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py,
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
@@ -346,22 +347,42 @@ jobs:
               - 'hushh-webapp/components/agent/agent-message-attachments.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-editor.tsx'
               - 'hushh-webapp/components/agent/agent-text-attachment-viewer.tsx'
+              - 'hushh-webapp/components/agent/animated-menu-cross-icon.tsx'
+              - 'hushh-webapp/components/app-ui/native-chat-chrome.tsx'
+              - 'hushh-webapp/components/app-ui/native-feature-page.tsx'
+              - 'hushh-webapp/components/app-ui/shell-action-surface.tsx'
               - 'hushh-webapp/components/icons/**'
               - 'hushh-webapp/components/ui/button.tsx'
               - 'hushh-webapp/components/ui/card.tsx'
+              - 'hushh-webapp/components/ui/dialog.tsx'
               - 'hushh-webapp/components/ui/input.tsx'
               - 'hushh-webapp/components/ui/sheet.tsx'
               - 'hushh-webapp/hooks/use-mobile.ts'
               - 'hushh-webapp/lib/agent/agent-chat-transcript-scroll.ts'
               - 'hushh-webapp/lib/agent/large-text-attachment.ts'
+              - 'hushh-webapp/lib/auth/session-owner.ts'
+              - 'hushh-webapp/lib/auth/use-session-chrome-suppression.ts'
+              - 'hushh-webapp/lib/capacitor/app-haptics.ts'
+              - 'hushh-webapp/lib/capacitor/native-base-apertures.ts'
+              - 'hushh-webapp/lib/capacitor/native-chrome.ts'
               - 'hushh-webapp/lib/capacitor/native-control-appearance.ts'
+              - 'hushh-webapp/lib/capacitor/native-drawers.ts'
               - 'hushh-webapp/lib/capacitor/native-navigation.ts'
+              - 'hushh-webapp/lib/capacitor/native-navigation-scroll.ts'
+              - 'hushh-webapp/lib/capacitor/native-panel-presentation.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
               - 'hushh-webapp/lib/capacitor/session-privacy.ts'
+              - 'hushh-webapp/lib/capacitor/use-native-content-pane.ts'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-activity.tsx'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-metadata.ts'
               - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/navigation/kai-bottom-chrome-visibility.ts'
               - 'hushh-webapp/lib/theme/accent.ts'
               - 'hushh-webapp/lib/ui/button-variants.ts'
               - 'hushh-webapp/lib/utils.ts'
               - 'hushh-webapp/lib/utils/clipboard.ts'
+              - 'hushh-webapp/lib/vault/session-epoch.ts'
               - 'hushh-webapp/app/globals.css'
               - 'hushh-webapp/tailwind.config.ts'
               - 'hushh-webapp/postcss.config.mjs'

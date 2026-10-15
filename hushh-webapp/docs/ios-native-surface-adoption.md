@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-12.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-15.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,554 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+The newest entry below is current; older dated candidates are historical
+evidence, not admission or release claims for the latest implementation.
+
+### Profile return, scroll ownership and privacy recovery — 2026-10-15
+
+Release admission: ordinary Release, TestFlight and App Store builds do not set
+`HUSHH_NATIVE_SHELL_QUALIFICATION`; the non-Debug policy returns false without
+that compilation condition. Launch arguments cannot enable it in Release.
+The standard native tab bar remains independent. This isolates the experimental
+custom presentation, not shared React/navigation changes; those still require
+exact-head verification before landing. The latest integration includes main
+through `dec7043e33`, preserving the compact shared header and native draft ports
+while retaining upstream conversation-epoch guards, Calendar continuation and
+the shared Live Memory preview and upstream referral/schema corrections. The
+four-state HD mascot assets and playback safeguards are integrated without
+reintroducing the taller centered identity: shared header geometry stays 60px,
+with a 44px transparent hit region and 32px artwork beside its name/activity.
+
+The ordinary Capacitor/React renderer remains the default for custom controls.
+Development qualification uses `HUSHH_NATIVE_SHELL_QUALIFICATION` (or the
+existing Debug-only launch opt-in); neither changes React's route, draft,
+permission or operation authority. Shared frontend changes still need their
+own regression proof: the first combined-head CI at `1231e70ead` failed, despite
+its green local core. Focused fixture, uniform-row, mobile-detail/safe-area,
+optional-feedback and connector-focus corrections now pass. The repaired iOS
+test target builds at `3872060bd8`; integrated exact-head CI remains mandatory.
+The subsequent PR run at `5d50308dda` also failed. Its Feed capture, shared-pane
+markers, WebKit viewport extent and Wallet fixture regressions were corrected
+without relaxing checks. Focused browser checks pass locally; the Linux WebKit
+result must still be established by exact-head CI. Account pages now contain
+their SwiftUI bodies inside UIKit-owned page controllers, keeping Back/Close
+navigation items outside SwiftUI body ownership. Four nearest native tests pass
+at `ade38e4fb6`; local iOS 26.2 does not substitute for older-runtime CI evidence.
+Dock capability discovery also dispatches UIKit host reads to the main queue.
+The Calendar Invitations and working-presence integrations retain the shared
+composer and response-owned Retry cleanup. Main's deliberate terminal-close and
+automatic preferred-name rollback is preserved; Calendar's owner/conversation
+fences remain in place. These source integrations are not device qualification.
+No main landing or release acceptance is implied by the experimental flag.
+Custom native descriptions below refer to qualification builds, not the
+ordinary Capacitor/React default. After verified landing, complete the remaining
+nested Profile navigation and ordinary form families through the same owned
+presentation before expanding admission; Account alone does not qualify them.
+
+The core Feed scroll rehearsal passes on the signed simulator at `45de35508d`:
+three down/reverse cycles, paired displacement, unchanged WebView, keyboard
+clearance and draft continuity. It uses ordinary XCTest scrolling; the earlier
+press/drag rehearsal did not reliably reverse actual content. No product motion
+threshold changed. Core smoke repetition is separate from ten-cycle physical
+qualification and Release frame-pacing acceptance. This predates the latest
+main integration and does not qualify its installed product.
+
+| Family | Development renderer/owner | Evidence and limit |
+|---|---|---|
+| Account navigation | Retained UIKit stack with SwiftUI bodies; React operations | Existing physical Account proof below remains bounded; no whole-Profile conversion claimed. |
+| Other Profile details | Existing React body in the owned native content pane | Committed outgoing body/title are retained, inert and owner/vault-bound until native return admission. Nine-destination functional batches passed on iPhone at `bd9f375821` and simulator at `a23712046f`. |
+| Bottom navigation and dock scroll | Retained native pair; existing shared frontend scroll owner | Capability-negotiated ordered progress, bounded latest-wins delivery and acknowledged pinned fallback. Physical native pair/keyboard regressions passed at `af209c47da`; bounded simulator journey passes at `45de35508d`. Latest combined-head physical acceptance remains open. |
+| Privacy recovery | Existing native validation and presentation owners | Navigation now requests fresh permitted admission after release, including completion readback without a listener event. The regression failed without that completion path; 198 nearest navigation/chrome tests pass. This is not UIKit transition acceptance. |
+| Rich/protected forms, pagers and unqualified selectors | Existing React feature owners | Retained exceptions, not native conversion. Older wrappers, web, Android and unqualified iPad keep their established paths. |
+
+Native compositor admission can withdraw UIKit interaction independently of a
+plugin's requested state. A visible host or active scroll binding is therefore
+not touch acceptance. NativeChrome's global conceal on privacy notifications is
+a separate notification-ordering risk; fresh React projection must still pass
+current document, overlay, owner and privacy admission. Never force interaction
+or replay an uncertain choice to recover a screen.
+
+The compact launcher may have no scroll range. Scroll qualification uses actual
+Feed overflow, normal tab navigation and preserved drafts—not inserted records,
+forced progress or changed motion thresholds. Simulator background/resume passed
+two cycles, but its Control Center step did not open the system panel; the whole
+interruption check is not accepted. Physical transport and XCTest authorization
+must be distinguished from vault entry.
+
+Canonical core passed at `adeec1fb2e` in 808s, before the later privacy readmission
+changes; optional local PostgreSQL skips are not CI proof. Those later changes
+have focused tests, lint and typecheck evidence, with final core/build/device
+qualification still required. The signed UAT simulator candidate at
+`c9939989bd` has a fresh web export; the physical iPhone remains on
+`eb4774d9f1` until the next separately prepared installation. Visual, VoiceOver,
+Dynamic Type and three physical Release performance runs remain unqualified.
+Use the existing single custom-shell switch below for rollback; no new family or
+release is enabled by these receipts.
+
+### Profile transition owner and single custom-shell switch — 2026-10-15
+
+Profile's bounded Account stack now uses an owned `UINavigationController`
+containing retained SwiftUI page hosts. UIKit owns push/pop and actual completion;
+React retains route, operation and authorization ownership. Pending native
+transitions quarantine page touch/accessibility, coalesce compatible projection
+updates, and emit user Back only after a completed pop. A cancelled edge swipe
+does not emit Back. Retired controllers cannot revive presentation or callbacks.
+The drawer, WebView, private editor and session are not recreated by page Back.
+This replaces the experimental SwiftUI path binding, not the React router.
+Physical functional verification passes at `0c35f5a73a`: ten warm Account →
+Name → Cancel → Back cycles, preserved draft/single-host assertions, two
+background/resume cycles and an observed Control Center interruption with touch
+recovery. No checks were skipped. Three native regressions also pass, including
+superseded Account-pop rejection and callbacks after retirement. This is not
+whole-Profile conversion, visual/accessibility qualification or Release frame
+pacing acceptance. The installed UAT-backed Debug 1.4.0 (69) contains the full
+web export prepared at `9cabdfe234`; authored web sources are unchanged at
+`0c35f5a73a`. This includes main's latest Wallet artwork. The native executable
+SHA-256 is `79abf32ad0ad87b365040481b3b859e579908a0db0f8755c41c7bf3fdcac0776`;
+sealed-resource manifest SHA-256 is
+`0f2f2bf6b9b3d45e7ce3a812650c7009458cdb59bf2fc136e0d9055d86be444c`.
+Strict signatures, packaged assets, UAT target, typecheck, native static/Siri,
+design-system/brand checks and UI-contract validation pass. Core/exact-head CI,
+iPad and Release visual/accessibility/performance acceptance are not claimed.
+
+Keep interaction gates with their renderer. UIKit's transition flag must not be
+sampled into a SwiftUI hit-testing/accessibility modifier without observation:
+that left Account visible but inert after `didShow`. UIKit now gates transition
+touch/AX directly; SwiftUI observes only the published route-acknowledgement
+state. Actual destination and touch evidence supersede path/host receipts.
+
+The complete custom shell has one build-time kill switch:
+`NativeDrawerQualificationPolicy.customPresentationAllowed` in
+`ios/App/App/Plugins/HushhNativeDrawersPlugin.swift`. Set it to `false` and
+rebuild/reinstall to select established web controls before reveal. It gates
+bootstrap, dock, chrome, drawers and legacy Debug opt-ins together. It does not
+disable the independently owned standard `UITabBar` or switch live documents
+between renderers. `true` permits the existing qualification policy; it is not
+blanket production qualification or iPad acceptance.
+
+### Current-main sync and Account navigation investigation — 2026-10-15
+
+Merges `f7f38e6236` and `fdb43cec37` include main through `edcff65ed5`, including Wallet capture,
+Calendar availability and Chat detail presentation changes. Mobile header
+geometry and caller-sized artwork deliberately retain the reviewed compact
+shell rather than main's centered/larger variant. Web Drive details inherit
+main's side pane; the native full-page handoff retains its existing owner.
+The advisory merge checker inspected 94 files and flagged these intentional
+avatar fixture differences plus a still-used `JSONResponse` import. No semantic
+operation was removed to satisfy that text heuristic.
+
+The preceding SwiftUI Account candidate was **not accepted**. Device tests reproduced a
+projected Account path with no reachable name row, despite active drawer touch
+and no pending choice. The bounded Back presentation fix passes its physical
+native regression but did not resolve the integrated failure. Destination
+appearance diagnostics therefore remain Debug-only booleans, not private body
+logs or a new product telemetry stream. Do not enable additional families on
+the strength of those admission receipts. The retained UIKit replacement's
+bounded functional evidence is recorded above.
+
+On this merged source, typecheck and plugin parity pass. The Back run passed
+458/459 cases; its one timeout passed unchanged in isolation. Back/Search
+contracts were regenerated, and UI contract validation passes. These checks
+do not establish integrated visual, accessibility or Release performance
+acceptance. Those earlier diagnostic artifacts retained a preceding web bundle;
+the final combined artifact's provenance and bounded checks are recorded above.
+
+### Main integration and Profile escape control — 2026-10-15
+
+Merge `a2d1a7fff2` incorporates main `57a2c39744`, preserving native presentation
+and owner/revision fences. Profile's native Account stack attaches Close to its
+root and destination content, not outside `NavigationStack`. Generated Profile
+artwork now uses the shared outline registry. Typecheck, 459 Back cases, the
+focused Profile/icon/bridge checks, design-system and native-static checks pass.
+The advisory text-based merge heuristic exceeded its budget; its outcome is
+inconclusive, not a fidelity pass. Conflict resolutions were reviewed directly.
+
+The installed escape-control candidate reaches Account and the native Name form.
+Its follow-up test incorrectly counted an accessibility-hidden WebView as a lost
+host; the check now requires isolation while covered and one web workspace after
+Close. The corrected combined candidate still needs device execution. Other
+Profile destinations retain their documented handoffs; this does not qualify
+those transitions, accessibility or Release frame pacing.
+
+### Retained native Profile Account stack candidate — 2026-10-14
+
+The iPhone qualification path now projects the ordinary Account destination
+into one retained SwiftUI `NavigationStack` inside the existing Profile drawer.
+The drawer does not close or hand its Account body to React during that push/pop.
+The existing native Display name sheet retains its React validator and account
+writer. Read-only identity rows cannot emit actions. Account icons are generated
+from the same React icon exports. Photo, phone, wallet and destructive operations
+keep their existing owners; rich/protected React presentations remain explicit
+exceptions, not native-stack conversions.
+
+Native path changes are bounded presentation intents delegated to authored Back.
+Account incarnation identities fence form edits/actions across leave/return.
+Active and retiring forms quarantine underlying drawer touch, accessibility and
+queued choices until actual dismissal. Native nested Back excludes the outer
+drawer pan. No second WebView, application router or credential store is added.
+
+This is source implementation, not physical visual, accessibility or performance
+qualification. The preceding native-menu/React-detail readiness changes did not
+resolve the user's observed route flash. Do not transfer their receipts to this
+new composition or claim that the remaining React exceptions are fixed.
+
+### Menu tap acknowledgement stability — 2026-10-14
+
+Profile and One-profile roster rows no longer apply SwiftUI `disabled` to
+every row while a choice awaits bridge acknowledgement. Only authored row
+availability and actual operation-busy state change disabled appearance.
+Pending acknowledgement instead quarantines hit testing and accessibility
+interaction; the existing model/lease one-shot guards remain authoritative.
+No renderer, host, route, material or transition is replaced by this change.
+
+Product `a901ae4a9e` builds and is installed on the physical iPhone as
+UAT-backed Debug 1.4.0 (69), native-shell qualification enabled. Executable
+SHA-256: `e49d4c76a48523215d86692e352041cb828807d5036ba352749903808e47c8b8`;
+sealed-resource manifest SHA-256:
+`d16ebef5afd1f41b55c3de9a4443561ccc4a634ed54e80dbf58c1447ab075fa3`.
+Strict app/runner signatures, bundled assets, UAT target and native static/Siri
+contracts pass. Configured reviewer passphrase unlock passes without account
+or vault changes.
+
+Two focused tests pass on the physical iPhone. The new regression attaches the
+actual shared SwiftUI menu to a native window with public synthetic content,
+measures its row and enabled environment, and compares row pixels across choice
+and settlement. Duplicate choices remain rejected, the next settled action is
+accepted, and authored unavailability still reaches the rendered row. Restoring
+the old pending-disabled expressions fails specifically at the enabled-environment
+assertion. The initial offscreen pixel test was superseded because its disabled
+negative control could not distinguish states; it is not visual evidence.
+
+These receipts prove removal of tap-driven disabled-state churn and synthetic
+row-paint stability, not attribution of every reported visual artifact or full
+accessibility/Release-performance qualification. Other native Profile families
+remain at their separately documented implementation and acceptance states.
+
+### Writing Style functional candidate — 2026-10-14
+
+The complete private Writing Style sheet is implemented behind the iPhone
+qualification capability. It uses the existing React draft and encrypted
+Settings writer; native code owns its fields, finite dropdown menus, keyboard,
+scrolling and dismissal. Save stays in the editor, and closing retains the
+unsaved React draft. Other platforms and unsupported wrappers keep the existing
+inline form. Field icons are generated from the same Phosphor row exports as web.
+
+Name and Writing Style share the UIKit sheet lifetime and one active/retiring
+form registry. Retirement clears private replicas immediately and waits for owned
+menu and sheet completion. Compatible appearance updates retain open-menu choices;
+withdrawing a trigger keeps Save/swipe dismissal blocked until popup disappearance.
+The single-line editor distinguishes Return from a multiline paste.
+
+Product `779db926eb` is installed and normally launched on the physical iPhone:
+UAT-backed Debug 1.4.0 (69), native-shell qualification enabled. Executable SHA-256:
+`33d00e4d46d63c42778ad937691aae405a403f2e94dfb1a6d08e88e9fc1f7434`;
+sealed-resource manifest SHA-256:
+`b41a3723229849ada36b96c6f9140e3e5f504078147cbb1411e876b2a8237377`.
+Canonical 154-page preparation, native build, strict app/runner signatures and
+bundled UAT targets pass. Focused JS tests pass 202/202; Back/navigation behavior
+449/449; typecheck, scoped lint, UI-contract freshness and native static parity pass.
+
+Five physical native tests pass for both form models, actual sheet/opening/popup
+retirement, private clearing, one-shot Save, compatible dropdown updates and paste
+admission. The real Writing Style journey passes ten warm Close/reopen cycles,
+including native dropdown changes/restoration and two unsaved keyboard edits. It
+verifies modal isolation, restored touch, no DOM editor duplicate, one WebView and
+the unchanged Chat draft; the application PID remains unchanged through the warm
+journey. Normal configured reviewer passphrase unlock passes. No account name or
+Writing Style preference was saved.
+
+These are functional receipts, not full visual, accessibility, IME or physical
+Release-performance acceptance. Live Save round-trip remains unverified; ordinary
+Voice, Feedback, photo actions and pane tabs remain separate unfinished families.
+No current-head core, CI, merge, deployment or distribution acceptance is claimed.
+
+### First ordinary native Profile form — 2026-10-14
+
+Product source `88623a6d6c` was installed and normally launched on the physical
+iPhone: UAT-backed Debug 1.4.0 (69), native-shell qualification enabled.
+The executable SHA-256 is
+`6c875e2c6d5f2091b89b88f9330806c6222f53978f1d71c84f69f623022478ae`;
+the sealed-resource manifest SHA-256 is
+`e400a9d44a94657a9a7b4acea235e2e4364b60e34fe8fd223d77e65eab9a021d`.
+Canonical UAT preparation, full typecheck, 154-page export, pinned native
+build, strict app/runner signatures and built product/backend checks pass.
+
+Three physical native tests pass for edit acknowledgment, one-shot Save,
+private-replica clearing, restored gesture dismissal after settlement, and
+joined UIKit dismissal completion. The actual Profile → Your account →
+Display name → Edit journey also passes ten warm Cancel/reopen cycles,
+including two unsaved synthetic keyboard edits. It verifies modal isolation,
+touch recovery, no interactive DOM editor, one WebView and the unchanged Chat
+draft. Normal reviewer passphrase unlock passed; no account name was changed.
+
+This is functional qualification of the account-name scene, not completion of
+the other Profile scenes or visual/accessibility/Release-performance acceptance.
+Native bodies and editor identity survive compatible updates; superseded React
+edit echoes do not retire a valid editor. A confirmed web fallback stays the
+renderer for that editor lifetime rather than retrying native on privacy resume.
+Back/Search review receipts remain stale, the broader behavioral gate is not
+green, and no core/CI/push/deployment acceptance is claimed at this head.
+
+### Preceding physical Profile gate — 2026-10-14
+
+Product source `cd09a3779d` was installed on the iPhone as UAT-backed Debug
+1.4.0 (69), with native-shell qualification enabled. Executable SHA-256:
+`8a80b6172db382324a75f448ff1b2ac596c75c2f3c30b346f2d9d5ef4c9bdf11`.
+Sealed-resource manifest SHA-256:
+`f13bfa5316db570bb6a3219b758e931720fe802d5841564362dc92b80561ca45`.
+Strict app/runner signatures, bundled assets and UAT target were checked before
+installation; reviewer unlock used the normal process-only passphrase path.
+
+Two complete attach-only runs pass on that installed candidate:
+
+- Eight Profile destinations and their authored Back stack retain a single
+  WebView, its frame, draft and unlocked session. Profile is full-height and
+  full-width on the phone.
+- Light/Dark/System, both accents, popup cancellation and ten alternating
+  Close-edge/reopen cycles pass together; original preferences are restored.
+
+The first gate was a diagnostic/test admission gap, not evidence to remove
+interaction guards: Radix exposes an owned popup outside its hidden underlying
+Profile accessibility subtree. Tests now target the actual popup and wait for
+its real cancellation. The native active-pane diagnostic also retains the
+already-sanitized geometry required by Back admission. Neither change broadens
+operation authority.
+
+| Family | Renderer / owner | Current evidence and boundary |
+| --- | --- | --- |
+| Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
+| Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
+| Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Physical native lifecycle3/3 and actual ten-cycle edit/cancel journey pass at `88623a6d6c`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android/older wrappers retain the existing form |
+| Communication | Shared React controller and encrypted `saveOwnerStyleSettings` writer; qualification-only complete native sheet | Native lifecycle5/5 and real ten-cycle dropdown/edit/Close journey pass at `779db926eb`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android fallbacks retained |
+| Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
+| Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
+| Profile photo | `ProfileAvatarEditor` and existing camera/library/remove owners | Complete owned native action-menu adoption not qualified; no new camera or persistence owner |
+| One Feed/Profile finite tabs | Existing One profile content and local selection owner | Pane-bound native tab family not implemented; do not conflate finite local selection with route/swipe pagers |
+
+The name-controller prerequisite uses the existing authenticated service writer.
+Confirmed provider writes remain distinct from failed shadow readback; stale
+owner callbacks and older refreshes cannot replace a newer presentation draft.
+The new native name scene owns its full sheet, keyboard and dismissal above
+retained chrome. Its private name/edit replicas are memory-only; public chrome
+metadata carries neither names nor feedback. Listener admission must finish
+before a scene can be applied, and fallback requires confirmed retirement.
+Profile retirement joins the sheet's actual dismissal, including an already
+retiring sheet. Presentation-time owner revocation withdraws that exact scene.
+The Name journey was verified at `88623a6d6c`, as recorded above; the earlier
+`cd09a3779d` receipts establish only their stated preceding gates. Protected forms, rich
+content, complex multiselects and other-platform fallbacks remain unchanged.
+No merge, deploy, distribution or new family qualification follows from these
+functional receipts. Transition frames, accessibility and physical Release
+performance retain separate acceptance gates.
+
+Behavioral Location tests isolate the decorative page-entrance hook only; they
+retain operation, consent, cancellation and gesture owners and all existing
+assertions. Actual animation/scroll frames remain owned by
+`location-switch.layout.spec.ts` and `one-location-people-rows.layout.spec.ts`.
+Removing an animation from JSDOM is not physical motion acceptance or a reason
+to increase timeouts.
+
+### Historical Profile admission investigation — 2026-10-14
+
+Product source `aa4197aad3` is installed on the iPhone as UAT Debug 1.4.0 (69).
+Its executable SHA-256 is
+`c3ddc54d01414476175d2b637187e061998ed4c4a53344cb07b0b766228148ef`;
+its sealed-resource manifest SHA-256 is
+`e288442f9af6c8b115aaa06fdea5af0d260f7a561125c9637c9cb080599c391c`.
+Strict app and runner signatures, bundled assets and the UAT backend pass.
+Missing pinned framework artifacts were recovered through isolated, locked Xcode
+package resolution, without dependency upgrades or shared-cache deletion.
+The generated runner was resealed with its existing identity and entitlements
+after Xcode rebuilt its nested test bundle; both signatures were reverified.
+
+Installation/restart was explicitly authorized. Credential-free XCTest admission
+and normal process-only reviewer unlock pass. Same-run failure diagnostics show
+that an open Accent popup is the sole interaction blocker. Both public choices
+are hittable through the application accessibility root; Radix hides the underlying
+Profile subtree that the previous test queried. The test now queries the popup
+and uses its existing outside-press dismissal contract, without bypassing disabled
+Back/Close or changing operation authority.
+
+Light/Dark/System changes, both Accent choices and two cancellations complete on
+the physical product. The combined run later stops during Close with its privacy
+cover active; that interruption is not a successful combined qualification.
+A separate focused run passes all ten alternating Close-edge/reopen cycles,
+retaining one WebView, its frame and normal vault admission. Its receipts explicitly
+exclude the skipped Appearance/Accent subcases. Nested Back, visual transitions,
+accessibility and Release performance require their own evidence.
+
+The existing opt-in diagnostic now distinguishes overlay, inert ancestry,
+movement, session suppression, voice-layer blocking and document visibility with
+six booleans. Its whitelist excludes identities, private bodies and provider
+errors; it changes no permissions or operations. Native ordinary form scenes,
+support composition and pane-bound finite tabs remain unimplemented; this diagnostic
+and test repair does not qualify those families.
+
+### Profile readiness during appearance changes — 2026-10-14
+
+The shared `NativeChatChrome` adapter now reports presentation readiness after a
+matching in-place update or readmission, not only initial activation. Previously,
+an appearance change during activation could suppress the initial receipt without
+ever completing Profile's destination handoff. Readiness is emitted once for the
+current installed lease, document, owner, context and committed appearance. It is
+staging evidence, not permission to interact with a covered destination.
+
+The regression fails on the prior source and passes with the repair. All 159
+bridge cases pass, including changed-owner and dismissed-pane negative controls;
+449 Back cases, generated UI-contract checks, native static parity, typecheck,
+focused lint and design-system checks pass. Subsequent physical XCTest enters the
+test body and normal reviewer unlock succeeds. That proves automation access, not
+this readiness race as the cause of the earlier popup accessibility failure.
+Historical installed and prepared identities below are not the current candidate.
+
+Ordinary native Profile forms, support composition and finite local tabs are not
+implemented by this repair. The subsequent physical Back/Close gate is recorded
+above; it does not establish acceptance of those new families. Existing
+protected-form, rich-content and platform fallbacks remain.
+
+### Profile continuity and system-resume repair — 2026-10-14
+
+Source `c99498179e` corrects three demonstrated contract gaps: drawer admission
+now observes acknowledged privacy releases even without another native event;
+nested Back retention includes its exact content-pane identity; transient motion
+quarantine changes hit testing and accessibility, not authored disabled appearance.
+Retiring drawers remain isolation owners until their popup and host disappear.
+Profile header/body use the same responsive gutter; route Back stays inside its
+authored reading frame rather than using a negative margin.
+
+Both new bridge regressions fail against the broken source. Focused bridge,
+Profile and privacy checks pass; optimized Chromium/WebKit layout checks pass
+16/16, including the former fixed-inset negative control. Three actual native
+simulator tests pass for motion quarantine, popup retirement and Profile handoff.
+UI contract build/check, typecheck, signed iPhone build and exact local core pass
+(535 seconds). Simulator results do not qualify physical interaction or material.
+
+The built UAT qualification candidate is Debug 1.4.0 (69), executable SHA-256
+`60cacf2510aac712309adc714acabca9e2aa313589c1418eb1b875f706e9f476`.
+This product was installed after explicit one-restart approval. Normal reviewer
+passphrase unlock passed once through process-only, whole-value input. The
+attach-only run passed two background cycles with actual Profile open/close,
+retained draft and session. It then stopped before Control Center touch recovery
+because the harness did not identify the system panel. That is not a combined
+resume pass. Preferences subsequently failed with an unavailable element/snapshot;
+the still-running product was left in a detail pane without admitted Back/Close.
+A focused Control Center rerun stopped at that entry gate, not at Control Center.
+One bounded normal hardware Escape did not recover the pane. No second product
+restart, account reset or credential retry was performed.
+
+Follow-up source `cff517c134` fences retained Back replacement to the exact pane
+identity, including privacy generation. Same-pane nested navigation retains its
+host; changed panes require ordinary retirement/preparation. All 156 bridge cases
+pass; removing the fence fails the changed-pane regression. Typecheck, UI contracts
+and native static checks pass. This replacement capability is disabled in the
+installed foreground shell, so the defect is not established as that physical
+failure's cause. The existing bounded Debug probe now samples the actual pane
+Back/Close admission rather than withdrawn History. Its further candidate install
+requires separate restart approval. Canonical UAT asset preparation and the signed
+iPhone app/test build pass at this source; the uninstalled executable SHA-256 is
+`4ca913cb4d6ea2f0f8a18482078d9e7be8c550583814b2274896667dd708954e`.
+No exact follow-up core or CI result is claimed. Transition-frame, accessibility, Control Center
+and physical performance acceptance remain open; no family was newly qualified.
+
+Consumers of lifecycle state must observe authoritative validation receipts as
+well as events. Preserve generation/owner fences, require fresh admission, and
+never release the privacy cover on a presentation timeout alone. Distinguish
+semantic disabled/busy appearance from temporary touch/accessibility quarantine.
+Bounded native choice adapters exist; complex multiselects and route pagers remain
+React-owned until their complete overlapping presentation is separately qualified.
+
+### Active Profile parity correction — 2026-10-13
+
+The previously installed iPhone qualification product was `e6456b8315`, Debug 1.4.0 (69),
+UAT-backed; executable SHA-256
+`fcbb4229acf1e75e1516397392713298117a8eb0539e55766c2983b46f8be116`.
+Exact local core passed in 485 seconds. Signing and packaged assets pass.
+The iPad retains `8cdf24f098`, with executable SHA-256
+`01fb5e14afcb2bb86a523143ed5d05e939f96a7ec4396d2b5994f1dfacc8a725`.
+Its exact local core passed in 475 seconds. These supersede installed identities
+in the historical checkpoints below, not their stated verification limits.
+
+The Delete crash was an attempt to replace UIKit's alert presentation delegate.
+Owned alerts now retain UIKit's delegate and their actual dismissal completion;
+custom sheets retain the adaptive delegate. The actual alert regression passes
+and fails with the old assignment. Physical iPhone Delete confirmation/Cancel
+passes without deleting a chat.
+
+Profile Close delivered successfully but traversed to an earlier open query root.
+The shared history owner now preserves untracked in-place nested navigation.
+The iPhone Invite/Help/Privacy/Terms return sequence and final Close restore the
+same Chat host/draft; the exact core and 47 owning cases pass. Readmission alone
+was not the Close RCA. An iPad warm run reaches Preferences/Gemini/Voice,
+Security/Vault, Devices and Connectors, then stops at Referrals route admission.
+That run does not qualify its remaining destinations or final Close.
+
+The installed iPhone candidate corrects a separate pre-slide scroll jump: mounting a retained
+destination must not restore the outgoing screen's scroll or overwrite its return
+position. Restoration follows the active screen key, not retained-entry changes.
+The owning regression holds the entry frame and checks push/pop positions; the
+old dependency list fails. This is not proof of all reported physical flicker.
+
+| Family | Current renderer and operation owner | Next correction / qualification limit |
+| --- | --- | --- |
+| Profile root icons | Native templates generated from the shared React roster | Match the 28px glyph / 32px well and title column; regenerate matching-resolution assets. Actual packaged-artwork native regression passes, including accent layers. No second artwork source. |
+| Nested Account, Security, Legal, Devices, Referrals and Memory rows | Shared React content; native acknowledged Back/Close | Remove pane-only legacy glyph selections. Reuse the pane styling context and preserve capability colors/sizing. Optimized Chromium/WebKit phone/tablet geometry passes; installed iPhone functional results below are not pixel acceptance. |
+| Emoji-opened One panel | Shared hero, owner-gated name, model control and Feed/Profile body inside the owned content pane | Native Back/Close; eliminate the divergent two-row menu and tab-dependent handoff. Feed read/filter boundaries and owner isolation remain authoritative. Rich body/tabs remain React, not a qualified whole-native sliding drawer. |
+| Appearance, Accent and One/Puppy | Existing authored NativeChrome finite-choice families | Update retained presentation and existing controlled values. Moving/stacked controls remain React until their complete overlap composition is qualified. |
+| Short menus and bounded single-value/date choices | Existing owned native presenter and React validation | Single-value contract only; no production date/finite-wheel consumer is declared qualified by this audit. |
+| Searchable multiselects and Connect/Memory/Mail/Finance pagers | Existing React selection or pager owner | No array-value native contract exists. Do not map them to a single-value picker or add a second tab/router authority. Independent native adoption requires complete semantics and device evidence. |
+
+The iPhone install/restart was explicitly authorized despite its detected unsent
+draft; the safety check did not clear it. One normal passphrase unlock passed,
+followed by attach-only tests. The new iPhone passed eight Profile destinations
+from Preferences onward, nested Gemini/Voice/Vault Back, final Close and the
+shared One hero/Feed/Profile journey. The same host and draft survived.
+
+History Rename Cancel, Delete Cancel and Connectors handoff pass. Ten warm shell
+cycles pass with keyboard, One/Puppy, drawers and one retained composer. History
+Close and opener share the measured `(16,72)` leading slot and independent
+44-point hit regions. No reviewer chat was renamed, deleted or submitted.
+These are functional/geometry receipts, not transition-frame, material,
+VoiceOver/Dynamic Type or three-run physical Release performance acceptance.
+iPad installation remains session-preserving pending separate restart authority;
+its Referrals, History AX and keyboard gates remain open.
+
+### Wireless follow-up and reviewer contract corrections — 2026-10-14
+
+The iPhone service probe confirms `localNetwork`, paired, Developer Mode enabled
+and device-unlocked. Credential-free attach-only XCTest entered successfully;
+the first admission exposed the existing native editor, History and One/Puppy.
+The iPad was unavailable and was not installed or restarted. The installed iPhone
+product remains the `e6456b8315` executable above; subsequent installs updated
+only its test runner, with destination-artifact mode preserving the product.
+
+Mail's real software keyboard, bidirectional pager and Chat draft return pass.
+Connect's Circles/Connections selections and same-host/draft return pass.
+The three-test batch failed Memory's first Saved → Add swipe (two passed,
+one failed). A later bounded probe positively observed the fixed viewport
+coordinate over an interactive control; another earlier probe did not attribute
+it. Do not retroactively classify every failure as that one cause. No private
+labels, values, screenshot or result bundle were retained.
+
+The Memory rehearsal now targets the authored gap after Search Memory or Memory
+note and refuses a guarded start. The Profile preferences rehearsal now admits
+the actual native roster entry and shared React body controls, rejecting native
+Appearance/Accent duplicates instead of requiring those disabled families.
+Cancellation still must dismiss the real selection presentation; theme/accent
+restoration, 44-point targets, ten edge reopens and single-host checks remain.
+The signed runner compiles; static native parity and 86 owning Memory/pager tests
+pass. These harness corrections are not physical acceptance: the subsequent
+preferences batch had an element/snapshot interruption, and the final corrected
+Memory run stopped at `MEMORY_ENTRY_UNAVAILABLE` before the swipe. Later generic
+XCTest admission exposed no Chat controls and proves automation entry only.
+Classify this remaining navigation/admission failure before another gesture run.
+
+No product renderer, pager arbitration, vault, routing authority or release
+admission was changed. No sign-out, product restart, chat mutation, push or
+deployment occurred. Material/transition, accessibility, iPad and physical
+Release performance gates remain independently open.
+
+The following sections retain dated experimental and preparation history.
 
 ### Merged candidate and preparation authority — 2026-10-13
 
@@ -32,6 +580,56 @@ restriction below. No sign-out, account reset or backend deletion occurs.
 Subsequent acceptance runs remain attach-only. Historical installed identities
 below do not identify this new candidate; source, executable and runtime receipts
 must be recorded after its build and installation.
+
+The installed product on both devices is Debug 1.4.0 (69), UAT-backed, from
+`12180b51b5`; executable SHA-256
+`324a70d777104e90cb00e3251d05a7ffa71ac7c62d264ae92d5a62b7c9ce402b`.
+Strict signatures and 38 packaged presence/onboarding asset hashes pass. Both
+devices passed XCTest body admission and normal passphrase unlock. Core passed
+in 445 seconds at `3501811eb6`, after correcting owner-scoped message-delivery
+effect dependencies. Later runner builds do not replace that installed product.
+
+Physical results remain bounded: both outer Profile panes pass full-height
+geometry. Nine iPhone destinations and their return paths passed across focused
+runs, including Gemini, Voice and Vault methods. Referrals correctly restores
+its initiating Profile query through the existing destination-origin owner;
+One is its direct-entry fallback. Earlier detail-frame failures measured AX title
+hulls rather than pane bounds. The harness now uses fresh, document/privacy-fenced
+authored DOM bounds while retaining physical edge and control checks.
+
+The final Profile Close exposed a visible disabled native menu excluding Chat.
+Source confirms that the terminal deadline waits for readmission without sending
+a request. The new capability-negotiated NativeDrawers v1 handshake invalidates
+the original token and asks the current React owner to republish presentation.
+It never repeats Close or another operation. Requests are identity, update,
+privacy and interaction-generation fenced; duplicate/stale requests are ignored,
+and lost authority retires the presentation. These changes are not yet installed.
+The nearest web contracts pass 169 cases, including an old-listener negative
+control. Original Close-delivery cause and integrated device acceptance remain
+unverified; readmission is a liveness repair, not evidence that delivery succeeded.
+
+iPad lost its device-service tunnel after Account/Gemini. Its History AX and
+keyboard gates remain open. iPhone History geometry/Rename cancellation passed
+before the unclassified Delete-menu interruption. No result here completes ten
+integrated cycles, accessibility or physical Release performance.
+
+Nested Profile content now retains the shared `DialogOverlay` backdrop. The
+transparent rule is restricted to bounded non-pane feature pages. The optimized
+real-component fixture passes in Chromium and WebKit at phone/tablet widths;
+reinstating the old rule removes dimming/blur and restoring the fix restores
+them. Body push/pop remains owned by the existing `ProfileStackNavigator`; no
+new outer-pane animation is introduced. This correction is in the installed
+executable above.
+
+Dismissal now revokes both native header bindings immediately through `open`;
+closing DOM fallbacks are disabled while the existing pane keeps exit isolation.
+Both deferred-confirmation cases pass and fail when the former eligibility
+expressions are restored. The nearest native-chrome suite passes 152 cases.
+This fixes a stale-action window, not the still-unclassified first-tap failure.
+The Debug-only physical probe now includes bounded Back/Close choice outcomes;
+when packet space is exhausted inside a detail, it prioritizes those outcomes
+over withdrawn base-History hit geometry. No protected payload or authority is
+added to diagnostics.
 
 ### Profile content handoffs and circular controls — 2026-10-13
 
@@ -2799,8 +3397,13 @@ never convert selecting a row into an unreviewed provider write or information s
    The pilot uses `Button.buttonStyle(.glass)`, not imitation glass. Bounded,
    stationary, nonsecret segmented/date/duration selections are later candidates;
    their existing value validators remain authoritative. Scrolling, collapsing,
-   dragged or swipe-coupled chrome stays React. No `TabView`, `NavigationStack`,
-   second WebView or second router is introduced. Minimum iOS remains 17.0.
+   dragged or swipe-coupled chrome stays React. A bounded Profile presentation
+   `NavigationStack` is permitted only when it owns complete native destinations
+   inside the retained drawer, projects the existing React route state, and
+   delegates Back/operations through the existing fenced callbacks. It must not
+   wrap or reparent the existing WebView to imply native transition ownership.
+   No `TabView`, second WebView or second application router is introduced.
+   Minimum iOS remains 17.0.
 4. Each adapter needs capability detection and a DOM fallback. Keep web/Android
    unchanged, preserve unsupported iOS behavior and remove duplicate accessibility
    controls and layout reservation when native presentation is active.

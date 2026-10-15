@@ -80,6 +80,7 @@ def bind_notification_checkpoint(
         {"type": item["type"], "id": item["id"]}
         for item in plan.get("resources", [])
         if item.get("id") in mail_ids
+        or (item.get("type") == "pubsub_topic" and item.get("id") == terms.get("topic"))
     ]
     frozen_plan = {
         "oauthProject": terms.get("oauthProject"),

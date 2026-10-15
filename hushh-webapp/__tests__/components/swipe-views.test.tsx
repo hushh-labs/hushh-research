@@ -11,7 +11,7 @@ import {
   clampSwipePosition,
   measureFillViewportMinHeight,
 } from "@/lib/morphy-ux/ui/swipe-views";
-import { requestTopShellTabSelection, useTopShellTabSwipeState, setTopShellTabSwipeState, topShellTabSwipePositionVariable } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { setTopShellTabSwipeState, topShellTabSwipePositionVariable, requestTopShellTabSelection, useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,

@@ -10,6 +10,9 @@ describe("financial export policy (mirror of the server's domain_contracts)", ()
     "attr.wallet.secrets.pan",
     "attr.wallet.runtime.*",
     "attr.one_memory.*",
+    "attr.wallet.*",
+    "attr.wallet.artwork.*",
+    "attr.wallet.secrets.pan",
     "attr.one_memory.markdown",
     "attr.one_memory.markdown.text",
     "attr.financial.*",
@@ -39,6 +42,8 @@ describe("financial export policy (mirror of the server's domain_contracts)", ()
     "attr.financial.portfolio.*",
     "attr.financial.summary.*",
     "attr.identity.name",
+    "attr.wallet.summary.*",
+    "attr.wallet.secrets.*",
   ])("leaves %s exportable", (scope) => {
     expect(isPrivatePkmExportScope(scope)).toBe(false);
   });

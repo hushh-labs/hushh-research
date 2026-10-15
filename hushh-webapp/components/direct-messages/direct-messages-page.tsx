@@ -363,7 +363,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [settledSelection, setSettledSelection] = useState<string | null>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -427,6 +426,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const readScope = user && selectedRouteKey
     ? JSON.stringify([user.uid, selectedRouteKey]) : null;
   const isCurrentRead = readScope !== null && settledReadScopes.includes(readScope);
+  // Reuse the owner-bound read admission for main's loading/status UI. A
+  // second route-only completion key could re-admit another owner's thread.
+  const pendingSelection = resolvingSelection || loadingThread || (selectedRouteKey !== null && !isCurrentRead);
   const isCurrentInbox = Boolean(user && storedInbox?.ownerId === user.uid);
   const inboxItems = useMemo(() => isCurrentInbox ? storedInbox!.items : [], [isCurrentInbox, storedInbox]);
   // React can render the new owner/selection before effect cleanup runs. Keep
@@ -619,11 +621,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => cancelAnimationFrame(frame);
   }, [editingMessageId]);
 
-  const selectionKey = requestedPersonRef ? `person:${requestedPersonRef}` : requestedConversationId ? `conversation:${requestedConversationId}` : null;
-  const pendingSelection = resolvingSelection || loadingThread || (selectionKey !== null && settledSelection !== selectionKey);
   useChatAlertVisibility(lane === "people" && isCurrentRead && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
-  const canCompose = hasRouteSelection && !pendingSelection && thread.canSend;
+  const canCompose = hasRouteSelection && !pendingSelection && isCurrentRead && thread.canSend;
 
   const loadInbox = useCallback(
     async (options?: { preserveItems?: boolean }) => {
@@ -794,7 +794,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         settleReadScope(requestScope);
       } finally {
         if (generation === loadGeneration.current) {
-          setSettledSelection(requestKey);
           setLoadingThread(false);
         }
       }

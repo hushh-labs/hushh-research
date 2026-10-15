@@ -321,7 +321,7 @@ def _payload() -> dict:
     )
 
 
-@pytest.mark.parametrize("purpose", ["fence", "memory-binding"])
+@pytest.mark.parametrize("purpose", ["fence", "memory-binding", "crypto-erase-preflight"])
 async def test_only_a_crypto_erase_proof_reaches_the_storage(azure_pod, monkeypatch, purpose):
     from hushh_mcp.services import scheduler_identity
 
@@ -342,8 +342,21 @@ async def test_only_a_crypto_erase_proof_reaches_the_storage(azure_pod, monkeypa
 
 
 async def test_the_route_fences_erases_and_answers_a_retry_identically(azure_pod, monkeypatch):
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services import pod_google_oauth as oauth
+    from tests.pod_connector_harness import SCOPES, credential
+
     pod_migration, store = azure_pod
-    await _agent(store)
+    log = await _agent(store)
+    login = credential("gmail", SCOPES["gmail_manage"])
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, login))
+    status, calls = 503, []
+
+    async def provider(_url, form):
+        calls.append(form["token"])
+        return status, {}
+
+    monkeypatch.setattr(oauth, "http_post", provider)
     expected = pod_migration.erasure_proof_audience(_payload(), purpose="crypto-erase")
 
     def hub_caller(_proof, audience=None) -> None:
@@ -352,13 +365,21 @@ async def test_the_route_fences_erases_and_answers_a_retry_identically(azure_pod
 
     monkeypatch.setattr(pod_migration, "_require_hub_caller", hub_caller)
     body = pod_migration.ErasureFenceRequest(**_payload())
+    with pytest.raises(HTTPException) as provider_refused:
+        await pod_migration.crypto_erase_pod(body, "Bearer proof")
+    assert provider_refused.value.status_code == 409
+    assert await store.get(WRAPPED) == b"wrapped-dek"
+    assert await store.get(ERASURE_TOMBSTONE_OBJECT) is None
+    status = 200
     first = await pod_migration.crypto_erase_pod(body, "Bearer proof")
     assert {key: first[key] for key in ("status", "erased", "records")} == {
         "status": "erased",
         "erased": True,
-        "records": 3,
+        "records": 4,
     }
     assert {key: first[key] for key in _payload()} == _payload()
+    assert first["providerRevoked"] == 1
+    assert calls == [login.refresh_token, login.refresh_token]
     assert await store.get(WRAPPED) is None
     assert await store.get(MEMORY_BANK_RECORD_KEY) == ERASED_MEMORY_RECORD
     with pytest.raises(PodLogFenced):  # the fence the route closed is still closed
@@ -422,6 +443,42 @@ async def test_browser_erasure_inventory_cannot_delete_an_arbitrary_object(store
     assert await store.get(ERASURE_TOMBSTONE_OBJECT) is None
 
 
+@pytest.mark.parametrize(
+    ("newest_status", "older_status", "confirmed"),
+    [(400, 200, True), (400, 503, False), (503, 400, False), (400, 400, True)],
+)
+async def test_erasure_retries_cleared_and_superseded_grants_without_false_confirmation(
+    store, newest_status, older_status, confirmed
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services.pod_connector_connect import revoke_fenced
+    from tests.pod_connector_harness import SCOPES, credential
+
+    log = await _agent(store)
+    older = credential("gmail", SCOPES["gmail_manage"])
+    newest = replace(older, refresh_token="fixture-superseded-refresh")  # noqa: S106 - synthetic
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, older))
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, newest))
+    await log.append(credentials.CLEARED_KIND, {"hushh_id": OWNER, "connectorId": "gmail"})
+    fenced = await _fencer(log)()
+    calls = []
+
+    async def provider(_url, form):
+        calls.append(form["token"])
+        status = newest_status if form["token"] == newest.refresh_token else older_status
+        return status, {"error": "invalid_token"} if status == 400 else {}
+
+    outcome = await revoke_fenced(
+        fenced, owner_id=OWNER, attempt_id=ATTEMPT, hushh_id=OWNER, post=provider
+    )
+    assert calls == [newest.refresh_token, older.refresh_token]
+    assert outcome["revoked"] == int(confirmed)
+    assert outcome["unrevoked"] == int(not confirmed)
+    assert outcome["unavailable"] == 0
+
+
 @pytest.mark.parametrize("provider_status", [200, 503])
 async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_copies(
     store, monkeypatch, provider_status
@@ -457,9 +514,11 @@ async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_
     assert counts["providerRevoked"] == int(provider_status == 200)
     assert counts["providerUnconfirmed"] == int(provider_status != 200)
     assert counts["providerUnavailable"] == 0
+    assert counts["providerCoverage"] == "connector_history_v1"
     raw = await store.get(ERASURE_TOMBSTONE_OBJECT)
     body = json.loads(raw)
-    assert body["version"] == 3
+    assert body["version"] == 4
+    assert body["providerCoverage"] == "connector_history_v1"
     assert len(body["providerRevocations"]["receipts"]) == 1
     for private_value in (gmail.refresh_token, gmail.account_subject, gmail.client_id):
         assert private_value.encode() not in raw
@@ -477,7 +536,84 @@ async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_
     }
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("condition", ["intact", "key_missing", "inventory_changed", "replaced"])
+async def test_legacy_provider_retry_requires_the_original_key_inventory_and_generation(
+    store, condition
+):
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services.pod_crypto_erase import _tombstone
+    from tests.pod_connector_harness import SCOPES, credential
+
+    log = await _agent(store)
+    login = credential("gmail", SCOPES["gmail_manage"])
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, login))
+    await _fencer(log)()
+    records = await log.fold_fenced(
+        owner_id=OWNER, attempt_id=ATTEMPT, visit_reverse=lambda _: None
+    )
+    body = json.loads(
+        _tombstone(
+            OWNER,
+            ATTEMPT,
+            records,
+            [],
+            {"revoked": 0, "unrevoked": 0, "unavailable": 1, "receipts": []},
+        )
+    )
+    body["version"] = 3
+    body.pop("providerCoverage")
+    if condition == "inventory_changed":
+        body["records"] = []
+    if condition == "key_missing":
+        await store.delete(WRAPPED)
+    original = json.dumps(body).encode()
+    await store.put(ERASURE_TOMBSTONE_OBJECT, original)
+    calls = []
+
+    async def provider(_url, form):
+        calls.append(form["token"])
+        return 200, {}
+
+    class Replaced(_Recording):
+        async def put_if_generation(self, key, value, generation):
+            if key != ERASURE_TOMBSTONE_OBJECT:
+                return await self._inner.put_if_generation(key, value, generation)
+            assert key == ERASURE_TOMBSTONE_OBJECT and generation != ABSENT
+            replacement = {**json.loads(value), "records": []}
+            assert (
+                await self._inner.put_if_generation(
+                    key, json.dumps(replacement).encode(), generation
+                )
+                is not None
+            )
+            return None
+
+    selected = Replaced(store) if condition == "replaced" else store
+    options = dict(
+        store=selected,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_never if condition == "key_missing" else _fencer(log),
+        provider_post=provider,
+        require_provider_revocation=True,
+    )
+    if condition != "intact":
+        with pytest.raises(PodCryptoEraseRefused):
+            await crypto_erase(**options)
+        assert await store.get(WRAPPED) == (None if condition == "key_missing" else b"wrapped-dek")
+        assert calls == ([login.refresh_token] if condition == "replaced" else [])
+        if condition != "replaced":
+            assert await store.get(ERASURE_TOMBSTONE_OBJECT) == original
+        return
+    result = await crypto_erase(**options)
+    assert result["providerRevoked"] == 1 and result["providerUnavailable"] == 0
+    qualified = json.loads(await store.get(ERASURE_TOMBSTONE_OBJECT))
+    assert qualified["version"] == 4 and qualified["records"] == records
+    assert await store.get(WRAPPED) is None
+
+
+@pytest.mark.parametrize("version", [1, 2, 3])
 async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_completion(
     store, version
 ):
@@ -490,8 +626,15 @@ async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_compl
         "attemptId": ATTEMPT,
         "records": [],
     }
-    if version == 2:
+    if version >= 2:
         body["browserObjects"] = []
+    if version == 3:
+        body["providerRevocations"] = {
+            "revoked": 0,
+            "unrevoked": 0,
+            "unavailable": 0,
+            "receipts": [],
+        }
     await store.put(ERASURE_TOMBSTONE_OBJECT, json.dumps(body).encode())
     counts = await crypto_erase(
         store=store,
@@ -501,6 +644,7 @@ async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_compl
         open_fenced_log=_never,
     )
     assert counts["providerUnavailable"] == 1 and counts["providerRevoked"] == 0
+    assert "providerCoverage" not in counts
 
 
 @pytest.mark.parametrize(
@@ -547,3 +691,37 @@ async def test_provider_tombstone_receipts_are_strictly_bounded_metadata(store, 
             open_fenced_log=_never,
         )
     assert await store.get(WRAPPED) == b"existing-key"
+
+
+@pytest.mark.parametrize("purpose", ["crypto-erase-preflight", "crypto-erase"])
+async def test_erasure_preflight_is_authenticated_and_never_opens_the_vault(
+    azure_pod, monkeypatch, purpose
+):
+    from hushh_mcp.services import scheduler_identity
+
+    pod_migration, store = azure_pod
+    await _agent(store)
+    expected = pod_migration.erasure_proof_audience(_payload(), purpose=purpose)
+
+    def verify(**kwargs):
+        if kwargs["audience"] != expected:
+            raise scheduler_identity.SchedulerIdentityError("refused")
+
+    monkeypatch.setattr(scheduler_identity, "verify_scheduler_request", verify)
+
+    def forbidden():
+        raise AssertionError("preflight must not open or fence private state")
+
+    monkeypatch.setattr(pod_migration, "_commit_log", forbidden)
+    body = pod_migration.ErasureFenceRequest(**_payload())
+    if purpose == "crypto-erase":
+        with pytest.raises(HTTPException) as error:
+            await pod_migration.crypto_erase_preflight(body, "Bearer proof")
+        assert error.value.status_code == 403
+    else:
+        assert await pod_migration.crypto_erase_preflight(body, "Bearer proof") == {
+            "status": "ready",
+            "providerCoverage": "connector_history_v1",
+            **_payload(),
+        }
+    assert await store.get(WRAPPED) == b"wrapped-dek"

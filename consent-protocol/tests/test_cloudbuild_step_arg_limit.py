@@ -75,7 +75,9 @@ REQUIRED_HEADROOM = 500
 
 CLOUDBUILD_CONFIGS = [
     "deploy/backend.cloudbuild.yaml",
+    "deploy/backend-image.cloudbuild.yaml",
     "deploy/frontend.cloudbuild.yaml",
+    "deploy/frontend-image.cloudbuild.yaml",
     "deploy/dev.autodeploy.backend.cloudbuild.yaml",
     "deploy/ci.cloudbuild.yaml",
 ]
@@ -103,6 +105,25 @@ def _load(config_path: str) -> dict | None:
     if not path.exists():  # a lane may not define every config
         return None
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _assert_no_substitutions_in_options(config: dict) -> None:
+    misplaced = [key for key in config.get("options", {}) if key.startswith("_")]
+    assert not misplaced, f"User substitutions belong under substitutions, not options: {misplaced}"
+
+
+@pytest.mark.parametrize("config_path", CLOUDBUILD_CONFIGS)
+def test_user_substitutions_are_not_cloud_build_options(config_path: str) -> None:
+    config = _load(config_path)
+    assert config is not None, f"Missing authored Cloud Build config: {config_path}"
+    _assert_no_substitutions_in_options(config)
+
+
+@pytest.mark.parametrize("name", ["_WORKOS_SSO_ENABLED", "_WORKOS_REDIRECT_URI"])
+def test_misplaced_optional_defaults_are_refused(name: str) -> None:
+    _assert_no_substitutions_in_options({"substitutions": {name: ""}})
+    with pytest.raises(AssertionError, match="not options"):
+        _assert_no_substitutions_in_options({"options": {name: ""}})
 
 
 def _backend_deploy_fields() -> list[tuple[str, str]]:

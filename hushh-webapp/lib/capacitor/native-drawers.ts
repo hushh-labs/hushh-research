@@ -1,5 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
+import type { NativeProfileStyleScenePort } from "./native-profile-style-scene";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
  * process-local replicas of the existing feature owner, not another store. */
@@ -16,10 +18,14 @@ export type NativeDrawerRow = {
   destructive?: boolean;
   selected?: boolean;
   pending?: boolean;
+  readOnly?: boolean;
+  artworkId?: string;
   renameActionId?: string;
   deleteActionId?: string;
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
+/** Bounded native destinations, not URLs or another routing authority. */
+export type NativeProfilePage = { id: "account"; title: string; sections: readonly NativeDrawerSection[] };
 export type NativeDrawerIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -39,6 +45,8 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   loading?: boolean;
   /** Negotiated Profile drawer lifetime, not menu/body visibility. */
   surfaceOpen?: boolean;
+  profileStack?: readonly NativeProfilePage[];
+  profileDestinationId?: string;
 };
 export type NativeDrawerReceipt = NativeDrawerIdentity & {
   updateSequence: number;
@@ -55,14 +63,28 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
   text?: string;
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
+export type NativeDrawerReadmission = NativeDrawerIdentity & {
+  updateSequence: number; privacyGeneration: number; interactionGeneration: number;
+};
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; agentProfileMenu?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean }>;
+  applyProfileNameScene?(options: Parameters<NativeProfileNameScenePort["applyProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["applyProfileNameScene"]>;
+  confirmProfileNameAction?(options: Parameters<NativeProfileNameScenePort["confirmProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["confirmProfileNameAction"]>;
+  settleProfileNameAction?(options: Parameters<NativeProfileNameScenePort["settleProfileNameAction"]>[0]): ReturnType<NativeProfileNameScenePort["settleProfileNameAction"]>;
+  retireProfileNameScene?(options: Parameters<NativeProfileNameScenePort["retireProfileNameScene"]>[0]): ReturnType<NativeProfileNameScenePort["retireProfileNameScene"]>;
+  applyProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["applyProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["applyProfileStyleScene"]>;
+  confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
+  settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
+  retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
+  addListener: NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & {
+    (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
+    (eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
+    (eventName: "readmissionRequested", listener: (event: NativeDrawerReadmission) => void): Promise<PluginListenerHandle>;
+  };
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
   retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
-  addListener(eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
 }
 let nativeDrawersPlugin: HushhNativeDrawersPlugin | undefined;
 export function nativeDrawers(): HushhNativeDrawersPlugin {
@@ -151,7 +173,7 @@ function closedShape(value: object, keys: readonly string[]): boolean {
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile", "agent-profile"].includes(value.family) ||
@@ -164,17 +186,23 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       !validText(value.title, 256) || !Array.isArray(value.sections) || value.sections.length > 32) return false;
   const ids = new Set<string>();
   let rows = 0;
-  for (const section of value.sections) {
+  if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
+      value.profileStack.length > 1 || value.profileStack.some(page => !page || !closedShape(page, ["id", "title", "sections"]) ||
+        page.id !== "account" || !validText(page.title, 256) || !Array.isArray(page.sections) || page.sections.length > 32) ||
+      value.profileStack.length > 0 && (!value.backEnabled || !validIdentifier(value.profileDestinationId)))) return false;
+  if (value.profileDestinationId !== undefined && (!value.profileStack?.length || !validIdentifier(value.profileDestinationId))) return false;
+  for (const section of [...value.sections, ...(value.profileStack?.flatMap(page => page.sections) ?? [])]) {
     if (!section || !closedShape(section, ["id", "title", "rows"]) || !validIdentifier(section.id) || ids.has(section.id) ||
         (section.title !== undefined && !validText(section.title, 256)) ||
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
-          [row.destructive, row.selected, row.pending, row.chevron].some(item => item !== undefined && typeof item !== "boolean") ||
+          [row.destructive, row.selected, row.pending, row.chevron, row.readOnly].some(item => item !== undefined && typeof item !== "boolean") ||
+          (row.artworkId !== undefined && !validIdentifier(row.artworkId)) ||
           (row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex)) ||
           (row.trailing !== undefined && !validText(row.trailing, 32))) return false;
       ids.add(row.id);
@@ -188,6 +216,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
   return true;
 }
 
+export function activeNativeDrawerSections(state: NativeDrawerProjection): readonly NativeDrawerSection[] {
+  return state.profileStack?.at(-1)?.sections ?? state.sections;
+}
+
 export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: NativeDrawerProjection): boolean {
   if (!choice || !sameNativeDrawer(choice, state) || !validSequence(choice.sequence) || !validSequence(choice.interactionGeneration) ||
       choice.updateSequence !== state.updateSequence || choice.privacyGeneration !== state.privacyGeneration ||
@@ -198,7 +230,7 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (choice.action === "close") return choice.rowId === undefined;
   if (choice.action === "back") return state.backEnabled && choice.rowId === undefined;
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
-  return state.sections.some(section => section.rows.some(row => row.enabled && !row.pending &&
+  return activeNativeDrawerSections(state).some(section => section.rows.some(row => row.enabled && !row.readOnly && !row.pending &&
     (row.renameActionId === choice.rowId ? typeof choice.text === "string" && choice.text.trim().length > 0 && choice.text.length <= 160 :
       (row.id === choice.rowId || row.deleteActionId === choice.rowId) && choice.text === undefined)));
 }

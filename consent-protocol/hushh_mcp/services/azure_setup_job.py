@@ -14,15 +14,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Awaitable, Callable, Optional
 
 from hushh_mcp.services.azure_agent_setup import AzureSetupResult, run_agent_setup
 from hushh_mcp.services.azure_agent_upgrade import REVISION_FAILED_MESSAGE
 from hushh_mcp.services.azure_arm_client import ArmError
+from hushh_mcp.services.azure_arm_mutations import ArmMutationJournal
 from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
 from hushh_mcp.services.azure_entra_authorizer import AzureAuthorizeError
 from hushh_mcp.services.azure_federation import AzureFederationError
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+from hushh_mcp.services.azure_setup_authority import azure_setup_authority
+from hushh_mcp.services.azure_setup_plan import PlanInputs
+from hushh_mcp.services.azure_setup_worker import AzureSetupCancelled, run_setup_thread
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
 from hushh_mcp.services.compute_backend import PodSpec
 
@@ -123,6 +128,15 @@ async def _guarded(
     try:
         await work()
         await jobs.finish(user_id=user_id, job_id=job_id, status="recorded")
+    except AzureSetupCancelled:
+        await _finish_failed(
+            jobs,
+            user_id=user_id,
+            job_id=job_id,
+            code="SETUP_INTERRUPTED",
+            message="Cloud setup stopped. Existing resources are kept for reconciliation.",
+        )
+        raise
     except JobSuperseded:
         logger.info("azure_setup_job.superseded user=%s job=%s", user_id, job_id)
     except _TYPED as exc:
@@ -156,6 +170,44 @@ def _stage_writer(jobs: Any, *, user_id: str, job_id: str) -> Callable[[str], No
     return advance
 
 
+def _setup_boundary(
+    jobs: Any, *, user_id: str, job_id: str
+) -> tuple[Callable[[PlanInputs], None], Callable[[], None]]:
+    """Thread bridge to existing durable admission; no credentials in either callback."""
+    loop = asyncio.get_running_loop()
+
+    def bind(inputs: PlanInputs) -> None:
+        intent = {
+            "version": 1,
+            "jobId": job_id,
+            "hushhId": inputs.hushh_id,
+            "tenantId": inputs.tenant_id,
+            "subscriptionId": inputs.subscription_id,
+            "resourceGroup": inputs.resource_group,
+            "location": inputs.location,
+            "setupNonce": inputs.nonce,
+        }
+        retained = asyncio.run_coroutine_threadsafe(
+            jobs.retain_azure_setup_intent(user_id=user_id, job_id=job_id, intent=intent), loop
+        ).result(timeout=30)
+        if retained is not True:
+            raise AzureSetupRefused(
+                "Cloud setup stopped before creating more resources.", code="SETUP_FENCED"
+            )
+
+    def guard() -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                jobs.assert_azure_worker_admitted(user_id=user_id, job_id=job_id), loop
+            ).result(timeout=30)
+        except JobSuperseded as exc:
+            raise AzureSetupRefused(
+                "Cloud setup stopped before creating more resources.", code="SETUP_FENCED"
+            ) from exc
+
+    return bind, guard
+
+
 async def run_azure_setup_job(
     *,
     user_id: str,
@@ -171,6 +223,9 @@ async def run_azure_setup_job(
     publish: Callable[..., Awaitable[None]] = record_proven_azure_cloud,
     on_recorded: Optional[Callable[[], Awaitable[None]]] = None,
     note_offer: Optional[Callable[..., Awaitable[Any]]] = None,
+    authority_factory: Callable[
+        ..., AbstractAsyncContextManager[ArmMutationJournal]
+    ] = azure_setup_authority,
 ) -> None:
     """``note_offer`` (``azure_subscription_offer``) records a free trial; best effort."""
     jobs = repo or ByocSetupJobRepo()
@@ -185,16 +240,21 @@ async def run_azure_setup_job(
                 subscription_id=subscription_id,
             )
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
-        result = await asyncio.to_thread(
-            setup,
-            access_token=access_token,
-            tenant_id=tenant_id,
-            subscription_id=subscription_id,
-            location=location,
-            spec=spec,
-            source_image=source_image,
-            advance=advance,
-        )
+        bind_setup, guard = _setup_boundary(jobs, user_id=user_id, job_id=job_id)
+        async with authority_factory(owner=user_id, job=job_id) as authority:
+            result = await run_setup_thread(
+                setup,
+                access_token=access_token,
+                tenant_id=tenant_id,
+                subscription_id=subscription_id,
+                location=location,
+                spec=spec,
+                source_image=source_image,
+                advance=advance,
+                bind_setup=bind_setup,
+                guard=guard,
+                mutations=authority,
+            )
         await publish(
             jobs,
             user_id=user_id,
@@ -230,13 +290,14 @@ async def run_azure_upgrade_job(
     resume_files_job: dict | None = None,
 ) -> None:
     """The approved update under the person's JIT token, through the orchestrator."""
+    from hushh_mcp.services.azure_hosted_authority import hosted_job
     from hushh_mcp.services.user_azure_backend import jit_person_authority  # noqa: PLC0415
 
     jobs = repo or ByocSetupJobRepo()
 
     async def work() -> None:
         await jobs.advance(user_id=user_id, job_id=job_id, stage="importing_image")
-        with jit_person_authority(access_token):
+        with jit_person_authority(access_token), hosted_job(owner=user_id, job=job_id):
             outcome = await upgrade(
                 user_id=user_id,
                 current_image=target_image,
@@ -287,10 +348,12 @@ async def run_azure_rebuild_job(
     access_token: str,
     spec: PodSpec,
     source_image: str,
+    intent: dict,
     publish: Callable[[], Awaitable[None]],
     on_recorded: Optional[Callable[[], Awaitable[Any]]] = None,
     repo: Optional[ByocSetupJobRepo] = None,
     setup: Callable[..., AzureSetupResult] = run_agent_setup,
+    authority_factory: Callable[..., AbstractAsyncContextManager[Any]] = azure_setup_authority,
 ) -> None:
     """Rebuild after Azure removed the hosting space: setup in adopt mode, then adopt.
 
@@ -302,17 +365,45 @@ async def run_azure_rebuild_job(
 
     async def work() -> None:
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
-        await asyncio.to_thread(
-            setup,
-            access_token=access_token,
-            tenant_id=str(spec.user_cloud_tenant_id or ""),
-            subscription_id=str(spec.user_cloud_subscription_id or ""),
-            location=str(spec.user_cloud_region or ""),
-            spec=spec,
-            source_image=source_image,
-            advance=advance,
-            adopt=True,
-        )
+
+        def bind_setup(inputs: PlanInputs) -> None:
+            observed = (
+                inputs.hushh_id,
+                inputs.tenant_id,
+                inputs.subscription_id,
+                inputs.resource_group,
+                inputs.location,
+                inputs.nonce,
+            )
+            expected = tuple(
+                intent.get(k)
+                for k in (
+                    "hushhId",
+                    "tenantId",
+                    "subscriptionId",
+                    "resourceGroup",
+                    "location",
+                    "setupNonce",
+                )
+            )
+            if observed != expected:
+                raise AzureSetupRefused("Rebuild custody changed.", code="SETUP_FENCED")
+
+        async with authority_factory(owner=user_id, job=job_id, hosted_intent=intent) as authority:
+            await run_setup_thread(
+                setup,
+                access_token=access_token,
+                tenant_id=str(spec.user_cloud_tenant_id or ""),
+                subscription_id=str(spec.user_cloud_subscription_id or ""),
+                location=str(spec.user_cloud_region or ""),
+                spec=spec,
+                source_image=source_image,
+                advance=advance,
+                adopt=True,
+                bind_setup=bind_setup,
+                guard=authority.assert_admitted,
+                mutations=authority,
+            )
         await publish()
         if on_recorded is not None:
             await on_recorded()

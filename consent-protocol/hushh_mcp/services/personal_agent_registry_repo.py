@@ -318,7 +318,8 @@ class PersonalAgentRegistryRepo:
         try:
             result = await asyncio.to_thread(
                 self._db().execute_raw,
-                "SELECT public.notification_checkpoint_admission_ready() AS ready",
+                "SELECT public.notification_checkpoint_admission_ready() "
+                "AND public.operator_notification_custody_ready() AS ready",
                 {},
             )
             return bool(result.data and result.data[0].get("ready") is True)
@@ -440,14 +441,39 @@ class PersonalAgentRegistryRepo:
         self, *, user_id: str, reservation: dict
     ) -> bool:
         """Before anything irreversible: can this attempt's receipt be retained at all?"""
+        # Read-only schema acceptance probe, never retained as erasure evidence.
+        # Old validators must refuse BEFORE the pod destroys a key, not afterwards.
+        probe = {
+            "agentErased": {
+                "status": "erased",
+                "erased": True,
+                "hushhId": reservation.get("hushhId"),
+                "attemptId": reservation.get("attemptId"),
+                "service": "schema-probe",
+                "revision": "schema-probe",
+                "serviceUid": (
+                    reservation.get("registrySnapshot", {}).get("backend_metadata") or {}
+                ).get("serviceUid"),
+                "deleted": 0,
+                "alreadyAbsent": 0,
+                "records": 0,
+                "providerRevoked": 0,
+                "providerUnconfirmed": 0,
+                "providerUnavailable": 1,
+                "providerCoverage": "connector_history_v1",
+            },
+            "resume": {"setupNonce": "0" * 16},
+        }
         response = await asyncio.to_thread(
             self._db().execute_raw,
             "SELECT public.verify_erasure_owner_access_preflight(:owner, :attempt, "
-            "CAST(:expected AS jsonb)) AS verified",
+            "CAST(:expected AS jsonb)) AND public.valid_erasure_owner_access_checkpoint("
+            "CAST(:expected AS jsonb), CAST(:probe AS jsonb)) AS verified",
             {
                 "owner": user_id,
                 "attempt": reservation["attemptId"],
                 "expected": json.dumps(reservation),
+                "probe": json.dumps(probe),
             },
         )
         return bool(response.data and response.data[0].get("verified") is True)

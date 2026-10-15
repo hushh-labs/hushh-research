@@ -98,6 +98,45 @@ async def test_a_refused_drain_changes_nothing(arm):  # noqa: F811 - shared fixt
     assert _Handoff.events[-1][0] == "release"
 
 
+async def test_cancelled_upgrade_joins_its_real_worker_and_fences_new_writes(
+    arm,  # noqa: F811 - shared fixture
+    monkeypatch,
+):
+    import asyncio
+    from threading import Event
+
+    from hushh_mcp.services.azure_setup_worker import AzureSetupCancelled
+
+    backend = _backend(arm)
+    entered, settle = Event(), Event()
+
+    class WaitingHandoff(_Handoff):
+        def prepare_and_wait(self, *, guard=None, **_):
+            entered.set()
+            if not settle.wait(5):
+                raise TimeoutError("synthetic handoff did not settle")
+            if guard is not None:
+                guard()
+            return {"activeWork": 0}
+
+    monkeypatch.setattr(pod_upgrade_handoff, "PodUpgradeHandoffClient", WaitingHandoff)
+    spec = _upgrade_spec(arm, backend, [], upgrade_operation_id="op-cancel")
+    with jit_person_authority("person-jit-token"):
+        task = asyncio.create_task(backend.upgrade(spec))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert not task.done(), "the admission permit cannot outlive its actual worker"
+    finally:
+        settle.set()
+        with pytest.raises(AzureSetupCancelled):
+            await task
+    assert arm.writes() == []
+    assert _Handoff.events[-1][0] == "release"
+
+
 async def test_a_failed_import_releases_the_drained_agent(arm):  # noqa: F811 - shared fixture
     backend = _backend(arm)
     arm.fail(

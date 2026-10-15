@@ -419,8 +419,16 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var profileBackAdmissionTimer: Timer?
     private var profileBackAdmissionInFlight = false
     private var historyChoiceStage = "none"
+    private var profileChoiceStages = [String: String]()
+    private var profileTapCounts = [String: Int]()
+    private func observeProfileChoice(_ id: String, stage: String) {
+        guard id == "profile-back" || id == "profile-close" else { return }
+        profileChoiceStages[id] = stage
+        if stage == "tap" { profileTapCounts[id] = min(1_000_000, (profileTapCounts[id] ?? 0) + 1) }
+    }
     private var historyTapCount = 0
     private var historyEvidenceSequence = 0
+    private var profileSampleSequence = 0
     private var diagnosticsEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") || NativeDrawerQualificationPolicy.coherentShell
     }
@@ -510,6 +518,43 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func currentHistoryHitEvidence(_ cached: String?) -> String {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         guard privacy.appIsActive, !privacy.shielded else { return "hActive=0" }
+        if compositor?.contentPane != nil {
+            // Observe the current plane, not withdrawn base History. This
+            // fixed-role packet cannot grant admission or contain body text.
+            func bit(_ value: Bool) -> String { value ? "1" : "0" }
+            let native = [("profile-back", "pb"), ("profile-close", "pc")].map { id, prefix in
+                guard let slot = slots[id], let evidence = compositor?.controlHitEvidence(id) else {
+                    return "\(prefix)Available=0"
+                }
+                return "\(prefix)Available=1;\(prefix)Layout=\(bit(slot.layoutConfirmed));\(prefix)Enabled=\(bit(slot.presentation?.enabled == true));\(prefix)Privacy=\(bit(slot.contentPane?.privacyGeneration == privacy.generation));\(prefix)Pane=\(bit(slot.contentPane == compositor?.contentPane));\(prefix)Admitted=\(bit(evidence.admitted));\(prefix)Allowed=\(bit(evidence.allowed));\(prefix)Isolated=\(bit(evidence.isolated));\(prefix)Hidden=\(bit(evidence.hidden));\(prefix)TouchBlocked=\(bit(evidence.touchBlocked));\(prefix)AXHidden=\(bit(evidence.axHidden));\(prefix)Hit=\(evidence.windowHits.first?.rawValue ?? "none")"
+            }.joined(separator: ";")
+            let publicFields = (cached ?? "").split(separator: ";").filter {
+                $0.hasPrefix("stage=") || $0.hasPrefix("outcome=") || $0.hasPrefix("code=") ||
+                $0.hasPrefix("paneReady=") || $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profilePaneLevel=") ||
+                $0.hasPrefix("profileBackChoice=") || $0.hasPrefix("profileBackAllowed=") ||
+                $0.hasPrefix("profileCloseChoice=") || $0.hasPrefix("profileCloseAllowed=") ||
+                $0.hasPrefix("profileClosePresent=") || $0.hasPrefix("paneSample=") ||
+                $0.hasPrefix("paneX=") || $0.hasPrefix("paneY=") ||
+                $0.hasPrefix("paneWidth=") || $0.hasPrefix("paneHeight=")
+            }.joined(separator: ";")
+            let trace = [("profile-back", "pb"), ("profile-close", "pc")].map { id, prefix in
+                "\(prefix)Tap=\(profileTapCounts[id] ?? 0);\(prefix)Stage=\(profileChoiceStages[id] ?? "none")"
+            }.joined(separator: ";")
+            let packet = [publicFields, native, trace].filter { !$0.isEmpty }.joined(separator: ";")
+            return packet.utf8.count <= 1024 ? packet : "pbAvailable=0;pcAvailable=0"
+        }
+        if Thread.isMainThread {
+            let diagnostic: String? = MainActor.assumeIsolated {
+                guard let profile = bridge?.viewController?.children.compactMap({ $0 as? NativeDrawerPresentationController })
+                    .first(where: { $0.model.projection.family == "profile" && $0.model.projection.open &&
+                        $0.model.projection.documentId == document && $0.model.projection.privacyGeneration == privacy.generation }) else { return nil }
+                let publicFields = (cached ?? "").split(separator: ";").filter {
+                    $0.hasPrefix("profileQueryOpen=") || $0.hasPrefix("profileHistoryDepth=") || $0.hasPrefix("profilePaneLevel=")
+                }.joined(separator: ";")
+                return [profile.closeDiagnostic, publicFields].filter { !$0.isEmpty }.joined(separator: ";")
+            }
+            if let diagnostic { return diagnostic }
+        }
         historyEvidenceSequence = historyEvidenceSequence % 1_000_000 + 1
         guard let slot = slots["chat-history-toggle"], let evidence = compositor?.controlHitEvidence("chat-history-toggle") else {
             return "hActive=1;hSeq=\(historyEvidenceSequence);hAvailable=0"
@@ -524,7 +569,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         let combined = [cached, native].compactMap { $0 }.joined(separator: ";")
         // Preserve the existing packet bound; native evidence is authoritative
         // when the older asynchronous WebKit diagnostics do not fit alongside it.
-        return combined.utf8.count <= 1024 ? combined : native
+        if combined.utf8.count <= 1024 { return combined }
+        // The owned detail plane is the current action surface. Preserve its
+        // bounded rejection outcomes, not withdrawn base-History geometry.
+        // This observation never grants authority.
+        if compositor?.contentPane != nil, let cached, cached.utf8.count <= 1024 { return cached }
+        return native
     }
 
     /// Read only the authored diagnostic/slot, including while a native menu
@@ -532,7 +582,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func sampleProfileBackAdmission() {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         profileBackAdmission?.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
-        guard privacy.appIsActive, !privacy.shielded, !profileBackAdmissionInFlight, let web = bridge?.webView else { return }
+        guard privacy.appIsActive, !privacy.shielded, !profileBackAdmissionInFlight,
+              let sampledDocument = document, let web = bridge?.webView else { return }
         profileBackAdmissionInFlight = true
         web.evaluateJavaScript("""
         (() => {
@@ -541,13 +592,27 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
           let state = {};
           try { if (status?.textContent.startsWith('NATIVE_SELECTOR_STATUS ')) state = JSON.parse(status.textContent.slice(23)); } catch (_) {}
           const rect = slot?.getBoundingClientRect();
+          const pane = slot?.closest('[data-native-feature-pane="profile"]');
+          const paneRect = pane?.getBoundingClientRect();
           const historySlot = document.querySelector('[data-native-chrome-slot="chat-history-toggle"]');
           const historyStatus = document.getElementById('native-control-status-chat-history-toggle');
+          const closeSlot = document.querySelector('[data-native-chrome-slot="profile-close"]');
+          const closeStatus = document.getElementById('native-control-status-profile-close');
           let history = {};
+          let close = {};
           try { if (historyStatus?.textContent.startsWith('NATIVE_SELECTOR_STATUS ')) history = JSON.parse(historyStatus.textContent.slice(23)); } catch (_) {}
+          try { if (closeStatus?.textContent.startsWith('NATIVE_SELECTOR_STATUS ')) close = JSON.parse(closeStatus.textContent.slice(23)); } catch (_) {}
           return JSON.stringify({stage: state.stage, outcome: state.outcome, code: state.code,
             present: !!slot, focused: !!slot?.contains(document.activeElement), inert: !!slot?.closest('[inert]'),
             width: rect?.width ?? 0, height: rect?.height ?? 0, top: rect?.top ?? 0,
+            paneReady: pane?.dataset.nativePaneReady === 'true', paneX: paneRect?.left ?? 0,
+            paneY: paneRect?.top ?? 0, paneWidth: paneRect?.width ?? 0, paneHeight: paneRect?.height ?? 0,
+            profileBackChoice: state.choice, profileBackAllowed: state.allowed === true,
+            profileCloseChoice: close.choice, profileCloseAllowed: close.allowed === true,
+            profileClosePresent: !!closeSlot, profileCloseInert: !!closeSlot?.closest('[inert]'),
+            profileQueryOpen: new URLSearchParams(location.search).get('profile_pane') === '1',
+            profilePaneLevel: new URLSearchParams(location.search).has('profile_detail') ? 2 : new URLSearchParams(location.search).has('profile_panel') ? 1 : 0,
+            profileHistoryDepth: Number.isSafeInteger(window.history.state?.__hushhProfilePane?.depth) ? window.history.state.__hushhProfilePane.depth : 0,
             historyStage: history.stage, historyOutcome: history.outcome, historyCode: history.code, historyChoice: history.choice,
             historyAllowed: history.allowed === true, historyPresent: !!historySlot, historyInert: !!historySlot?.closest('[inert]')});
         })()
@@ -557,7 +622,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard let raw = result as? String, raw.utf8.count <= 1024,
                   let bytes = raw.data(using: .utf8), let packet = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return }
             let current = HushhSessionPrivacyShield.shared.snapshot()
-            guard current.appIsActive, !current.shielded, current.generation == privacy.generation else { return }
+            guard current.appIsActive, !current.shielded, current.generation == privacy.generation,
+                  self.document == sampledDocument,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(sampledDocument) else { return }
+            self.profileSampleSequence = self.profileSampleSequence % 1_000_000 + 1
             func choice(_ key: String, _ allowed: [String]) -> String {
                 guard let value = packet[key] as? String, allowed.contains(value) else { return "none" }
                 return value
@@ -578,7 +646,23 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             let historyCode = choice("historyCode", ["none", "other", "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_RETIRE_STALE", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"])
             let historyChoice = choice("historyChoice", ["applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
                 "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"])
-            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage);historyTaps=\(self.historyTapCount)")
+            let outcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
+                "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
+            let profileChoices = "profileBackChoice=\(choice("profileBackChoice", outcomes));profileBackAllowed=\(packet["profileBackAllowed"] as? Bool == true);profileCloseChoice=\(choice("profileCloseChoice", outcomes));profileCloseAllowed=\(packet["profileCloseAllowed"] as? Bool == true);profileClosePresent=\(packet["profileClosePresent"] as? Bool == true);profileCloseInert=\(packet["profileCloseInert"] as? Bool == true)"
+            let profileHistory = "profileQueryOpen=\(packet["profileQueryOpen"] as? Bool == true);profileHistoryDepth=\(dimension("profileHistoryDepth"));profilePaneLevel=\(dimension("profilePaneLevel"))"
+            let paneGeometry = "paneSample=\(self.profileSampleSequence);paneReady=\(packet["paneReady"] as? Bool == true);paneX=\(dimension("paneX"));paneY=\(dimension("paneY"));paneWidth=\(dimension("paneWidth"));paneHeight=\(dimension("paneHeight"))"
+            if packet["paneReady"] as? Bool == true {
+                // Active details need their own fresh DOM paint bounds. WebKit
+                // projects title hulls, not the dialog's CSS rectangle. Keep
+                // this public packet bounded and exclude withdrawn History.
+                self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));\(profileChoices);\(paneGeometry);\(profileHistory)")
+                return
+            }
+            if packet["profileQueryOpen"] as? Bool == true {
+                self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));\(profileChoices);\(profileHistory)")
+                return
+            }
+            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage);historyTaps=\(self.historyTapCount);\(profileChoices)")
         }
     }
     #endif
@@ -636,7 +720,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "fullAccentTrigger": !contentBacked && self?.chatControlsAdmitted == true,
                           "retainedControls": self?.chatControlsAdmitted == true,
                           "backReplacement": self?.backAdmitted == true,
-                          "profileBackReplacement": !contentBacked && self?.chatControlsAdmitted == true,
+                          "profileBackReplacement": families.contains("profile-back"),
                           "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
@@ -981,11 +1065,16 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func prepareReplacement(_ call: CAPPluginCall, kind: String, controlId: String) {
         DispatchQueue.main.async { [weak self] in
+            let pane = self?.readContentPane(call.getObject("contentPane"))
             guard let self, #available(iOS 26.0, *), self.admits(kind, controlId: controlId),
                   let identity = self.identity(call), identity.controlId == controlId,
                   call.getString("kind") == kind, call.getBool("enabled") == true,
                   let previousRevision = call.getInt("previousRevision"),
                   let slot = self.slots[identity.controlId], slot.kind == kind,
+                  slot.contentPane == pane,
+                  call.getObject("contentPane") == nil ||
+                    (pane?.document == identity.document && kind == "profile-back" &&
+                     pane.map { self.compositor?.contentPaneAdmits($0) == true } == true),
                   slot.pendingLayout == nil, slot.pendingFocus == nil, slot.presenter == nil,
                   let hosting = slot.hosting, !hosting.view.isHidden,
                   hosting.view.superview != nil, hosting.parent === self.bridge?.viewController,
@@ -1239,6 +1328,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             #if DEBUG
             if call.getString("controlId") == "chat-history-toggle" { self.historyChoiceStage = valid ? "confirmed" : "confirmation-refused" }
+            if let id = call.getString("controlId") { self.observeProfileChoice(id, stage: valid ? "confirmed" : "confirmation-refused") }
             #endif
             call.resolve(["valid": valid])
         }
@@ -1430,12 +1520,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func activateControl(_ controlId: String) {
         #if DEBUG
         if controlId == "chat-history-toggle" { historyChoiceStage = "tap"; historyTapCount = min(1_000_000, historyTapCount + 1) }
+        observeProfileChoice(controlId, stage: "tap")
         #endif
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
               slot.state.phase == "active", presentation.enabled, canPresent, controlPlaneAllows(slot),
               geometryIsCurrent(slot), panelIsSettled(slot) else {
             #if DEBUG
             if controlId == "chat-history-toggle" { historyChoiceStage = "refused" }
+            observeProfileChoice(controlId, stage: "refused")
             #endif
             return
         }
@@ -1501,6 +1593,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         notifyListeners("choiceRequested", data: event)
         #if DEBUG
         if controlId == "chat-history-toggle" { historyChoiceStage = "emitted" }
+        observeProfileChoice(controlId, stage: "emitted")
         #endif
     }
     private func invalidatePresentation(conceal: Bool = false) {
