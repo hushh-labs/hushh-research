@@ -116,13 +116,13 @@ without offering the action; a second silent turn is a real failure.
 
 ## Read-only guard exemptions
 
-A rehearsal explicitly authorized to process source text without saving it can
-pass `allowMemoryPreparation: true` to the canonical harness. This permits only
-`POST /api/pkm/memory/proposals` on that harness's exact application origin.
-Saving, consent mutations, and Chat-history writes remain blocked. The harness
-awaits guard installation before navigation. This mode still sends submitted
-text through the application's provider-processing boundary; it does not make
-preparation on-device-only. Retain only counts and sanitized outcome codes.
+Explicit preparation uses `allowMemoryPreparation: true` for
+`POST /api/pkm/memory/proposals` at the exact application origin. Private owners
+may add `admitOwnerPodMemoryPreparation` under the signed endpoint/current-lease
+[BYOK contract](byok-reviewer-browser-contract.md). Other cross-origin writes,
+saves, consent mutations and Chat history remain blocked. Install the guard before
+navigation. Submitted text follows the configured provider-processing boundary;
+preparation is not on-device-only. Retain counts and sanitized outcome codes only.
 
 The guard exempts `identitytoolkit.googleapis.com` and
 `securetoken.googleapis.com` (the reviewer login handshake: custom-token sign-in,

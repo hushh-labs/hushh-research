@@ -5,6 +5,63 @@ import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {
+  it.each(["truthy", "throw"])("rejects unverifiable private preparation admission (%s)", async failure => {
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: true,
+      admitOwnerPodMemoryPreparation: () => {
+        if (failure === "throw") throw new Error("private-sentinel");
+        return "approved";
+      },
+    });
+    const route = { request: () => ({ url: () => "https://owner-pod.example/api/one/pod/memory/proposals",
+      method: () => "POST", isNavigationRequest: () => false }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    expect(JSON.stringify(route.fulfill.mock.calls)).not.toContain("private-sentinel");
+  });
+  it("retains private preparation admission under shared-mutation authorization", async () => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn(() => false);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: true,
+      admitOwnerPodMemoryPreparation: admission,
+    });
+    const route = { request: () => ({ url: () => "https://owner-pod.example/api/one/pod/memory/proposals",
+      method: () => "POST", isNavigationRequest: () => false }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(admission).toHaveBeenCalledOnce();
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
+  it.each([
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", true, false, true, true],
+    ["https://other-pod.example/api/one/pod/memory/proposals", "POST", true, false, false, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", false, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", true, true, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals?account=other", "POST", true, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "DELETE", true, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/revoke", "POST", true, false, true, false],
+    ["https://owner-pod.example/api/scope-commerce/purchases", "POST", true, false, true, false],
+  ])("keeps private preparation behind endpoint and owner admission (%s %s)", async (url, method, enabled, navigation, ownerCurrent, allowed) => {
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn((request: { url: () => string }) =>
+      ownerCurrent && new URL(request.url()).origin === "https://owner-pod.example");
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: enabled,
+      admitOwnerPodMemoryPreparation: admission,
+    });
+    const route = { request: () => ({ url: () => url, method: () => method, isNavigationRequest: () => navigation }),
+      continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    if (!enabled || navigation || method !== "POST" || new URL(url).search || !url.endsWith("/memory/proposals"))
+      expect(admission).not.toHaveBeenCalled();
+  });
   it.each([
     [true, "https://login.microsoftonline.com/common/Consent/Set", true, true, true],
     [true, "https://login.microsoftonline.com/common/Consent/Set", false, true, false],

@@ -77,13 +77,15 @@ function requestPathname(request) {
 export async function installReadOnlyMutationGuard(context, {
   appOrigin,
   allowMemoryPreparation = false,
+  admitOwnerPodMemoryPreparation = null,
   admitMutation = null,
   admitProviderOAuth = null,
   reviewerAuthMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE),
 } = {}) {
   const blockedMutations = [];
   let suppressedAnalytics = 0;
-  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation && !admitProviderOAuth) {
+  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation &&
+      !admitProviderOAuth && !admitOwnerPodMemoryPreparation) {
     return {
       assertNoBlockedMutation() {},
       policy: "explicit_mutation_authorized",
@@ -134,6 +136,25 @@ export async function installReadOnlyMutationGuard(context, {
       method === "POST" &&
       PREPARATION_SAFE_BOOTSTRAP_POST_PATHS.has(pathname) &&
       new URL(request.url()).origin === appOrigin;
+    // Private owners prepare in their signed, owner-bound pod, never the hub.
+    // The caller verifies that endpoint and the current owner lease; this
+    // callback filters one preparation request and grants no pod authority.
+    const target = new URL(request.url());
+    if (allowMemoryPreparation && admitOwnerPodMemoryPreparation &&
+        method === "POST" && target.protocol === "https:" &&
+        target.origin !== appOrigin && !target.username && !target.password &&
+        !target.search && !target.hash &&
+        pathname === "/api/one/pod/memory/proposals" &&
+        !request.isNavigationRequest()) {
+      try {
+        if (await admitOwnerPodMemoryPreparation(request) === true) {
+          await route.continue();
+          return;
+        }
+      } catch {
+        // Retain the normal sanitized refusal below, including failed receipts.
+      }
+    }
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
       (method === "POST" && READ_ONLY_SAFE_POST_PATHS.has(pathname)
@@ -229,6 +250,7 @@ export async function createReviewerSessionHarness({
   appOrigin = "https://uat.one.hushh.ai",
   timeoutMs = 360_000,
   allowMemoryPreparation = false,
+  admitOwnerPodMemoryPreparation = null,
   admitMutation = null,
   admitProviderOAuth = null,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
@@ -443,7 +465,7 @@ export async function createReviewerSessionHarness({
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
       try {
-        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
+        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitOwnerPodMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
         const capture = attachMemoryOnlyCapture(page);
         await installBridge(page, { includePassphrase: requireVaultUnlocked });
         if (onPageCreated) await onPageCreated(page);
@@ -480,7 +502,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, operatorIssued ? 180_000 : 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
+    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitOwnerPodMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do
@@ -554,6 +576,7 @@ export async function createReviewerSessionHarness({
   return {
     attachExistingSession: createExistingReviewerAttachment({
       humanAuthenticated, appOrigin: normalizedOrigin, reviewerUid, timeoutMs,
+      allowMemoryPreparation, admitOwnerPodMemoryPreparation,
       admitMutation, admitProviderOAuth, installReadOnlyMutationGuard,
       attachMemoryOnlyCapture, assertVaultContinuity, navigateInApp,
     }),

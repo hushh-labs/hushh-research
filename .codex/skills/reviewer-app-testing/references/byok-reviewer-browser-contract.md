@@ -56,6 +56,19 @@ installed before the first navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
+Private Memory preparation may opt into `admitOwnerPodMemoryPreparation` together
+with `allowMemoryPreparation`. This filters only non-navigation HTTPS
+`POST /api/one/pod/memory/proposals`, without URL credentials, query or fragment.
+Before accepting, the caller must discover the endpoint through the current
+owner's authenticated hub API and verify it with the canonical `verifyHubSignature`.
+Freeze the owner/environment/key/version/URL tuple and revalidate it before
+forwarding; endpoint rotation or owner/vault retirement refuses the request.
+Bind the request to the reviewed synthetic message, expected owner and body
+contract. Keep discovery, signatures, tokens and source information in memory.
+This filter supplies no pod-session authority and admits no enrollment, renewal,
+encrypted save, consent or payment. Existing owner-session attachment checks its
+lease before and after the asynchronous callback.
+
 An explicitly authorized owner-cloud rehearsal may supply `admitProviderOAuth`
 with `admitMutation`. This opt-in admits only reviewed POST document navigation
 in the top frame at exact Microsoft sign-in origins; the callback must approve
