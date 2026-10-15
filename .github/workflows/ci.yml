@@ -5,12 +5,20 @@ on:
     branches: ["**"]
   workflow_dispatch:
     inputs:
+      # `auto` runs the lanes the dispatched branch's changes against the
+      # default branch select, through the same path filters a pull request
+      # uses. The default used to be `all`, which put iOS on one of the org's
+      # five macOS slots on every dispatch: one 30-minute dispatch loop made 59
+      # of the 77 runs dispatched from 2026-10-07 to 2026-10-15. `frontend`
+      # and `backend` are diagnostic only: CI Status Gate fails them, so a
+      # partial run can never stand in for a full one.
       scope:
-        description: "Run frontend only, backend only, or all"
+        description: "auto (lanes from changed paths), all, or a diagnostic-only frontend/backend subset"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - frontend
           - backend
           - all
@@ -107,7 +115,11 @@ jobs:
 
   dco-check:
     name: "DCO"
-    if: github.event_name == 'pull_request'
+    # Dispatched runs too: their CI Status Gate lands on the branch head, so
+    # the gate requires DCO on both events. Without a PR range,
+    # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
+    # the branch's own commits.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -129,12 +141,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Through env, not inline: a head ref is chosen by whoever opens the PR,
+      # and an inline expression is pasted into the script before bash parses it.
       - name: Verify PR target branch policy
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           python3 scripts/ci/verify-pr-base-policy.py \
-            --base-ref "${{ github.event.pull_request.base.ref }}" \
-            --head-ref "${{ github.event.pull_request.head.ref }}" \
-            --actor "${{ github.event.pull_request.user.login }}"
+            --base-ref "$PR_BASE_REF" \
+            --head-ref "$PR_HEAD_REF" \
+            --actor "$PR_AUTHOR"
 
   repo-governance:
     name: "Governance"
@@ -175,13 +193,27 @@ jobs:
       backend: ${{ steps.resolve.outputs.backend }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
+      editor: ${{ steps.resolve.outputs.editor }}
     steps:
       - uses: actions/checkout@v6
 
+      # A dispatch with scope `auto` runs these same filters. paths-filter v4
+      # has no pull request to ask the API about then, so it diffs `ref`
+      # against its merge-base with `base` (git three-dot), deepening the
+      # shallow clone until it finds one. `ref` is the dispatched commit, not
+      # the branch name, so a branch that moves mid-run cannot select lanes for
+      # a commit this run does not test. Both are passed only on dispatch,
+      # because v4 ignores them on a pull_request event and warns on every run.
+      # The default branch has no branch diff, so `auto` there runs `all`.
       - uses: dorny/paths-filter@v4
         id: filter
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: >-
+          github.event_name == 'pull_request' || github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
+          github.ref_name != github.event.repository.default_branch)
         with:
+          base: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || '' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -212,6 +244,8 @@ jobs:
               - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
+              # The protocol lane's guard pins it to the editor lane's steps.
+              - '.github/workflows/editor-performance-nightly.yml'
               - 'scripts/ci/**'
               - '!scripts/ci/web-*.sh'
             ios:
@@ -250,29 +284,85 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
+            # The macOS editor latency lane (web-editor-performance-check):
+            # npm run test:layout-editor-performance, i.e. one spec whose
+            # beforeAll bundles one fixture with vite and compiles
+            # app/globals.css with Tailwind. These are that spec's and that
+            # fixture's transitive imports, the files they read from disk, and
+            # the configs and lockfile that build and run them. components/icons
+            # (12 of its 14 files, reached through index barrels) and
+            # lib/morphy-ux (13 primitives that import one another) are listed
+            # whole, so a new import inside either stays covered; elsewhere only
+            # the closure's own files are named. Every frontend change
+            # scheduled this lane before; this filter would have scheduled it
+            # for 78 of the 378 merged PRs that touched the frontend from
+            # 2026-10-01 to 2026-10-15, most of them through globals.css,
+            # package.json or playwright.config.ts. Guarded by
+            # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py,
+            # and .github/workflows/editor-performance-nightly.yml runs the lane
+            # on main every night.
+            editor:
+              - 'hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts'
+              - 'hushh-webapp/e2e/fixtures/text-attachment-viewer.tsx'
+              - 'hushh-webapp/e2e/fixtures/product-font.ts'
+              - 'hushh-webapp/e2e/tsconfig.json'
+              - 'hushh-webapp/public/fonts/PlusJakartaSans/**'
+              - 'hushh-webapp/components/agent/agent-message-attachments.tsx'
+              - 'hushh-webapp/components/agent/agent-text-attachment-editor.tsx'
+              - 'hushh-webapp/components/agent/agent-text-attachment-viewer.tsx'
+              - 'hushh-webapp/components/icons/**'
+              - 'hushh-webapp/components/ui/button.tsx'
+              - 'hushh-webapp/components/ui/card.tsx'
+              - 'hushh-webapp/components/ui/input.tsx'
+              - 'hushh-webapp/components/ui/sheet.tsx'
+              - 'hushh-webapp/hooks/use-mobile.ts'
+              - 'hushh-webapp/lib/agent/agent-chat-transcript-scroll.ts'
+              - 'hushh-webapp/lib/agent/large-text-attachment.ts'
+              - 'hushh-webapp/lib/capacitor/native-control-appearance.ts'
+              - 'hushh-webapp/lib/capacitor/native-navigation.ts'
+              - 'hushh-webapp/lib/capacitor/session-privacy.ts'
+              - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/theme/accent.ts'
+              - 'hushh-webapp/lib/ui/button-variants.ts'
+              - 'hushh-webapp/lib/utils.ts'
+              - 'hushh-webapp/lib/utils/clipboard.ts'
+              - 'hushh-webapp/app/globals.css'
+              - 'hushh-webapp/tailwind.config.ts'
+              - 'hushh-webapp/postcss.config.mjs'
+              - 'hushh-webapp/playwright.config.ts'
+              - 'hushh-webapp/tsconfig.json'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              - '.github/workflows/ci.yml'
 
+      # The dispatches the filter above did not resolve: an explicit scope, or
+      # `auto` on the default branch. `editor` follows `frontend`.
       - id: override
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
+        env:
+          SCOPE: ${{ inputs.scope }}
         run: |
-          scope="${{ github.event.inputs.scope }}"
-          case "$scope" in
-            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
-            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
+          case "$SCOPE" in
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; echo "editor=true" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT"; echo "editor=false" >> "$GITHUB_OUTPUT" ;;
+            all|auto) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; echo "editor=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown dispatch scope '$SCOPE'." >&2; exit 1 ;;
           esac
 
       - id: resolve
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ steps.override.outcome }}" = "success" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
+            echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
+            echo "editor=${{ steps.filter.outputs.editor }}" >> "$GITHUB_OUTPUT"
           fi
         if: always()
 
@@ -314,6 +404,7 @@ jobs:
       backend: ${{ needs.paths.outputs.backend }}
       ios: ${{ needs.paths.outputs.ios }}
       android: ${{ needs.paths.outputs.android }}
+      editor: ${{ needs.paths.outputs.editor }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -554,12 +645,18 @@ jobs:
   # native 100 KB textarea takes longer than our editor on the same runner,
   # so absolute key-to-paint latency is verified on macOS, the closer Safari
   # environment. Keep the 50 ms p95 / 120 ms max contract and both engines.
+  #
+  # Scheduled by the `editor` path filter, not by every frontend change. It
+  # took one of the org's five macOS slots on every frontend run while the
+  # files it builds changed in about one frontend PR in five. When the filter
+  # matches, CI Status Gate requires this lane to succeed, and
+  # editor-performance-nightly.yml runs it on main every night.
   web-editor-performance-check:
     name: "Web Editor Performance (macOS)"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true')
+      (needs['preflight-gate'].outputs.editor == 'true')
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -1223,6 +1320,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
 
+  # The one required check. GitHub counts a skipped or neutral required check
+  # as passing, so this gate must never pass on a lane that did not run when
+  # it should have: every lane its path filter (or a dispatch scope) selects
+  # must report `success`, and so must the authority checks that have no path
+  # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
+  # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
     name: "CI Status Gate"
     needs:
@@ -1249,6 +1352,9 @@ jobs:
     steps:
       - name: Validate job outcomes
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
@@ -1303,8 +1409,8 @@ jobs:
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
-            echo "Changed frontend sources require a successful macOS editor performance run."
+          if [ "${{ needs.paths.outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
+            echo "Changed editor sources require a successful macOS editor performance run."
             fail=1
           fi
           if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
@@ -1313,6 +1419,50 @@ jobs:
           fi
           if [ "${{ needs.paths.outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
             echo "Changed Android sources require a successful native compile and unit run."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
+            echo "Changed backend sources require a successful protocol check."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
+            echo "Changed backend sources require a successful MCP package check."
+            fail=1
+          fi
+          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
+            echo "Changed frontend or backend sources require a successful integration check."
+            fail=1
+          fi
+          # An output that is neither true nor false selected nothing above, so
+          # every lane it should have required would pass unrun. That is a
+          # broken paths job, never a skip.
+          for lane in "frontend=${{ needs.paths.outputs.frontend }}" "backend=${{ needs.paths.outputs.backend }}" "ios=${{ needs.paths.outputs.ios }}" "android=${{ needs.paths.outputs.android }}" "editor=${{ needs.paths.outputs.editor }}"; do
+            case "${lane#*=}" in
+              true|false) ;;
+              *) echo "Path filter output ${lane%%=*} is '${lane#*=}', not true or false."; fail=1 ;;
+            esac
+          done
+          # These run on every event with no path filter, so skipped is never
+          # legitimate. DCO runs on dispatch too: a dispatched gate lands on a
+          # branch head just as a pull request's does.
+          for check in "secret-scan=$SECRET_SCAN" "repo-governance=$REPO_GOVERNANCE" "paths=$PATHS" "preflight-gate=$PREFLIGHT" "dco-check=$DCO"; do
+            if [ "${check#*=}" != "success" ]; then
+              echo "${check%%=*} must succeed on every run; it reported ${check#*=}."
+              fail=1
+            fi
+          done
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$PR_BASE_POLICY" != "success" ]; then
+              echo "A pull request requires a successful PR Base Policy check."
+              fail=1
+            fi
+            # The freshness job runs only for these bases; elsewhere its skip is legitimate.
+            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
+              echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
+              fail=1
+            fi
+          elif [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
             fail=1
           fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
@@ -1327,3 +1477,59 @@ jobs:
             exit 1
           fi
           echo "All required CI jobs passed or were intentionally skipped."
+
+      # A dispatched run reports this check on the branch head. When that commit
+      # also heads an open pull request, the newest CI Status Gate on it is the
+      # one branch protection reads, so a green dispatch used to overwrite a red
+      # pull_request verdict. A dispatch skips PR Base Policy and Base Freshness
+      # Gate and tests the head tree, not the merge with the base, so it must
+      # never pass there. The lookup lists the open pull requests into each base
+      # that requires this check and matches their head SHA. commits/{sha}/pulls
+      # cannot stand in: for a commit already on main it returns only the merged
+      # pull request that introduced it, so it missed open #4268 into
+      # integration/pr-train, whose head a6bb87e88e is on main and for which
+      # `auto` selects no lane. On 2026-10-15 that was 16 pages (1430 open into
+      # integration/pr-train, 100 into main), about 20 seconds, on dispatches
+      # only. A failed lookup fails closed. A branch with no such pull request
+      # keeps a usable gate, which is how deploy-dev.yml
+      # (require-deploy-sha-on-main.sh) accepts a branch SHA.
+      - name: Refuse a dispatch that cannot stand in for pull request checks
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          set -euo pipefail
+          fail=0
+          case "$SCOPE" in
+            auto|all) ;;
+            frontend|backend)
+              echo "::error::Scope '${SCOPE}' runs a subset of the lanes, so it is diagnostic only. Dispatch with scope auto or all for a verdict."
+              fail=1
+              ;;
+            *)
+              echo "::error::Unknown dispatch scope '${SCOPE}'."
+              fail=1
+              ;;
+          esac
+          heads=""
+          for base in main integration/pr-train; do
+            if ! listed="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=${base}&per_page=100" \
+              --jq '.[] | select(.head.sha == $ENV.HEAD_SHA) | "#\(.number) into \(.base.ref)"')"; then
+              echo "::error::Could not list the open pull requests into ${base}, so this run cannot prove ${HEAD_SHA} heads none of them."
+              fail=1
+            elif [ -n "$listed" ]; then
+              heads="${heads:+${heads} }$(printf '%s' "$listed" | tr '\n' ' ')"
+            fi
+          done
+          if [ -n "$heads" ]; then
+            echo "::error::${HEAD_SHA} heads open pull request ${heads}. A dispatched run skips PR Base Policy and Base Freshness Gate and tests the head instead of the merge with the base, so it cannot stand in for that pull request's checks. Re-run the pull request's own PR Validation run (event pull_request) to restore its gate."
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "Dispatch scope ${SCOPE} ran every selected lane, and ${HEAD_SHA} heads no open pull request into main or integration/pr-train."

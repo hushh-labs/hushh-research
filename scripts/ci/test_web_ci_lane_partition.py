@@ -6,8 +6,9 @@ PR Validation runs two web lanes as matrices to shorten the critical path:
 * ``Web Targeted Contracts`` as a ``node`` leg and three native Playwright
   browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency as a required macOS browser job, outside Linux's
-  software-rendered WebKit layout pack.
+* 100 KB editor latency as a macOS browser job, outside Linux's
+  software-rendered WebKit layout pack, scheduled and required whenever the
+  ``editor`` path filter matches.
 
 A split is only safe while it is a partition: every matched pack runs in exactly
 one leg, the legs together run what a single ``all`` run does, every shard of
