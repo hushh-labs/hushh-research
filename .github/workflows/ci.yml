@@ -1282,7 +1282,22 @@ jobs:
           MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
           MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
-        run: sh scripts/git/check-main-sync.sh
+          # Read the script from github.sha, the tree this workflow definition
+          # comes from, not from the head checkout above, so the mode set here
+          # and the script that reads it always match. A head cut before the
+          # script learned a mode runs its own older copy: on 2026-10-15 every
+          # PR branched before bounded mode landed (ae479af9f1) failed here
+          # with "Unsupported MAIN_SYNC_MODE 'bounded'" (run 38659836145).
+          MAIN_SYNC_SCRIPT_SHA: ${{ github.sha }}
+        run: |
+          if ! git cat-file -e "$MAIN_SYNC_SCRIPT_SHA^{commit}" 2>/dev/null \
+            && ! git fetch --no-tags --quiet origin "$MAIN_SYNC_SCRIPT_SHA"; then
+            echo "::error title=Branch Freshness::Could not fetch $MAIN_SYNC_SCRIPT_SHA, the commit this workflow runs from, to read scripts/git/check-main-sync.sh."
+            exit 1
+          fi
+          script="$RUNNER_TEMP/check-main-sync.sh"
+          git show "$MAIN_SYNC_SCRIPT_SHA:scripts/git/check-main-sync.sh" > "$script"
+          sh "$script"
 
   # Advisory, not required: in block mode Base Freshness Gate proves a PR
   # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
