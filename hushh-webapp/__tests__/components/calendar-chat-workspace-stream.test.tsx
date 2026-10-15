@@ -72,6 +72,39 @@ function workspace() {
 }
 
 describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it.each(["result", "error"] as const)("shows working during a tool call and settles after its %s", async outcome => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    let channel!: ReadableStreamDefaultController<Uint8Array>;
+    const encoder = new TextEncoder();
+    const response = new Response(new ReadableStream<Uint8Array>({ start(controller) { channel = controller; } }),
+      { headers: { "Content-Type": "text/event-stream" } });
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(response);
+    const push = (event: Record<string, unknown>) => act(() => channel.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const view = workspace();
+    const avatar = () => view.container.querySelector("[data-agent-chat-one-profile-trigger] [data-one-presence-state]");
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Check my calendar" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledOnce());
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "run-presence" });
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "thinking"));
+    push({ type: "TOOL_CALL_START", toolCallId: "presence-tool", toolCallName: "propose_calendar_event" });
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "working"));
+    if (outcome === "result") {
+      push({ type: "TOOL_CALL_RESULT", messageId: "presence-result", toolCallId: "presence-tool", role: "tool", content: JSON.stringify(result) });
+      await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "thinking"));
+      push({ type: "TEXT_MESSAGE_START", messageId: "presence-answer", role: "assistant" });
+      push({ type: "TEXT_MESSAGE_CONTENT", messageId: "presence-answer", delta: "Your calendar proposal is ready." });
+      await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "answering"));
+      push({ type: "TEXT_MESSAGE_END", messageId: "presence-answer" });
+      push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "run-presence" });
+    } else {
+      push({ type: "RUN_ERROR", code: "TOOL_FAILED", message: "Calendar request failed." });
+    }
+    act(() => channel.close());
+    await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "connected"));
+  });
+
   it("retains a cold slot through failed history and resumes after explicit retry", async () => {
     clearAgentChatHistoryCache("owner");
     vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));

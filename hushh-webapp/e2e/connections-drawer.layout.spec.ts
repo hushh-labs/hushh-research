@@ -2138,15 +2138,15 @@ test.describe("One profile artwork and animated presence", () => {
     const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
     const profile = panel.locator("[data-one-presence-state]");
     for (const phase of [
-      { drafting: false, answering: false, thinking: false, state: "connected" },
-      { drafting: false, answering: false, thinking: true, state: "thinking" },
-      { drafting: true, answering: true, thinking: true, state: "working" },
-      { drafting: false, answering: true, thinking: true, state: "answering" },
-      { drafting: false, answering: false, thinking: false, state: "connected" },
+      { working: false, drafting: false, answering: false, thinking: false, state: "connected" },
+      { working: false, drafting: false, answering: false, thinking: true, state: "thinking" },
+      { working: true, drafting: false, answering: true, thinking: true, state: "working" },
+      { working: false, drafting: false, answering: true, thinking: true, state: "answering" },
+      { working: false, drafting: false, answering: false, thinking: false, state: "connected" },
     ]) {
       await page.evaluate(work => {
-        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean; thinking: boolean }) => void }).__setOnePresenceWork(work);
-      }, { drafting: phase.drafting, answering: phase.answering, thinking: phase.thinking });
+        (window as unknown as { __setOnePresenceWork: (work: { working: boolean; drafting: boolean; answering: boolean; thinking: boolean }) => void }).__setOnePresenceWork(work);
+      }, { working: phase.working, drafting: phase.drafting, answering: phase.answering, thinking: phase.thinking });
       await Promise.all([header, profile].map(artwork =>
         expectPresencePlayback(artwork.locator(`[data-one-presence-artwork="${phase.state}"]`))));
       // One browser read per phase keeps the same geometry, material and
