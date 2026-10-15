@@ -4004,3 +4004,12 @@ reviewer, $15 capital and conserved/backed ledger. Both reviewers then passed
 isolated headless authentication, vault unlock and owner-bound metadata checks;
 neither yet has the synthetic financial/professional scopes for paid acceptance.
 These checks create no fixtures, financial activity or shared Chrome connection.
+
+The corrected core run on `285c6eff7dba` passes all 20,225 protocol cases and all
+1,266 serial PostgreSQL cases, with 135 existing protocol skips and three existing
+expected failures. Frontend lint then catches an omitted `ShellActionSurface`
+import in the connections browser fixture; its import is restored to match the
+already-reviewed production component and fixture tags. Frontend core, MCP-package
+and integration stages must finish after this fixture-only correction. Completed
+backend/database evidence is retained; no full-core success, hosted CI, deployment
+or financial acceptance is inferred from the partial run.
