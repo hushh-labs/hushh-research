@@ -9,11 +9,9 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
-import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { PhoneVerificationScene } from "@/components/auth/phone-verification-scene";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
@@ -44,6 +42,7 @@ import {
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { cn } from "@/lib/utils";
 import styles from "./page.module.css";
 
@@ -190,6 +189,15 @@ export function PhoneMandatePageContent() {
   const [verificationStep, setVerificationStep] = useState<
     "phone" | "code" | "linked"
   >("phone");
+  const codeBackRef = useRef<(() => boolean) | null>(null);
+  const setCodeBackHandler = useCallback((handler: (() => boolean) | null) => {
+    codeBackRef.current = handler;
+  }, []);
+  const returnFromCode = useCallback(() => {
+    if (verificationStep !== "code") return false;
+    return codeBackRef.current?.() ?? true;
+  }, [verificationStep]);
+  useBackLayer(ROUTES.PHONE_MANDATE, verificationStep === "code" ? 2 : 0, returnFromCode);
   const localBypassNavigationRef = useRef<string | null>(null);
   const [admission, setAdmission] = useState<{
     userId: string;
@@ -373,15 +381,7 @@ export function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", verificationStep === "phone" && styles.refinedScreen, verificationStep === "code" && styles.codeScreen)}
-      style={{
-        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-      }}
-      data-testid="phone-mandate-screen"
-    >
-      <div className={styles.existingBackdrop}><OnboardingHeroBackground /></div>
+    <main className={styles.shell} data-testid="phone-mandate-screen" data-phone-step={verificationStep}>
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -389,24 +389,22 @@ export function PhoneMandatePageContent() {
         dataState="loaded"
       />
 
-      {/* Top bar: back + account actions anchored consistently */}
       <button
         type="button"
         aria-label="Go back"
-        onClick={() => router.back()}
-        className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.safeBack)}
+        onClick={() => { if (!returnFromCode()) router.back(); }}
+        className={styles.backButton}
       >
-        <ChevronLeft className={cn("h-[18px] w-[18px]", styles.originalBackGlyph)} weight="bold" />
-        <span aria-hidden="true" className={styles.figmaBackGlyph} />
+        <ChevronLeft className="h-[18px] w-[18px]" weight="bold" />
       </button>
 
-      <div className={cn("fixed right-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50", styles.safeAccount)}>
+      <div className={styles.accountActions}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
               aria-label="Account actions"
-              className={cn("grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.accountControl)}
+              className={styles.accountButton}
             >
               <MoreHorizontal className="h-[18px] w-[18px]" weight="bold" />
             </button>
@@ -420,50 +418,13 @@ export function PhoneMandatePageContent() {
         </DropdownMenu>
       </div>
 
-      <div
-        className={cn("relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4", styles.flowContent)}
-        style={{
-          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-        }}
-      >
-        <div className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", styles.flowStack)}>
-          <div className={cn("flex w-full flex-col items-center gap-3", styles.flowHeading)}>
-            {verificationStep === "code" ? (
-              <span className={styles.codeIcon}>
-                <HushhMark alt="Hussh" className={styles.codeMark} />
-              </span>
-            ) : (
-              <div className={styles.existingBurst}><OneArcIllustration /></div>
-            )}
-            <span className={styles.hushhVisual} aria-hidden="true">
-              <HushhMark className={styles.hushhVisualMark} />
-            </span>
-
-            <h1
-              role="heading"
-              aria-level={1}
-              aria-label={
-                verificationStep === "code"
-                  ? "Enter your code"
-                  : verificationStep === "phone"
-                    ? "Enter your phone number"
-                    : "Verify your phone number"
-              }
-              className={cn("whitespace-nowrap font-semibold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
-            >
-              {verificationStep === "code"
-                ? "Enter your code"
-                : verificationStep === "phone"
-                  ? "Enter your phone number"
-                  : "Verify your phone number"}
-            </h1>
-          </div>
-
-          <div
-            data-phone-mandate-input-region="true"
-            className="relative mx-auto w-full max-w-[344px] text-left"
-          >
+      <div className={styles.surface}>
+        <PhoneVerificationScene step={verificationStep === "code" ? "code" : "phone"} />
+        <div className={styles.content}>
+          <h1>
+            {verificationStep === "code" ? "Enter your code" : verificationStep === "phone" ? "Enter your phone number" : "Verify your phone number"}
+          </h1>
+          <div data-phone-mandate-input-region="true" className={styles.inputRegion}>
             <PhoneVerificationFlow
               key={user.uid}
               mode="link"
@@ -473,6 +434,7 @@ export function PhoneMandatePageContent() {
               onCompleted={continueToNextRoute}
               onContinueExisting={continueToNextRoute}
               onStepChange={setVerificationStep}
+              onBackStepChange={setCodeBackHandler}
               sendCodeLabel="Continue"
               phonePresentation="compact"
               confirmLabel="Confirm"
@@ -481,8 +443,7 @@ export function PhoneMandatePageContent() {
               className={styles.phoneForm}
               helperText={
                 <>
-                  By using your mobile number, you may receive SMS notifications
-                  from us.{" "}
+                  We may send SMS notifications.{" "}
                   <Dialog modal>
                     <DialogTrigger asChild>
                       <button type="button" className={styles.learnMore}>

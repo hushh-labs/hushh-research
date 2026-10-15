@@ -14,6 +14,7 @@ type CountryPickerProps = {
   options: readonly CountryPhoneOption[];
   selected: CountryPhoneOption;
   onSelect: (value: string) => void;
+  inline?: boolean;
 };
 
 function flag(country: string) {
@@ -21,7 +22,7 @@ function flag(country: string) {
 }
 
 /** Presentation only: filtering, selection, and phone rules belong to the flow. */
-export function CountryPicker({ open, onOpenChange, query, onQueryChange, options, selected, onSelect }: CountryPickerProps) {
+export function CountryPicker({ open, onOpenChange, query, onQueryChange, options, selected, onSelect, inline = false }: CountryPickerProps) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const sections = useRef(new Map<string, HTMLElement>());
   const groups = useMemo(() => {
@@ -34,6 +35,25 @@ export function CountryPicker({ open, onOpenChange, query, onQueryChange, option
     }
     return [...result.entries()];
   }, [options]);
+
+  if (inline) {
+    return (
+      <button
+        id="phone-flow-country"
+        data-voice-control-id="phone-flow-country"
+        type="button"
+        className={styles.trigger}
+        aria-label={`Country code: ${selected.label} (${selected.dialCode})`}
+        aria-expanded={open}
+        aria-controls="phone-flow-country-options"
+        onClick={() => onOpenChange(!open)}
+        onKeyDown={(event) => { if (event.key === "Escape") onOpenChange(false); }}
+      >
+        <span>{selected.value} {selected.dialCode}</span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+    );
+  }
 
   return (
     <Dialog modal open={open} onOpenChange={onOpenChange}>
@@ -102,5 +122,44 @@ export function CountryPicker({ open, onOpenChange, query, onQueryChange, option
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The compact phone form expands this list below both fields. */
+export function InlineCountryPickerPanel({ query, onQueryChange, options, selected, onSelect, onClose }: Pick<CountryPickerProps, "query" | "onQueryChange" | "options" | "selected" | "onSelect"> & { onClose: () => void }) {
+  return (
+    <div id="phone-flow-country-options" className={styles.inlinePanel}>
+      <label className={styles.inlineSearch}>
+        <Search size={18} aria-hidden="true" />
+        <input
+          type="search"
+          aria-label="Search countries"
+          placeholder="Search countries"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}
+        />
+      </label>
+      <div className={styles.inlineOptions} role="listbox" aria-label="Country codes">
+        {options.length === 0 && <p className={styles.empty}>No country codes found.</p>}
+        {options.map((country) => (
+          <button
+            key={country.value}
+            type="button"
+            role="option"
+            aria-selected={selected.value === country.value}
+            aria-label={`${country.label} (${country.dialCode})`}
+            className={styles.inlineOption}
+            onClick={() => onSelect(country.value)}
+          >
+            <span>{country.label}</span>
+            <span>{country.dialCode}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
