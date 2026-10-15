@@ -240,14 +240,16 @@ It checks that:
 Hosted text, Live Voice, research and embedding targets come from
 `consent-protocol/config/managed-ai-runtime.json`. Dev, UAT and production select
 `hushh-gemini-bridge`; their Cloud Run, SQL, identity and secret projects
-remain separate. The checked-in text model is `gemini-3.6-flash`. Hosted clients
+remain separate. The checked-in text model is `gemini-3.8-flash`. Hosted clients
 ignore local model and project overrides; local mode retains explicit overrides.
 
 The deploy compiler validates the same profile and hash used by the packaged
 runtime. Each hosted release must exercise its actual runtime identity against
 the destination before serving traffic. Administrative API access does not prove
-model availability, quota or successful inference. Changing only the project
-preserves model choices and avoids a model-driven document policy reprocessing.
+model availability, quota or successful inference. The 2026-10-15 switch also advances the text model to 3.8 Flash on global.
+Document facts policy includes the model id, so previously processed facts may
+require reprocessing when background work is resumed. Preserve the incident pause
+until that resumption is explicitly authorized.
 
 One Live Voice adds three names on every lane: `ONE_VOICE_LIVE_ENABLED` (kill switch,
 `false` in production until UAT sign-off), `VERTEX_LIVE_MODEL_ID` (an exact Live model

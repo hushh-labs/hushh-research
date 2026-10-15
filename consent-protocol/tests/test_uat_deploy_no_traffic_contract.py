@@ -469,7 +469,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
-    assert load_profile("uat")["text_locations"] == ["global", "us", "eu"]
+    assert load_profile("uat")["text_locations"] == ["global"]
     assert "_MANAGED_AI_CONFIG_HASH" in backend_build
     assert 'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]' in backend_build
     assert '"config_hash": managed_ai_settings().config_hash' in _read(

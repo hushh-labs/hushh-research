@@ -4,11 +4,9 @@
     "local": {
       "project": "hushh-pda-uat",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
@@ -17,11 +15,9 @@
     "dev": {
       "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
@@ -30,11 +26,9 @@
     "uat": {
       "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
@@ -43,11 +37,9 @@
     "production": {
       "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.6-flash",
+      "text_model": "gemini-3.8-flash",
       "text_locations": [
-        "global",
-        "us",
-        "eu"
+        "global"
       ],
       "live_model": "gemini-live-2.5-flash-native-audio",
       "live_location": "us-central1",
