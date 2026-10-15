@@ -1,0 +1,105 @@
+name: Resume Deferred UAT Capacity
+
+on:
+  workflow_run:
+    workflows: [Capacity Maintenance]
+    types: [completed]
+
+concurrency:
+  group: resume-deferred-uat-capacity
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Verify maintenance, original target, and fresh capacity
+    # Repository/org-level kill switch; disabled means no cloud authentication.
+    if: vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    environment:
+      name: uat
+      deployment: false
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+      id-token: write
+    outputs:
+      ready: ${{ steps.inspect.outputs.ready }}
+      target_run_id: ${{ steps.inspect.outputs.target_run_id }}
+      proof_unix: ${{ steps.inspect.outputs.proof_unix }}
+    steps:
+      - name: Checkout main authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify maintenance authority before cloud authentication
+        id: authority
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          result=$(python3 scripts/ci/uat-capacity-resume.py verify-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID")
+          if [ "$result" = READY ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Authenticate for read-only UAT capacity inventory
+        if: steps.authority.outputs.ready == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        if: steps.authority.outputs.ready == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Inspect one-shot resumption without mutation
+        if: steps.authority.outputs.ready == 'true'
+        id: inspect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat-capacity-resume.py resume-after-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
+
+  resume:
+    name: Rerun only the original capacity job and its dependents
+    needs: inspect
+    # Job-level vars read repository/org variables, not environment variables.
+    if: needs.inspect.outputs.ready == 'true' && vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout main authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Revalidate GitHub authority and resume only the original capacity job
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          TARGET_RUN_ID: ${{ needs.inspect.outputs.target_run_id }}
+          PROOF_UNIX: ${{ needs.inspect.outputs.proof_unix }}
+        run: |
+          python3 scripts/ci/uat-capacity-resume.py post-verified-resume \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID" \
+            --target-run-id "$TARGET_RUN_ID" --proof-unix "$PROOF_UNIX"

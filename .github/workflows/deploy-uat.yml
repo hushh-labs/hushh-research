@@ -110,6 +110,25 @@ jobs:
           fi
           node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
 
+      - name: Record selected UAT target for exact retry authority
+        if: steps.resolve-sha.outputs.decision == 'DEPLOY_EXACT_SHA'
+        env:
+          SELECTED_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          python3 scripts/ci/uat-capacity-resume.py emit-target \
+            --selected-sha "$SELECTED_SHA" --requested-scope "$REQUESTED_SCOPE" \
+            --output "$RUNNER_TEMP/uat-capacity-target.json"
+
+      - name: Save selected UAT target
+        if: steps.resolve-sha.outputs.decision == 'DEPLOY_EXACT_SHA'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-capacity-target-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uat-capacity-target.json
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
         shell: bash
@@ -132,6 +151,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
       id-token: write
     environment:
       name: uat
@@ -144,6 +164,17 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - name: Verify original target before retrying capacity
+        if: github.run_attempt > 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ needs.select-target.outputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          python3 scripts/ci/uat-capacity-resume.py verify-rerun \
+            --selected-sha "$TARGET_SHA" --requested-scope "$REQUESTED_SCOPE" \
+            --check-supersession
 
       - name: Authenticate for read-only UAT capacity inventory
         uses: google-github-actions/auth@v2
@@ -167,7 +198,17 @@ jobs:
           python3 scripts/ci/wait-uat-capacity.py \
             --mode full --target-sha "$TARGET_SHA" \
             --requested-scope "$REQUESTED_SCOPE" \
-            --github-output "$GITHUB_OUTPUT"
+            --github-output "$GITHUB_OUTPUT" \
+            --deferred-receipt "$RUNNER_TEMP/uat-capacity-deferred.json"
+
+      - name: Save exact capacity deferral evidence
+        if: failure() && steps.admission.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-capacity-deferred-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uat-capacity-deferred.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   deploy:
     name: Deploy UAT Scope
@@ -202,6 +243,17 @@ jobs:
         run: |
           python3 scripts/ci/uat-retention-maintenance.py --environment uat \
             --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
+
+      - name: Prevent a superseded capacity retry from entering the mutation path
+        if: github.run_attempt > 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ needs.select-target.outputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          python3 scripts/ci/uat-capacity-resume.py verify-rerun \
+            --selected-sha "$TARGET_SHA" --requested-scope "$REQUESTED_SCOPE" \
+            --check-supersession
 
 
       - name: Assert manual UAT dispatch actor policy
