@@ -30,6 +30,15 @@ import { ContactInvitationSessionProvider } from "@/components/connections/conta
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { ApiError } from "@/lib/services/api-client";
 
+// These cases prove state, consent and cancellation, not animation frames.
+// Real GSAP mutation tweens make JSDOM's semantic queries race a decorative
+// render clock. Keep production motion in location-switch.layout.spec.ts and
+// one-location-people-rows.layout.spec.ts, which inspect actual browser frames.
+// Do not mock operation/gesture owners or relax the behavioral assertions here.
+vi.mock("@/lib/morphy-ux/hooks/use-page-enter", () => ({
+  usePageEnterAnimation: () => undefined,
+}));
+
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
 }
@@ -2493,14 +2502,19 @@ describe("OneLocationAgentPage", () => {
 
     // Two owned Circles render as checkboxes, not radios -- both may be
     // selected at once.
-    const familyCheckbox = screen.getByRole("checkbox", { name: /^Family/ });
-    const friendsCheckbox = screen.getByRole("checkbox", {
+    // Scope semantic queries to the actual modal rather than repeatedly
+    // traversing the covered workspace and its computed accessibility tree.
+    let scopeDialog = screen.getByRole("dialog");
+    let scopeControls = within(scopeDialog);
+    const turnOn = scopeControls.getByRole("button", { name: "Turn on" });
+    const familyCheckbox = scopeControls.getByRole("checkbox", { name: /^Family/ });
+    const friendsCheckbox = scopeControls.getByRole("checkbox", {
       name: /^Friends/,
     });
     expect(familyCheckbox).toHaveAttribute("aria-checked", "false");
     expect(friendsCheckbox).toHaveAttribute("aria-checked", "false");
 
-    const contacts = screen.getByRole("checkbox", { name: "All contacts" });
+    const contacts = scopeControls.getByRole("checkbox", { name: "All contacts" });
     fireEvent.click(familyCheckbox);
     expect(familyCheckbox).toHaveAttribute("aria-checked", "true");
     fireEvent.click(contacts);
@@ -2509,8 +2523,8 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(friendsCheckbox);
     expect(contacts).toHaveAttribute("aria-checked", "false");
     fireEvent.click(friendsCheckbox);
-    expect(screen.getByRole("button", { name: "Turn on" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(turnOn).toBeDisabled();
+    fireEvent.click(scopeControls.getByRole("button", { name: "Select all" }));
     expect(familyCheckbox).toHaveAttribute("aria-checked", "true");
     expect(friendsCheckbox).toHaveAttribute("aria-checked", "true");
     const familyIndicator = familyCheckbox.querySelector(
@@ -2520,7 +2534,7 @@ describe("OneLocationAgentPage", () => {
     expect(familyIndicator?.querySelector("svg")).toBeTruthy();
     expect(familyIndicator?.querySelector("[opacity]")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    fireEvent.click(turnOn);
     await waitFor(() =>
       expect(mockUpdateAutoApprovePreference).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
@@ -2547,18 +2561,22 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Auto-approve for" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
-    expect(screen.getByRole("checkbox", { name: /^Family/ })).toHaveAttribute(
+    scopeDialog = screen.getByRole("dialog");
+    scopeControls = within(scopeDialog);
+    fireEvent.click(scopeControls.getByRole("button", { name: "Clear all" }));
+    expect(scopeControls.getByRole("checkbox", { name: /^Family/ })).toHaveAttribute(
       "aria-checked",
       "false",
     );
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(scopeControls.getByRole("button", { name: "Save" })).toBeDisabled();
     const writes = mockUpdateAutoApprovePreference.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    fireEvent.click(scopeControls.getByRole("button", { name: "Cancel", exact: true }));
     fireEvent.click(screen.getByTestId("one-location-auto-approve-row").querySelector("button")!);
-    expect(await screen.findByRole("checkbox", { name: /^Family/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("checkbox", { name: /^Friends/ })).toHaveAttribute("aria-checked", "true");
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    scopeDialog = await screen.findByRole("dialog");
+    scopeControls = within(scopeDialog);
+    expect(await scopeControls.findByRole("checkbox", { name: /^Family/ })).toHaveAttribute("aria-checked", "true");
+    expect(scopeControls.getByRole("checkbox", { name: /^Friends/ })).toHaveAttribute("aria-checked", "true");
+    fireEvent.keyDown(scopeDialog, { key: "Escape" });
     expect(mockUpdateAutoApprovePreference).toHaveBeenCalledTimes(writes);
   });
 
