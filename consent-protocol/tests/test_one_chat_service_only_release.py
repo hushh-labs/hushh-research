@@ -188,6 +188,19 @@ def test_candidate_rejects_readiness_probe_runtime_drift(
     command.assert_called_once()
 
 
+def test_readiness_probe_job_has_cold_start_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_release_script()
+    command = Mock(side_effect=RuntimeError("stop after job deploy"))
+    monkeypatch.setattr(module, "command", command)
+    image = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "c" * 64
+    with pytest.raises(RuntimeError, match="stop after job deploy"):
+        module.probe_runtime(image, "123", "1")
+    deploy = command.call_args.args
+    assert deploy[:4] == ("gcloud", "run", "jobs", "deploy")
+    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=300s"):
+        assert flag in deploy
+
+
 def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
     workflow = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
     selector = (ROOT / "hushh-webapp/scripts/ci/select-uat-target.mjs").read_text()

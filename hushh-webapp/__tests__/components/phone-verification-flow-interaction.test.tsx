@@ -229,22 +229,22 @@ describe("PhoneVerificationFlow country selector", () => {
   });
 
   it.each([
-    ["United States", "US", "+1", "🇺🇸"],
-    ["United Kingdom", "GB", "+44", "🇬🇧"],
-    ["India", "IN", "+91", "🇮🇳"],
-    ["Angola", "AO", "+244", "🇦🇴"],
-    ["Brazil", "BR", "+55", "🇧🇷"],
-  ])("keeps compact country selection synchronized for %s", async (name, iso, code, flag) => {
+    ["United States", "US", "+1"],
+    ["United Kingdom", "GB", "+44"],
+    ["India", "IN", "+91"],
+    ["Angola", "AO", "+244"],
+    ["Brazil", "BR", "+55"],
+  ])("keeps compact country selection synchronized for %s", async (name, iso, code) => {
     renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const phone = screen.getByRole("textbox", { name: "Phone number" });
     fireEvent.change(phone, { target: { value: "12345" } });
     fireEvent.click(screen.getByRole("button", { name: /^Country code:/ }));
     const search = await screen.findByRole("searchbox", { name: "Search countries" });
     fireEvent.change(search, { target: { value: name } });
-    fireEvent.click(screen.getByRole("button", { name: `${name} (${code})`, exact: true }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("option", { name: `${name} (${code})`, exact: true }));
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Country codes" })).toBeNull());
     expect(screen.getByRole("button", { name: `Country code: ${name} (${code})` })).toBeTruthy();
-    expect(document.querySelector(`[data-country-code="${iso}"]`)?.textContent).toBe(flag);
+    expect(screen.getByRole("button", { name: `Country code: ${name} (${code})` }).textContent).toContain(`${iso} ${code}`);
     expect((phone as HTMLInputElement).value).toBe("12345");
   });
 
@@ -254,8 +254,8 @@ describe("PhoneVerificationFlow country selector", () => {
     const before = trigger.getAttribute("aria-label");
     fireEvent.click(trigger);
     fireEvent.change(await screen.findByRole("searchbox"), { target: { value: "Brazil" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Country codes" })).toBeNull());
     expect(trigger.getAttribute("aria-label")).toBe(before);
   });
 
@@ -738,7 +738,7 @@ describe("onboarding code presentation", () => {
     const { startVerification } = renderPhoneVerificationFlow({ codePresentation: "onboarding" });
     await reachCodeStep(startVerification);
     const resend = screen.getByRole("button", { name: "Resend code" });
-    expect(resend.closest("p")?.textContent).toContain("To confirm your account");
+    expect(resend.closest("p")?.textContent).toContain("Enter the code sent to");
     fireEvent.click(resend);
     await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Use a Different number" }));
