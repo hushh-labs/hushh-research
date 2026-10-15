@@ -65,7 +65,7 @@ describe("IntroStep", () => {
     })));
     const onLogin = vi.fn();
     const view = render(<IntroStep onLogin={onLogin} />);
-    expect(document.querySelector('[data-motion="static"]')).not.toBeNull();
+    expect(document.querySelector('[data-motion="off"]')).not.toBeNull();
     enterStories();
     act(() => vi.advanceTimersByTime(20_000));
     expect(screen.getByRole("heading", { name: /Big plans\.\s*Less busywork\./ })).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("IntroStep", () => {
 
   it("keeps the public Research, Blog, and Developers destinations", () => {
     render(<IntroStep onLogin={vi.fn()} />);
-    expect(screen.getByRole("navigation", { name: "Explore Hussh" }).querySelectorAll("a")).toHaveLength(3);
+    expect(screen.getByRole("navigation", { name: "Explore One" }).querySelectorAll("a")).toHaveLength(3);
     expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute("href", "/research");
     expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blog");
     expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute("href", "/developers");
