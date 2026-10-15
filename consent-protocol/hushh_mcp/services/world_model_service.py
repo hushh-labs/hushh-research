@@ -23,15 +23,19 @@ from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
 from hushh_mcp.services.owner_placement_guard import hub_content_check
-from hushh_mcp.services.profile_research_jobs import ProfileResearchJobs
+from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
 from hushh_mcp.services.world_model_preferences import (
     checkpoint_before_write,
     checkpoint_committed,
+    draft_completed,
+    enroll_default,
     preferences,
 )
 
 NAMESPACE = "one.personal_world_model.v1"
+# A finished model is prepared again once its latest run is this old.
+PWM_REPREPARE_AFTER_SECONDS = 7 * 86400
 
 
 def content_access(user_id, consent_token):
@@ -105,7 +109,14 @@ async def admission(user_id, consent_token):
 
 
 async def offer(
-    *, user_id, consent_token, attempts_used=(), on_attempts_start=None, work=None, on_progress=None
+    *,
+    user_id,
+    consent_token,
+    attempts_used=(),
+    on_attempts_start=None,
+    work=None,
+    on_progress=None,
+    inputs=None,
 ):
     refused, original = await admission(user_id, consent_token)
     if refused:
@@ -137,6 +148,7 @@ async def offer(
         on_attempts_start=on_attempts_start,
         work=work,
         on_progress=on_progress,
+        owner_decisions=(inputs or {}).get("owner_decisions"),
     )
     await require_access()
     refused, current = await admission(user_id, consent_token)
@@ -148,10 +160,10 @@ async def offer(
 
 
 class WorldModelJobs(ProfileResearchJobs):
-    async def start(self, user_id, consent_token):
+    async def start(self, user_id, consent_token, *, inputs: dict | None = None):
         require_access = content_access(user_id, consent_token)
         await require_access()
-        result = await super().start(user_id, consent_token)
+        result = await super().start(user_id, consent_token, inputs=inputs)
         await require_access()
         return result
 
@@ -173,24 +185,55 @@ class WorldModelJobs(ProfileResearchJobs):
             raise PermissionError("Research consent required")
         return {"consent_generation": str(consent["generation"])}
 
-    async def ensure(self, user_id, consent_token):
+    async def ensure(self, user_id, consent_token, *, owner_decisions=None):
+        require_access = content_access(user_id, consent_token)
+        await require_access()
+        # Preserve existing opt-outs; placement admission precedes enrollment.
+        if one_profile_research_enabled():
+            consent = await preferences(user_id)
+            await require_access()
+            if consent is None:
+                resolved = await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+                await require_access()
+                if resolved:
+                    await enroll_default(user_id, consent_token)
+                    await require_access()
         refused, _ = await admission(user_id, consent_token)
         if refused:
             return refused
-        require_access = content_access(user_id, consent_token)
         consent = await preferences(user_id)
         await require_access()
         state = await self.store.get(user_id)
         await require_access()
-        if consent["auto_started_at"] is not None and state is None:
+        if (
+            state is not None
+            and state.get("status") in {"offered", "low_confidence", "saved"}
+            and self.clock() - state.get("finished_at", self.clock()) >= TTL_SECONDS
+        ):
+            # Past retention but not yet purged: decide as if it is already gone,
+            # so an aged-out draft never buys a new run before the interval.
+            state = None
+        last_run = consent["auto_started_at"]
+        active_draft = consent.get("active_draft_id")
+        if (
+            state is None
+            and last_run is not None
+            and self.clock() - last_run.timestamp() < PWM_REPREPARE_AFTER_SECONDS
+            and (active_draft is None or await draft_completed(user_id, active_draft))
+        ):
+            # The latest run finished recently and its draft aged out. A run the
+            # retention purge removed before it finished is prepared again.
+            await require_access()
             return {"status": "saved", "pkm_written": False}
+        await require_access()
         if (
             state
             and state["status"] == "saved"
             and state.get("consent_generation") == str(consent["generation"])
         ):
             return state["result"]
-        return await self.start(user_id, consent_token)
+        inputs = None if owner_decisions is None else {"owner_decisions": owner_decisions}
+        return await self.start(user_id, consent_token, inputs=inputs)
 
     async def dismiss(self, user_id, consent_token, draft_id=None):
         require_access = content_access(user_id, consent_token)

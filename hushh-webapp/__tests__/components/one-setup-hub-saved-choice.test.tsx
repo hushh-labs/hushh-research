@@ -108,33 +108,23 @@ describe("Setup saved AI choice", () => {
     expect(state.unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it.each([false, true])(
-    "finishes with pending Contacts welcome and PWM consent %s",
-    async (consent) => {
-      state.saved = true;
-      state.unlocked = true;
-      state.pendingContactsWelcome = true;
-      render(<OneSetupHub />);
+  it("finishes with pending Contacts welcome and discloses default-on research without a choice", async () => {
+    state.saved = true;
+    state.unlocked = true;
+    state.pendingContactsWelcome = true;
+    render(<OneSetupHub />);
 
-      if (consent) {
-        fireEvent.click(screen.getByRole("checkbox", { name: /Prepare my Personal World Model/i }));
-        expect(screen.getByRole("checkbox", { name: /Prepare my Personal World Model/i })).toBeChecked();
-      }
-      fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
+    // Research is disclosed, not asked: no checkbox and no preferences write.
+    expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
+      "Your private agent will look up public information about you to prepare your Personal World Model, and email you when it's ready. You review everything before it's saved, and you can turn either off anytime in Personal World Model.",
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
 
-      await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/one/welcome?return_to=%2F"));
-      expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce();
-      expect(state.queueEntryWelcome).not.toHaveBeenCalled();
-      if (consent) {
-        expect(state.updatePreferences).toHaveBeenCalledExactlyOnceWith(
-          { vaultKey: "vault-key", vaultOwnerToken: "vault-token" },
-          { enabled: true, email_enabled: false },
-        );
-        expect(state.completionOrder).toEqual(["pwm-preferences", "setup-acknowledgement"]);
-      } else {
-        expect(state.updatePreferences).not.toHaveBeenCalled();
-        expect(state.completionOrder).toEqual(["setup-acknowledgement"]);
-      }
-    },
-  );
+    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/one/welcome?return_to=%2F"));
+    expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce();
+    expect(state.queueEntryWelcome).not.toHaveBeenCalled();
+    expect(state.updatePreferences).not.toHaveBeenCalled();
+    expect(state.completionOrder).toEqual(["setup-acknowledgement"]);
+  });
 });

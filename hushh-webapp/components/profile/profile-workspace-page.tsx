@@ -181,6 +181,7 @@ import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
+  buildProfileWorldModelRoute,
   resolveProfileRouteState,
   type ProfileDetail,
   type ProfilePanel,
@@ -804,6 +805,23 @@ function ProfilePageContent({
     router.replace(legacyProfileRedirectHref, { scroll: false });
   }, [legacyProfileRedirectHref, router]);
 
+  // A pane address naming the model (a deep link, an invitation, a ready
+  // draft) lands on its full page with the claim, handoff or draft it carries.
+  // The pane is outside the provider that prepares the model, so it never
+  // shows it. Only while the pane's URL is live: a closing pane holds its last
+  // location, which must not redirect a second time.
+  const paneWorldModelRedirect =
+    isPanePresentation &&
+    activePanel === "world-model" &&
+    resolveProfilePaneUrlState(searchParams).open;
+  useEffect(() => {
+    if (!paneWorldModelRedirect) return;
+    router.replace(
+      buildProfileWorldModelRoute(searchParams, window.location.hash),
+      { scroll: false },
+    );
+  }, [paneWorldModelRedirect, router, searchParams]);
+
   useEffect(() => {
     if (!supportRouteKind || supportRouteKind === supportKind) return;
     setSupportKind(supportRouteKind);
@@ -1060,6 +1078,17 @@ function ProfilePageContent({
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
         };
+        if (isPanePresentation && nextLocation.panel === "world-model") {
+          // The model is a full page: the pane sits outside the provider that
+          // prepares it. Leaving the pane's URL closes it; Back returns here.
+          const href = buildProfileWorldModelRoute();
+          if (mode === "push") {
+            router.push(href, { scroll: false });
+          } else {
+            router.replace(href, { scroll: false });
+          }
+          return;
+        }
         if (isPanePresentation) {
           if (mode === "push") {
             pushProfilePaneLocation(pathname, searchParams, nextLocation);
@@ -4198,19 +4227,17 @@ function ProfilePageContent({
         </div>
       ),
     });
-  } else if (!routeBlockedByVault && activePanel === "world-model") {
+  } else if (
+    !routeBlockedByVault &&
+    !isPanePresentation &&
+    activePanel === "world-model"
+  ) {
+    // Route only: a pane address naming the model redirects to this page.
     profileStackEntries.push({
       key: "panel:world-model",
       title: "Personal World Model",
       content: (
-        <div
-          className={cn(
-            "space-y-4",
-            isPanePresentation && "profile-account-content",
-            isPanePresentation && accountStyles.paneAccountContent,
-            isPanePresentation && accountStyles.managedContent,
-          )}
-        >
+        <div className="space-y-4">
           <PersonalWorldModelPage
             embedded
             onManageDetails={() => openVaultBackedPanel("my-data")}

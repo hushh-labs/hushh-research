@@ -360,6 +360,42 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         async with pool.acquire() as conn, conn.transaction():
             await checkpoint_committed(conn, "recipient", state)
         assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "accepted"
+        # Only a newly active draft restarts the re-preparation interval.
+        stale = "SELECT auto_started_at<NOW()-INTERVAL '29 days' FROM pwm_research_preferences WHERE user_id='recipient'"
+        await pool.execute(
+            "UPDATE pwm_research_preferences SET auto_started_at=NOW()-INTERVAL '30 days' WHERE user_id='recipient'"
+        )
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval(stale) is True
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(
+                conn, "recipient", {**state, "job_id": str(uuid4()), "status": "pending"}
+            )
+        assert await pool.fetchval(stale) is False
+        # Default research enrolls once and never rewrites an existing choice.
+        from hushh_mcp.services import world_model_preferences as research_preferences
+
+        monkeypatch.setattr(research_preferences, "get_pool", AsyncMock(return_value=pool))
+        monkeypatch.setattr(
+            research_preferences,
+            "validate_first_party_owner_token",
+            AsyncMock(return_value=object()),
+        )
+        enrolled = "SELECT * FROM pwm_research_preferences WHERE user_id='wrong'"
+        await research_preferences.enroll_default("wrong", "fixture")
+        row = dict(await pool.fetchrow(enrolled))
+        assert (row["enabled"], row["email_enabled"], row["consent_version"]) == (
+            True,
+            True,
+            "pwm-default-v1",
+        )
+        await pool.execute(
+            "UPDATE pwm_research_preferences SET enabled=false,email_enabled=false WHERE user_id='wrong'"
+        )
+        opted_out = dict(await pool.fetchrow(enrolled))
+        await research_preferences.enroll_default("wrong", "fixture")
+        assert dict(await pool.fetchrow(enrolled)) == opted_out
         await pool.execute("DELETE FROM pwm_research_preferences WHERE user_id='recipient'")
         async with pool.acquire() as conn, conn.transaction():
             with pytest.raises(PermissionError):

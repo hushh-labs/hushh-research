@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { profileReportSchema } from "@/lib/services/profile-research-service";
+import type { PwmOwnerDecisions } from "@/lib/services/world-model-decision-service";
 
 export const pwmPreferencesSchema = z
   .object({
@@ -166,6 +167,29 @@ function pause(signal: AbortSignal, milliseconds: number) {
     if (signal.aborted) abort();
   });
 }
+/** A hidden tab does not poll; research resumes when the owner returns. */
+function whenVisible(signal: AbortSignal) {
+  if (typeof document === "undefined" || !document.hidden)
+    return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      document.removeEventListener("visibilitychange", show);
+      signal.removeEventListener("abort", abort);
+    };
+    const show = () => {
+      if (document.hidden) return;
+      cleanup();
+      resolve();
+    };
+    const abort = () => {
+      cleanup();
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    document.addEventListener("visibilitychange", show);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
 export const WorldModelResearchService = {
   async preferences(input: PwmAuthority) {
     return pwmPreferencesSchema.parse(await request(input, "preferences"));
@@ -197,17 +221,26 @@ export const WorldModelResearchService = {
       signal: AbortSignal;
       onResult: (result: PwmResult) => void;
       refresh?: boolean;
+      /** Past owner decisions, so research does not propose them again. */
+      ownerDecisions?: PwmOwnerDecisions;
     },
   ) {
     let path = input.refresh ? "jobs" : "ensure",
       method = "POST",
-      failures = 0;
-    const deadline = Date.now() + 3_600_000;
+      failures = 0,
+      deadline = Date.now() + 3_600_000;
     while (Date.now() < deadline) {
       if (input.signal.aborted) throw new DOMException("Aborted", "AbortError");
       try {
         const result = pwmResultSchema.parse(
-          await request(input, path, method),
+          await request(
+            input,
+            path,
+            method,
+            method === "POST" && input.ownerDecisions
+              ? { owner_decisions: input.ownerDecisions }
+              : undefined,
+          ),
         );
         failures = 0;
         input.onResult(result);
@@ -231,6 +264,10 @@ export const WorldModelResearchService = {
         input.signal,
         failures ? Math.min(30_000, 3000 * 2 ** failures) : 5000,
       );
+      const hiddenSince = Date.now();
+      await whenVisible(input.signal);
+      // Time away from the tab does not spend the one-hour polling budget.
+      deadline += Date.now() - hiddenSince;
     }
     input.onResult({
       status: "paused",

@@ -132,13 +132,23 @@ describe("profile workspace duplication contract", () => {
     expect(normalizeInternalRouteHref("//evil.example/one/feed")).toBeNull();
   });
 
-  it("opens Personal World Model and its saved details inside the Profile stack", () => {
+  it("opens Personal World Model as its own page, never inside the Profile pane", () => {
     const row = profilePageSource.split('voiceControlId="profile_world_model"')[1]?.split("/>")[0] ?? "";
+    // The row keeps the vault gate; the pane then leaves for the full page.
     expect(row).toContain('openVaultBackedPanel("world-model")');
     expect(row).not.toContain("router.push");
-    const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
-    expect(panel).toContain('<PersonalWorldModelPage');
-    expect(panel).toContain('embedded');
+    const view = profilePageSource.split("const updateProfileView = useMemo(")[1]?.split("const nextLocation")[1] ?? "";
+    const toPage = view.split('if (isPanePresentation && nextLocation.panel === "world-model") {')[1]?.split("return;")[0] ?? "";
+    expect(toPage).toContain("const href = buildProfileWorldModelRoute();");
+    expect(toPage).toContain("router.push(href, { scroll: false });");
+    // Negative control: the model is never pushed as a pane location.
+    expect(view.indexOf('nextLocation.panel === "world-model"')).toBeLessThan(view.indexOf("pushProfilePaneLocation("));
+    // Pane addresses naming the model (deep link, invitation, ready draft) redirect with what they carry.
+    expect(profilePageSource).toMatch(/const paneWorldModelRedirect =\s*isPanePresentation &&\s*activePanel === "world-model" &&\s*resolveProfilePaneUrlState\(searchParams\)\.open;/);
+    expect(profilePageSource).toContain("buildProfileWorldModelRoute(searchParams, window.location.hash)");
+    const panel = profilePageSource.split('activePanel === "world-model"\n  ) {')[1]?.split("} else if (")[0] ?? "";
+    expect(profilePageSource).toMatch(/!routeBlockedByVault &&\s*!isPanePresentation &&\s*activePanel === "world-model"\s*\) \{/);
+    expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain('onManageDetails={() => openVaultBackedPanel("my-data")}');
     expect(readFileSync(join(process.cwd(), "app/one/profile/world-model/page.tsx"), "utf8")).toContain(
       'export { default } from "@/app/profile/profile-workspace-page"',
