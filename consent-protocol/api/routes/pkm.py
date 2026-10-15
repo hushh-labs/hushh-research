@@ -452,6 +452,7 @@ async def _generate_pkm_memory_proposals(
             current_manifests=request.current_manifests,
             simulated_state=request.simulated_state,
             memory_profile=request.memory_profile,
+            allow_identifier_processing=request.allow_identifier_processing,
             # Opaque binding only: no raw token enters the preview cache. A
             # new vault-owner credential cannot resume an earlier credential's
             # preparation; authorization and sharing impact still run afresh.

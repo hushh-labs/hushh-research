@@ -451,8 +451,11 @@ def probe_runtime(image: str, run_id: str, attempt: str) -> dict[str, Any]:
                     "HUSHH_MANAGED_VERTEX_PROBE_MODE=scoped",
                 ]
             ),
+            # Same cold-start headroom as the backend readiness job.
+            "--cpu=2",
+            "--memory=2Gi",
             "--max-retries=0",
-            "--task-timeout=90s",
+            "--task-timeout=300s",
             "--quiet",
         )
         created = True

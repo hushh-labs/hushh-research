@@ -14,6 +14,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
+import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type State = { context: CardShareContext; page: CardSharingHistory; direction: string };
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -34,26 +35,31 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   const [selection, setSelection] = useState<CardSharingHistoryItem | null>(null);
   const pending = useRef<AbortController | null>(null);
   const end = useRef<HTMLDivElement>(null);
-  const current = active && state?.context.userId === ownerId && state.direction === direction && state.context.isCurrent() ? state : null;
+  const activation = useRef({ active, revision: 0 });
+  if (activation.current.active !== active) activation.current = { active, revision: activation.current.revision + 1 };
+  const retained = state?.context.userId === ownerId && state.direction === direction && state.context.isCurrent() ? state : null;
+  const current = active ? retained : null;
   const detail = current?.page.items.find(item => item.id === opened?.id && item.cardType === opened.cardType);
   const loadedCount = useRef(0);
-  loadedCount.current = current?.page.items.length ?? 0;
+  loadedCount.current = retained?.page.items.length ?? 0;
   useBackLayer(ROUTES.ONE_WALLET, detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
   useBackLayer(ROUTES.ONE_WALLET, selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
-  useEffect(() => { setSelection(null); setOpened(null); }, [active, ownerId, direction]);
+  useEffect(() => { setSelection(null); setOpened(null); setBusy(null); }, [active, ownerId, direction]);
 
   useEffect(() => WalletCardAccessService.subscribe(ownerId, () => setRevision(value => value + 1)), [ownerId]);
+  useEffect(() => subscribeVaultSessionEpoch(() => {
+    pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); setRevision(value => value + 1);
+  }), []);
   useEffect(() => {
-    const refresh = () => { if (active && document.visibilityState === "visible") setRevision(value => value + 1); };
+    const refresh = () => { if (document.visibilityState === "visible") setRevision(value => value + 1); };
     const hide = () => { if (document.visibilityState === "hidden") { pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); } else refresh(); };
     window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", hide);
     const timer = window.setInterval(refresh, 30_000);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", hide); window.clearInterval(timer); };
-  }, [active]);
+  }, []);
   useEffect(() => {
     pending.current?.abort(); pending.current = null;
     setBusy(null); setLoading(false); setMoreFailed(false);
-    if (!active) { setState(null); setProfile(null); return; }
     const context = getContext("");
     if (!context || context.userId !== ownerId) { setState(null); setProfile(null); return; }
     const controller = new AbortController();
@@ -77,7 +83,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       if (!controller.signal.aborted && context.isCurrent()) setProfile(result.eligible && result.cardId ? { context, cardId: result.cardId } : null);
     }).catch(() => { if (!controller.signal.aborted && context.isCurrent()) setProfile(null); });
     return () => { controller.abort(); pending.current?.abort(); pending.current = null; };
-  }, [active, ownerId, direction, revision, getContext]);
+  }, [ownerId, direction, revision, getContext]);
 
   const loadMore = useCallback(async () => {
     const cursor = current?.page.nextCursor;
@@ -102,7 +108,14 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   }, [current?.page.nextCursor, moreFailed, loadMore]);
   const revoke = async (item: CardSharingHistoryItem) => {
     if (!current || busy || direction !== "outgoing") return;
-    const context = current.context; setBusy(item.id);
+    const session = current.context, revision = activation.current.revision;
+    // Reading can preload across tabs; a mutation still belongs to this activation.
+    const isCurrent = () => session.isCurrent() && activation.current.active && activation.current.revision === revision;
+    const context = { ...session, isCurrent, getIdToken: async () => {
+      if (!isCurrent()) throw new Error("Wallet changed.");
+      return session.getIdToken();
+    } };
+    setBusy(item.id);
     const operation = WalletCardAccessService.revoke(context, item.id);
     void morphyToast.promise(operation, { loading: "Revoking access...", success: "Access revoked.", error: "Could not revoke access. Try again." });
     try { await operation; if (context.isCurrent()) setSelection(null); }

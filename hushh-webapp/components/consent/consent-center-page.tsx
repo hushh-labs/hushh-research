@@ -1,5 +1,7 @@
 "use client";
 
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -1152,6 +1154,7 @@ function ConsentEntryDetail({
   onApproveBundle?: (
     members: ConsentCenterEntry[],
     durationHours?: number,
+    modelProcessingAllowed?: boolean,
   ) => void;
   onDenyBundle?: (members: ConsentCenterEntry[]) => void;
   /**
@@ -1162,6 +1165,7 @@ function ConsentEntryDetail({
     allow: ConsentCenterEntry[],
     decline: ConsentCenterEntry[],
     durationHours?: number,
+    modelProcessingAllowed?: boolean,
   ) => void;
   onApprove: (
     entry: ConsentCenterEntry,
@@ -1170,6 +1174,7 @@ function ConsentEntryDetail({
       requestedScopeHandles: string[];
       offeredScopeHandles: string[];
     },
+    modelProcessingAllowed?: boolean,
   ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
@@ -1213,6 +1218,8 @@ function ConsentEntryDetail({
     parsedRequestedDuration || (isLocationEntry ? 1 : ""),
   );
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
+  const [modelApproval, setModelApproval] = useState<{ review: string; epoch: number } | null>(null);
+  useEffect(() => subscribeVaultSessionEpoch(() => setModelApproval(null)), []);
   useEffect(() => {
     setSelectedDuration(defaultDuration);
   }, [defaultDuration, entry?.id]);
@@ -1427,6 +1434,10 @@ function ConsentEntryDetail({
     isLocationEntry || parsedRequestedDuration
       ? parseDurationHours(selectedDuration)
       : undefined;
+  const modelReviewBinding = JSON.stringify([entry?.id, entry?.scope, entry?.reason, entry?.counterpart_label, effectiveDurationHours,
+    bundleMembers.map((member) => [member.id, member.scope, member.reason]), [...chosenRefs].sort()]);
+  const modelProcessingApproved = () => modelApproval?.review === modelReviewBinding && isVaultSessionEpochCurrent(modelApproval.epoch);
+
   const requestedDurationDays =
     typeof entry.metadata?.duration_days === "number" ||
     typeof entry.metadata?.duration_days === "string"
@@ -1631,6 +1642,13 @@ function ConsentEntryDetail({
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
           aria-label="Consent decision"
         >
+          {!isConnectionDecision && !isLocationEntry && !isMarketplaceDecision && entry?.scope?.startsWith("attr.") ? (
+            <label className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
+              <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
+                onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
+              <span>Allow this recipient’s private agent and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+            </label>
+          ) : null}
           {showDurationChoice ? (
             <div className="min-w-[150px]">
               <Select
@@ -1675,11 +1693,11 @@ function ConsentEntryDetail({
                   bundleMemberRef,
                   chosenRefs,
                 );
-                onDecideBundle!(allow, decline, effectiveDurationHours);
+                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved());
                 return;
               }
               return isBundleDecision
-                ? onApproveBundle!(bundleMembers, effectiveDurationHours)
+                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved())
                 : onApprove(
                     entry,
                     isConnectionDecision || isMarketplaceDecision
@@ -1691,6 +1709,7 @@ function ConsentEntryDetail({
                           offeredScopeHandles: selectedOfferedScopes,
                         }
                       : undefined,
+                    modelProcessingApproved(),
                   );
             }}
             data-voice-control-id="consent_approve"
@@ -2427,6 +2446,7 @@ export function ConsentCenterPage() {
         requestedScopeHandles: string[];
         offeredScopeHandles: string[];
       },
+      modelProcessingAllowed = false,
     ) => {
       // A document request or Drive question is not a PKM grant or a
       // voice-approvable action; only its own card can decide it.
@@ -2465,7 +2485,7 @@ export function ConsentCenterPage() {
         return;
       }
       recordApprovalInFlight(entry, durationHours);
-      void handleApprove(toPendingConsent(entry, durationHours));
+      void handleApprove(toPendingConsent(entry, durationHours), { modelProcessingAllowed });
     },
     [
       recordApprovalInFlight,
@@ -2550,7 +2570,7 @@ export function ConsentCenterPage() {
     ],
   );
   const approveBundleEntries = useCallback(
-    (members: ConsentCenterEntry[], durationHours?: number) => {
+    (members: ConsentCenterEntry[], durationHours?: number, modelProcessingAllowed = false) => {
       const head = members[0];
       if (!head) return;
       const name = requesterShortName(
@@ -2566,6 +2586,7 @@ export function ConsentCenterPage() {
         members.map((member) => toPendingConsent(member, durationHours)),
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          modelProcessingAllowed,
           successMessage: `${name} can now see your ${joinInformationLabels(labels)}.`,
         },
       ).catch((error: unknown) => {
@@ -2596,6 +2617,7 @@ export function ConsentCenterPage() {
       allow: ConsentCenterEntry[],
       decline: ConsentCenterEntry[],
       durationHours?: number,
+      modelProcessingAllowed = false,
     ) => {
       const head = allow[0] ?? decline[0];
       if (!head) return;
@@ -2615,6 +2637,7 @@ export function ConsentCenterPage() {
         decline.map((member) => member.request_id || member.id),
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          modelProcessingAllowed,
           successMessage: `${name} can now see your ${shared}. ${held} ${decline.length === 1 ? "wasn't" : "weren't"} shared.`,
         },
       ).catch((error: unknown) => {
@@ -4151,23 +4174,23 @@ export function ConsentCenterPage() {
               actor={actor}
               entry={selectedEntry}
               bundleMembers={selectedBundleMembers}
-              onApproveBundle={(members, durationHours) => {
+              onApproveBundle={(members, durationHours, modelProcessingAllowed) => {
                 closeDetailPanel();
-                approveBundleEntries(members, durationHours);
+                approveBundleEntries(members, durationHours, modelProcessingAllowed);
               }}
               onDenyBundle={(members) => {
                 closeDetailPanel();
                 denyBundleEntries(members);
               }}
-              onDecideBundle={(allow, decline, durationHours) => {
+              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed) => {
                 closeDetailPanel();
-                decideBundleEntries(allow, decline, durationHours);
+                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed);
               }}
-              onApprove={(entry, durationHours, scopeSelection) => {
+              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed) => {
                 // Dismiss the panel immediately; the list already optimistically
                 // removes the row and any failure surfaces via toast.
                 closeDetailPanel();
-                approveEntry(entry, durationHours, scopeSelection);
+                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed);
               }}
               onDeny={(entry) => {
                 closeDetailPanel();

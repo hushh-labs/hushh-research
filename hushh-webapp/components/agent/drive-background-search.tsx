@@ -9,8 +9,8 @@ import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { ArrowLeft, ChevronDown, ChevronRight, X } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from "@/components/ui/sheet";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from "@/components/ui/sheet";
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import { HelperText } from "@/components/app-ui/typography";
 import { dismissDriveSharingCard, isDriveSharingCardDismissed } from "@/lib/agent/drive-sharing-card-preferences";
@@ -227,7 +227,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
       target?.focus({ preventScroll: true });
     };
     const detail = selected ? <>
-      <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} profileDetail />
+      <DriveBulkShareReview key={selected.shareId} searchJobId={selected.searchJobId} initial={selected} getToken={getToken} profileDetail={!page} />
       <Button type="button" variant="muted" size="compact" className="self-start"
         onClick={() => {
           setSelectedShareId(null); dismiss(selected, false);
@@ -273,14 +273,16 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
     </NativeFeaturePage>;
     return <>{rows}
       <Sheet modal open={!!selected} onOpenChange={open => { if (!open) { setSelectedShareId(null); void loadBulk(); } }}>
-        <SheetContent side="right" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="z-(--z-dialog) gap-0 overflow-hidden p-0"
+        <SheetContent side="left" overlayClassName="z-(--z-dialog-overlay)" data-chat-detail-pane data-app-side-pane showCloseButton={false} contentDragDismiss={false} className="z-(--z-dialog) gap-0 overflow-hidden p-0"
           onCloseAutoFocus={event => { event.preventDefault(); restoreSidebarFocus(); }}>
           <SheetHeader className="profile-pane-header profile-pane-header--inner shrink-0 border-b">
             <div><button type="button" aria-label="Back to Chats" onClick={() => { setSelectedShareId(null); void loadBulk(); }} className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="size-5" /></button><SheetTitle>Drive sharing</SheetTitle></div>
             <SheetDescription className="sr-only">Google Drive sharing progress and available actions.</SheetDescription>
           </SheetHeader>
           <SheetClose asChild><button type="button" aria-label="Close Drive sharing" className="profile-pane-close absolute right-4 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="size-4" /></button></SheetClose>
-          <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-7">{detail}</div>
+          <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-7 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-7">
+          {detail}
+        </div>
         </SheetContent>
       </Sheet>
     </>;

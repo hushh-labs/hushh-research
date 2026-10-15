@@ -102,10 +102,11 @@ export async function expectPaneRestingAtFrame(page: Page, pane: Locator, leftSa
   await expect.poll(() => pane.evaluate((element, x) => Math.abs(element.getBoundingClientRect().left - x), inset)).toBeLessThanOrEqual(1);
 }
 
-export async function profileFrame(page: import("@playwright/test").Page) {
-  return page.evaluate(() => {
+export async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
+  return page.evaluate((safeSidePane) => {
     const reference = document.createElement("div");
-    reference.className = "profile-pane-sheet";
+    reference.className = safeSidePane ? "" : "profile-pane-sheet";
+    if (safeSidePane) reference.dataset.appSidePane = "";
     reference.dataset.slot = "sheet-content";
     reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
     const card = document.createElement("div");
@@ -132,7 +133,7 @@ export async function profileFrame(page: import("@playwright/test").Page) {
       } };
     reference.remove();
     return result;
-  });
+  }, safeSidePane);
 }
 
 

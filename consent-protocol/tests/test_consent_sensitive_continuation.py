@@ -1,12 +1,9 @@
-"""Sensitive information never reaches the model (CONTRACT-2 C7, founder decision 2026-09-28).
+"""Sensitive values require the information owner's current model-processing permission.
 
-The device replaces a sensitive item's values with a field-name outline before
-it sends ``sharedInformation``. The server enforces the same rule again at
-admission, before the text is stored for the prompt. These tests run the real
-admission and then the real One text agent through a real ADK Runner with a
-model that records every request, so they prove what the provider would
-receive. The negative control removes only the strip and shows the value
-arrives, so the assertion is not vacuous.
+Real admission and the real One text agent run through an ADK Runner with a
+recording model. Without explicit permission, only field-name outlines reach
+that model. An approved identifier may pass; credentials and unapproved items
+remain withheld. The retained broken-strip control proves absence is meaningful.
 """
 
 from __future__ import annotations
@@ -44,6 +41,26 @@ SHARED = "\n".join(
         f"- Food preferences > favorite restaurant: {RESTAURANT}",
     ]
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [False, True])
+async def test_owner_model_permission_admits_only_approved_item_and_never_credentials(
+    monkeypatch, allowed
+) -> None:
+    bundle = _bundle()
+    bundle["items"][0]["modelProcessingAllowed"] = allowed
+    shared = "\n".join(
+        [
+            "- Tax record > ssn: 123-45-6789",
+            "- Tax record > password: synthetic-password-4829",
+            "- Food preferences > ssn: 234-56-7890",
+        ]
+    )
+    read = await _model_request_for_answer_turn(monkeypatch, bundle, shared)
+    assert ("123-45-6789" in read) is allowed
+    assert "synthetic-password-4829" not in read
+    assert "234-56-7890" not in read
 
 
 def _bundle(*, tax_sensitivity: str | None = "sensitive") -> dict[str, Any]:
@@ -121,10 +138,14 @@ def _everything_the_model_read(llm_request: Any) -> str:
 
 
 async def _model_request_for_answer_turn(
-    monkeypatch, bundle: dict[str, Any] | None = None, shared: str = SHARED
+    monkeypatch,
+    bundle: dict[str, Any] | None = None,
+    shared: str = SHARED,
+    *,
+    current_bundle: dict[str, Any] | None = None,
 ) -> str:
     async def ledger(_owner_id: str, bundle_id: str) -> dict[str, Any]:
-        return {"bundleId": bundle_id, "progress": {"outcome": "granted", "ended_at": None}}
+        return current_bundle or bundle or _bundle()
 
     monkeypatch.setattr(agent_tree, "_requester_bundle", ledger)
     admitted = await _admit(bundle or _bundle(), shared)
@@ -146,6 +167,18 @@ async def _model_request_for_answer_turn(
 
 
 @pytest.mark.asyncio
+async def test_fresh_pre_model_denial_removes_already_admitted_identifier(monkeypatch):
+    approved = _bundle()
+    approved["items"][0].update(modelProcessingAllowed=True, accessReady=True)
+    current = _bundle()
+    current["items"][0].update(modelProcessingAllowed=True, accessReady=False)
+    read = await _model_request_for_answer_turn(
+        monkeypatch, approved, "- Tax record > ssn: 123-45-6789", current_bundle=current
+    )
+    assert "123-45-6789" not in read
+
+
+@pytest.mark.asyncio
 async def test_a_sensitive_value_never_reaches_the_model_request(monkeypatch) -> None:
     read = await _model_request_for_answer_turn(monkeypatch)
 
@@ -164,7 +197,7 @@ async def test_negative_control_without_the_strip_the_value_arrives(monkeypatch)
     monkeypatch.setattr(
         consent_continuation,
         "strip_sensitive_shared_information",
-        lambda text, _sensitivities: (text, 0),
+        lambda text, _sensitivities, **_kwargs: (text, 0),
     )
     read = await _model_request_for_answer_turn(monkeypatch)
     assert AGI in read and FILING_STATUS in read
@@ -349,3 +382,13 @@ async def test_an_all_standard_answer_names_nothing_as_hidden(monkeypatch) -> No
     )
     assert "hidden from you" not in read
     assert RESTAURANT in read
+
+
+@pytest.mark.asyncio
+async def test_paid_access_not_ready_refuses_model_use_despite_owner_approval():
+    from hushh_mcp.one_adk.consent_continuation import ConsentContinuationError
+
+    bundle = _bundle()
+    bundle["items"][0].update(modelProcessingAllowed=True, accessReady=False)
+    with pytest.raises(ConsentContinuationError, match="not currently available"):
+        await _admit(bundle, "- Tax record > ssn: 123-45-6789")

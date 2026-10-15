@@ -9,7 +9,11 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: ({ cardDetails }: { cardDetails?: boolean }) => <section>{cardDetails ? "Card recipients" : "Sharing overview"}</section> }));
+const historyProbe = vi.hoisted(() => ({ getContext: null as null | ((id: string) => { isCurrent: () => boolean } | null) }));
+vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: ({ cardDetails, getHistoryContext }: { cardDetails?: boolean; getHistoryContext: typeof historyProbe.getContext }) => {
+  historyProbe.getContext = getHistoryContext;
+  return <section>{cardDetails ? "Card recipients" : "Sharing overview"}</section>;
+} }));
 vi.mock("@/components/wallet-card/wallet-card-workspace", () => ({
   WalletCardWorkspace: () => <section>Live profile controls</section>,
 }));
@@ -100,6 +104,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
 
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 function makeCards(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -132,7 +137,23 @@ describe("Wallet video browser workspace", () => {
     await screen.findByTestId("wallet-card-browser");
     return view;
   };
-  it("opens the full owner number and keeps security codes and financial placeholders hidden", async () => {
+  it("preloads history with a session context that survives tab changes but never lock or epoch changes", async () => {
+    const view = await open();
+    const context = historyProbe.getContext?.("");
+    expect(context?.isCurrent()).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    expect(context?.isCurrent()).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Sharing" }));
+    expect(context?.isCurrent()).toBe(true);
+    act(() => advanceVaultSessionEpoch());
+    expect(context?.isCurrent()).toBe(false);
+    const next = historyProbe.getContext?.("");
+    expect(next?.isCurrent()).toBe(true);
+    vaultMock.locked = true;
+    view.rerender(<WalletWorkspace />);
+    expect(next?.isCurrent()).toBe(false);
+  });
+  it("keeps owner numbers masked and security codes and financial placeholders hidden", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     expect(screen.queryByText("Card recipients")).toBeNull();
@@ -141,8 +162,8 @@ describe("Wallet video browser workspace", () => {
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Name on card");
     expect(screen.queryByText("Card balance")).toBeNull();
     expect(screen.getByRole("button", { name: "Remove card" })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
-    expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+    expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     fireEvent.click(screen.getByRole("button", { name: "All (5)" }));
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove card" })).toBeNull();
@@ -166,7 +187,7 @@ describe("Wallet video browser workspace", () => {
   it("returns to the overview after removal and opens the remaining card with working number access", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2).slice(1));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
@@ -175,8 +196,10 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(remaining).not.toBeDisabled());
     serviceMock.getCard.mockClear();
     fireEvent.click(remaining);
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001");
+    fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
   });
   it.each(["owner", "lock"])("cancels a pending removal after a %s change", async (change) => {
     const view = await open();
@@ -217,11 +240,14 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy name on card" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Test Cardholder"));
-    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("4242424242424242"));
+    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
     expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" }));
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242");
+    expect(document.body).not.toHaveTextContent("4242424242424242");
+    expect(document.body).not.toHaveTextContent("4242 4242 4242 4242");
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
     expect(document.querySelector('textarea')).toBeNull();
     expect(screen.getByRole("region", { name: "Saved card details" })).not.toHaveTextContent(/\b(?:CVV|CVC|PIN)\b/);
     expect(screen.queryByRole("button", { name: "Copy CVV" })).toBeNull();
@@ -231,7 +257,7 @@ describe("Wallet video browser workspace", () => {
     let resolveCopy!: (result: unknown) => void;
     const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
     serviceMock.getCard.mockImplementationOnce(() => new Promise((resolve) => { resolveCopy = resolve; }));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     if (change === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
@@ -256,7 +282,7 @@ describe("Wallet video browser workspace", () => {
     try {
       const view = await open();
       fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-      await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+      await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
       serviceMock.getCard.mockImplementationOnce(() => new Promise(resolve => { resolveCopy = resolve; }));
       fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
       expect(write).toHaveBeenCalledTimes(1);
@@ -270,7 +296,7 @@ describe("Wallet video browser workspace", () => {
         expect(text).toBe("4242424242424242");
       }
       if (ownerChanges) expect(document.body).not.toHaveTextContent("4242424242424242");
-      else expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242");
+      else expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
     } finally { vi.unstubAllGlobals(); }
   });
   it("opens the existing Add form from a selected card", async () => {
@@ -279,8 +305,11 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a card", exact: true }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose from photos" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Scan card" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
-    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
   it("removes the browser when the vault locks", async () => {
     const view = await open();
@@ -290,17 +319,19 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByTestId("wallet-card-browser")).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
   });
-  it.each(["owner", "lock", "tab", "visibility"])("discards a pending owner number when %s changes", async boundary => {
+  it.each(["owner", "lock", "tab", "visibility"])("rejects a pending number copy when %s changes", async boundary => {
     let finish!: (value: unknown) => void;
     serviceMock.getCard.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     if (boundary === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
     if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     if (boundary === "visibility") { vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange")); }
     await act(async () => finish({ secrets: { pan: "4000000000000002", cvv: "999", pin: "9876" } }));
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
     expect(document.body).not.toHaveTextContent("4000000000000002");
     expect(document.body).not.toHaveTextContent("4000 0000 0000 0002");
     expect(trackEventMock.mock.calls.flat().join()).not.toContain("4000000000000002");
@@ -318,8 +349,8 @@ describe("Wallet video browser workspace", () => {
     expect(screen.getByTestId("wallet-card-face")).toHaveTextContent("Card 1");
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
-    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 4242"));
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001"));
   });
 
   it("returns the profile card to the collection without replacing the retained Cards panel", async () => {

@@ -1,4 +1,8 @@
 import {
+  COUNT_BUCKETS,
+  LIVE_MEMORY_SOURCE_KINDS,
+  LIVE_MEMORY_SOURCE_OUTCOMES,
+  MINUTE_DURATION_BUCKETS,
   GMAIL_CONNECT_RESULT_ACTIONS,
   GMAIL_CONNECT_STARTED_ACTIONS,
   GMAIL_SYNC_RESULT_ACTIONS,
@@ -44,15 +48,36 @@ export const GOVERNED_RESULTS_BY_EVENT: Partial<Record<ObservabilityEventName, R
   one_crm_action: GOVERNED_RESULTS,
 };
 
+/*
+ * Events whose every dimension is a closed set. Each listed key is required,
+ * and a missing key or a value outside its set drops the whole event: a stray
+ * record id in `kind` or a raw count in a bucket can never reach analytics.
+ */
+const COUNT_BUCKET_SET: ReadonlySet<string> = new Set(COUNT_BUCKETS);
+export const GOVERNED_VALUES_BY_EVENT: Partial<
+  Record<ObservabilityEventName, ReadonlyMap<string, ReadonlySet<string>>>
+> = {
+  live_memory_source_verified: new Map([
+    ["kind", new Set(LIVE_MEMORY_SOURCE_KINDS)],
+    ["outcome", new Set(LIVE_MEMORY_SOURCE_OUTCOMES)],
+    ["lag_bucket", new Set(MINUTE_DURATION_BUCKETS)],
+    ["pending_bucket", COUNT_BUCKET_SET],
+    ["retry_bucket", COUNT_BUCKET_SET],
+  ]),
+};
+
 export function isGovernedLongString(
   eventName: ObservabilityEventName,
   key: string,
   value: PrimitiveEventValue,
 ): boolean {
+  if (typeof value !== "string") return false;
+  // A declared closed-set value, such as `document_request_payment`, is not
+  // an opaque id, however long.
+  if (GOVERNED_VALUES_BY_EVENT[eventName]?.get(key)?.has(value)) return true;
   return (
     eventName === "one_location_journey_action" &&
     key === "action" &&
-    typeof value === "string" &&
     ONE_LOCATION_JOURNEY_ACTION_SET.has(value)
   );
 }
@@ -62,6 +87,8 @@ export function isInvalidGovernedEnum(
   key: string,
   value: PrimitiveEventValue,
 ): boolean {
+  const governedValues = GOVERNED_VALUES_BY_EVENT[eventName]?.get(key);
+  if (governedValues) return typeof value !== "string" || !governedValues.has(value);
   if (typeof value !== "string") return key === "action" || key === "result";
   if (key === "action") {
     const actions = GOVERNED_ACTIONS_BY_EVENT[eventName];

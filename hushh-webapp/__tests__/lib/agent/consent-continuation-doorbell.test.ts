@@ -951,6 +951,16 @@ describe("sensitive information never reaches the model (CONTRACT-2 C7)", () => 
     expect(text).toContain("Atorvastatin 20mg");
   });
 
+  it.each([false, true])("uses approved identifiers while keeping credentials private (%s)", (allowed) => {
+    const text = formatSharedInformationForAgent([{
+      requestId: "employee", label: "Employee onboarding", sensitivity: "sensitive",
+      modelProcessingAllowed: allowed,
+      data: { ssn: "123-45-6789", password: "synthetic-password-4829" },
+    }]);
+    expect(text.includes("123-45-6789")).toBe(allowed);
+    expect(text).not.toContain("synthetic-password-4829");
+  });
+
   it("a server's sensitive wins over a harmless label", () => {
     const text = formatSharedInformationForAgent([
       { requestId: "r1", label: "Dinner notes", data: TAX, sensitivity: "sensitive" },

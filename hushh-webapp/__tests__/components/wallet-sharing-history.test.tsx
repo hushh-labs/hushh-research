@@ -6,6 +6,7 @@ vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCar
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const context = { userId: "owner", vaultKey: "memory-only", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => mocks.current };
 const getContext = () => context;
@@ -17,6 +18,31 @@ beforeEach(() => {
   mocks.history.mockResolvedValue(page(["First"])); mocks.revoke.mockResolvedValue({ revoked: true });
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
+  it("preloads inactive history, retains pages across tabs, and discards late replies on session invalidation", async () => {
+    mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
+    const view = render(<WalletSharingHistory ownerId="owner" active={false} getContext={getContext} />);
+    await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(1));
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
+    await screen.findByText("Second");
+    view.rerender(<WalletSharingHistory ownerId="owner" active={false} getContext={getContext} />);
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(screen.getByText("Second")).toBeVisible();
+    expect(screen.queryByText("Loading shared cards...")).toBeNull();
+    expect(mocks.history).toHaveBeenCalledTimes(2);
+    let finish!: (value: ReturnType<typeof page>) => void;
+    mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    mocks.current = false;
+    act(() => advanceVaultSessionEpoch());
+    expect(screen.queryByText("Second")).toBeNull();
+    await act(async () => finish(page(["Old session reply"])));
+    expect(screen.queryByText("Old session reply")).toBeNull();
+    mocks.current = true;
+    mocks.history.mockResolvedValue(page(["New session"]));
+    act(() => advanceVaultSessionEpoch());
+    expect(await screen.findByText("New session")).toBeVisible();
+  });
   it("renders real timing, recipient, verification and activity and confirms recipient-specific revocation", async () => {
     const record = item("First");
     record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
@@ -38,7 +64,7 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     expect(screen.getByText("Identity verification required")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
     fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
-    await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(context, "First"));
+    await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(expect.objectContaining({ userId: context.userId, isCurrent: expect.any(Function) }), "First"));
     act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("First")).toBeVisible();

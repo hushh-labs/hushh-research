@@ -424,9 +424,7 @@ async def test_browser_cannot_supply_system_instructions_on_either_chat_surface(
     assert private.value.detail["code"] == "AGENT_SYSTEM_MESSAGE_REFUSED"
 
 
-@pytest.mark.parametrize(
-    "field", ["consentContinuation", "driveSearchSelection", "pendingEmailDraft"]
-)
+@pytest.mark.parametrize("field", ["driveSearchSelection", "pendingEmailDraft"])
 def test_private_chat_refuses_unavailable_shared_authority_instead_of_dropping_it(field):
     from types import SimpleNamespace
 

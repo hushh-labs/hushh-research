@@ -779,7 +779,7 @@ test.describe("One compact header: phone regression", () => {
   test("keeps presence, name, activity and controls on one aligned reachable row", async ({
     page,
   }) => {
-    for (const width of [320, 360, 393, 430, 640, 767]) {
+    for (const width of [320, 332, 360, 393, 430, 640, 767]) {
       for (const canPickOneModel of [false, true]) {
         const safeTop = width === 393 ? 64 : width === 360 ? 0 : 32;
         const variant = {
@@ -830,8 +830,8 @@ test.describe("One compact header: phone regression", () => {
         expect(oneTarget.width).toBe(44);
         expect(oneTarget.height).toBe(44);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBe(44);
-        expect(artwork.height).toBe(44);
+        expect(artwork.width).toBe(32);
+        expect(artwork.height).toBe(32);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -854,6 +854,11 @@ test.describe("One compact header: phone regression", () => {
           expect(picker.height).toBeGreaterThanOrEqual(44);
           expect(picker.x + picker.width).toBeLessThanOrEqual(width);
         }
+        await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
+        const longName = await box(page, "agent-name");
+        expect(longName.x).toBeGreaterThanOrEqual(0);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(width);
+        expect(longName.y).toBeGreaterThanOrEqual(boxes[0].y + boxes[0].height);
       }
     }
   });
@@ -878,8 +883,12 @@ test.describe("One compact header: phone regression", () => {
       await openFixture(page, variant, width);
       const after = await Promise.all(ids.map((id) => box(page, id)));
       expect(after).toEqual(before);
-      expect(after[2].width).toBe(72);
-      expect(after[3].width).toBe(72);
+      expect(after[2].width).toBe(44);
+      expect(after[3].width).toBe(32);
+      await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
+      const activeHeader = await box(page, "agent-header");
+      const subtitle = await box(page, "agent-subtitle");
+      expect(subtitle.y + subtitle.height).toBeLessThanOrEqual(activeHeader.y + activeHeader.height);
     }
   });
 

@@ -69,11 +69,18 @@ This filter supplies no pod-session authority and admits no enrollment, renewal,
 encrypted save, consent or payment. Existing owner-session attachment checks its
 lease before and after the asynchronous callback.
 
-An explicitly authorized owner-cloud rehearsal may supply `admitProviderOAuth`
+An explicitly authorized owner-cloud or Stripe-connector rehearsal may supply `admitProviderOAuth`
 with `admitMutation`. This opt-in admits only reviewed POST document navigation
-in the top frame at exact Microsoft sign-in origins; the callback must approve
-the exact request. It never admits background writes or another provider, and
-absent or failed admission remains refused. The known Microsoft
+in the top frame at exact Microsoft sign-in origins or Stripe's declared
+`https://access.stripe.com/mcp/oauth2/authorize` endpoint. Stripe token,
+registration, login and payment endpoints are not admitted by this exception.
+The callback must bind the exact selected page and current owner/PKCE attempt;
+absent or failed admission remains refused. It never admits background writes.
+At a full-page provider handoff, retire the app attachment and install a separate
+provider-phase guard on the same task-owned page. Fence its captured route handler
+before and after awaited admission and immediately before forwarding; remove only
+that handler on retirement. App return requires fresh owner/vault admission and
+an armed callback barrier before unlock. Never replay an ambiguous completion. The known Microsoft
 `browser.events.data.microsoft.com/OneCollector/1.0/` telemetry POST is suppressed
 locally, just like the known Analytics collection endpoint; no measurement is
 forwarded. Owner OAuth state, code and credentials remain memory-only. Preserve

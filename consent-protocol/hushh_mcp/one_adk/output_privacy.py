@@ -73,6 +73,7 @@ _PRIVATE_STATE_KEYS = frozenset(
         "temp:hussh:mcp_approval",
         "hussh:mail_read_offer",
         "hussh:calendar_event_read_offer",
+        "hussh:calendar_invitation_read_offer",
         "hussh:calendar_list_read_offer",
     }
 )

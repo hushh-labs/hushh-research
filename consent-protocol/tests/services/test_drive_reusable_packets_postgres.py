@@ -177,6 +177,85 @@ async def originals(reusable, count=1):
     return files
 
 
+async def owner_originals(reusable, user_id, count):
+    """Extracted synthetic originals for one more connected live-Drive owner."""
+    from hushh_mcp.services.drive_collection_store import COLLECTION_DISCLOSURE
+
+    with reusable.collection.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO user_external_connector_connections
+              (user_id,connector_id,connection_generation,status,validation_state,verified_policy_hash)
+              SELECT :user,'google_drive',1,'connected','verified',verified_policy_hash
+              FROM user_external_connector_connections
+              WHERE user_id='owner' AND connector_id='google_drive'
+              ON CONFLICT DO NOTHING"""),
+            {"user": user_id},
+        )
+    await reusable.collection.set_processing(
+        user_id=user_id, enabled=True, disclosure=COLLECTION_DISCLOSURE
+    )
+    sync = await reusable.collection.claim(user_id=user_id)
+    files = [source(f"{user_id}-synthetic-source-{n}") for n in range(count)]
+    await reusable.collection.commit_page(
+        sync,
+        checkpoint={"changes_token": "synthetic-start"},
+        files=files,
+        phase="changes",
+        caught_up=True,
+    )
+    for _ in files:
+        job = await reusable.ingestion.claim(user_id=user_id, generation=1)
+        metadata = next(
+            item
+            for item in files
+            if reusable.collection.cipher.fingerprint(user_id, item.file_id)
+            == job["source_fingerprint"]
+        )
+        await reusable.ingestion.publish_pages(job, metadata=metadata, batch=collection_pages())
+
+
+def facts_done(reusable):
+    with reusable.facts.db.engine.connect() as connection:
+        return dict(
+            connection.execute(
+                text("""SELECT user_id,count(*) FROM drive_document_facts
+                  WHERE status='complete' GROUP BY user_id""")
+            ).all()
+        )
+
+
+def held_pages(reusable, expected, leases, after=None):
+    """Hold page facts until `expected` jobs run at once, then record their leases."""
+    all_running = asyncio.Event()
+    state = {"in_flight": 0, "peak": 0}
+
+    async def assess(**kwargs):
+        state["in_flight"] += 1
+        state["peak"] = max(state["peak"], state["in_flight"])
+        if state["in_flight"] == expected:
+            with reusable.facts.db.engine.connect() as connection:
+                leases.extend(
+                    connection.execute(
+                        text("""SELECT user_id,document_id FROM drive_document_facts
+                          WHERE status='running' AND lease_expires_at>clock_timestamp()""")
+                    ).all()
+                )
+            all_running.set()
+        try:
+            # A schedule that never reaches `expected` proceeds after the wait.
+            # The wait ends as soon as it is reached, so a loaded runner only
+            # needs the headroom, never pays for it.
+            await asyncio.wait_for(all_running.wait(), timeout=10)
+            if after is not None:
+                await asyncio.wait_for(after.wait(), timeout=10)
+        except TimeoutError:
+            pass
+        state["in_flight"] -= 1
+        return await assess_pages(**kwargs)
+
+    return assess, state
+
+
 async def ready_packet(reusable, count=1):
     await originals(reusable, count)
     for _ in range(count):
@@ -262,6 +341,65 @@ async def test_exact_version_reuse_and_summary_listing_need_separate_allow(reusa
         )
     with pytest.raises((DriveReadError, DriveSharingError)):
         await reusable.packets.list_packets(user_id="unrelated", owner_user_id="owner")
+
+
+async def test_owner_list_names_its_own_files_and_buyers_never_receive_them(reusable, monkeypatch):
+    packet = await ready_packet(reusable)
+    # Internal callers (request matching) never pay for or carry file names.
+    assert "contents" not in packet
+    listing = await reusable.packets.list_packets(user_id="owner", owner_contents=True)
+    packet = listing["packets"][0]
+    assert packet["contents"] == {
+        "period": None,
+        "documents": [
+            {"name": "Private synthetic filename", "type": "statement", "pages": 1, "period": None}
+        ],
+    }
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    # Even when asked, a buyer's list never carries the owner's files.
+    buyer = await reusable.packets.list_packets(
+        user_id="recipient", owner_user_id="owner", owner_contents=True
+    )
+    assert buyer["packets"] and all("contents" not in item for item in buyer["packets"])
+    assert "Private synthetic filename" not in json.dumps(buyer)
+    # Waiting for a policy recheck: its own file names stay, stale model readings do not.
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_packet_intelligence.facts_policy_version",
+        lambda: "new-facts-policy",
+    )
+    listing = await reusable.packets.list_packets(user_id="owner", owner_contents=True)
+    owner = listing["packets"][0]
+    assert owner["title"] == "Packet being checked"
+    assert owner["contents"] == {
+        "period": None,
+        "documents": [
+            {"name": "Private synthetic filename", "type": None, "pages": 1, "period": None}
+        ],
+    }
+
+
+def test_owner_contents_text_and_dates_are_plain():
+    from hushh_mcp.services.drive_packet_store import _plain, _span
+
+    assert _plain(" Example\x00 Bank\n statement.pdf ", 120) == "Example Bank statement.pdf"
+    assert _plain("x" * 200, 120) == "x" * 120 and _plain("\x07 ", 120) is None
+    assert _plain(None, 120) is None
+    assert _span(
+        [
+            {"start": "20260201", "end": "2026-02-28"},
+            {"start": "2026-01-01", "end": "2026-01-31"},
+            {"start": "Jan", "end": "2026-03-01"},
+        ]
+    ) == {"start": "2026-01-01", "end": "2026-02-28"}
+    assert _span([]) is None and _span(None) is None
 
 
 async def test_extraction_profile_upgrade_fences_old_packet_before_reprocessing(
@@ -890,7 +1028,9 @@ async def test_packet_claim_failure_is_logged_without_changing_exception_or_expo
     with pytest.raises(ConnectorLifecycleError) as captured:
         await worker.run_packet_one(user_id="private-owner-id")
     assert captured.value is error
-    admission.assert_awaited_once_with("private-owner-id", "drive_packet_build_claim")
+    admission.assert_awaited_once_with(
+        "private-owner-id", "drive_packet_build_claim", resolve_mode=None
+    )
     store.release_packet.assert_not_awaited()
     assert (
         "stage=claim_packet code=connector_storage_unavailable attempt=0 elapsed_ms=" in caplog.text
@@ -908,6 +1048,24 @@ async def test_packet_release_rejects_untrusted_failure_code(reusable):
             connection.execute(text("SELECT error_code FROM drive_packet_heads")).scalar_one()
             == "packet_unavailable"
         )
+
+
+async def test_owner_name_on_file_is_read_for_the_wrong_person_fence(reusable):
+    # An isolated schema has no identity cache: the listing is empty, not a stall.
+    assert await reusable.packets.owner_identity(user_id="owner") == {"names": []}
+    with reusable.facts.db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE actor_identity_cache (user_id TEXT PRIMARY KEY, display_name TEXT)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO actor_identity_cache VALUES ('owner', ' Synthetic Owner '), ('blank', ' ')"
+        )
+    assert await reusable.packets.owner_identity(user_id="owner") == {"names": ["Synthetic Owner"]}
+    assert await reusable.packets.owner_identity(user_id="blank") == {"names": []}
+    assert await reusable.packets.owner_identity(user_id="nobody") == {"names": []}
+    # Every packet job reads the name and the build still finishes; these
+    # synthetic facts name nobody, so the fence leaves the Ready verdict alone.
+    assert (await ready_packet(reusable))["packetId"]
 
 
 async def test_last_member_removal_retires_work_and_preserves_frozen_history(reusable, sharing):
@@ -1500,59 +1658,164 @@ async def test_semantic_sweep_runs_parallel_facts_with_one_enqueue_per_owner(reu
     await originals(reusable, count=6)
     enqueue = AsyncMock(side_effect=reusable.facts.enqueue)
     monkeypatch.setattr(reusable.facts, "enqueue", enqueue)
-    in_flight = peak = 0
-
-    async def observed_pages(**kwargs):
-        nonlocal in_flight, peak
-        in_flight += 1
-        peak = max(peak, in_flight)
-        await asyncio.sleep(0.05)
-        in_flight -= 1
-        return await assess_pages(**kwargs)
-
-    reusable.worker.page_assessor = observed_pages
+    # Page facts wait until four run at once, instead of a fixed sleep that a
+    # loaded runner can outlast while claims are still serialized.
+    reusable.worker.page_assessor, held = held_pages(reusable, 4, [])
 
     result = await reusable.worker.run(max_jobs=6)
 
     assert result["facts_complete"] == 4
-    assert peak == 4
+    assert held["peak"] == 4
     enqueue.assert_awaited_once()
 
 
 async def test_semantic_sweep_gives_every_owner_work_before_parallel_facts(monkeypatch):
     from collections import Counter
 
+    admission = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_packet_worker.admit_hub_content", admission)
     monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    monkeypatch.setenv("DRIVE_PACKET_SLOTS", "3")
     facts = SimpleNamespace(
-        due_owners=AsyncMock(return_value=["a", "b", "c"]), enqueue=AsyncMock(return_value=0)
+        due_owners=AsyncMock(return_value=["a", "b", "c", "d"]), enqueue=AsyncMock(return_value=0)
     )
     worker = DrivePacketWorker(
         facts_store=facts, packet_store=SimpleNamespace(), policy=lambda: POLICY
     )
+    # Least recently served first. Owner a has one file waiting for facts, b
+    # and c have more than the cap, and d has only a packet build due.
+    waiting = {"a": 1, "b": 9, "c": 9, "d": 0}
     calls = []
 
     async def facts_one(*, user_id, enqueue):
+        assert enqueue is False
+        if not waiting[user_id]:
+            return "idle"
+        waiting[user_id] -= 1
         calls.append(("facts", user_id))
         return "facts_queued"
 
     async def packet_one(*, user_id):
+        if user_id != "d":
+            return "idle"
         calls.append(("packet", user_id))
-        return "idle"
+        return "packet_queued"
 
     worker.run_facts_one, worker.run_packet_one = facts_one, packet_one
 
-    assert await worker.run(max_jobs=8) == {"facts_queued": 5, "idle": 3}
-    # Owner B is never starved by owner A: every owner gets a facts and a
-    # packet job before any owner gets a second facts job.
-    assert Counter(calls) == {
-        ("facts", "a"): 2,
-        ("facts", "b"): 2,
-        ("facts", "c"): 1,
-        ("packet", "a"): 1,
-        ("packet", "b"): 1,
-        ("packet", "c"): 1,
+    # One packet build for the one owner with a build due; packet slots that
+    # found none ran facts instead, so every slot did work.
+    assert await worker.run(max_jobs=10) == {"packet_queued": 1, "facts_queued": 9, "idle": 5}
+    assert {call.args for call in admission.await_args_list} == {
+        (owner, "drive_packet_facts_enqueue") for owner in ("a", "b", "c", "d")
     }
-    assert [call.kwargs["user_id"] for call in facts.enqueue.await_args_list] == ["a", "b", "c"]
+    facts_calls = [user_id for kind, user_id in calls if kind == "facts"]
+    # Owner b is never starved by owner a: every owner with facts work gets a
+    # job before any owner gets a second, then owners with more work get extra
+    # jobs up to the per-owner cap.
+    assert facts_calls[:3] == ["a", "b", "c"]
+    assert Counter(facts_calls) == {"a": 1, "b": 4, "c": 4}
+    assert [call.kwargs["user_id"] for call in facts.enqueue.await_args_list] == [
+        "a",
+        "b",
+        "c",
+        "d",
+    ]
+    facts.due_owners.assert_awaited_once_with(limit=10)
+
+
+async def test_drain_gives_every_owner_facts_then_extra_jobs_up_to_the_owner_cap(
+    reusable, monkeypatch
+):
+    from collections import Counter
+
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    owners = ["owner"] + [f"owner-{n}" for n in range(1, 8)]
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join(owners))
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    # Eight owners have facts due. The first, least recently served, has the
+    # large backlog. No packet build is due yet.
+    await owner_originals(reusable, "owner", 8)
+    for user_id in owners[1:]:
+        await owner_originals(reusable, user_id, 1)
+    expected, leases = 4 + 7, []
+    reusable.worker.page_assessor, held = held_pages(reusable, expected, leases)
+    worker = DriveDocumentWorker(SimpleNamespace(), packet_worker=reusable.worker)
+    worker.due_owners = AsyncMock(return_value=[])
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", AsyncMock())
+
+    result = await worker.run(max_jobs=20, deadline_seconds=160)
+
+    # One drain gave every owner a facts job, then gave the owner with more
+    # work extra jobs up to its cap, using the packet slots with no build due.
+    per_owner = {"owner": 4, **dict.fromkeys(owners[1:], 1)}
+    assert facts_done(reusable) == per_owner
+    assert held["peak"] == expected
+    assert result["outcomes"]["queued"] == expected
+    # Never two running jobs on one document.
+    assert Counter(user_id for user_id, _ in leases) == per_owner
+    assert len({document_id for _, document_id in leases}) == expected
+
+
+async def test_packet_builds_use_at_most_their_slots_and_idle_ones_run_facts(reusable, monkeypatch):
+    from collections import Counter
+
+    owners = ["owner"] + [f"owner-{n}" for n in range(1, 8)]
+    builds = owners[:4]
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join(owners))
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    monkeypatch.setenv("DRIVE_PACKET_SLOTS", "3")
+    for user_id in owners:
+        await owner_originals(reusable, user_id, 2 if user_id in builds else 1)
+    # Four owners each finished one file, so each has a packet build due and
+    # one more file waiting for facts. The other four only wait for facts.
+    for user_id in builds:
+        assert await reusable.worker.run_facts_one(user_id=user_id) == "facts_complete"
+    built, packets_built = [], asyncio.Event()
+    run_packet_one = reusable.worker.run_packet_one
+
+    async def observed_packet(*, user_id):
+        outcome = await run_packet_one(user_id=user_id)
+        if outcome != "idle":
+            built.append(user_id)
+            if len(built) == 3:
+                packets_built.set()
+        return outcome
+
+    reusable.worker.run_packet_one = observed_packet
+    leases = []
+    reusable.worker.page_assessor, held = held_pages(
+        reusable, len(owners), leases, after=packets_built
+    )
+
+    result = await reusable.worker.run(max_jobs=12)
+
+    # At most three packet builds, one per owner, all for owners with one due.
+    assert len(built) == len(set(built)) == 3 and set(built) <= set(builds)
+    assert result["packet_queued"] == 3
+    # The other slots ran one facts job for every owner at once.
+    assert held["peak"] == len(owners)
+    assert Counter(user_id for user_id, _ in leases) == dict.fromkeys(owners, 1)
+    assert result["facts_complete"] == len(owners)
+    assert facts_done(reusable) == dict.fromkeys(owners, 1) | dict.fromkeys(builds, 2)
+
+
+async def test_owners_beyond_one_sweep_are_served_first_in_the_next(reusable, monkeypatch):
+    owners = ["owner"] + [f"owner-{n}" for n in range(1, 8)]
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join(owners))
+    monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
+    for user_id in owners:
+        await owner_originals(reusable, user_id, 2)
+
+    await reusable.worker.run(max_jobs=4)
+    first = facts_done(reusable)
+    await reusable.worker.run(max_jobs=4)
+
+    # Four slots serve the four least recently served owners once each; the
+    # next sweep serves the other four first, so no owner waits behind another.
+    assert first == dict.fromkeys(owners[:4], 1)
+    assert facts_done(reusable) == dict.fromkeys(owners, 1)
 
 
 async def test_parallel_final_folds_see_each_others_new_canonical_keys(reusable, monkeypatch):
@@ -1746,3 +2009,110 @@ async def test_incomplete_packet_reports_every_gap_and_cannot_be_listed(reusable
     assert outcome == "incomplete"
     view = (await reusable.packets.list_packets(user_id="owner"))["packets"][0]
     assert view["state"] == "incomplete" and view["gaps"] == gaps and not view["canList"]
+
+
+async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):
+    await originals(reusable)
+    await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)
+    old = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_document_facts SET lease_expires_at=clock_timestamp()-interval '1 second'"
+            )
+        )
+    new = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert old["lease_id"] != new["lease_id"]
+    pages = [{"page": 1, "text": "Synthetic statement evidence"}]
+    with pytest.raises(DriveReadError, match="facts_superseded"):
+        await reusable.facts.commit_batch(
+            old, page_facts=page_facts(pages), document_facts=document_facts(pages)
+        )
+    await reusable.facts.commit_batch(
+        new, page_facts=page_facts(pages), document_facts=document_facts(pages)
+    )
+
+
+async def test_listing_deny_and_connection_revocation_remove_buyer_access(reusable):
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="deny",
+        price_cents=125,
+        expected_revision=1,
+        disclosure=None,
+    )
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("UPDATE connections SET status='revoked'"))
+    with pytest.raises(DriveSharingError, match="connection_required"):
+        await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner")
+
+
+@pytest.mark.parametrize("change", ["pause", "generation"])
+async def test_packet_lease_fences_late_construction_after_authority_change(reusable, change):
+    await originals(reusable)
+    await reusable.worker.run_facts_one(user_id="owner")
+    job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert job
+    if change == "pause":
+        await reusable.collection.set_processing(user_id="owner", enabled=False)
+    else:
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE user_external_connector_connections SET connection_generation=connection_generation+1 WHERE user_id='owner'"
+                )
+            )
+    with pytest.raises(DriveReadError):
+        await reusable.packets.commit_build(
+            job, build={"assessment": {}}, after_document_id=None, phase="verify"
+        )
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() == 0
+        )
+
+
+async def test_worker_carries_host_file_time_without_persisting_it_in_manifest(reusable):
+    # The store carries creation time through the host worker evidence ports.
+    # This is metadata conservation, not model-context or semantic proof;
+    # model input filters and the immutable manifest separately withhold it.
+    from dataclasses import replace
+
+    seen, checker = [], reusable.worker.checker
+
+    async def recording(**kwargs):
+        seen.extend(kwargs["documents"])
+        return await checker(**kwargs)
+
+    reusable.worker.checker = recording
+    created = "2026-09-20T08:00:00Z"
+    files = [replace(source("synthetic-created-source"), created_time=created)]
+    await seed_collection(reusable.collection, files=files)
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    await reusable.ingestion.publish_pages(job, metadata=files[0], batch=collection_pages())
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    assert seen and {item.get("created_time") for item in seen} == {created}
+    [packet] = (await reusable.packets.list_packets(user_id="owner"))["packets"]
+    manifest = await reusable.packets.current_packet_manifest(
+        owner_user_id="owner", packet_id=packet["packetId"], version=1
+    )
+    assert manifest["sources"]
+    assert all("created_time" not in item for item in manifest["sources"])

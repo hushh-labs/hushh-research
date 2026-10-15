@@ -7,6 +7,8 @@ request or create a payment. Immutable versions retain their exact source terms.
 from __future__ import annotations
 
 import json
+import re
+from datetime import date
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -28,6 +30,8 @@ from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 LISTING_DISCLOSURE = "drive-packet-listing-connections-v1"
+# The owner's list shows a packet's first files; its document count says how many more.
+OWNER_CONTENT_DOCUMENTS = 20
 PACKET_FAILURE_CODES = frozenset(
     {
         "packet_unavailable",
@@ -54,6 +58,27 @@ PACKET_FAILURE_CODES = frozenset(
         "background_processing_required",
     }
 )
+
+
+def _plain(value, limit):
+    """One line of display text, or None."""
+    if not isinstance(value, str):
+        return None
+    return " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", value).split())[:limit].rstrip() or None
+
+
+def _span(periods):
+    """The first start and last end of dated periods as "YYYY-MM-DD", or None."""
+    days = []
+    for item in periods if isinstance(periods, list) else []:
+        try:
+            days.append((date.fromisoformat(item["start"]), date.fromisoformat(item["end"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not days:
+        return None
+    start, end = min(day for day, _ in days), max(day for _, day in days)
+    return {"start": start.isoformat(), "end": end.isoformat()} if start <= end else None
 
 
 def safe_packet_failure_code(code):
@@ -371,6 +396,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             )
             if not current:
                 raise DriveReadError("packet_source_changed")
+            metadata = self.cipher.open(dict(row))
             documents.append(
                 {
                     "document_id": str(row["document_id"]),
@@ -381,6 +407,14 @@ class DrivePacketStore(DriveDocumentFactsStore):
                     "extraction_version": row["extraction_version"],
                     "complete": not row["has_gaps"],
                     "facts": self.facts(dict(row)),
+                    # Provider checksum of the original bytes (absent for native
+                    # Google files). The Ready gates use it to spot one file
+                    # selected twice; it is not persisted in the manifest.
+                    "content_digest": metadata.get("checksum"),
+                    # Retain source metadata in the host evidence projection.
+                    # Creation time neither dates coverage nor proves duplicate
+                    # records; it stays outside model context and manifests.
+                    "created_time": metadata.get("created_time"),
                 }
             )
         return documents
@@ -491,6 +525,31 @@ class DrivePacketStore(DriveDocumentFactsStore):
     async def require_packet_current(self, job):
         await self._transaction(lambda connection: self._packet_current(connection, job))
 
+    async def owner_identity(self, *, user_id):
+        """The Drive owner's name on file, for the Ready fence on whom a source names.
+
+        It is the identity the sharing center already labels the owner with;
+        nothing here syncs or writes it. No name on file, or no identity cache
+        at all (as in isolated schemas, like the other Drive name readers),
+        yields an empty listing, which the fence treats as unconfirmed, never
+        as a match.
+        """
+
+        def operation(connection):
+            if not connection.execute(
+                text("SELECT to_regclass('actor_identity_cache') IS NOT NULL")
+            ).scalar_one():
+                return {"names": []}
+            row = self._row(
+                connection,
+                "SELECT display_name FROM actor_identity_cache WHERE user_id=:user",
+                {"user": user_id},
+            )
+            name = row["display_name"] if row else None
+            return {"names": [name.strip()] if isinstance(name, str) and name.strip() else []}
+
+        return await self._transaction(operation)
+
     async def evidence_page(self, job, *, after_document_id=None, limit=6):
         if not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
@@ -558,7 +617,14 @@ class DrivePacketStore(DriveDocumentFactsStore):
                             {
                                 key: value
                                 for key, value in document.items()
-                                if key not in {"facts", "complete", "facts_profile"}
+                                if key
+                                not in {
+                                    "facts",
+                                    "complete",
+                                    "facts_profile",
+                                    "content_digest",
+                                    "created_time",
+                                }
                             }
                         )
                 if len(documents) < 50:
@@ -721,7 +787,67 @@ class DrivePacketStore(DriveDocumentFactsStore):
             ).scalar_one()
         )
 
-    async def list_packets(self, *, user_id, owner_user_id=None, cursor=None, limit=25):
+    def _owner_contents(self, connection, owner, rows, stale):
+        """What is inside each listed packet version, for its owner's own list.
+
+        File name and pages come from the owner's encrypted document record;
+        type and dates from its current facts, never from a packet waiting for
+        a policy recheck (`stale`). Buyers never receive any of it: only the
+        owner's call reaches here. A file that cannot be opened is left out.
+        """
+        page = [row for row in rows if row["version"]]
+        if not page:
+            return {}
+        items = connection.execute(
+            text("""SELECT s.packet_id,d.document_id,d.user_id,d.connection_generation,d.metadata_envelope,
+              f.connection_generation AS facts_generation,f.facts_version,f.facts_envelope,
+              e.total_pages,e.unit_kind
+              FROM unnest(CAST(:ids AS uuid[]),CAST(:versions AS bigint[])) AS page(packet_id,version)
+              JOIN drive_packet_version_sources s ON s.packet_id=page.packet_id AND s.version=page.version
+              JOIN connected_documents d ON d.document_id=s.document_id AND d.user_id=:owner
+              LEFT JOIN drive_document_facts f ON f.document_id=s.document_id
+                AND f.facts_version=s.facts_version AND f.user_id=:owner
+              LEFT JOIN drive_document_extractions e ON e.document_id=f.document_id
+                AND e.extraction_version=f.extraction_version
+              ORDER BY s.packet_id,s.document_id"""),
+            {
+                "owner": owner,
+                "ids": [str(row["packet_id"]) for row in page],
+                "versions": [row["version"] for row in page],
+            },
+        ).mappings()
+        result = {}
+        for item in items:
+            packet_id = str(item["packet_id"])
+            documents = result.setdefault(packet_id, [])
+            if len(documents) >= OWNER_CONTENT_DOCUMENTS:
+                continue
+            try:
+                metadata = self.cipher.open(dict(item))
+            except DriveReadError:
+                continue
+            facts = None
+            if item["facts_envelope"] is not None and packet_id not in stale:
+                try:
+                    facts = self.facts({**item, "connection_generation": item["facts_generation"]})
+                except DriveReadError:
+                    facts = None
+            kind = (facts or {}).get("document_type") or {}
+            documents.append(
+                {
+                    "name": _plain(metadata.get("name"), 120) or "Untitled file",
+                    "type": _plain(kind.get("value"), 80),
+                    "pages": item["total_pages"] if item["unit_kind"] == "page" else None,
+                    "period": _span((facts or {}).get("periods", [])),
+                }
+            )
+        return result
+
+    async def list_packets(
+        self, *, user_id, owner_user_id=None, cursor=None, limit=25, owner_contents=False
+    ):
+        """One page of packets. `owner_contents` adds each packet's files for
+        its owner's own list; any other viewer never gets them."""
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
 
         owner = owner_user_id or user_id
@@ -756,6 +882,16 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 ).mappings()
             )
             result = []
+            contents = (
+                self._owner_contents(
+                    connection,
+                    owner,
+                    rows[: max(1, min(100, limit))],
+                    {str(row["packet_id"]) for row in rows if row["policy_version"] != policy},
+                )
+                if owner_contents and user_id == owner
+                else None
+            )
             for item in rows[: max(1, min(100, limit))]:
                 row = dict(item)
                 policy_stale = row["policy_version"] != policy
@@ -820,6 +956,19 @@ class DrivePacketStore(DriveDocumentFactsStore):
                             purchasable and row["listing_enabled"] and user_id != owner
                         ),
                         "canList": bool(purchasable and user_id == owner),
+                        # Owner only: their own files. A buyer's list never has this key.
+                        **(
+                            {
+                                "contents": {
+                                    "period": None
+                                    if policy_stale
+                                    else _span(assessment.get("periods", [])),
+                                    "documents": contents.get(str(row["packet_id"]), []),
+                                }
+                            }
+                            if contents is not None
+                            else {}
+                        ),
                     }
                 )
             return {

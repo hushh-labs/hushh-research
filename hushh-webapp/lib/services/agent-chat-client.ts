@@ -713,6 +713,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a writing style change for you to review in Settings.",
     activity: "Preparing a style change",
   },
+  calendar_invitations: {
+    label: "Google Calendar",
+    message: "Reading your received invitations.",
+    activity: "Reading invitations",
+  },
+  open_calendar_invitation: {
+    label: "Google Calendar",
+    message: "Preparing your invitation review.",
+    activity: "Reviewing an invitation",
+  },
   calendar_summary: {
     label: "Google Calendar",
     message: "Summarizing your calendar.",

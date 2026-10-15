@@ -12,6 +12,8 @@ import hashlib
 import hmac
 import json
 import logging
+import math
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -46,11 +48,65 @@ JOB_SECONDS = 200
 LEASE_SECONDS = 240
 TTL_SECONDS = 86400
 FAILURE_COOLDOWN_SECONDS = 60
+#: A provider that refuses credentials or billing refuses every owner: no run
+#: can succeed until the project is repaired, so retries wait much longer.
+PROVIDER_FAILURE_COOLDOWN_SECONDS = 900
+PROVIDER_BREAKER_FAILURES = 3
+PROVIDER_BREAKER_SECONDS = 600
 MAX_LOCAL_JOBS = 8
 
 
 def pending(*, restart: bool = False) -> dict[str, Any]:
     return {"status": "pending", "pkm_written": False, "restart_required": restart}
+
+
+def provider_error(error: BaseException) -> tuple[int | None, str | None]:
+    """HTTP code and API status enum of a provider error; never its message."""
+    seen: BaseException | None = error
+    for _ in range(8):
+        if seen is None:
+            break
+        code = getattr(seen, "code", None)
+        if type(code) is int and 100 <= code < 600:
+            status = getattr(seen, "status", None)
+            safe = isinstance(status, str) and re.fullmatch(r"[A-Z][A-Z_]{0,63}", status)
+            return code, status if safe else None
+        seen = seen.__cause__ or seen.__context__
+    return None, None
+
+
+def provider_rejected(code: int | None, status: str | None) -> bool:
+    """The provider refused the request before inference; no owner can fix it."""
+    return code in {401, 403} or status in {"PERMISSION_DENIED", "UNAUTHENTICATED"}
+
+
+class ProviderBreaker:
+    """Process-wide memory of recent provider credential/billing refusals.
+
+    Holds timestamps only: never an owner, a job or provider text. Open after
+    ``failures`` refusals inside ``window`` seconds, closed once they age out.
+    """
+
+    def __init__(self, *, failures=PROVIDER_BREAKER_FAILURES, window=PROVIDER_BREAKER_SECONDS):
+        self.failures = failures
+        self.window = window
+        self.failed_at: list[float] = []
+
+    def recent(self, now: float) -> list[float]:
+        return [at for at in self.failed_at if at > now - self.window]
+
+    def record(self, now: float) -> None:
+        self.failed_at = [*self.recent(now), now][-self.failures :]
+
+    def retry_after(self, now: float) -> int:
+        """Seconds until the breaker closes again, or 0 while it is closed."""
+        recent = self.recent(now)
+        if len(recent) < self.failures:
+            return 0
+        return max(1, math.ceil(recent[0] + self.window - now))
+
+
+provider_breaker = ProviderBreaker()
 
 
 async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | None, str]:
@@ -97,6 +153,12 @@ class ProfileResearchJobStore(EncryptedSessionCheckpointStore):
 
 
 class ProfileResearchJobs:
+    #: Lifecycle log event prefix. Fields are codes and counts only: never
+    #: names, contacts, statements, provider text, tokens or keys.
+    log_event = "one.magic_discovery_"
+    #: Attempt indices up to this are searches; the rest are model calls.
+    search_slots = 0
+
     def __init__(
         self,
         *,
@@ -111,8 +173,10 @@ class ProfileResearchJobs:
         preserve_budget_on_identity_change=False,
         review_ids=False,
         progressive=False,
+        breaker=None,
     ):
         self.store = store or ProfileResearchJobStore()
+        self.breaker = breaker or provider_breaker
         self.offer = offer or offer_profile_research
         self.check = check or admission
         self.review_ids = review_ids
@@ -148,13 +212,56 @@ class ProfileResearchJobs:
         age = now - state["finished_at"]
         if state["status"] in {"offered", "low_confidence"} or self.exhausted(state):
             return age < TTL_SECONDS
-        return state["status"] == "unavailable" and age < FAILURE_COOLDOWN_SECONDS
+        return state["status"] == "unavailable" and age < self.cooldown(state)
 
     @staticmethod
     def exhausted(state: dict[str, Any]) -> bool:
         return state["status"] == "unavailable" and (
             state.get("result", {}).get("retry_exhausted") is True
             or state.get("result", {}).get("research_exhausted") is True
+        )
+
+    @staticmethod
+    def cooldown(state: dict[str, Any]) -> int:
+        if state.get("result", {}).get("reason") == "provider_unavailable":
+            return PROVIDER_FAILURE_COOLDOWN_SECONDS
+        return FAILURE_COOLDOWN_SECONDS
+
+    def reported(self, state: dict[str, Any]) -> dict[str, Any]:
+        """A finished run's result; a cooling failure also says when a retry is accepted."""
+        result = state["result"]
+        if state["status"] != "unavailable" or self.exhausted(state):
+            return result
+        remaining = state["finished_at"] + self.cooldown(state) - self.clock()
+        return {**result, "retry_after_s": math.ceil(remaining)} if remaining > 0 else result
+
+    def usage(self, attempted: Any) -> tuple[int, int]:
+        rows = [index for index in attempted or [] if type(index) is int]
+        searches = sum(1 for index in rows if index <= self.search_slots)
+        return searches, len(rows) - searches
+
+    def decision(
+        self,
+        op: str,
+        decision: str,
+        result: dict[str, Any] | None,
+        state: dict | None,
+        *,
+        level: int = logging.INFO,
+    ) -> None:
+        searches, calls = self.usage((state or {}).get("attempted_combinations"))
+        logger.log(
+            level,
+            "%sdecision op=%s decision=%s status=%s job=%s prior=%s starts_hour=%s searches_used=%s model_calls_used=%s",
+            self.log_event,
+            op,
+            decision,
+            (result or {}).get("status", "-"),
+            (state or {}).get("job_id", "-"),
+            (state or {}).get("status", "-"),
+            len([at for at in (state or {}).get("starts", []) if at > self.clock() - 3600]),
+            searches,
+            calls,
         )
 
     async def status(self, user_id: str, consent_token: str) -> dict[str, Any]:
@@ -181,8 +288,11 @@ class ProfileResearchJobs:
             return pending(restart=True)
         if state["status"] in {"disabled", "not_ready", "saved", "insufficient_identity"}:
             return state["result"]
-        if self.progressive and state["status"] == "paused":
-            return state["result"]
+        if self.progressive and state["status"] in {"paused", "unavailable"}:
+            # A failed run is reported as failed. Reporting it as pending made
+            # every observer restart it after each cooldown, forever. A new
+            # run needs a fresh owner request (mount, retry), never a poll.
+            return self.reported(state)
         if not self.reusable(state):
             return pending(restart=True)
         # A failed dependency gets a bounded cooldown and fresh-authority retry,
@@ -208,11 +318,13 @@ class ProfileResearchJobs:
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         if state and same_context and self.reusable(state):
             if state["status"] == "pending":
+                self.decision("start", "reused_pending", None, state)
                 return pending()
             # Database waits must not turn a pre-read admission into stale
             # authority to release a completed draft.
             refused, current_binding = await self.check(user_id, consent_token)
             if refused:
+                self.decision("start", "refused", refused, state)
                 return refused
             current = await self.store.get(user_id)
             if await validate_first_party_owner_token(user_id, consent_token) is None:
@@ -220,18 +332,40 @@ class ProfileResearchJobs:
             if current is None or any(
                 current.get(key) != state.get(key) for key in ("revision", "fence")
             ):
+                self.decision("start", "changed", None, state)
                 return pending(restart=True)
             if state.get("identity_binding") == current_binding:
-                return (
-                    pending()
-                    if state["status"] == "unavailable" and not self.exhausted(state)
-                    else state["result"]
-                )
+                cooling = state["status"] == "unavailable" and not self.exhausted(state)
+                result = pending() if cooling and not self.progressive else self.reported(state)
+                self.decision("start", "cooldown" if cooling else "reused", result, state)
+                return result
+        # The provider is refusing every owner: a new run would only fail and
+        # spend the budget. Nothing is dispatched or charged until it reopens.
+        retry_after = self.breaker.retry_after(self.clock())
+        if retry_after:
+            refused = {
+                "status": "unavailable",
+                "pkm_written": False,
+                "reason": "provider_unavailable",
+                "retry_after_s": retry_after,
+            }
+            self.decision("start", "provider_breaker", refused, state, level=logging.WARNING)
+            return refused
         if self.active >= MAX_LOCAL_JOBS:
+            self.decision("start", "capacity_busy", None, state)
             raise RuntimeError("Discovery capacity is temporarily busy")
         starts = [at for at in (state or {}).get("starts", []) if at > self.clock() - 3600]
         if len(starts) >= 3:
-            return {"status": "unavailable", "pkm_written": False}
+            # Nothing is persisted for this refusal, so the only way the owner
+            # learns how long to wait is here: a start is accepted again once
+            # the oldest counted start ages out of the hour.
+            refused = {
+                "status": "unavailable",
+                "pkm_written": False,
+                "retry_after_s": max(1, math.ceil(min(starts) + 3600 - self.clock())),
+            }
+            self.decision("start", "budget_starts", refused, state)
+            return refused
         prior_attempts = (state or {}).get("attempted_combinations", [])
         if (
             not isinstance(prior_attempts, list)
@@ -258,6 +392,11 @@ class ProfileResearchJobs:
                 "discovery_started_at", (state or {}).get("started_at", self.clock())
             ),
         }
+        # Only continuing a paused or lease-expired slice is free. A retry after
+        # a failure is a new paid start even when it reuses saved evidence;
+        # otherwise any saved evidence lifted the hourly start budget for the
+        # whole day and a failing provider was retried every cooldown.
+        resumed = False
         if (
             self.progressive
             and same_context
@@ -269,6 +408,7 @@ class ProfileResearchJobs:
         ):
             next_state["work"] = state.get("work", {})
             next_state["job_id"] = state["job_id"]
+            resumed = state["status"] in {"pending", "paused"}
         # Caller-supplied model inputs stay sealed with the job and carry across
         # resumes; they never change the reuse context above.
         carried = (state or {}).get("inputs") if inputs is None else inputs
@@ -281,6 +421,7 @@ class ProfileResearchJobs:
         try:
             revision = await self.store.write(user_id, next_state, state if state else None)
             if revision is None:
+                self.decision("start", "lost_race", None, state)
                 return pending()
             # Retain synchronously BEFORE the response exits. Only the derived
             # chat key is retained, with its existing absolute 300s ceiling.
@@ -294,7 +435,9 @@ class ProfileResearchJobs:
                     released = True
                     retained.__exit__(None, None, None)
 
-            coroutine = self._run(user_id, consent_token, next_state, revision, release_key)
+            coroutine = self._run(
+                user_id, consent_token, next_state, revision, release_key, resumed=resumed
+            )
             try:
                 task = asyncio.create_task(coroutine, name="magic-discovery")
             except BaseException:
@@ -305,6 +448,7 @@ class ProfileResearchJobs:
             # Also release if shutdown cancels the task before its first tick.
             task.add_done_callback(lambda completed: (release_key(), self._finished(completed)))
             dispatched = True
+            self.decision("start", "resumed" if resumed else "started", pending(), next_state)
         finally:
             if not dispatched:
                 self.active -= 1
@@ -327,8 +471,14 @@ class ProfileResearchJobs:
         state: dict[str, Any],
         revision: dict,
         release_key: Callable[[], None],
+        *,
+        resumed: bool = False,
     ) -> None:
         stage = "admission"
+        began = time.monotonic()
+        before = self.usage(state.get("attempted_combinations"))
+        charges: list[tuple[int, ...]] = []  # this run's own charges, newest last
+        charged_start: float | None = None  # the hourly start this run bought
         try:
             try:
                 async with asyncio.timeout(self.job_seconds or JOB_SECONDS):
@@ -354,13 +504,23 @@ class ProfileResearchJobs:
                     else:
                         # Charge only research, not setup/policy reads. Commit
                         # that charge before the provider call, under this lease.
-                        if not (self.progressive and state.get("work")):
-                            state = {**state, "starts": [*state["starts"], self.clock()]}
+                        if not (self.progressive and resumed and state.get("work")):
+                            charged_start = self.clock()
+                            state = {**state, "starts": [*state["starts"], charged_start]}
                         charged = await self.store.write(user_id, state, revision)
                         if charged is None:
                             return
                         revision = charged
                         stage = "research"
+                        before = self.usage(state["attempted_combinations"])
+                        logger.info(
+                            "%sstarted job=%s resumed=%s starts_hour=%s searches_used=%s model_calls_used=%s",
+                            self.log_event,
+                            state["job_id"],
+                            bool(resumed and state.get("work")),
+                            len([at for at in state["starts"] if at > self.clock() - 3600]),
+                            *before,
+                        )
 
                         async def charge_combinations(indices: tuple[int, ...]) -> None:
                             nonlocal state, revision
@@ -384,6 +544,7 @@ class ProfileResearchJobs:
                             if charged_revision is None:
                                 raise PermissionError("Discovery lease changed")
                             state, revision = charged_state, charged_revision
+                            charges.append(tuple(indices))
 
                         async def checkpoint_progress(work: dict) -> None:
                             nonlocal state, revision
@@ -433,16 +594,49 @@ class ProfileResearchJobs:
                     code = frame.tb_frame.f_code
                     origin = f"{Path(code.co_filename).name}:{code.co_name}:{frame.tb_lineno}"
                     frame = frame.tb_next
+                provider_code, provider_status = provider_error(error)
+                rejected = provider_rejected(provider_code, provider_status)
+                refund: tuple[int, ...] = ()
+                if rejected:
+                    self.breaker.record(self.clock())
+                    # Refused before inference: the last slot this run charged
+                    # bought nothing. Earlier charges and other runs stay paid.
+                    refund = charges[-1] if charges else ()
+                    # So is the hourly start this run bought: an outage must not
+                    # lock the owner out of the budget once the provider is back.
+                    # Every other failure keeps its start (and the cooldown).
+                    starts = state["starts"]
+                    if charged_start is not None and starts[-1:] == [charged_start]:
+                        starts = starts[:-1]
+                    state = {
+                        **state,
+                        "starts": starts,
+                        "attempted_combinations": [
+                            index
+                            for index in state["attempted_combinations"]
+                            if index not in refund
+                        ],
+                    }
                 logger.warning(
-                    "one.magic_discovery_failed stage=%s error_type=%s cause_type=%s cause_origin=%s llm_calls=%s elapsed_ms=%s",
+                    "%sfailed stage=%s job=%s error_type=%s cause_type=%s cause_origin=%s provider_code=%s provider_status=%s provider_rejected=%s refunded=%s provider_failures=%s llm_calls=%s elapsed_ms=%s duration_ms=%s",
+                    self.log_event,
                     stage,
+                    state.get("job_id"),
                     type(error).__name__,
                     type(cause).__name__,
                     origin,
+                    provider_code,
+                    provider_status,
+                    rejected,
+                    len(refund),
+                    len(self.breaker.recent(self.clock())),
                     getattr(partial, "llm_calls", None),
                     getattr(partial, "elapsed_ms", None),
+                    int((time.monotonic() - began) * 1000),
                 )
                 result = {"status": "unavailable", "pkm_written": False}
+                if rejected:
+                    result["reason"] = "provider_unavailable"
             # Never persist token/key. A lost CAS means a new lease superseded
             # this run; discard the draft rather than overwriting its result.
             if self.review_ids and (
@@ -460,15 +654,32 @@ class ProfileResearchJobs:
                 "finished_at": self.clock(),
             }
             committed = await self.store.write(user_id, terminal, revision)
+            after = self.usage(state.get("attempted_combinations"))
+            logger.info(
+                "%sfinished status=%s job=%s committed=%s research_exhausted=%s duration_ms=%s searches=%s model_calls=%s searches_used=%s model_calls_used=%s",
+                self.log_event,
+                result["status"],
+                state.get("job_id"),
+                committed is not None,
+                result.get("research_exhausted") is True or result.get("retry_exhausted") is True,
+                int((time.monotonic() - began) * 1000),
+                after[0] - before[0],
+                after[1] - before[1],
+                *after,
+            )
             if committed is not None:
                 self.committed()
-                logger.info("one.magic_discovery_finished status=%s", result["status"])
         except asyncio.CancelledError:
             # The checkpoint remains pending. Fresh owner auth can reclaim its
             # expired lease; never resume automatically with saved credentials.
             raise
-        except Exception:
-            logger.warning("one.magic_discovery_checkpoint_unavailable")
+        except Exception as error:
+            logger.warning(
+                "%scheckpoint_unavailable job=%s error_type=%s",
+                self.log_event,
+                state.get("job_id"),
+                type(error).__name__,
+            )
         finally:
             consent_token = ""
             release_key()

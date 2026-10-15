@@ -1001,8 +1001,9 @@ export async function loadAgentPkmContext(params: {
           ...markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
           communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(style?.data?.[OWNER_STYLE_BRANCH])),
         });
-        return isVaultSessionEpochCurrent(vaultEpoch) && isMarkdownMemoryGenerationCurrent(memoryGeneration)
-          ? context : { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        return context;
       }
 
       if (params.requireDecrypted) {

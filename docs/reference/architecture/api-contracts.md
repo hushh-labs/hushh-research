@@ -351,8 +351,9 @@ The `/api/one/wallet/card-access` endpoints are:
 | GET | `/networks` | Matching Firebase identity and vault-owner consent; supported canonical network identifiers. Independent of temporary-sharing rollout. |
 | POST | `/networks/resolve` | Same owner authority; transient six-digit issuer prefix and strict integer card length, optional selected network. No payment credentials accepted, persisted, logged or sent to a provider. Returns normalized `network`, `source`, and ambiguous `candidates`. |
 | POST | `/artwork/resolve` | Matching Firebase identity and vault-owner consent. Only six/eight-digit IIN, strict PAN length and optional selected network. Approved-catalog candidates, honest unconfigured fallback; exact product/variant requires authorized proof. No full credentials, names or photos accepted or echoed. |
+| POST | `/artwork/banks` | Same owner authority. Strict network, optional country, opaque issuer/country bank key, bounded offset and strict `automatic` boolean only. Default returns approved cosmetic bank choices. `automatic=true` returns network-wide illustrations in pages of 24 with `selectionBasis=network_illustration`, no bank key or separate picker confirmation; Add remains the owner-confirmed encrypted save. Other/unknown returns no automatic artwork. No exact proof or card credentials. Uses existing private asset/validation endpoints. |
 | GET | `/artwork/assets/{sha256}` | Same owner authority. Current approved, digest-bound local PNG/JPEG/WebP; 512 KB maximum; private/no-store/nosniff. |
-| POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. Current catalog version and approval status must match. No stored owner image or card ID is disclosed. |
+| POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. `purpose=selection` (default) requires current catalog version, selectable asset and complete provider snapshot. `purpose=saved` validates an immutable saved reference independently of unrelated catalog versions. Both require current approval, grant and rights. No stored owner image or card ID is disclosed. See [provider contract](../one/wallet-artwork-providers.md). |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
@@ -1696,18 +1697,28 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
+| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
 | POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the connected primary attendee; prepare a ten-minute encrypted review of decline and optionally the editable organizer email with checked alternatives. No meeting changes. |
 | POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current account/grant and ETag, patch only the connected attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations and Insights
-are Coming soon. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights remains Coming soon. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
-are calculated server-side. Time zone resolves from the browser; the account
-menu edits time zone and availability hours for the current owner session.
+are calculated server-side. Time zone resolves from the connected primary calendar,
+with device fallback; advanced options remain in the account menu. Free time
+checks the full selected local day. A selected window hands its date, exact
+start/end, duration, zone and account context to the existing One conversation.
+One asks who should join; the reply carries this memory-only context through
+normal chat text attachments. The existing proposal requires confirmation.
+The selected window/duration are checked before confirmation and execution.
+Change time offers fitting starts in the resolved zone and requests a fresh
+proposal with the reviewed attendees/title. A changed connected account blocks
+execution. A conflict offers a fresh availability check inside chat. Only successful
+execution publishes an owner-scoped refresh for Today and Free time. Slot taps,
+cancellation and authorization never execute an event.
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -3547,12 +3558,19 @@ or rejoining starts a new history window.
 | GET | `/api/one/circles/{circle}/chat/keys/{key}` | Owner-only vault-encrypted historical key backup, only for an accessible current-generation message; active/rotated keys, never revoked keys |
 | POST | `/api/one/circles/{circle}/chat/read` | Visible sequence watermark; atomically marks recipient messages and derived Feed rows read |
 | PUT | `/api/one/circles/{circle}/chat/preferences` | `muted` disables queued system pushes while preserving chat and Feed |
+| PUT / DELETE | `/api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}` | Add/remove the caller's exact emoji on a currently visible message; idempotent, multiple choices per caller; returns authoritative counts and viewer flags |
 | PUT | `/api/one/circles/{circle}/photo` | Current owner of an active ordinary circle saves/removes a normalized PNG/JPEG/WebP data URL; bounded private overview response |
 
 Transcript pages deduplicate identity photos in `senders` and cap their combined
 UTF-8 size at 2 MB, falling back to initials without dropping messages. The
 optional paired `receiptAfter` / `receiptThrough` range refreshes sender-only
 receipt metadata for the loaded window even when no new messages arrive.
+Reaction choices use the fully qualified Unicode Emoji 17.0 catalogue in
+`consent-protocol/hushh_mcp/data/emoji-reactions.v1.json`; the frontend projection
+is generated by `consent-protocol/scripts/generate_emoji_reactions.py`. Standalone components,
+arbitrary text and multiple emoji sequences return a private 422. Skin tones,
+flags and joined sequences are supported. Migration 350 must precede the full
+picker/backend rollout. Rollback refuses to discard newer reaction choices.
 New messages persist the original non-sender recipient count; legacy audiences
 remain unknown. Blue double checks mean every original recipient acknowledged
 the message. Partial reads and unknown/empty audiences remain sent. Removed
@@ -3723,32 +3741,44 @@ Unknown, foreign and non-send proposals are unavailable.
 
 ## Referral dashboard reads
 
-`/one/referrals` uses the existing `/api/one/[...path]` proxy on web and
-`ApiService.apiFetch` direct backend transport on native. Each referral read
-requires a Firebase ID token; the verified UID selects the owner, never a
-client-supplied user identifier.
+`/one/referrals` uses the existing web proxy and native `ApiService` transport.
+Firebase authentication derives the owner; client payloads cannot select one.
 
-- `GET /api/one/referrals/points` returns `{points: number}` from the owner's
-  cumulative ledger, independently of published leaderboard snapshots.
-- `GET /api/one/referrals/challenge` returns `active`, `week_started_at`,
-  `cutoff_at`, and `timezone`. Its weekly window derives from active program
-  settings. Missing settings or an unset schedule returns inactive with null
-  timestamps. A scheduled challenge does not imply weekly prize finalization
-  is enabled.
-- `GET /api/one/referrals/milestones` retains lifetime count, earned entitlements,
-  and next milestone, and adds `available_milestones` from the same active
-  settings version. The dashboard does not substitute a hardcoded catalogue.
+- `GET /api/one/referrals/points` returns equal `{points, coins}` compatibility
+  aliases of lifetime `SUM(points)`. Never add the aliases.
+- `GET /summary` adds canonical `joined_count` and matching `total_count` for
+  distinct registered identities with valid bound attribution. Qualification
+  fields and Recent Referrals retain actual status; invitations do not count.
+- `GET /milestones` returns `joined_referral_count`, separate
+  `lifetime_qualified_count`, `progress_basis: joined_referrals`, persisted
+  `earned`, server-owned `available_milestones`, and next unreached/unearned
+  `next_milestone`. Joined progress does not grant a claim entitlement.
+- `GET /leaderboard` refreshes shared cumulative Coins snapshots independently
+  of weekly prizes, with deterministic ties and off-page viewer lookup.
+  `snapshot_id` pins continuation pages.
+- `POST /app-open` retains its compatibility path but records visible dashboard
+  visits with `{surface:"referral_dashboard"}`. Legacy unmarked app opens return
+  a read-only status. One owner/date in Asia/Kolkata is recorded atomically, returning
+  streak, `server_now` and `next_day_at`. `GET /engagement` awards nothing.
+- `GET /challenge` returns Monday/Kolkata start, exclusive cutoff, server time
+  and persisted round metadata. `calendar_active`/legacy `active` are separate
+  from `campaign_active` and `weekly_prizes_enabled`. Reads never enable prizes.
+- `GET /policy` supplies active amounts through compatible `points` keys,
+  streak/schedule rules and flash/prize availability. UI calls amounts Coins.
+- `GET /transactions` returns owner-only cursor history; row `coins` aliases
+  earned `points`, preserving stored historical columns.
+- `POST /activity` reconciles only an existing server-persisted event for its
+  owner. Client award amounts are rejected.
+- `POST /rewards/claim` atomically claims a recorded owner entitlement. Unearned
+  and duplicate claims return 409; approval/fulfillment remain separate.
+- `GET /circle` returns `{circle_id:null,status:preview,competition_active:false}`.
+  Circle leaderboard reads return no teams while accepted referral-team
+  membership is unavailable. `POST /circle` returns 409 `REFERRAL_CIRCLE_PREVIEW`.
+  Genealogy/contribution records and protected-information permissions remain.
 
-Migration 289 versions the milestone catalogue and schedule without modifying
-migration 275 or recomputing past awards. Applying it is separate from source
-verification. Summary reads can mint a referral link and authenticated reads
-can schedule identity synchronization; this dashboard is not a read-only probe
-against an environment where writes are prohibited.
-
-- `GET /api/one/referrals/policy` requires Firebase authentication and returns
-  active settings `version`, `points`, `streak_rules`, `weekly_schedule`,
-  `challenge_duration_days` (null when unscheduled), and `weekly_prizes_enabled`.
-  Rules uses these amounts directly; this read does not activate policy or award rewards.
+Migration 349 adds dashboard attendance and settings v5 without rewriting
+awards or entitlements. See [the referral contract and audit](../one/referral-backend.md)
+for catalogue, rollback, Circle League preview and deployment boundaries.
 
 ### Document request prices and payouts
 
@@ -3793,3 +3823,30 @@ a browser return and a stream notification never prove payment or delivery.
 
 The delivery-confirmed owner settlement and proportional-refund rules are in
 [Drive request payment gate](../operations/drive-request-stripe-paywall.md).
+
+
+### Calendar Invitations review and chat continuation
+
+`attendance/review` adds `response_status` (`accepted`, `declined`, or `tentative`,
+default `declined` for existing Schedule callers), exact `calendar_id`, and optional
+`expected_account_email`. The review seals source calendar, event instance, response,
+ETag and current owner/account/grant binding; organizer events, recurrence masters,
+omitted/ambiguous attendees and cross-account selections fail closed. Accept reviews
+include all-calendar overlaps, and confirmation rejects newly observed conflicts.
+Only the connected email's attendee is patched (`attendeesOmitted: true`, `If-Match`);
+no meeting is created, moved, cancelled or replaced. Read-only calendar ACLs disable
+RSVP controls. Existing review metadata/idempotency storage is reused; no migration.
+
+`offer_times` requires decline, a chosen date/window/duration and editable message.
+The existing availability and reviewed Mail services prepare the organizer's exact
+message and a recipient-accessible, expiring `/calendar/reschedule` capability.
+Confirmation reports RSVP and Mail separately; unknown delivery is never retried
+silently. The organizer chooses/replies and updates their own invitation.
+
+One's typed `calendar_invitations` read and client-only `open_calendar_invitation`
+use private owner/conversation/grant-bound ordinal offers. Provider content keeps the
+external-read barrier; review capabilities remain only in browser memory. Both chat
+and `/one/calendar` use the same invitation components and attendance routes. Realtime
+Talk to One's `calendar.invitation.review` handoff forwards the original request (or
+an explicitly selected, current offered event) into the existing conversation. It
+grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.

@@ -5,6 +5,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -184,6 +185,133 @@ async def test_stalled_live_preserves_slower_command_verdicts(
 
 
 @pytest.mark.asyncio
+async def test_command_flow_first_use_cost_is_paid_before_provider_deadlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-10-15 UAT: Location's first ADK run imports ~2,400 modules on the loop
+    every probe shares. On the 1-vCPU candidate job that synchronous burst outlasted
+    the deadlines already armed for text, ADK, One chat and audio, so all of them
+    timed out while Vertex served their requests in under 5 s."""
+    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", raising=False)
+    spec = importlib.util.spec_from_file_location("readiness_first_use_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from hushh_mcp.operons.location import capabilities, plan
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import action_gateway
+
+    first_use_paid: list[bool] = []
+
+    async def provider_reply(**kwargs):
+        await asyncio.sleep(0.01)
+        return SimpleNamespace(
+            error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="OK")])
+        )
+
+    class AdkModel:
+        async def generate_content_async(self, *args, **kwargs):
+            yield await provider_reply()
+
+    async def transcribe(self, *args):
+        await provider_reply()
+        return "Open the Location screen."
+
+    async def assess(self, **kwargs):
+        if not first_use_paid:
+            first_use_paid.append(True)
+            time.sleep(0.5)  # cold imports are synchronous: they hold the shared loop
+        if self.adk_model is None:
+            await provider_reply()
+        return SimpleNamespace(unsupported=False)
+
+    @asynccontextmanager
+    async def connect(**kwargs):
+        await provider_reply()
+        yield None
+
+    monkeypatch.setattr(module, "PROBE_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(module, "_managed_manifest_models", lambda: ("gemini-3.6-flash",))
+    binding = module.ManagedGeminiRuntimeBinding(
+        project="synthetic", locations=("global",), auth_mode="vertex_adc"
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "from_environment", lambda **kwargs: binding
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_direct_client",
+        lambda self: SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=provider_reply))
+        ),
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding, "build_adk_model", lambda self, model: AdkModel()
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_regional_adk_model",
+        lambda self, model: AdkModel(),
+    )
+    monkeypatch.setattr(LocationCommandBrain, "transcribe", transcribe)
+    monkeypatch.setattr(LocationCommandBrain, "assess", assess)
+    monkeypatch.setattr(action_gateway, "list_action_gateway_actions", lambda: [])
+    monkeypatch.setattr(
+        capabilities, "compile_location_capabilities", lambda actions: ("synthetic", {})
+    )
+    monkeypatch.setattr(
+        plan, "validate_assessment", lambda *args, **kwargs: SimpleNamespace(steps=[object()])
+    )
+    monkeypatch.setattr(
+        OneVoiceLiveConfig,
+        "from_environment",
+        lambda: SimpleNamespace(
+            enabled=True, model_id="synthetic", location="us-central1", vertex_project=None
+        ),
+    )
+    monkeypatch.setattr(
+        factory,
+        "build_managed_live_client",
+        lambda **kwargs: SimpleNamespace(
+            aio=SimpleNamespace(live=SimpleNamespace(connect=connect))
+        ),
+    )
+
+    report = await asyncio.wait_for(module.main(), timeout=5)
+
+    assert first_use_paid
+    assert [p["probe"] for p in report["probes"] if not p["ok"]] == []
+    assert report["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_command_rehearsal_runs_the_real_location_flow_without_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = importlib.util.spec_from_file_location("readiness_rehearsal_test", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from google.genai import models as genai_models
+
+    async def no_provider(*args, **kwargs):
+        raise AssertionError("The readiness rehearsal must never call a provider")
+
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content", no_provider)
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content_stream", no_provider)
+
+    # Real Location manifest, gateway, ADK runner and flow; only the model is local.
+    # A swallowed failure returns None, so this proves the whole flow ran offline.
+    assessment = await module._rehearse_command_flow()
+
+    assert assessment is not None
+    assert assessment.unsupported is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["success", "billing_denied", "adk_error", "empty_reply"])
 async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     monkeypatch: pytest.MonkeyPatch, scenario: str
@@ -207,7 +335,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         "from_environment",
         classmethod(
             lambda cls, *, vertex_project=None: cls(
-                project=vertex_project or "hushh-vertex-personal54",
+                project=vertex_project or "unscoped-default-project",
                 locations=("global",),
                 auth_mode="vertex_adc",
             )
@@ -219,7 +347,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
             self.project = project
 
         async def generate_content_async(self, *_args, **_kwargs):
-            if self.project == "hussh-511311" and scenario == "billing_denied":
+            if self.project == "hushh-vertex-personal54" and scenario == "billing_denied":
                 raise RuntimeError("Billing is not enabled")
             if scenario == "adk_error":
                 yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
@@ -242,7 +370,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
     chat_probe = next(p for p in report["probes"] if str(p["probe"]).startswith("one_chat:"))
     chat_available = scenario == "success"
 
-    assert report["one_chat_project"] == "hussh-511311"
+    assert report["one_chat_project"] == "hushh-vertex-personal54"
     assert report["one_chat_probe_ok"] is chat_available
     assert chat_probe["ok"] is chat_available
     assert report["ok"] is chat_available
@@ -281,7 +409,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
         yield None
 
     def build_client(**kwargs):
-        assert kwargs["vertex_project"] == "hussh-511311"
+        assert kwargs["vertex_project"] == "hushh-vertex-personal54"
         return SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
 
     from unittest.mock import AsyncMock
@@ -291,7 +419,7 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     monkeypatch.setattr(module, "_probe_adk_response", AsyncMock())
     monkeypatch.setattr(factory, "build_managed_live_client", build_client)
     report = await module.main()
-    assert report["one_voice_project"] == "hussh-511311"
+    assert report["one_voice_project"] == "hushh-vertex-personal54"
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"

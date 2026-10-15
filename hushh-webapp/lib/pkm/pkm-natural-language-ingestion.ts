@@ -280,6 +280,7 @@ export async function prepareNaturalLanguagePkm(params: {
   currentManifests?: unknown[];
   vaultOwnerToken: string;
   source: string;
+  allowIdentifierProcessing?: boolean;
   memoryProfile?: PkmNaturalLanguageMemoryProfile;
   /**
    * Local, in-memory duplicate check against the already-decrypted working
@@ -420,6 +421,7 @@ export async function prepareNaturalLanguagePkm(params: {
         ingestionId,
         chunkIndex: (requestSequence += 1),
         memoryProfile: params.memoryProfile,
+        allowIdentifierProcessing: params.allowIdentifierProcessing,
         reconciliationCandidates: params.findReconciliationCandidates?.(chunk),
         signal: preparationController.signal,
         isEffectCurrent: params.isEffectCurrent,

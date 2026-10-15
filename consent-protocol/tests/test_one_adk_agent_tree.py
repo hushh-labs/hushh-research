@@ -1317,13 +1317,14 @@ class TestGmailEmailDraftDirective:
         )
         run = _input()
         run.forwarded_props = {"pkmContext": packet}
+        if not unlocked:
+            with bound_request_chat_key("owner"), pytest.raises(HTTPException) as refused:
+                await agent_chat._extract_state(request, run)
+            assert refused.value.status_code == 400
+            assert refused.value.detail == "Private context requires the private agent"
+            vault.assert_not_awaited()
+            return
         with bound_request_chat_key("owner"):
-            if not unlocked:
-                with pytest.raises(HTTPException) as refused:
-                    await agent_chat._extract_state(request, run)
-                assert refused.value.status_code == 400
-                vault.assert_not_awaited()
-                return
             state = await agent_chat._extract_state(request, run)
 
         # Popped before the bridge can copy it; state only ever holds a reference.
@@ -1333,6 +1334,7 @@ class TestGmailEmailDraftDirective:
         assert state[STATE_PKM_CONTEXT].startswith("one_secret_ref:")
         assert resolve_request_secret(state[STATE_PKM_CONTEXT]) == packet
         assert "END LIVE MIRROR FACTS" in instruction
+        vault.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_follow_up_turn_revises_the_pending_draft_without_sending(self):

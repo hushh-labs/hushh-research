@@ -12,8 +12,44 @@ import { newCommerceState, validateCommerceState, actionId, acquireCommerceState
 import { verifyProviderPreflight, verifyApplicationReadiness, verifyPreparation, verifyQuote, unusedCalendarRefund, commerceMoneyButtonName } from "../scripts/scope-commerce-rehearsal-contract.mjs";
 import { parseCommerceArguments } from "../scripts/verify-reviewer-scope-commerce.mjs";
 import { createOperatorReviewerTokenProvider } from "../scripts/reviewer-operator-token-provider.mjs";
+import { exactCommerceReadback } from "../scripts/scope-commerce-rehearsal-browser.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("secure paid readback requires a visible current card and every exact-proof assertion", async () => {
+  const originalDocument = globalThis.document;
+  const record = { requestId: "synthetic-request" }, fixture = { personRef: "synthetic-person", scopeRef: "synthetic-scope" };
+  const complete = { passed: true, canonical_recipient_decryption: true, exact_projected_payload: true,
+    current_grant: true, current_paid_term: true };
+  try {
+    for (const failure of [null, ...Object.keys(complete), "unready", "hidden"]) {
+      let invoked = false;
+      const proof = { ...complete, ...(failure in complete ? { [failure]: false } : {}) };
+      globalThis.document = { getElementById: () => ({ closest: () => ({
+        dataset: { itemState: failure === "unready" ? "loading" : "ready" },
+        querySelector: () => ({ getAttribute: () => failure === "hidden" ? "true" : "false" }),
+      }) }) };
+      const actor = {
+        harness: { navigateInApp: async () => {}, assertVaultContinuity: async () => {} },
+        session: { page: { evaluate: async () => ({ ok: true, value: { personRef: fixture.personRef,
+          grants: [{ requestId: record.requestId, scopeRef: fixture.scopeRef, status: "granted" }] } }),
+          locator: () => ({ waitFor: async () => {} }),
+          waitForFunction: async (predicate, id) => { if (!predicate(id)) throw Error("CARD_NOT_READY"); } },
+          capture: { identityToken: async () => "synthetic-token", assertNoCriticalApiFailures() {} },
+          readOnlyGuard: { assertNoBlockedMutation() {} } },
+        assertCommerce() {},
+        verifyExactReadback: async () => { invoked = true; return proof; },
+      };
+      if (failure === null) await exactCommerceReadback(actor, record, fixture);
+      else await assert.rejects(exactCommerceReadback(actor, record, fixture),
+        /EXACT_PAID_BROWSER_READBACK_MISMATCH|CARD_NOT_READY/);
+      assert.equal(invoked, failure !== "unready" && failure !== "hidden");
+    }
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
 
 test("operator token transport enforces its explicit finite budget without retaining private output", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hussh-operator-budget-"));

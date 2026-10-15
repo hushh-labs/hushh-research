@@ -443,6 +443,21 @@ describe("Location tab transition — the viewport never clips a leaving panel",
 
     expect(root.style.height).toBe("520px");
     expect(root).toHaveAttribute("data-swipe-views-height-settling", "true");
+    expect(swipeVariable("location")).toBe("1");
+  });
+
+  it("keeps the old height floor when route state catches up before visual arrival", () => {
+    const view = render(<LocationPager activeValue="now" />);
+    const root = pagerRoot(view.container);
+
+    pressTab("people");
+    embla.offset = -0.9 * SLIDE_WIDTH;
+    act(() => {
+      view.rerender(<LocationPager activeValue="people" />);
+    });
+
+    expect(root.style.height).toBe("1400px");
+    expect(root).not.toHaveAttribute("data-swipe-views-height-settling");
   });
 
   it("lets short route-backed workspaces opt out of holding a stale tall panel height", () => {

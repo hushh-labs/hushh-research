@@ -24,11 +24,12 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 
 const pkmGetManyStaleFirstMock = vi.fn();
 const pkmGetStaleFirstMock = vi.fn();
+const pkmPeekMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
     getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
     getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
-    peek: () => null,
+    peek: (...args: unknown[]) => pkmPeekMock(...args),
   },
 }));
 
@@ -230,6 +231,7 @@ describe("agent PKM memory helpers", () => {
     vi.clearAllMocks();
     clearAgentPkmContext();
     peekLiveMirrorMock.mockReset().mockReturnValue(null);
+    pkmPeekMock.mockReset().mockReturnValue(null);
     pkmGetStaleFirstMock.mockReset().mockResolvedValue({ data: { markdown: "# Soul.md\n\n## Preferences\n- concise summaries\n" } });
     pkmGetMetadataMock.mockResolvedValue(METADATA);
     pkmBlob = {
@@ -966,6 +968,12 @@ describe("agent PKM memory helpers", () => {
   });
 
   it("supplies Soul, then only the owner's allowlisted Live Mirror packet, on the peek and load paths", async () => {
+    const settings = { preferred_name: "STYLE_ONLY_CANARY", tone: "executive" };
+    const read = pkmGetStaleFirstMock.getMockImplementation()!;
+    pkmGetStaleFirstMock.mockImplementation((params) => params.domain === "identity"
+      ? Promise.resolve({ data: { communication_preferences: settings } }) : read(params));
+    pkmPeekMock.mockImplementation(({ domain }) => domain === "identity"
+      ? { data: { data: { communication_preferences: settings } } } : null);
     // Without a mirror the context is exactly Soul, as before.
     const soul = (await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" })).text;
     expect(soul).toContain("- concise summaries");
@@ -974,6 +982,8 @@ describe("agent PKM memory helpers", () => {
     const peeked = peekAgentPkmContext({ userId: "user_1" });
 
     for (const context of [loaded, peeked]) {
+      expect(context?.communicationPreferences).toEqual(settings);
+      expect(context?.text).not.toContain("STYLE_ONLY_CANARY");
       expect(context?.text.startsWith(`${soul}\n\nLIVE MIRROR FACTS v1 (`)).toBe(true);
       expect(context?.text).toContain('name="Synthetic Owner"');
       expect(context?.text.endsWith("\nEND LIVE MIRROR FACTS")).toBe(true);

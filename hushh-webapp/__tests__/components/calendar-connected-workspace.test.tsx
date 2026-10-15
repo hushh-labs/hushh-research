@@ -1,8 +1,10 @@
+import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 
 const mocks = vi.hoisted(() => ({
+  invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
   reviewAttendance: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
+    invitations: mocks.invitations,
     today: mocks.today,
     availability: mocks.availability,
     reviewAttendance: mocks.reviewAttendance,
@@ -138,14 +141,16 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.availability.mockRejectedValue(new GoogleCalendarError("Cannot read Work", "calendar_unreadable", 409, options));
     render(workspace());
     fireEvent.click(control("Free time"));
-    fireEvent.click(await screen.findByRole("button", { name: "Review availability calendars" }));
+    await screen.findByRole("button", { name: "Retry", exact: true });
+    expect(screen.queryByRole("button", { name: "Review availability calendars" })).toBeNull();
+    await openSettings();
     fireEvent.click(screen.getByRole("button", { name: "Exclude this calendar from availability" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm exclusion" }));
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     expect(await screen.findByText("Choose at least one calendar for availability.")).toBeTruthy();
     act(() => { unwindBackLayer("/one/calendar"); });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Review availability calendars" }));
+    await openSettings();
     expect(screen.getByText("Blocks availability")).toBeTruthy();
   });
 
@@ -159,7 +164,9 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     mocks.availability.mockRejectedValueOnce(new GoogleCalendarError("Review changed calendars", "calendar_selection_changed", 409, initial.slice(0, 1)));
     fireEvent.click(control("Free time"));
-    fireEvent.click(await screen.findByRole("button", { name: "Review availability calendars" }));
+    await screen.findByRole("button", { name: "Retry", exact: true });
+    expect(screen.queryByRole("button", { name: "Review availability calendars" })).toBeNull();
+    await openSettings();
     expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ calendarOverrides: { old: false } }));
     mocks.availability.mockResolvedValue({ ...freeResponse(), calendar_options: initial.slice(0, 1) });
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
@@ -316,6 +323,7 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
+    mocks.invitations.mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true });
     mocks.today.mockImplementation(async ({ date, timeZone }) => dailyResponse([], date, timeZone));
     mocks.availability.mockImplementation(async ({ date, durationMinutes }) => freeResponse(date, durationMinutes));
   });
@@ -339,7 +347,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onConnect).not.toHaveBeenCalled();
   });
 
-  it("supports keyboard main-tab changes and honest coming-soon panels", async () => {
+  it("supports keyboard main-tab changes and invitation filters", async () => {
     render(workspace());
     await waitFor(() => expect(mocks.today).toHaveBeenCalledOnce());
     const schedule = screen.getByRole("tab", { name: "Schedule", exact: true });
@@ -349,7 +357,7 @@ describe("CalendarConnectedWorkspace", () => {
     const invitations = screen.getByRole("tab", { name: "Invitations", exact: true });
     expect(invitations).toHaveFocus();
     expect(invitations).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Invitation filters" })).toBeInTheDocument();
     fireEvent.keyDown(invitations, { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();
@@ -901,11 +909,42 @@ describe("CalendarConnectedWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "5 available slots today", exact: true })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Ask One about/ })).toHaveLength(3);
     expect(screen.getByText("45 min", { exact: true })).toBeInTheDocument();
-    expect(screen.getByText("30 min", { exact: true, selector: "p" })).toBeInTheDocument();
+    expect(within(screen.getAllByRole("button", { name: /^Ask One about/ })[1]).getByText("30 min", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("2 hr", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Showing 3 of 5 available windows.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check availability" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Time zone" })).toBeNull();
+  });
+
+  it.each([15, 30, 60] as const)("hands a real whole-row window to chat with %s minutes", async duration => {
+    mocks.availability.mockImplementation(async ({ date }) => ({ ...freeResponse(date, duration), full_count: 1,
+      windows: [{ start_at: "2026-10-14T18:00:00Z", end_at: "2026-10-14T20:00:00Z", duration_minutes: 120 }] }));
+    render(workspace());
+    fireEvent.click(control("Free time"));
+    fireEvent.click(control(`${duration} min`));
+    const row = await screen.findByRole("button", { name: /^Ask One about/ });
+    expect(row).toHaveTextContent("2 hr");
+    fireEvent.click(row);
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ durationMinutes: duration, ownerId: "owner", date: "2026-10-14" }));
+    expect(mocks.reviewAttendance).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("invalidates Today and Free time only for the booking owner", async () => {
+    render(workspace());
+    await waitFor(() => expect(mocks.today).toHaveBeenCalled());
+    const reads = mocks.today.mock.calls.length;
+    act(() => notifyCalendarChanged("someone-else"));
+    expect(mocks.today).toHaveBeenCalledTimes(reads);
+    act(() => notifyCalendarChanged("owner"));
+    await waitFor(() => expect(mocks.today.mock.calls.length).toBeGreaterThan(reads));
+    fireEvent.click(control("Free time"));
+    await waitFor(() => expect(mocks.availability).toHaveBeenCalled());
+    const checks = mocks.availability.mock.calls.length;
+    act(() => notifyCalendarChanged("owner"));
+    await waitFor(() => expect(mocks.availability.mock.calls.length).toBeGreaterThan(checks));
+    fireEvent.click(control("Today"));
+    await waitFor(() => expect(mocks.today.mock.calls.length).toBeGreaterThan(reads + 1));
   });
 
   it("labels the exclusive next midnight only in Free time and retains booking UTC bounds", async () => {
@@ -923,8 +962,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.queryByText(/24:00/)).toBeNull();
     expect(mocks.availability).toHaveBeenLastCalledWith(expect.objectContaining({ startTime: "00:00", endTime: "24:00" }));
     fireEvent.click(screen.getByRole("button", { name: /^Ask One about/ }));
-    expect(mocks.onChat.mock.calls[0][0]).toContain("Available window (UTC): 2026-10-14T18:00:00Z to 2026-10-14T18:30:00Z");
-    expect(mocks.onChat.mock.calls[0][0]).toContain("Requested booking (UTC): 2026-10-14T18:00:00Z to 2026-10-14T18:15:00.000Z");
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, expect.objectContaining({ windowStart: "2026-10-14T18:00:00Z", windowEnd: "2026-10-14T18:30:00Z", durationMinutes: 15, timeZone: "Asia/Kolkata" }));
   });
 
   it("keeps a repeated-hour window's real UTC bounds in the Calendar chat handoff", async () => {
@@ -942,21 +980,14 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(control("Free time"));
     const add = await screen.findByRole("button", { name: /^Ask One about/ });
     expect(add).toHaveAccessibleName(/GMT-4.*GMT-5/);
-    expect(screen.getByText(/GMT-4.*GMT-5/, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/GMT-4.*GMT-5/, { selector: "span" })).toBeInTheDocument();
     fireEvent.click(add);
 
     expect(mocks.onChat).toHaveBeenCalledOnce();
-    const prompt = mocks.onChat.mock.calls[0][0];
-    expect(prompt).toMatch(/^Book a 15-minute meeting/);
-    expect(prompt).toContain("2026-11-01");
-    expect(prompt).toContain(mocks.availability.mock.calls[0][0].timeZone);
-    expect(prompt).toContain(add.getAttribute("aria-label")!.replace("Ask One about ", ""));
-    expect(prompt).toContain("2026-11-01T05:30:00Z");
-    expect(prompt).toContain("Available window (UTC): 2026-11-01T05:30:00Z to 2026-11-01T06:30:00Z");
-    expect(prompt).toMatch(/Requested booking \(UTC\): 2026-11-01T05:30:00Z to 2026-11-01T05:45:00(?:\.000)?Z/);
-    expect(prompt).toContain("recheck availability");
-    expect(prompt).toContain("my confirmation before creating the Calendar event");
-    expect(prompt).not.toContain("60-minute meeting");
+    expect(mocks.onChat).toHaveBeenCalledWith(undefined, {
+      ownerId: "owner", accountEmail: status.google_email, date: "2026-11-01", timeZone: "America/New_York",
+      windowStart: "2026-11-01T05:30:00Z", windowEnd: "2026-11-01T06:30:00Z", durationMinutes: 15,
+    });
     expect(mocks.reviewAttendance).not.toHaveBeenCalled();
     expect(mocks.confirmAttendance).not.toHaveBeenCalled();
   });

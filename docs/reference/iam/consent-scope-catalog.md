@@ -42,7 +42,7 @@ Define canonical scope families and template policy for Investor + RIA consent r
 9. `wallet` is a reserved owner-managed PKM domain that is deliberately
    shareable, unlike `source_library`: exactly two branch wildcards,
    `attr.wallet.summary.*` (nickname, brand, last4, expiry, issuing
-   region) and `attr.wallet.secrets.*` (PAN, CVV, PIN, cardholder
+   region) and `attr.wallet.secrets.*` (PAN and cardholder
    name), are externally requestable, and every grant is an explicit owner
    approval delivered through the encrypted-export path. The domain wildcard,
    exact-path scopes, and public projection stay closed. Natural-language

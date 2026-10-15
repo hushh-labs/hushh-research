@@ -67,4 +67,15 @@ def test_the_upstream_rehearsal_passes_on_the_harness_schema(cluster):
     executable spec -- runs to completion on prelude + MIGRATIONS. This pins the
     harness schema to the real one; if a migration the chain needs goes missing
     from the list, this fails before the oracle can mislead."""
+    # The upstream rehearsal also checks confirmed Memory rewards. Install the
+    # real referral dependency slice only here; the independent engine oracle
+    # keeps its minimal PKM chain. Never synthesize reward settings or a ledger.
+    cluster.execute("CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY)")
+    cluster.execute("CREATE TABLE one_location_circles(id UUID PRIMARY KEY)")
+    cluster.execute(
+        "CREATE TABLE connections(id UUID PRIMARY KEY, user_a_id TEXT, user_b_id TEXT, status TEXT)"
+    )
+    migrations = REHEARSAL.parent.parent / "migrations"
+    for number in (55, 165, 270, 271, 272, 289, 338, 347, 348, 349):
+        cluster.apply_file(next(migrations.glob(f"{number:03d}_*.sql")))
     cluster.apply_file(REHEARSAL)

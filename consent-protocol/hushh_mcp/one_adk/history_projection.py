@@ -200,6 +200,8 @@ _ACTIVITY_TOOLS = frozenset(
         "set_preferred_model",
         "propose_style_settings",
         "calendar_summary",
+        "calendar_invitations",
+        "open_calendar_invitation",
         "calendar_calendars",
         "calendar_event_detail",
         "calendar_events",

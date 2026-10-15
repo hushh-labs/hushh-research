@@ -124,9 +124,9 @@ card design comes from an approved catalog, an explicitly approved sanitized
 private photo, or the solid neutral Wallet design; it is never chosen by card ID.
 The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
-chat projection. Collection faces show only the last four number digits; the
-selected card in an unlocked Wallet shows the full number. CVV and PIN stay
-hidden. Locking the vault or changing
+chat projection. Collection and selected-card faces show only the last four
+number digits, as does the Card details row. The full number is decrypted only
+after an explicit copy action. CVV and PIN stay hidden. Locking the vault or changing
 accounts drops the presentation. Reads that fail do not become an empty wallet,
 and writes use the current snapshot revision to preserve concurrent additions.
 
@@ -228,10 +228,20 @@ The Cards overview presents one full card above a compact lower stack. Vertical 
 
 ### Saved payment card numbers and temporary sharing
 
-Selecting a saved payment card in an unlocked Wallet displays its full number
-on that face and in Card details. The collection remains a metadata projection.
-Owner, key, tab, selection, visibility and unmount changes invalidate delayed
-number reads and clear the selected number. CVV and PIN remain hidden.
+Selecting a saved payment card keeps its face and Card details number masked.
+The copy icon decrypts and copies the complete saved number without adding it
+to the DOM. Owner, key, tab, selection, visibility and unmount changes invalidate
+delayed copies. CVV and PIN remain hidden. Saved-card recipient rows show the
+recipient name and shared date; revocation remains available for active grants.
+
+The Add scanner illustration centers the portrait Agent One card over the
+phone screen and raises it above the phone, using the supplied placement
+reference. The transparent black-and-gold asset is
+`hushh-webapp/public/wallet/card-scan-agent-one-emerging.webp` (built-in image
+editing, then WebP compression). Add omits the design introduction and simple
+design action; approved bank/photo selection stays available. Saved-card
+details omit the Change card design entry. Built-in card QR panels use a small
+QR on the left and a two-column action grid on the right.
 
 Share is available on every owner-entered payment card without a separate
 card-verification step. A confirmed Wallet write registers saved cards automatically;
@@ -439,8 +449,9 @@ embossed metal and severe glare are not guaranteed by these bounds.
 `wallet_artwork_catalog.py` defines the `MetadataProvider` port and a strict
 versioned catalog. `HUSHH_WALLET_ARTWORK_CATALOG_PATH` optionally names a mounted,
 reviewed JSON file; its `assets/` directory contains digest-named rasters.
-There is **no configured issuer provider and no bundled production bank artwork**
-in this change. No API keys, partnerships, scraped assets or exact product coverage
+There is **no licensed issuer provider configured and no bundled production bank artwork**
+in this change. The default-off approved-feed adapter, provider evaluation and
+activation conditions are documented in [Wallet artwork providers](./wallet-artwork-providers.md). No API keys, partnerships, scraped assets or exact product coverage
 are implied. The fully working fallback paths are a reviewed private photo or neutral.
 
 The catalog records issuer, product, family, variant, country, network, IINs,
@@ -448,9 +459,15 @@ version, SHA-256 digest, raster MIME, provenance, rights reference, approving
 reviewer/date and status. Only approved, sanitized assets with a reviewed
 `perpetual_private_display` right are eligible. Time-limited licenses are rejected.
 Approvals must be nonblank, timezone-aware and already completed. A catalog can
-be replaced without a React change; version or status changes invalidate saved
-catalog presentation on the next authorized read. This does not erase a durable
+be replaced without a React change; new selections require the current catalog version. Saved immutable references
+survive unrelated catalog updates but current revocation, grant or rights changes
+invalidate their presentation on authorized reads and visible approval rechecks. This does not erase a durable
 encrypted copy, so a license requiring copy deletion is unsupported.
+
+The [supplied card atlas](./wallet-card-atlas.md) adds reviewed, adapted bank
+designs and owner-selected unused-image suggestions for manual Add. It does not
+infer a bank from a sample number or claim an exact physical-card match. The
+bundled catalog is replaced by an explicitly configured private catalog.
 
 The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
 `POST /resolve`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
@@ -465,8 +482,8 @@ automatically prepares its unique approved design for owner review. Multiple
 approved variants use a compact chooser. Download, save and reload revalidate
 catalog authority. Revocation/outage before Add falls back to neutral without
 discarding valid card details; an explicit design update asks for a current choice.
-Production provider adapters must implement their own bounded transport and
-permission/rights review before configuration.
+The approved-feed adapter reuses the pinned public HTTPS transport and requires
+a deployment-owned permission/rights review before configuration.
 
 ### Private photo and prohibited security codes
 

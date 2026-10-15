@@ -31,9 +31,23 @@ class PodChatMemory(BaseMemoryService):
     async def add_session_to_memory(self, session):
         if session.user_id != self.context.owner:
             raise PermissionError("Pod memory owner mismatch.")
+        from hushh_mcp.one_adk.consent_redaction import tagged_bundles
+
         await self.context.require_access()
+        # Consent-derived turns remain in grant-aware conversation recovery;
+        # ordinary durable memory loses that lineage and must not ingest them.
+        tagged = {
+            invocation for ids in tagged_bundles(session.state).values() for invocation in ids
+        }
+        events = [
+            event
+            for event in session.events
+            if event.invocation_id not in tagged and (not tagged or event.invocation_id)
+        ]
+        if not events:
+            return
         await self.service.add_session_to_memory(
-            session.model_copy(update={"user_id": self.context.hushh_id})
+            session.model_copy(update={"user_id": self.context.hushh_id, "events": events})
         )
 
     async def prepare(self, input, *, model: Any, provider: str, model_id: str) -> None:

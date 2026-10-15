@@ -2439,12 +2439,14 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.calendar",
-          "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+          "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail.",
           "screen": "calendar",
           "entry_cue": "Connect Calendar when you want schedule help from One.",
           "proactivity": "ambient",
           "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "happy_path_action_ids": [
+            "calendar.invitation.review"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -2454,7 +2456,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
+          "completion_boundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2474,6 +2476,7 @@
       },
       "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "calendar.invitation.review",
         "calendar.read"
       ],
       "api_dependencies": [
@@ -4862,7 +4865,9 @@
           "SurfaceStack"
         ],
         "interaction_layer_policy": {
-          "allowed_families": []
+          "allowed_families": [
+            "sharing_price_review"
+          ]
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
@@ -4872,7 +4877,8 @@
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm",
           "happy_path_action_ids": [
-            "route.one_pkm"
+            "route.one_pkm",
+            "pkm.review_sharing_price"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -4883,7 +4889,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Opening sharing price review does not save a tariff or confirm a purchase. A price changes only after the person confirms in the existing editor and persistence succeeds.",
           "next_route": "/one/pkm",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4910,8 +4916,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/pkm/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7818,7 +7827,6 @@
         "profile.world_model.edit_fact",
         "profile.world_model.email",
         "profile.world_model.invite",
-        "profile.world_model.open",
         "profile.world_model.open_fact",
         "profile.world_model.preview",
         "profile.world_model.refresh",
@@ -10870,5 +10878,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7444be2abdfb3c99313cc16b8c9c65eeac1ef9e7ce111977a8f07070c89bb6ab"
+  "content_sha256": "9c46b999948d06fb4a446542f663635c2bfe6685afe0e18fd2e6856a9ceca869"
 }

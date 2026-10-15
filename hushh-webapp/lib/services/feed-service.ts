@@ -276,9 +276,11 @@ export class FeedService {
   static async clearSosCards(options: {
     vaultOwnerToken: string;
     grantIds: string[];
+    isEffectCurrent?: () => boolean;
   }): Promise<string[]> {
     const response = await ApiService.apiFetch("/api/one/feed/sos-cards/clear", {
       method: "POST",
+      ...(options.isEffectCurrent ? { isEffectCurrent: options.isEffectCurrent } : {}),
       headers: {
         ...(await authHeader(options.vaultOwnerToken)),
         "Content-Type": "application/json",

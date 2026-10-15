@@ -59,6 +59,7 @@ READ_TOOLS = {
     # this invocation's action authority just like a Mail or Drive read, and
     # its arguments/results must be removed from durable ADK history.
     "calendar_summary": None,
+    "calendar_invitations": None,
     "calendar_calendars": None,
     "calendar_events": None,
     "calendar_event_detail": None,
@@ -94,6 +95,12 @@ def _reviewed_mcp_tool(tool: Any) -> bool:
 def _reviewable_draft_tool(tool: Any) -> bool:
     # This is a client-only draft, not a provider send. Admit the exact local
     # function, never a provider tool or another callable with the same name.
+    if getattr(tool, "name", None) == "open_calendar_invitation":
+        from google.adk.tools import FunctionTool
+
+        from hushh_mcp.agents.calendar.tools import open_calendar_invitation
+
+        return type(tool) is FunctionTool and tool.func is open_calendar_invitation
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool

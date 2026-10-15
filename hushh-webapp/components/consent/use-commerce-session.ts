@@ -8,6 +8,7 @@ import { resolveProfilePaneUrlState } from "@/lib/navigation/profile-pane";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
 /** Inactive retained Profile screens must not claim pane or underlying route Back. */
 export function useCommerceAccountBackLayer(depth: number, back: () => boolean) {
@@ -32,8 +33,10 @@ export function useCommerceSession(scope: string) {
   const capture = useCallback((includeVault = true) => {
     const { user: capturedUser, scope: capturedScope, generation } = identity.current;
     const epoch = snapshotVaultSessionEpoch();
+    const authGeneration = snapshotAuthSessionGeneration();
     return () => mounted.current && identity.current.user === capturedUser &&
       identity.current.scope === capturedScope && identity.current.generation === generation &&
+      (!authGeneration || isValidatedAuthSessionOwnerCurrent(authGeneration)) &&
       (!includeVault || isVaultSessionEpochCurrent(epoch));
   }, []);
   return { user, capture };

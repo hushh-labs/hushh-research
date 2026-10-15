@@ -65,6 +65,7 @@ _CONFIRM = {"review_id": "a-valid-review-identifier", "review_token": "a" * 40}
 @pytest.mark.parametrize(
     ("path", "payload"),
     [
+        ("/invitations", {"time_zone": "Asia/Kolkata"}),
         ("/schedule/today", _TODAY),
         ("/schedule/availability", _FULL_DAY),
         ("/attendance/review", _REVIEW),
@@ -80,6 +81,7 @@ def test_protected_schedule_actions_require_authentication(path: str, payload: d
 @pytest.mark.parametrize(
     ("path", "payload", "method"),
     [
+        ("/invitations", {"time_zone": "Asia/Kolkata"}, "invitations"),
         ("/schedule/today", _TODAY, "today"),
         ("/schedule/availability", _FULL_DAY, "free_windows"),
         ("/attendance/review", _REVIEW, "review"),
@@ -101,7 +103,7 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
 
     monkeypatch.setattr(calendar_workspace, "_schedule", lambda: _Schedule())
     app = _app()
-    if path.startswith("/schedule/"):
+    if path.startswith("/schedule/") or path == "/invitations":
         app.dependency_overrides[require_firebase_auth_read_only] = lambda: "owner"
 
         def unexpected_vault_authority():
@@ -120,7 +122,7 @@ def test_authenticated_token_owns_schedule_calls_not_a_body_account(
     assert len(calls) == 1
     assert calls[0][0] == method
     assert calls[0][1]["user_id"] == "owner"
-    if path.startswith("/schedule/"):
+    if path.startswith("/schedule/") or path == "/invitations":
         assert response.headers["cache-control"] == "private, no-store"
 
 

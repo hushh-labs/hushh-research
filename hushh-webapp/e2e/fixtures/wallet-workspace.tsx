@@ -12,6 +12,28 @@ import { Switch } from "../../components/ui/switch";
 import { CalendarConnectHero } from "../../components/calendar/calendar-connect-hero";
 import { WalletCardFace } from "../../components/wallet/wallet-card-face";
 import { PAYMENT_CARD_ARTWORK, paymentCardArtwork } from "../../lib/wallet/wallet-payment-card-artwork";
+import { SwipeViews } from "../../lib/morphy-ux/ui/swipe-views";
+
+const MOTION_TABS = [
+  { value: "cards", label: "Cards" },
+  { value: "add", label: "Add" },
+  { value: "sharing", label: "Sharing" },
+];
+
+// Isolate the shared spring from Wallet form rendering. Full Wallet behavior
+// stays covered by the workspace cases below; these panes keep real tab/pager
+// selection and a middle snap, where the previous spring overshot.
+function SharedPagerMotion() {
+  const [value, setValue] = React.useState("cards");
+  return <AppPageShell width="agent" fitContent><AppPageContentRegion>
+    <TopShellTabs tabSet={{ id: "wallet", label: "Wallet", queryParam: "view", activeValue: value,
+      tabs: MOTION_TABS.map(tab => ({ ...tab, href: "/one/wallet" })) }} onValueChange={setValue} />
+    <SwipeViews tabSetId="wallet" activeValue={value} options={MOTION_TABS}
+      onSelectionChange={setValue} heightMode="active" viewportMinHeight="0px">
+      {MOTION_TABS.map(tab => <div key={tab.value} style={{ height: 300 }}>{tab.label} panel</div>)}
+    </SwipeViews>
+  </AppPageContentRegion></AppPageShell>;
+}
 
 const reference = (window as unknown as {
   __locationReference?: { hubClass: string; headerClass: string; headerContentSpacing: AppPageHeaderContentSpacing };
@@ -52,7 +74,7 @@ function VisitorPreview() {
 }
 let revision = 0;
 window.__walletRemount = () => root.render(<WalletWorkspace key={++revision} />);
-root.render(visitor ? <VisitorPreview /> : calendarHeading ? (
+root.render((window as unknown as { __walletPagerOnly?: boolean }).__walletPagerOnly ? <SharedPagerMotion /> : visitor ? <VisitorPreview /> : calendarHeading ? (
   <AppPageShell width="reading" headerContentSpacing="compact">
     <AppPageContentRegion>
       <CalendarConnectHero journeyVariant="workspace" busy={false} needsReauth={false} onConnect={() => {}} />

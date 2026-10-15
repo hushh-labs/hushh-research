@@ -14,6 +14,7 @@
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
     "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
@@ -453,6 +454,33 @@
         "context_policy": null,
         "trust_boundary": "consent",
         "delegation_policy": "one_action_gate"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "pkm",
+      "surface_title": "Memory",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -2574,6 +2602,140 @@
             "action_id": "calendar.read",
             "label": "Read Calendar",
             "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.invitation.review",
+      "surface_id": "one_calendar",
+      "label": "Review Calendar invitations",
+      "aliases": [
+        "show my pending invitations",
+        "accept tomorrow’s client meeting",
+        "decline my 3 PM invitation",
+        "I cannot attend ask the organizer to choose another time"
+      ],
+      "search_keywords": [
+        "calendar invitations",
+        "RSVP",
+        "accept invitation",
+        "decline invitation",
+        "offer another time"
+      ],
+      "meaning": "Continues the owner’s invitation request inside the existing One Chat conversation. It can show pending invitations or prepare accept, decline, and alternate-time reviews. This handoff changes no RSVP and sends no Mail; the shared Calendar review requires an explicit browser confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/",
+          "/one",
+          "/one/calendar"
+        ],
+        "screens": [
+          "chat",
+          "one_agents",
+          "calendar"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Keep the existing One Chat conversation; do not open Calendar for an invitation action."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "continue_calendar_in_chat"
+      },
+      "control_ids": [
+        "calendar_invitation_accept",
+        "calendar_invitation_decline",
+        "calendar_invitation_offer"
+      ],
+      "state_exposure": [
+        "calendar_connection_state",
+        "vault_ready"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.invitation.review",
+        "required_inputs": [
+          {
+            "name": "request",
+            "prompt": "What would you like to do with the invitation?",
+            "required": true,
+            "slot": "request",
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "request": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Continue invitation review in One Chat",
+            "failure_behavior": "stop",
+            "service": "frontend.calendar.invitation.review"
           }
         ],
         "progress_contract": {
@@ -13907,6 +14069,243 @@
       }
     },
     {
+      "action_id": "pkm.review_sharing_price",
+      "surface_id": "pkm",
+      "label": "Review sharing price",
+      "aliases": [
+        "review a sharing price",
+        "set a price for my information"
+      ],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section"
+      ],
+      "meaning": "Opens the existing price editor for one exact owner-authored sharing section. Optional proposed price in USD cents (1 cent = 1 Hussh coin) and base term only prefill the form. Nothing is saved, published, purchased or paid until the person uses the existing confirmation controls. Never broaden a requested leaf into its parent section. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.review_sharing_price"
+      },
+      "control_ids": [
+        "pkm-review-sharing-price"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.review_sharing_price",
+        "required_inputs": [
+          {
+            "name": "section",
+            "prompt": "Which saved sharing section?",
+            "required": false,
+            "slot": "section",
+            "resolver": "spoken_free_text"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "section": "spoken_free_text",
+          "scope_choice": "opaque_id_optional",
+          "proposed_price_cents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "proposed_base_hours": {
+            "type": "integer",
+            "enum": [
+              24,
+              72,
+              168,
+              720
+            ]
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Open sharing price review",
+            "failure_behavior": "stop",
+            "action_id": "pkm.review_sharing_price",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.close_sharing_price_review",
+      "surface_id": "pkm",
+      "label": "Close sharing price review",
+      "aliases": [
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "meaning": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An existing sharing price review is open."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.close_sharing_price_review"
+      },
+      "control_ids": [
+        "pkm-close-sharing-price-review"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.close_sharing_price_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.close_sharing_price_review",
+            "label": "Close sharing price review",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile",
       "surface_id": "profile_account",
       "label": "Open Profile",
@@ -16737,7 +17136,7 @@
     {
       "action_id": "profile.world_model.research",
       "surface_id": "profile_world_model",
-      "label": "Use public sources",
+      "label": "Research public pages",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -16812,7 +17211,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.research",
-            "label": "Use public sources",
+            "label": "Research public pages",
             "failure_behavior": "stop"
           }
         ],
@@ -17134,105 +17533,6 @@
       }
     },
     {
-      "action_id": "profile.world_model.open",
-      "surface_id": "profile_world_model",
-      "label": "Open Personal World Model",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "meaning": "Open the dedicated Personal World Model page.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_open_page"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/personal-world-model.md",
-        "components/profile/personal-world-model-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/profile/world-model"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.world_model.open",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.world_model.open",
-            "label": "Open Personal World Model",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "profile.world_model.sources",
       "surface_id": "profile_world_model",
       "label": "Add a public source",
@@ -17442,7 +17742,7 @@
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17638,7 +17938,7 @@
     {
       "action_id": "profile.world_model.reject",
       "surface_id": "profile_world_model",
-      "label": "Reject invitation",
+      "label": "Decline invitation",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -17711,7 +18011,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.reject",
-            "label": "Reject invitation",
+            "label": "Decline invitation",
             "failure_behavior": "stop"
           }
         ],

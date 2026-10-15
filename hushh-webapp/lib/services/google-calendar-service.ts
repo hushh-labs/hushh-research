@@ -52,7 +52,7 @@ export type CalendarEventSummary = {
   color_id?: string | null;
   conference_name?: string | null;
   conference_icon?: string | null;
-  organizer?: { email?: string; self?: boolean };
+  organizer?: { email?: string; displayName?: string; self?: boolean };
   can_decline?: boolean;
   title: string;
   description?: string | null;
@@ -60,7 +60,7 @@ export type CalendarEventSummary = {
   start: CalendarEventTime;
   end: CalendarEventTime;
   status?: string | null;
-  attendees?: { email?: string | null; response_status?: string | null; self?: boolean }[];
+  attendees?: { email?: string | null; response_status?: string | null; display_name?: string | null; self?: boolean }[];
   html_link?: string | null;
   conference_url?: string | null;
   conference_status?: string | null;
@@ -116,8 +116,10 @@ export type CalendarOpening = { start_at: string; end_at: string; available_unti
 export type CalendarSource = { availability_default_included?: boolean; availability_included?: boolean; time_zone?: string | null; id: string; name?: string; primary?: boolean; access_role?: string; background_color?: string | null };
 export type CalendarDailyResponse = CalendarEventsResponse & { date: string; time_zone: string; calendars: CalendarSource[]; unreadable_calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
 export type CalendarAvailability = { windows: (CalendarOpening & { duration_minutes: number })[]; full_count: number; requested_duration_minutes: number; time_zone: string; date: string; time_min: string; time_max: string; calendars: CalendarSource[]; calendar_options?: CalendarSource[] };
-export type CalendarAttendanceReview = { review_id: string; review_token: string; title: string; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
-export type CalendarAttendanceResult = { calendar: "declined" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
+export type CalendarInvitation = CalendarEventSummary & { id: string; calendar_id: string; response_status: "needsAction" | "accepted" | "declined" | "tentative"; can_respond: boolean; conflicts: CalendarEventSummary[] };
+export type CalendarInvitationsResponse = { account_email?: string; events: CalendarInvitation[]; pending_count: number; time_zone: string; start_at: string; end_at: string; complete: boolean; unreadable_calendars: CalendarSource[] };
+export type CalendarAttendanceReview = { response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
+export type CalendarAttendanceResult = { calendar: "accepted" | "declined" | "tentative" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };
 
 /** Typed transport for the Calendar API. Components never call fetch directly. */
@@ -380,7 +382,7 @@ export class GoogleCalendarService {
     return result;
   }
 
-  private static windowBody(params: Omit<CalendarWindowParams, "vaultOwnerToken">) {
+  private static windowBody(params: Omit<CalendarWindowParams, "vaultOwnerToken" | "durationMinutes"> & { durationMinutes: number }) {
     return { date: params.date, time_zone: params.timeZone, start_time: params.startTime, end_time: params.endTime, duration_minutes: params.durationMinutes };
   }
 
@@ -406,8 +408,14 @@ export class GoogleCalendarService {
     return result;
   }
 
-  static reviewAttendance(params: CalendarWindowParams & { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; message: string }): Promise<CalendarAttendanceReview> {
-    return this.scheduleRequest("attendance/review", params.vaultOwnerToken, { ...this.windowBody(params), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, message: params.message }, params);
+  static async invitations(params: { firebaseIdToken: string; timeZone: string; selectedCalendarId?: string; selectedEventId?: string; startAt?: string; endAt?: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarInvitationsResponse> {
+    const result = await this.scheduleRead<CalendarInvitationsResponse>("invitations", { time_zone: params.timeZone, ...(params.selectedCalendarId ? { selected_calendar_id: params.selectedCalendarId } : {}), ...(params.selectedEventId ? { selected_event_id: params.selectedEventId } : {}), ...(params.startAt ? { start_at: params.startAt } : {}), ...(params.endAt ? { end_at: params.endAt } : {}) }, params);
+    if (!result || !Array.isArray(result.events) || !Number.isInteger(result.pending_count) || !Array.isArray(result.unreadable_calendars) || result.events.some(event => !event.id || !event.calendar_id || !["needsAction", "accepted", "declined", "tentative"].includes(event.response_status))) throw new GoogleCalendarError("Invitations could not be checked.", "calendar_invalid_response", 502);
+    return result;
+  }
+
+  static reviewAttendance(params: Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; message: string }): Promise<CalendarAttendanceReview> {
+    return this.scheduleRequest("attendance/review", params.vaultOwnerToken, { ...this.windowBody(params), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, message: params.message, ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) }, params);
   }
 
   static confirmAttendance(params: { firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; vaultOwnerToken: string; reviewId: string; reviewToken: string }): Promise<CalendarAttendanceResult> {

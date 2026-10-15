@@ -1435,6 +1435,186 @@
     },
     {
       "aliases": [
+        "Review Calendar invitations",
+        "show my pending invitations",
+        "accept tomorrow\u2019s client meeting",
+        "decline my 3 PM invitation",
+        "I cannot attend ask the organizer to choose another time"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.invitation.review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Continues the owner\u2019s invitation request inside the existing One Chat conversation. It can show pending invitations or prepare accept, decline, and alternate-time reviews. This handoff changes no RSVP and sends no Mail; the shared Calendar review requires an explicit browser confirmation.",
+      "execution": {
+        "binding_ref": "render:calendar.invitation.review",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "continue_calendar_in_chat"
+        }
+      },
+      "goal_id": "goal.calendar.invitation.review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "description": "What would you like to do with the invitation?",
+            "type": "string",
+            "x-hushh-resolver": "user_utterance"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "description": "What would you like to do with the invitation?",
+            "type": "string",
+            "x-hushh-resolver": "user_utterance"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review Calendar invitations",
+      "navigation": {
+        "fallback": "continue_calendar_in_chat",
+        "routes": [
+          "/",
+          "/one",
+          "/one/calendar"
+        ],
+        "screens": [
+          "chat",
+          "one_agents",
+          "calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.entity_picker",
+      "required_entities": [
+        "entity.request"
+      ],
+      "search_keywords": [
+        "calendar invitations",
+        "RSVP",
+        "accept invitation",
+        "decline invitation",
+        "offer another time"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Connect",
         "open connect",
         "connect",
@@ -16192,6 +16372,294 @@
     },
     {
       "aliases": [
+        "Review sharing price",
+        "review a sharing price",
+        "set a price for my information"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.review_sharing_price",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the existing price editor for one exact owner-authored sharing section. Optional proposed price in USD cents (1 cent = 1 Hussh coin) and base term only prefill the form. Nothing is saved, published, purchased or paid until the person uses the existing confirmation controls. Never broaden a requested leaf into its parent section. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.review_sharing_price",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.review_sharing_price"
+        }
+      },
+      "goal_id": "goal.pkm.review_sharing_price",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved sharing section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved sharing section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review sharing price",
+      "navigation": {
+        "fallback": "pkm.review_sharing_price",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.form",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Close sharing price review",
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.close_sharing_price_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.close_sharing_price_review",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.close_sharing_price_review"
+        }
+      },
+      "goal_id": "goal.pkm.close_sharing_price_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Close sharing price review",
+      "navigation": {
+        "fallback": "pkm.close_sharing_price_review",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Profile",
         "open profile",
         "go to profile"
@@ -20047,7 +20515,7 @@
     },
     {
       "aliases": [
-        "Use public sources"
+        "Research public pages"
       ],
       "authorization": {
         "guard_ids": [
@@ -20119,7 +20587,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Use public sources",
+      "label": "Research public pages",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20675,163 +21143,6 @@
     },
     {
       "aliases": [
-        "Open Personal World Model"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_owner_token"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "profile.world_model.open",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Open the dedicated Personal World Model page.",
-      "execution": {
-        "binding_ref": "render:profile.world_model.open",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.profile.world_model.open",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Open Personal World Model",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Add a public source"
       ],
       "authorization": {
@@ -21185,7 +21496,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "description": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
       "execution": {
         "binding_ref": "render:profile.world_model.invite",
         "executor": {
@@ -21460,7 +21771,7 @@
     },
     {
       "aliases": [
-        "Reject invitation"
+        "Decline invitation"
       ],
       "authorization": {
         "guard_ids": [
@@ -21532,7 +21843,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Reject invitation",
+      "label": "Decline invitation",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -42696,7 +43007,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "5e14dee7e8f5e7496058b6db38fed75847f260f824b88d0714474c41bf76ee8d",
+      "projection_digest": "f223f7ef9a58be51b1e3ec027256abce29a836cb96aaf90837623037d34a85cb",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -42706,16 +43017,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
+        "capability_graph_evolution": "1069a3d1738c4bafc05c305e4e944064d8219a4fb37dd4f4cc779e576785079d",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
+        "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
         "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
+        "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "1392ab26935f010b",
+      "source_revision": "b4f6a1494140296a",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -44233,7 +44544,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "1392ab26935f010b",
+    "source_revision": "b4f6a1494140296a",
     "web": {
       "actions": [
         {
@@ -44276,7 +44587,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "f9e46170c74c7a077aba19e88b9d6397ff44fec4f33bfd38e2d023cca001fcc2",
+      "projection_digest": "d2af32384eae7085d5bc48dbb28cf81bcf4f36eda4444a043f0be68cf05f919d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -44286,16 +44597,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
+        "capability_graph_evolution": "1069a3d1738c4bafc05c305e4e944064d8219a4fb37dd4f4cc779e576785079d",
         "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
+        "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
         "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
+        "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
       },
-      "source_revision": "1392ab26935f010b",
+      "source_revision": "b4f6a1494140296a",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45852,11 +46163,12 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "1392ab26935f010b",
+  "revision": "b4f6a1494140296a",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
       "action_ids": [
+        "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",
         "wallet.list",
@@ -46170,6 +46482,7 @@
     },
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
@@ -46193,6 +46506,7 @@
     },
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read"
       ],
       "capability_id": "screen:/one/calendar",
@@ -46728,6 +47042,8 @@
     },
     {
       "action_ids": [
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price",
         "route.one_pkm",
         "route.profile_pkm_agent_lab"
       ],
@@ -47780,7 +48096,10 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:calendar.invitation.review",
       "actions:one.scheduled_tasks.open",
+      "actions:pkm.close_sharing_price_review",
+      "actions:pkm.review_sharing_price",
       "actions:route.one_files",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
@@ -47796,12 +48115,19 @@
     "breaking": [],
     "changed": [
       "actions:profile.delete_account",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.reject",
+      "actions:profile.world_model.research",
       "actions:route.one_pkm",
       "actions:route.profile_payouts",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
+      "screens:screen:/",
       "screens:screen:/one",
+      "screens:screen:/one/calendar",
+      "screens:screen:/one/pkm",
       "screens:screen:/one/setup",
+      "services:service.calendar",
       "workflows:workflow.setup.connections"
     ],
     "compatible": [
@@ -47810,17 +48136,24 @@
     ],
     "deprecated": [
       "actions:profile.delete_account",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.open",
+      "actions:profile.world_model.reject",
+      "actions:profile.world_model.research",
       "actions:setup.finish_connections",
       "actions:setup.open_connections",
       "workflows:workflow.setup.connections"
     ],
     "from_revision": "710bd535b7febc69",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:profile.world_model.open"
+    ]
   },
   "services": [
     {
       "action_ids": [
+        "calendar.invitation.review",
         "calendar.read",
         "setup.finish_calendar",
         "setup.open_calendar",
@@ -50104,21 +50437,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "03826f02e60dc1be30ed377c9013d64ef60ca82fa1c130ee8c874fcc702cb646",
+    "capability_graph_evolution": "1069a3d1738c4bafc05c305e4e944064d8219a4fb37dd4f4cc779e576785079d",
     "capability_runtime_compiler": "208bdce3a04203deaec61230b4601e23f5065991b5fb55c898eff2d6803bfd60",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "f9696b99b0a695acdcc1e5fe3e24ac626a715a8a145776070d912ae120419d4e",
-    "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
+    "kai_action_gateway": "848f9d5643401cbeb56a5e9e4dc23dc2d57be3ff444b88e202b4f7a586149709",
+    "location_agent_manifest": "a9a0e97fde714e059ccde820b0976f69d7793ab5e7b8b4998e355982f001c6ba",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "7c20b1e8e0239c870cf10ad6171569211dc69115525616aaf9ce190ba02da6e9",
-    "route_orchestration_index": "04dad59e1e38884822f0d04b5026bad48bd3f0ad3fa7da6441e8daefb43532c9",
-    "service_knowledge_packages": "a2957c47cd64f9caeec8f29341f0e61eb595383a3031b31cf7791563222a2422"
+    "product_agent_registry": "2fba71595b29b91b67d211f52e4d068ff05d3382ca0f271f8a14a1ade98af0f8",
+    "route_orchestration_index": "79e8df13931c88ff7afc61b57f589b46901aeca9d5511cca088b29a08756c50f",
+    "service_knowledge_packages": "7de2544108c0807aa88d8472420205145d1ee6c69e4824648dbf3c128bd0f2b2"
   },
-  "source_revision": "1392ab26935f010b",
+  "source_revision": "b4f6a1494140296a",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "1392ab26935f010b",
+    "current_graph_revision": "b4f6a1494140296a",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

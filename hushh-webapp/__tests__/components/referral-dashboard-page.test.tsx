@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   getEngagement: vi.fn(),
   getChallenge: vi.fn(),
   getCircleSelection: vi.fn(),
+  onReferralChange: () => {},
+  claimReward: vi.fn(),
+  recordAppOpen: vi.fn(),
   hasSeenReferralIntroduction: vi.fn(),
   markReferralIntroductionSeen: vi.fn(),
 }));
@@ -31,7 +34,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({
 }));
 
 vi.mock("@/lib/referral/use-referral-stream", () => ({
-  useReferralStream: () => ({ connected: true }),
+  useReferralStream: (_user: unknown, onChange: () => void) => { mocks.onReferralChange = onChange; return { connected: true }; },
 }));
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
@@ -52,14 +55,20 @@ vi.mock("@/lib/services/referral-service", () => ({
     getEngagement: mocks.getEngagement,
     getChallenge: mocks.getChallenge,
     getCircleSelection: mocks.getCircleSelection,
+    claimReward: mocks.claimReward,
+    recordAppOpen: mocks.recordAppOpen,
   },
 }));
+
+import { CacheService } from "@/lib/services/cache-service";
+import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
 
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { ReferralDashboardPage, formatCountdown } from "@/components/referrals/referral-dashboard-page";
 
 const SUMMARY = {
+  joined_count: 15,
   slug: "ankit-42",
   link: "https://one.hushh.ai/r/ankit-42-real",
   qualified_count: 11,
@@ -90,33 +99,59 @@ describe("formatCountdown", () => {
 });
 
 describe("ReferralDashboardPage", () => {
-  it("keeps the invitation gift and agent glyphs free of interior shading", async () => {
-    const { container } = render(<ReferralDashboardPage />);
-    await screen.findByRole("button", { name: "Invite & earn $" });
-    const gift = container.querySelector(".referral-share-gift svg");
-    expect(gift).not.toBeNull();
-    expect(gift!.querySelector('[opacity="0.2"]')).toBeNull();
-    const agents = container.querySelectorAll(".referral-agent-example svg, .referral-orbit-upright svg");
-    expect(agents).toHaveLength(18);
-    for (const icon of agents) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+  it("revalidates a change received while the first request is still in flight", async () => {
+    let finish: (value: typeof SUMMARY) => void = () => {};
+    mocks.getSummary.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    mocks.getSummary.mockResolvedValue({ ...SUMMARY, qualified_count: 88, in_progress_count: 0, joined_count: 88, total_count: 88 });
+    render(<ReferralDashboardPage />);
+    await act(async () => { mocks.onReferralChange(); finish(SUMMARY); });
+    expect(await screen.findByText("88")).toBeInTheDocument();
+    expect(mocks.getSummary).toHaveBeenCalledTimes(2);
+  });
+  it("shows the owner's server circle rank outside the first leaderboard page", async () => {
+    mocks.getCircleSelection.mockResolvedValue({ circle_id: "network", circle_name: "Our circle", rank: 41, contribution_count: 3 });
+    mocks.getCircleLeaderboard.mockResolvedValue({ teams: [] });
+    render(<ReferralDashboardPage />);
+    expect(await screen.findByText("#41")).toBeInTheDocument();
+    expect(screen.getByText("Our circle")).toBeInTheDocument();
   });
 
-  it("hides incompatible backend rewards until the new catalogue is active", async () => {
+  it("keeps a threshold unearned until the backend records an entitlement", async () => {
+    mocks.getMilestones.mockResolvedValue({ joined_referral_count: 10, earned: [],
+      next_milestone: { milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher", progress: 10 },
+      available_milestones: [{ milestone_key: "voucher_10", threshold: 10, reward: "Saved voucher" }],
+    });
+    render(<ReferralDashboardPage />);
+    await screen.findByText("This week ends in");
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
+    expect(screen.getByText("0 of 1 unlocked")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Claim reward" })).toBeNull();
+    expect(screen.queryByText("All milestones reached")).toBeNull();
+  });
+  it("keeps progress and earning glyphs free of interior shading", async () => {
+    mocks.getPolicy.mockResolvedValue({ version: 4, points: { qualified_referral_points: 100, flash_window_total_points: 200, referral_in_progress_points: 5, referral_qualified_activity_total_points: 15, streak_three_day_bonus_points: 15, pkm_daily_points: 15, connection_created_points: 5, agent_usage_points: 10 }, streak_rules: { run_length_days: 3, bonus_points: 15 }, challenge_duration_days: 7, weekly_prizes_enabled: false, flash_bonus_enabled: true });
+    const { container } = render(<ReferralDashboardPage />);
+    await screen.findByRole("button", { name: "Invite & earn $" });
+    const progress = container.querySelectorAll('.referral-stat-icon svg, .referral-streak-card [role="img"] svg');
+    expect(progress).toHaveLength(4);
+    for (const icon of progress) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "How it works" }));
+    const earnings = container.querySelectorAll('[data-earning] > span:first-child svg');
+    expect(earnings).toHaveLength(6);
+    for (const icon of earnings) expect(icon.querySelector('[opacity="0.2"]')).toBeNull();
+  });
+
+  it("renders a configured catalogue without imposing frontend thresholds", async () => {
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: 0,
-      earned: [],
-      next_milestone: null,
-      available_milestones: [
-        { milestone_key: "current_reward", threshold: 42, reward: "Current program reward" },
-      ],
+      joined_referral_count: 0, earned: [],
+      next_milestone: { milestone_key: "current_reward", threshold: 42, reward: "Current program reward", progress: 0 },
+      available_milestones: [{ milestone_key: "current_reward", threshold: 42, reward: "Current program reward" }],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
-    expect(await screen.findByText("Rewards policy unavailable")).toBeInTheDocument();
-    expect(screen.queryByText("Current program reward")).toBeNull();
-    expect(screen.queryByText("42 referrals")).toBeNull();
-    expect(screen.queryByText("₹250 Amazon voucher")).toBeNull();
-    expect(screen.queryByText("All milestones earned. Incredible work.")).toBeNull();
+    expect(await screen.findByRole("heading", { level: 3, name: "Current program reward" })).toBeInTheDocument();
+    expect(screen.queryByText("Rewards policy unavailable")).toBeNull();
+    expect(screen.queryByText("All milestones reached")).toBeNull();
   });
 
   it("keeps loaded content visible and deduplicates focus refreshes", async () => {
@@ -209,7 +244,7 @@ describe("ReferralDashboardPage", () => {
   it("renders Rules amounts from the active backend policy", async () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly challenge ends in");
+    await screen.findByText("This week ends in");
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
@@ -218,7 +253,7 @@ describe("ReferralDashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Flash boost" }).closest("article")).toHaveTextContent("246 coins");
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
     expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
-    expect(screen.getByText("Weekly challenge ends in")).toBeInTheDocument();
+    expect(screen.getByText("This week ends in")).toBeInTheDocument();
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "How it works" }));
     act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
@@ -232,34 +267,31 @@ describe("ReferralDashboardPage", () => {
     [100, "Apple AirPods", 500], [499, "Apple AirPods", 500],
     [500, "iPhone", 10000], [9999, "iPhone", 10000],
     [10000, null, null], [12000, null, null],
-  ] as const)("selects the correct reward at %s qualified referrals", async (count, title, threshold) => {
+  ] as const)("selects the correct reward at %s joined referrals", async (count, title, threshold) => {
+    const catalogue = [
+      { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
+      { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
+      { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
+      { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
+    ];
+    const next = catalogue.find((entry) => entry.threshold === threshold);
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: count,
-      earned: [
-        { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
-        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds" },
-        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods" },
-        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
-      ].filter((entry) => count >= entry.threshold).map((entry) => ({ ...entry, earned_at: "2026-10-01T00:00:00Z" })),
-      next_milestone: null,
-      available_milestones: [
-        { milestone_key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
-        { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
-        { milestone_key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
-        { milestone_key: "iphone_10000", threshold: 10000, reward: "iPhone" },
-      ],
+      joined_referral_count: count,
+      earned: catalogue.filter((entry) => entry.threshold <= count).map((entry) => ({ ...entry, earned_at: "2026-10-14T00:00:00Z" })),
+      next_milestone: next ? { ...next, progress: count } : null,
+      available_milestones: catalogue,
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("Weekly challenge ends in");
+    await screen.findByText("This week ends in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
     if (title && threshold) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: `${title} milestone` })).toHaveAttribute(
-        "aria-valuetext", `${Number(count).toLocaleString("en-IN")} of ${threshold.toLocaleString("en-IN")} qualified referrals; ${(threshold - Number(count)).toLocaleString("en-IN")} more to go`,
+        "aria-valuetext", `${Number(count).toLocaleString("en-IN")} of ${threshold.toLocaleString("en-IN")} joined referrals; ${(threshold - Number(count)).toLocaleString("en-IN")} more to go`,
       );
     } else {
-      expect(screen.getByText("All rewards unlocked")).toBeInTheDocument();
+      expect(screen.getByText("All milestones reached")).toBeInTheDocument();
       expect(within(screen.getByRole("region", { name: "Rewards" })).queryByRole("progressbar")).toBeNull();
     }
     expect(screen.queryByText("hushh_tee")).toBeNull();
@@ -267,7 +299,7 @@ describe("ReferralDashboardPage", () => {
 
   it("preserves historical rewards after a catalogue revision and waits for recorded awards", async () => {
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: 10000,
+      joined_referral_count: 10000,
       earned: [
         { milestone_key: "voucher_10", reward: "₹250 Amazon voucher", earned_at: "2026-10-01T00:00:00Z" },
         { milestone_key: "earbuds_100", reward: "Wireless earbuds", earned_at: "2026-10-01T00:00:00Z" },
@@ -282,7 +314,7 @@ describe("ReferralDashboardPage", () => {
       ],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    await screen.findByText("Weekly challenge ends in");
+    await screen.findByText("This week ends in");
     fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     const rewards = within(screen.getByRole("region", { name: "Rewards" }));
     expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" })).toBeInTheDocument();
@@ -292,17 +324,19 @@ describe("ReferralDashboardPage", () => {
     expect(rewards.getByRole("heading", { level: 4, name: "iPhone" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "next");
     expect(rewards.getByRole("heading", { level: 4, name: "Apple AirPods" }).closest("[data-reward]")).toHaveAttribute("data-reward-state", "earned");
     expect(rewards.getByText("Your reward is being confirmed.")).toBeInTheDocument();
-    expect(rewards.queryByText("All rewards unlocked")).not.toBeInTheDocument();
+    expect(rewards.queryByText("All milestones reached")).not.toBeInTheDocument();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    CacheService.getInstance().clear();
+    mocks.recordAppOpen.mockReturnValue(neverResolves());
     mocks.hasSeenReferralIntroduction.mockReset().mockResolvedValue(true);
     mocks.markReferralIntroductionSeen.mockReset().mockResolvedValue(undefined);
     currentUser = { uid: "user-a", getIdToken: mocks.getIdToken };
     mocks.getIdToken.mockResolvedValue("token-a");
     mocks.getSummary.mockResolvedValue(SUMMARY);
-    mocks.getPoints.mockResolvedValue({ points: 2450 });
+    mocks.getPoints.mockResolvedValue({ points: 2450, coins: 2450 });
     mocks.getPolicy.mockResolvedValue({ version: 2, points: { qualified_referral_points: 100, flash_window_total_points: 200, streak_three_day_bonus_points: 15 }, streak_rules: { run_length_days: 3, bonus_points: 15 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     mocks.getLeaderboard.mockResolvedValue({
       snapshot_generated_at: null,
@@ -312,7 +346,7 @@ describe("ReferralDashboardPage", () => {
     });
     mocks.getCircleLeaderboard.mockResolvedValue({ teams: [] });
     mocks.getMilestones.mockResolvedValue({
-      lifetime_qualified_count: 11,
+      joined_referral_count: 11,
       earned: [],
       next_milestone: { milestone_key: "earbuds_100", threshold: 100, reward: "Wireless earbuds", progress: 11 },
     });
@@ -355,10 +389,10 @@ describe("ReferralDashboardPage", () => {
     const view = render(<ReferralDashboardPage />);
     await act(async () => {});
     expect(screen.getByText("72:00:01")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Weekly challenge progress: day 4 of 7" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 4 of 7" })).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByText("72:00:00")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Weekly challenge progress: day 5 of 7" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 5 of 7" })).toBeInTheDocument();
     view.unmount();
     vi.setSystemTime(new Date("2026-10-11T23:59:59+05:30"));
     render(<ReferralDashboardPage />);
@@ -371,7 +405,7 @@ describe("ReferralDashboardPage", () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(mocks.getChallenge).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("img", { name: "Weekly challenge progress: day 1 of 7" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Weekly calendar progress: day 1 of 7" })).toBeInTheDocument();
     expect(screen.getByText("2,450")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "6 day streak" })).toBeInTheDocument();
   });
@@ -388,7 +422,7 @@ describe("ReferralDashboardPage", () => {
 
     render(<ReferralDashboardPage />);
 
-    expect(await screen.findByText("Weekly challenge ends in")).toBeInTheDocument();
+    expect(await screen.findByText("This week ends in")).toBeInTheDocument();
     // Seven structural progress segments and Day 1..Day 7 labels are present
     // even though nothing else on the page has resolved yet.
     for (let day = 1; day <= 7; day++) {
@@ -401,7 +435,7 @@ describe("ReferralDashboardPage", () => {
 
     render(<ReferralDashboardPage />);
 
-    expect(await screen.findByText("Unable to load")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Unable to load")).toBeInTheDocument());
     expect(screen.getByText("Day 1")).toBeInTheDocument();
     expect(screen.getByText("Day 7")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
@@ -410,7 +444,7 @@ describe("ReferralDashboardPage", () => {
   it("keeps the reference colours through a route-scoped accent override", async () => {
     render(<ReferralDashboardPage />);
 
-    await screen.findByText("Weekly challenge ends in");
+    await screen.findByText("This week ends in");
 
     const inviteButton = screen.getByRole("button", { name: "Invite & earn $" });
     // The shared token is deliberately overridden at this route, so a saved
@@ -453,13 +487,13 @@ describe("ReferralDashboardPage", () => {
     render(<ReferralDashboardPage />);
 
     expect(await screen.findByText("2,450")).toBeInTheDocument();
-    const rankLabel = screen.getByText("Published rank");
+    const rankLabel = within(screen.getByRole("region", { name: "Your progress" })).getByText("Rank");
     const rankCell = rankLabel.parentElement as HTMLElement;
     expect(within(rankCell).getByText("Unable to load")).toBeInTheDocument();
   });
 
   it("discards a stale account's in-flight response after an account switch", async () => {
-    let resolvePointsForA: ((value: { points: number }) => void) | undefined;
+    let resolvePointsForA: ((value: { points: number; coins: number }) => void) | undefined;
     mocks.getPoints.mockImplementation(() => {
       return new Promise((resolve) => {
         resolvePointsForA = resolve;
@@ -467,19 +501,84 @@ describe("ReferralDashboardPage", () => {
     });
 
     const { rerender } = render(<ReferralDashboardPage />);
-    await screen.findByText("Weekly challenge ends in");
+    await screen.findByText("This week ends in");
 
     // Switch accounts before account A's points request resolves.
     currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
-    mocks.getPoints.mockResolvedValue({ points: 9 });
+    mocks.getPoints.mockResolvedValue({ points: 9, coins: 9 });
     rerender(<ReferralDashboardPage />);
     await screen.findByText("9");
 
     // Account A's late response must not overwrite account B's real balance.
     await act(async () => {
-      resolvePointsForA?.({ points: 2450 });
+      resolvePointsForA?.({ points: 2450, coins: 2450 });
     });
     expect(screen.getByText("9")).toBeInTheDocument();
     expect(screen.queryByText("2,450")).toBeNull();
+    // Returning to A must not resurrect its cancelled request through memory cache.
+    currentUser = { uid: "user-a", getIdToken: mocks.getIdToken };
+    mocks.getPoints.mockReturnValue(neverResolves());
+    rerender(<ReferralDashboardPage />);
+    expect(screen.queryByText("2,450")).toBeNull();
+  });
+
+  it("shows legacy earnings and joined progress without points or qualification subtitles", async () => {
+    mocks.getPoints.mockResolvedValue({ points: 50, coins: 50 });
+    mocks.getSummary.mockResolvedValue({ ...SUMMARY, joined_count: 2, total_count: 2, qualified_count: 0,
+      in_progress_count: 2, referrals: ["one","two"].map((id) => ({id,display_name:id,status:"In progress",step:"Finish setup",started_on:"2026-10-14"})) });
+    mocks.getMilestones.mockResolvedValue({joined_referral_count:2,lifetime_qualified_count:0,earned:[],
+      next_milestone:{milestone_key:"voucher_10",threshold:10,reward:"Amazon voucher",progress:2},
+      available_milestones:[{milestone_key:"voucher_10",threshold:10,reward:"Amazon voucher"}]});
+    render(<ReferralDashboardPage />);
+    expect(await screen.findByText("50")).toBeInTheDocument();
+    expect(screen.queryByText(/total points/i)).toBeNull();
+    const referrals=screen.getAllByText("Referrals").find((node)=>node.closest(".referral-stat"))!.closest(".referral-stat")!;
+    expect(within(referrals as HTMLElement).getByText("2")).toBeInTheDocument();
+    expect(referrals).not.toHaveTextContent(/qualified|in progress/i);
+    expect(screen.getAllByText("In progress")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("tab",{name:"Rewards"}));
+    expect(screen.getByText("2 / 10 referrals")).toBeInTheDocument();
+    expect(screen.getByText("20% complete")).toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Claim reward"})).toBeNull();
+  });
+
+  it("retains real warm values on navigation and reports refresh failure", async () => {
+    const first=render(<ReferralDashboardPage />);
+    await screen.findByText("2,450");first.unmount();
+    mocks.getPoints.mockRejectedValue(new Error("offline"));
+    render(<ReferralDashboardPage />);
+    expect(screen.getByText("2,450")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("Showing the last update");
+    CacheService.getInstance().invalidateUser("user-a");
+    expect(CacheService.getInstance().peek("referral_dashboard_user-a_points")).toBeNull();
+  });
+
+  it("renders the current user's row even outside an empty leaderboard page", async () => {
+    mocks.getLeaderboard.mockResolvedValue({entries:[],viewer:{rank:41,points:50,handle:"safe-handle",is_viewer:true},stale:false,snapshot_generated_at:"2026-10-14T00:00:00Z"});
+    render(<ReferralDashboardPage />);
+    await screen.findByText("#41");
+    fireEvent.click(screen.getByRole("tab",{name:"Ranking"}));
+    expect(screen.getByText("safe-handle")).toBeInTheDocument();
+    expect(screen.getByText("safe-handle").closest("li")).toHaveTextContent("You");
+  });
+
+  it("records only visible dashboard days at the server midnight and retries failures", async () => {
+    vi.useFakeTimers();
+    const onRecorded=vi.fn();
+    mocks.recordAppOpen.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({server_now:"2026-10-14T18:29:59Z",next_day_at:"2026-10-15T00:00:00+05:30"}).mockResolvedValue({server_now:"2026-10-14T18:30:00Z",next_day_at:"2026-10-16T00:00:00+05:30"});
+    const hook=renderHook(()=>useDailyAppActivity(currentUser as Parameters<typeof useDailyAppActivity>[0],onRecorded));
+    await act(async()=>{});
+    expect(onRecorded).not.toHaveBeenCalled();
+    await act(async()=>{window.dispatchEvent(new Event("online"));});
+    expect(onRecorded).toHaveBeenCalledTimes(1);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1025);});
+    expect(onRecorded).toHaveBeenCalledTimes(2);
+    Object.defineProperty(document,"visibilityState",{configurable:true,value:"hidden"});
+    await act(async()=>{await vi.advanceTimersByTimeAsync(86_400_025);});
+    expect(onRecorded).toHaveBeenCalledTimes(2);
+    Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});
+    await act(async()=>{document.dispatchEvent(new Event("visibilitychange"));});
+    expect(onRecorded).toHaveBeenCalledTimes(3);
+    hook.unmount();
   });
 });

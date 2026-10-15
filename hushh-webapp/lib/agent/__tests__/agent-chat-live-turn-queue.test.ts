@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
 
 import {
   LiveTurnQueue,
@@ -152,10 +153,30 @@ describe("live turn queue", () => {
     expect(await queue.withdraw("client-a")).toBe("not_held");
     expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
 
+    let release!: () => void;
+    let released = false;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    void gate.then(() => { released = true; });
+    const retire = vi.fn(() => { queue.stopAccepting(); release(); });
+    const session = new AgentChatSessionEpoch(retire);
+    const retiredEpoch = session.value;
+    session.start();
+    await Promise.resolve();
+    expect(released).toBe(true);
+    expect(retire).toHaveBeenCalledOnce();
+    expect(session.isCurrent(retiredEpoch)).toBe(false);
+    expect(queue.holds("client-a")).toBe(true);
+    // Reopening the same conversation cannot turn an unknown old append into
+    // delivery, or keep a fresh session waiting on that retired local gate.
+    const fresh = new LiveTurnQueue(server.ports, wait);
+    fresh.begin("conversation");
+    expect(await fresh.offer("client-b", "new session")).toBe("joining");
+    session.start();
+    expect(retire).toHaveBeenCalledTimes(2);
     server.completeAppend(inflight);
     expect(await queue.settle()).toEqual({ joined: ["client-a"], waiting: [] });
     expect(queue.holds("client-a")).toBe(false);
-    expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
+    expect(server.ports.enqueue).toHaveBeenCalledTimes(2);
   });
 
   it("stops the turn and brings every held message back unsent", async () => {

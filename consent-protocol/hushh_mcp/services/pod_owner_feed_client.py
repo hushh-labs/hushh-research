@@ -128,6 +128,7 @@ class PodOwnerFeedClient:
         *,
         params: Optional[dict[str, Any]] = None,
         command: Optional[dict[str, Any]] = None,
+        fresh: bool = False,
     ) -> dict:
         """The verified projection for one read of ``owner_id``'s own feed."""
         if not owner_id:
@@ -140,7 +141,7 @@ class PodOwnerFeedClient:
         key = (kind, owner_id, json.dumps(query, sort_keys=True))
         now = self._clock()
         with self._lock:
-            held = self._cache.get(key) if command is None else None
+            held = self._cache.get(key) if command is None and not fresh else None
         if held is not None and held.binding == binding and 0 <= now - held.fetched_at < self._ttl:
             return copy.deepcopy(held.projection)
         try:
@@ -157,7 +158,7 @@ class PodOwnerFeedClient:
             raise
         except Exception as exc:  # noqa: BLE001 - every failure is one typed state
             raise OwnerFeedUnavailable(f"owner feed unavailable: {type(exc).__name__}") from None
-        if command is not None:
+        if command is not None or fresh:
             if self._binding() != binding:
                 raise OwnerFeedUnavailable("owner feed binding changed")
             return feed["projection"]

@@ -9,6 +9,7 @@ This folder owns the shared consent center experience and all consent launchers.
 - `notification-provider.tsx`: push/toast delivery and one-time pending hydration; not the primary source of truth for consent counts.
 - `consent-dialog.tsx`: grant/revoke consent dialog using `DOMAIN_EMOJI` mapping and `resolveScopeDisplay` helpers.
 - `consent-pending-row.tsx`: one Requests row. The row is one button that opens the sheet; a request the shared path can decide carries ✗ (Don't allow) and ✓ (Allow) beside it.
+- `packets/`: Drive packets read like Payouts history. `PacketRows` is one row per packet (icon, name, one status line, price) and the whole row opens `PacketPage`, a local sheet that takes sections and actions as props. Actions live on the page, never on rows. Plain words live in `packet-copy.ts`. The owner's own file names show only in the owner's "What's inside", never in what buyers see. `buyer-packets.tsx` is a connection's view on someone's profile: "Buy for $X" is the existing packet request (nothing is charged until the seller approves and the buyer pays from the request), with one retry key per packet version.
 - `information-request-review-fields.tsx`: shared field, purpose and duration review for Profile's compact dialog and inline Chat. Both submit through `lib/consent/use-person-information-request.ts`; mounting or restoring a card never sends a request.
 
 ## Rules

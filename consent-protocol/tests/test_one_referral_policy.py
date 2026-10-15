@@ -45,6 +45,7 @@ def _candidate(**overrides) -> QualificationInput:
         phone_verified=True,
         onboarding_complete=True,
         risk_level="low",
+        verified_product_usage=True,
     )
     base.update(overrides)
     return QualificationInput(**base)
@@ -53,13 +54,16 @@ def _candidate(**overrides) -> QualificationInput:
 # --- onboarding completion is the whole bar ---------------------------------
 
 
-def test_completing_onboarding_alone_qualifies():
+def test_completing_onboarding_alone_does_not_qualify():
     # No engagement session, no eligible agent, no elapsed time -- onboarding
     # completion plus a verified phone is the entire bar.
+    assert evaluate(_candidate(verified_product_usage=False), POLICY).target_status == ONBOARDED
     assert evaluate(_candidate(), POLICY).target_status == QUALIFIED
 
 
-@pytest.mark.parametrize("missing", ["phone_verified", "onboarding_complete"])
+@pytest.mark.parametrize(
+    "missing", ["phone_verified", "onboarding_complete", "verified_product_usage"]
+)
 def test_no_single_requirement_can_be_skipped(missing):
     # Each of these alone must block qualification, with everything else passing.
     assert evaluate(_candidate(**{missing: False}), POLICY).target_status == ONBOARDED

@@ -22,12 +22,14 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
+vi.mock("@/lib/vault/vault-context", () => {
+  const getVaultOwnerToken = () => mocks.vaultOwnerToken;
+  return { useVault: () => ({
     vaultKey: "test-vault-key",
     vaultOwnerToken: mocks.vaultOwnerToken,
-  }),
-}));
+    getVaultOwnerToken,
+  }) };
+});
 
 vi.mock("@/lib/services/cache-service", () => ({
   CACHE_KEYS: {
@@ -162,6 +164,7 @@ function emergencyCard(current: ReturnType<typeof useFeedActionables>) {
 describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    delete window.__HUSHH_NATIVE_TEST__;
     mocks.vaultOwnerToken = "test-vault-token";
     mocks.clearSosCards.mockReset();
     mocks.clearSosCards.mockImplementation(
@@ -182,6 +185,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   });
 
   afterEach(() => {
+    delete window.__HUSHH_NATIVE_TEST__;
     window.localStorage.clear();
   });
 
@@ -365,6 +369,7 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     expect(mocks.clearSosCards).toHaveBeenLastCalledWith({
       vaultOwnerToken: "test-vault-token",
       grantIds: ["sos-grant-1"],
+      isEffectCurrent: expect.any(Function),
     });
     expect(emergencyCard(laterVisit.result.current)).toBeUndefined();
   });
@@ -450,7 +455,8 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     expect(result.current.hasClearableSmsEmergencies).toBe(false);
   });
 
-  it("copies an old device-only clear to the server once, then forgets it", async () => {
+  it.each([null, "read_only", "preparation_only", "bounded_mutation"] as const)("copies device-only clears only outside restricted automation: %s", async reviewerMutationPolicy => {
+    if (reviewerMutationPolicy) window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
     receivedGrantsFixture = [revokedSos()];
     window.localStorage.setItem(
       "hushh:feed-sms-dismissed:receiver-user",
@@ -458,16 +464,40 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     );
     const { result, rerender } = renderHook(() => useFeedActionables());
 
+    if (reviewerMutationPolicy) {
+      await act(async () => {});
+      expect(mocks.clearSosCards).not.toHaveBeenCalled();
+      expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toContain("sos-grant-1");
+      expect(emergencyCard(result.current)).toBeUndefined();
+      return;
+    }
     await waitFor(() => {
       expect(window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user")).toBeNull();
     });
     expect(mocks.clearSosCards).toHaveBeenCalledExactlyOnceWith({
       vaultOwnerToken: "test-vault-token",
       grantIds: ["sos-grant-1"],
+      isEffectCurrent: expect.any(Function),
     });
     expect(emergencyCard(result.current)).toBeUndefined();
     rerender();
     expect(mocks.clearSosCards).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the device marker when its owner session retires during upload", async () => {
+    receivedGrantsFixture = [revokedSos()];
+    const key = "hushh:feed-sms-dismissed:receiver-user";
+    window.localStorage.setItem(key, JSON.stringify(["sos-grant-1"]));
+    let settle!: (ids: string[]) => void;
+    mocks.clearSosCards.mockImplementationOnce(() => new Promise<string[]>(resolve => { settle = resolve; }));
+    const view = renderHook(() => useFeedActionables());
+    await waitFor(() => expect(mocks.clearSosCards).toHaveBeenCalledTimes(1));
+    const current = mocks.clearSosCards.mock.calls[0][0].isEffectCurrent;
+    expect(current()).toBe(true);
+    view.unmount();
+    expect(current()).toBe(false);
+    await act(async () => { settle(["sos-grant-1"]); });
+    expect(window.localStorage.getItem(key)).toContain("sos-grant-1");
   });
 
   it("keeps an old device-only clear when copying it fails", async () => {

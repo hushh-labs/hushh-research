@@ -1,6 +1,6 @@
 import { verifyHistoryMovement } from "./helpers/history-motion";
 import { profileFrame, expectPaneRestingAtFrame, mountAppChrome, hitAt } from "./helpers/drawer-geometry";
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type ElementHandle, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -18,11 +18,15 @@ test.beforeAll(async () => {
   const workspace = fs.readFileSync(path.join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
   const profileTriggerClass = workspace.match(/data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/)?.[1];
   if (!profileTriggerClass) throw new Error("Missing production One profile trigger");
+  const identityClass = workspace.match(/data-agent-chat-header-region="identity"\s+className="([^"]+)"/)?.[1];
+  const nameClass = workspace.match(/<div className="(truncate text-base[^"]+)">\s*\{isPuppySurface/)?.[1];
+  if (!identityClass || !nameClass) throw new Error("Missing production One header identity");
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  for (const candidate of profileTriggerClass.split(/\s+/)) candidates.add(candidate);
+  for (const className of [profileTriggerClass, identityClass, nameClass])
+    for (const candidate of className.split(/\s+/)) candidates.add(candidate);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "connections-drawer-"));
   await build({
     configFile: false,
@@ -42,7 +46,15 @@ test.beforeAll(async () => {
             // Observe the actual runtime without changing its clock or poses.
             const hook = "onLoad: () => {";
             if (!source.includes(hook)) throw new Error("Missing Rive playback diagnostic boundary");
-            return source.replace(hook, `onAdvance: (event) => {
+            return source.replace(hook, `assetLoader: (_asset, bytes) => {
+              if (bytes.length > 24 && bytes[0] === 137 && bytes[1] === 80) {
+                const scope = window as any;
+                const registry = scope.__onePresenceTextures ??= new WeakMap();
+                const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                registry.set(canvas, [...(registry.get(canvas) ?? []), [view.getUint32(16), view.getUint32(20)]]);
+              }
+              return false;
+            }, onAdvance: (event) => {
               const scope = window as any;
               const registry = scope.__onePresenceRuntime ??= new WeakMap();
               const previous = registry.get(canvas);
@@ -101,6 +113,8 @@ test.beforeAll(async () => {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
       __ONE_PROFILE_TRIGGER_CLASS__: JSON.stringify(profileTriggerClass),
+      __ONE_HEADER_IDENTITY_CLASS__: JSON.stringify(identityClass),
+      __ONE_HEADER_NAME_CLASS__: JSON.stringify(nameClass),
     },
     build: {
       outDir,
@@ -154,13 +168,13 @@ test.beforeEach(async ({ page }) => {
     return route.continue();
   });
   await page.route(`**${HUSHH_MARK_PATH}`, route => route.fulfill({ contentType: "image/png", body: mark }));
-  await page.route("http://localhost/one-presence/*-hd.png", route =>
+  await page.route("http://localhost/one-presence/*.png", route =>
     route.fulfill({
       contentType: "image/png",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
-  await page.route(/^http:\/\/localhost\/one-presence\/(?:[a-z]+\.riv|rive\.wasm)$/, route =>
+  await page.route(/^http:\/\/localhost\/one-presence\/(?:(?:hd\/)?[a-z]+\.riv|rive\.wasm)$/, route =>
     route.fulfill({
       contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
@@ -169,12 +183,6 @@ test.beforeEach(async ({ page }) => {
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
-    }),
-  );
-  await page.route(/^http:\/\/localhost\/one-presence\/(?:rive\.wasm|(?:working|thinking)\.riv)$/, route =>
-    route.fulfill({
-      contentType: new URL(route.request().url()).pathname.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
@@ -303,42 +311,9 @@ for (const width of [390, 1440])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 
-async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
-  return page.evaluate((safeSidePane) => {
-    const reference = document.createElement("div");
-    reference.className = safeSidePane ? "" : "profile-pane-sheet";
-    reference.dataset.slot = "sheet-content";
-    if (safeSidePane) reference.dataset.appSidePane = "";
-    reference.style.cssText = "position:fixed;visibility:hidden;pointer-events:none";
-    const card = document.createElement("div");
-    const stack = document.createElement("div");
-    stack.className = "profile-pane-scroll-root";
-    const content = document.createElement("div");
-    content.dataset.profileStackContent = "true";
-    card.dataset.slot = "settings-group-shell";
-    content.append(card);
-    stack.append(content);
-    reference.append(stack);
-    document.body.append(reference);
-    const bounds = reference.getBoundingClientRect();
-    const style = getComputedStyle(reference);
-    const result = { x: innerWidth - bounds.right, y: bounds.y,
-      width: bounds.width, height: bounds.height,
-      radius: style.borderTopLeftRadius,
-      card: { background: getComputedStyle(card).backgroundColor,
-        radius: getComputedStyle(card).borderTopLeftRadius, shadow: getComputedStyle(card).boxShadow },
-      material: {
-        background: style.backgroundColor, border: style.borderTopColor,
-        shadow: style.boxShadow, blur: style.backdropFilter,
-        webkitBlur: style.getPropertyValue("-webkit-backdrop-filter"),
-      } };
-    reference.remove();
-    return result;
-  }, safeSidePane);
-}
 
 for (const width of [320, 1440]) for (const dark of [false, true])
-  test(`Drive sharing uses Profile detail material and returns safely at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+  test(`Drive sharing stays on the Chats side with Profile detail material and returns safely at ${width}px in ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 820 });
     const shareId = "22222222-2222-4222-8222-222222222222";
     const now = new Date().toISOString();
@@ -368,18 +343,26 @@ for (const width of [320, 1440]) for (const dark of [false, true])
     await page.addScriptTag({ content: script });
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     const row = page.getByRole("button", { name: "Review files. 14 files to review. View details" });
+    const history = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     await row.click();
+    // The nested modal makes Chats inert; read its mounted frame during motion.
+    const historyFrame = page.locator("[data-agent-history-drawer]");
     const detail = page.getByRole("dialog", { name: "Drive sharing", exact: true });
     await expect(detail.getByRole("button", { name: "Share 14 files with 1 person" })).toBeVisible();
     // Nested translucent panes use the existing safe WebKit side-pane material.
     const reference = await profileFrame(page, true);
     await expect.poll(async () => {
       const box = (await detail.boundingBox())!;
-      return Math.abs(width - box.x - box.width - reference.x);
+      const parent = (await historyFrame.boundingBox())!;
+      return Math.abs(box.x - parent.x);
     }).toBeLessThan(2);
     const box = (await detail.boundingBox())!;
+    const historyBox = (await historyFrame.boundingBox())!;
     expect(Math.abs(box.width - reference.width)).toBeLessThan(2);
     expect(Math.abs(box.height - reference.height)).toBeLessThan(2);
+    expect(Math.abs(box.y - historyBox.y)).toBeLessThan(2);
+    expect(Math.abs(box.width - historyBox.width)).toBeLessThan(2);
+    expect(Math.abs(box.height - historyBox.height)).toBeLessThan(2);
     expect(await detail.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(reference.material.background);
     expect(await detail.getByRole("region", { name: "Drive sharing", exact: true }).evaluate(element => {
       const style = getComputedStyle(element);
@@ -399,8 +382,17 @@ for (const width of [320, 1440]) for (const dark of [false, true])
     await page.screenshot({ path: testInfo.outputPath("drive-sharing-profile.png") });
     await detail.getByRole("button", { name: "Back to Chats" }).click();
     await expect(detail).not.toBeVisible();
-    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toBeVisible();
+    await expect(history).toBeVisible();
     await expect(row).toBeFocused();
+    for (const close of ["Close Drive sharing", "Escape"]) {
+      await row.click();
+      await expect(detail).toBeVisible();
+      if (close === "Escape") await page.keyboard.press("Escape");
+      else await detail.getByRole("button", { name: close, exact: true }).click();
+      await expect(detail).not.toBeVisible();
+      await expect(history).toBeVisible();
+      await expect(row).toBeFocused();
+    }
     expect(writes).toEqual([]);
   });
 
@@ -1651,30 +1643,53 @@ test("in-chat connects stay in place when pop-ups and tabs are refused", async (
   await expectChatIntact(page, navigations);
 });
 
-async function presencePixels(artwork: Locator) {
-  return artwork.evaluate((canvas: HTMLCanvasElement) => {
+async function presencePixels(artwork: Locator, original?: ElementHandle | null) {
+  return artwork.evaluate((canvas: HTMLCanvasElement, original) => {
     // Coverage and motion do not need a Retina-sized GPU readback. Keep exact
     // source-corner transparency checks independent of the small CPU probe.
     const scope = window as unknown as { __presencePixelProbe?: CanvasRenderingContext2D };
+    const edge = original ? 128 : 32;
     if (!scope.__presencePixelProbe) {
       const probe = document.createElement("canvas");
-      probe.width = probe.height = 32;
       scope.__presencePixelProbe = probe.getContext("2d", { willReadFrequently: true })!;
     }
     const context = scope.__presencePixelProbe;
-    context.clearRect(0, 0, 32, 32);
-    context.drawImage(canvas, 0, 0, 32, 32);
-    const pixels = context.getImageData(0, 0, 32, 32).data;
+    if (context.canvas.width !== edge) context.canvas.width = context.canvas.height = edge;
+    context.clearRect(0, 0, edge, edge);
+    context.drawImage(canvas, 0, 0, edge, edge);
+    const pixels = context.getImageData(0, 0, edge, edge).data;
     const { width, height } = canvas;
-    const source = canvas.getContext("2d")!;
-    let hash = 0, opaque = 0;
+    let hash = 0, opaque = 0, bottom = -1;
     for (let i = 0; i < pixels.length; i += 1) {
       hash = (Math.imul(hash, 31) + pixels[i]!) | 0;
       if (i % 4 === 3 && pixels[i]! > 0) opaque += 1;
+      if (i % 4 === 3 && pixels[i]! > 20) bottom = Math.floor(i / 4 / edge);
     }
-    return { hash, opaque, cornerAlpha: [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
-      .map(([x, y]) => source.getImageData(x!, y!, 1, 1).data[3]) };
-  });
+    const surface = canvas.closest<HTMLElement>("[data-one-presence-state]")!;
+    const style = original ? getComputedStyle(surface) : null;
+    const bounds = original ? canvas.getBoundingClientRect() : null;
+    const name = original ? surface.parentElement!.parentElement!.querySelector('[data-slot="sheet-title"]')!.getBoundingClientRect() : null;
+    const gap = bounds && name ? name.top - (bounds.top + bounds.height * (bottom + 1) / edge) : 0;
+    return { hash, opaque,
+      resize: original && style ? {
+        width: style.width, height: style.height, transform: style.transform,
+        visible: getComputedStyle(canvas).visibility === "visible",
+        playback: /waiting-for-paint|playing|paint-timeout|asset-error|runtime-error/.test(canvas.dataset.onePresencePlayback ?? ""),
+        canvasCount: surface.querySelectorAll("canvas").length,
+        sameCanvas: canvas === original, bufferWidth: width, bufferHeight: height,
+        feetPainted: bottom > 0, nameGap: gap,
+        nameClearOfFeet: gap >= -0.5, nameCloseToFeet: gap <= 6,
+      } : undefined,
+      cornerAlpha: [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]
+      .map(([x, y]) => {
+        // Copy each exact source pixel to the CPU probe. Reading the Rive
+        // drawing context directly changes its readback policy and emits a
+        // browser warning; a 1:1 copy preserves the transparency assertion.
+        context.clearRect(0, 0, 1, 1);
+        context.drawImage(canvas, x!, y!, 1, 1, 0, 0, 1, 1);
+        return context.getImageData(0, 0, 1, 1).data[3];
+      }) };
+  }, original);
 }
 
 async function expectPresencePlayback(artwork: Locator) {
@@ -1776,16 +1791,214 @@ async function expectPresenceMotion(canvases: Locator) {
   for (const motion of observations) expect(motion, JSON.stringify(motion)).toMatchObject({ changed: true });
 }
 
+async function expectPresenceNameGap(surface: Locator, profile = false) {
+  const proof = await surface.evaluate((trigger, profile) => {
+    const layer = trigger.querySelector('[data-one-presence-layer="current"]')!;
+    const canvas = layer.querySelector("canvas")!;
+    const artwork = getComputedStyle(canvas).visibility === "visible" ? canvas : layer.querySelector("img")!;
+    const probe = document.createElement("canvas"); probe.width = probe.height = 128;
+    const context = probe.getContext("2d", { willReadFrequently: true })!;
+    context.drawImage(artwork, 0, 0, 128, 128);
+    const pixels = context.getImageData(0, 0, 128, 128).data;
+    let bottom = -1;
+    for (let index = 3; index < pixels.length; index += 4)
+      if (pixels[index]! > 20) bottom = Math.floor(index / 4 / 128);
+    const bounds = artwork.getBoundingClientRect();
+    const name = (profile
+      ? trigger.parentElement!.parentElement!.querySelector('[data-slot="sheet-title"]')!
+      : trigger.closest('[data-agent-chat-header-region="identity"]')!.querySelector('[data-one-presence-name]')!
+    ).getBoundingClientRect();
+    return { bottom, gap: name.top - (bounds.top + bounds.height * (bottom + 1) / 128) };
+  }, profile);
+  expect(proof.bottom).toBeGreaterThan(0);
+  expect(proof.gap, "name must not cover the mascot's feet").toBeGreaterThanOrEqual(-0.5);
+  expect(proof.gap, "name sits directly beneath painted artwork, including transparent source padding").toBeLessThanOrEqual(6);
+}
+
 test.describe("One profile artwork and animated presence", () => {
   // The npm pack runs these independent cases on one worker so unrelated
   // fixture builds cannot make the native runtime skip its brief idle blink.
   test.use({ deviceScaleFactor: 3 });
+  for (const width of [390, 1440]) for (const reducedMotion of [false, true]) {
+    test(`shows four distinct activity portraits ${reducedMotion ? "with reduced motion" : "while animations load"} at ${width}px`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+      let release!: () => void;
+      const waiting = new Promise<void>(resolve => { release = resolve; });
+      const requests: string[] = [];
+      await page.route(/^http:\/\/localhost\/one-presence\/hd\/[a-z]+\.riv$/, async route => {
+        requests.push(new URL(route.request().url()).pathname);
+        await waiting;
+        await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)) });
+      });
+      await page.route("**/api/one/feed**", route => route.fulfill({ json: { items: [], next_cursor: null, unread_count: 0 } }));
+      await page.setViewportSize({ width, height: 850 });
+      await page.goto("http://localhost/connections-fixture?one-profile=1");
+      await page.addScriptTag({ content: script });
+      await page.bringToFront();
+      await page.getByRole("button", { name: "Open One profile", exact: true }).click();
+      const surfaces = [page.getByTestId("one-presence-header"), page.getByRole("dialog", { name: "One", exact: true })]
+        .map(host => host.locator("[data-one-presence-state]"));
+      const hashes = surfaces.map(() => new Set<number>());
+      try {
+        for (const state of ["connected", "thinking", "working", "answering"]) {
+          await page.evaluate(state => (window as any).__setOnePresenceWork({
+            drafting: state === "working", answering: state === "answering", thinking: state !== "connected",
+          }), state);
+          for (const [index, surface] of surfaces.entries()) {
+            await expect(surface).toHaveAttribute("data-one-presence-state", state);
+            const current = surface.locator('[data-one-presence-layer="current"]');
+            await expect(current).toHaveAttribute("data-one-presence-artwork", state);
+            const image = current.locator("img");
+            await expect(image).toHaveCSS("visibility", "visible");
+            const pixels = await image.evaluate((image: HTMLImageElement) => {
+              const probe = document.createElement("canvas"); probe.width = probe.height = 32;
+              const context = probe.getContext("2d", { willReadFrequently: true })!;
+              context.drawImage(image, 0, 0, 32, 32);
+              const pixels = context.getImageData(0, 0, 32, 32).data;
+              let hash = 0, opaque = 0;
+              pixels.forEach((value, index) => { hash = (Math.imul(hash, 31) + value) | 0; if (index % 4 === 3 && value > 0) opaque++; });
+              return { hash, opaque };
+            });
+            expect(pixels.opaque).toBeGreaterThan(0);
+            hashes[index]!.add(pixels.hash);
+          }
+          // Header identity is inline; the compact-header regression below verifies nonoverlap.
+          await expectPresenceNameGap(surfaces[1]!, true);
+          if (!reducedMotion) await expect.poll(() => requests.includes(`/one-presence/hd/${state}.riv`)).toBe(true);
+        }
+        for (const distinct of hashes) expect(distinct.size).toBe(4);
+        if (reducedMotion) expect(requests).toEqual([]);
+      } finally {
+        release();
+      }
+      if (!reducedMotion) for (const surface of surfaces) await expectPresencePlayback(surface);
+      for (const surface of surfaces) await expect(surface.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
+      expect(errors).toEqual([]);
+    });
+  }
+  for (const density of [1, 2, 3]) {
+    test.describe(`${density}x artwork surfaces`, () => {
+      test.use({ deviceScaleFactor: density, hasTouch: true });
+      test("keeps hover, press and tap clear", async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("console", message => {
+          if (["warning", "error"].includes(message.type())) errors.push(message.text());
+        });
+        await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto("http://localhost/connections-fixture?one-profile=1");
+        await page.addScriptTag({ content: script });
+        await page.bringToFront();
+        // The modal correctly hides the underlying trigger from the a11y
+        // tree; retain its DOM locator for material checks while it is open.
+        const trigger = page.getByTestId("one-presence-header");
+        await expect(trigger).toHaveAccessibleName("Open One profile");
+        const clearSurface = async () => {
+          await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(trigger).toHaveCSS("border-radius", "0px");
+          await expect(trigger.locator(".morphy-ripple-host, md-ripple")).toHaveCount(0);
+          await expect(trigger).toHaveCSS("touch-action", "manipulation");
+          await expect(trigger).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+        };
+        await trigger.hover();
+        await clearSurface();
+        await page.keyboard.press("Tab");
+        await trigger.focus();
+        await clearSurface();
+        await expect(trigger).toHaveCSS("outline-width", "1px");
+        await expect(trigger).toHaveCSS("outline-style", "solid");
+        const bounds = (await trigger.boundingBox())!;
+        await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        await page.mouse.down();
+        await clearSurface();
+        await expect(trigger).toHaveCSS("outline-style", "none");
+        await page.mouse.up();
+        const panel = page.getByRole("dialog", { name: "One", exact: true });
+        await expect(panel).toBeVisible();
+        await page.getByRole("button", { name: "Close One profile", exact: true }).click();
+        await expect(panel).toBeHidden();
+        // Use the browser's real touch path, including its synthesized click.
+        await trigger.tap();
+        await expect(panel).toBeVisible();
+        await expect(page.getByRole("dialog", { name: "One", exact: true })).toHaveCount(1);
+        await clearSurface();
+        await expectPresencePlayback(panel.locator('[data-one-presence-state="connected"]'));
+        expect(errors).toEqual([]);
+      });
+      // Pointer interactions mount and dispose several native scenes. Keep
+      // that separate from the same-canvas resize contract: both retain the
+      // normal 30-second deadline on software-rendered Linux WebKit.
+      test("resizes the same native canvas across phone and desktop widths", async ({ page }) => {
+        const started = Date.now();
+        const checkpoint = (phase: string, width?: number, size?: number) => {
+          console.log("One native resize", JSON.stringify({ density, phase, width, size, elapsedMs: Date.now() - started }));
+        };
+        const errors: string[] = [];
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("console", message => {
+          if (["warning", "error"].includes(message.type())) errors.push(message.text());
+        });
+        await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto("http://localhost/connections-fixture?one-profile=1");
+        await page.addScriptTag({ content: script });
+        await page.bringToFront();
+        const trigger = page.getByTestId("one-presence-header");
+        await trigger.click();
+        const panel = page.getByRole("dialog", { name: "One", exact: true });
+        await expect(panel).toBeVisible();
+        checkpoint("mounted");
+        await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: true, answering: false, thinking: true }));
+        const artwork = panel.locator('[data-one-presence-state="working"]');
+        await expectPresencePlayback(artwork.locator('[data-one-presence-artwork="working"]'));
+        await expect(artwork.locator("canvas")).toHaveCount(1);
+        const original = await artwork.locator("canvas").elementHandle();
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          await expectPresencePlayback(trigger);
+          // Header identity is inline; the compact-header regression below verifies nonoverlap.
+          for (const size of [128, 192, 256, 192]) {
+            await artwork.evaluate((node, size) => {
+              (node.parentElement as HTMLElement).style.setProperty("--one-presence-size", `${size}px`);
+            }, size);
+            const canvas = artwork.locator("canvas");
+            const expectedBuffer = Math.min(768, size * density);
+            // Sample geometry, the native bitmap and painted-foot spacing on
+            // the same frame. Separate browser reads repeatedly flush Linux
+            // WebKit's software compositor at Retina density.
+            await expect.poll(async () => {
+              const pixels = await presencePixels(canvas, original);
+              return { ...pixels.resize, painted: pixels.opaque > 0, cornerAlpha: pixels.cornerAlpha };
+            }).toMatchObject({
+              width: `${size}px`, height: `${size}px`, transform: "none",
+              visible: true, playback: true, canvasCount: 1, sameCanvas: true,
+              bufferWidth: expectedBuffer, bufferHeight: expectedBuffer,
+              feetPainted: true, nameClearOfFeet: true, nameCloseToFeet: true,
+              painted: true, cornerAlpha: [0, 0, 0, 0],
+            });
+            checkpoint("resized", width, size);
+          }
+          checkpoint("motion", width);
+          await expectPresenceMotion(artwork.locator("canvas"));
+          checkpoint("motion verified", width);
+        }
+        expect(errors).toEqual([]);
+      });
+    });
+  }
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
     let release!: () => void;
     const waiting = new Promise<void>(resolve => { release = resolve; });
-    await page.route("http://localhost/one-presence/working.riv", async route => {
+    await page.route("http://localhost/one-presence/hd/working.riv", async route => {
       await waiting;
-      await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/working.riv")) });
+      await route.fulfill({ contentType: "application/octet-stream", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/hd/working.riv")) });
+    });
+    await page.route("http://localhost/one-presence/drafting-hd.png", async route => {
+      await waiting;
+      await route.fulfill({ contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public/one-presence/drafting-hd.png")) });
     });
     await page.route("**/api/one/feed**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null, unread_count: 0 }) }));
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1853,7 +2066,9 @@ test.describe("One profile artwork and animated presence", () => {
             proof.minPeakAlpha = peak;
             proof.minLayers = [...node.querySelectorAll<HTMLElement>("[data-one-presence-artwork]")].map(layer => {
               const style = getComputedStyle(layer);
-              return { state: layer.dataset.onePresenceArtwork, layer: layer.dataset.onePresenceLayer, opacity: style.opacity, desiredOpacity: layer.style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility };
+              const image = layer.querySelector("img")!;
+              return { state: layer.dataset.onePresenceArtwork, layer: layer.dataset.onePresenceLayer, opacity: style.opacity, desiredOpacity: layer.style.opacity, duration: style.transitionDuration, blend: style.mixBlendMode, visible: getComputedStyle(layer.querySelector("canvas")!).visibility,
+                poster: { src: image.getAttribute("src"), visible: getComputedStyle(image).visibility, complete: image.complete, width: image.naturalWidth } };
             });
           }
         }
@@ -1912,6 +2127,9 @@ test.describe("One profile artwork and animated presence", () => {
     await trigger.hover();
     await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(trigger).toHaveCSS("border-radius", "0px");
+    // A transparent button can still paint Material Web's shadow-DOM hover
+    // pseudo-element. This artwork control must not mount that layer at all.
+    await expect(trigger.locator(".morphy-ripple-host, md-ripple")).toHaveCount(0);
     // Tailwind composes shadow-none with zero-alpha ring/shadow slots.
     await expect(trigger).toHaveCSS("box-shadow", /^(?:none|rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
     await trigger.click();
@@ -1920,22 +2138,22 @@ test.describe("One profile artwork and animated presence", () => {
     const header = page.getByTestId("one-presence-header").locator("[data-one-presence-state]");
     const profile = panel.locator("[data-one-presence-state]");
     for (const phase of [
-      { drafting: false, answering: false, thinking: false, state: "connected" },
-      { drafting: false, answering: false, thinking: true, state: "thinking" },
-      { drafting: true, answering: true, thinking: true, state: "working" },
-      { drafting: false, answering: true, thinking: true, state: "answering" },
-      { drafting: false, answering: false, thinking: false, state: "connected" },
+      { working: false, drafting: false, answering: false, thinking: false, state: "connected" },
+      { working: false, drafting: false, answering: false, thinking: true, state: "thinking" },
+      { working: true, drafting: false, answering: true, thinking: true, state: "working" },
+      { working: false, drafting: false, answering: true, thinking: true, state: "answering" },
+      { working: false, drafting: false, answering: false, thinking: false, state: "connected" },
     ]) {
       await page.evaluate(work => {
-        (window as unknown as { __setOnePresenceWork: (work: { drafting: boolean; answering: boolean; thinking: boolean }) => void }).__setOnePresenceWork(work);
-      }, { drafting: phase.drafting, answering: phase.answering, thinking: phase.thinking });
+        (window as unknown as { __setOnePresenceWork: (work: { working: boolean; drafting: boolean; answering: boolean; thinking: boolean }) => void }).__setOnePresenceWork(work);
+      }, { working: phase.working, drafting: phase.drafting, answering: phase.answering, thinking: phase.thinking });
       await Promise.all([header, profile].map(artwork =>
         expectPresencePlayback(artwork.locator(`[data-one-presence-artwork="${phase.state}"]`))));
       // One browser read per phase keeps the same geometry, material and
       // settlement proof without dozens of sequential remote round trips.
       const expectedSurface = {
         state: phase.state, artwork: [phase.state],
-        canvas: { width: 128, height: 128, visibility: "visible", playback: "playing" },
+        canvas: { width: 192, height: 192, visibility: "visible", playback: "playing" },
         poster: "hidden",
       };
       await expect.poll(() => page.locator("[data-one-presence-state]").evaluateAll(nodes => nodes.map((node, index) => {
@@ -1953,18 +2171,22 @@ test.describe("One profile artwork and animated presence", () => {
             parentBackground: getComputedStyle(node.parentElement!).backgroundColor,
             parentRadius: getComputedStyle(node.parentElement!).borderRadius } } : {}),
         };
-      }))).toEqual([expectedSurface, { ...expectedSurface, profile: {
-        width: 192, height: 192, background: "rgba(0, 0, 0, 0)",
+      }))).toEqual([{ ...expectedSurface, canvas: { ...expectedSurface.canvas, width: 96, height: 96 } }, { ...expectedSurface, canvas: { ...expectedSurface.canvas, width: 672, height: 672 }, profile: {
+        width: 224, height: 224, background: "rgba(0, 0, 0, 0)",
         parentBackground: "rgba(0, 0, 0, 0)", parentRadius: "0px",
       } }]);
       const canvases = page.locator(`[data-one-presence-artwork="${phase.state}"] canvas`);
       await expect(canvases).toHaveCount(2);
       await Promise.all([0, 1].map(async index => {
         const canvas = canvases.nth(index);
+        const textures = await canvas.evaluate(canvas => (window as any).__onePresenceTextures.get(canvas));
+        expect(textures, "native animation must embed genuine HD pixels, not enlarge 128px frames").toEqual([[1254, 1254]]);
         await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
       }));
       await expectPresenceMotion(canvases);
+      // Header identity is inline; the compact-header regression below verifies nonoverlap.
+      await expectPresenceNameGap(profile, true);
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
     // A cheaper observation must still reject a real frozen native renderer.
@@ -2029,7 +2251,7 @@ test.describe("One profile artwork and animated presence", () => {
     await expect(canvas).toHaveAttribute("data-one-presence-playback", "paused");
     await profile.evaluate(element => { (element as HTMLElement).style.removeProperty("display"); });
     await expectPresencePlayback(profile);
-    expect(await canvas.evaluate((element: HTMLCanvasElement) => ({ width: element.width, height: element.height }))).toEqual({ width: 128, height: 128 });
+    expect(await canvas.evaluate((element: HTMLCanvasElement) => ({ width: element.width, height: element.height }))).toEqual({ width: 672, height: 672 });
     await page.getByRole("button", { name: "Close One profile", exact: true }).click();
     await expect(panel).toBeHidden();
     await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: false }));
@@ -2065,7 +2287,7 @@ test.describe("One profile artwork and animated presence", () => {
       await awaitProductFont(page);
       const trigger = page.getByRole("button", { name: "Open One profile", exact: true });
       const headerAvatar = trigger.locator("[data-one-presence-state]");
-      const headerSize = viewport.width < 768 ? 44 : 72;
+      const headerSize = 32;
       for (const artwork of [headerAvatar, headerAvatar.locator("img"), headerAvatar.locator("canvas")]) {
         // The loading canvas and animated poster can be visibility:hidden;
         // their geometry must still match the owning avatar.
@@ -2093,8 +2315,9 @@ test.describe("One profile artwork and animated presence", () => {
           image.naturalWidth >= Math.ceil(bounds.width * devicePixelRatio) &&
           image.naturalHeight >= Math.ceil(bounds.height * devicePixelRatio);
       })).toBe(true);
-      expect((await avatar.boundingBox())!.width).toBe(192);
-      expect((await avatar.boundingBox())!.height).toBe(192);
+      const profileSize = Math.min(224, Math.max(208, viewport.width - 112));
+      expect((await avatar.boundingBox())!.width).toBe(profileSize);
+      expect((await avatar.boundingBox())!.height).toBe(profileSize);
       const rail = panel.getByRole("tablist", { name: "One profile sections" });
       const initial = (await rail.boundingBox())!;
       const frame = (await panel.boundingBox())!;

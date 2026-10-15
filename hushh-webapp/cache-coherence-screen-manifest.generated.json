@@ -17,11 +17,11 @@
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 66,
+      "vault-backed": 65,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
-      "realtime/SSE": 2,
+      "realtime/SSE": 3,
       "PKM-secure": 7,
       "public/static": 1
     },
@@ -1529,7 +1529,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -1541,9 +1541,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/career",
@@ -5178,27 +5176,32 @@
       "route": "/one/referrals",
       "page_file": "app/one/referrals/page.tsx",
       "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "screen_class": "realtime/SSE",
+      "cache_policy": "memory-only+sse-background",
+      "cache_keys": [
+        "referral_dashboard_{user}_{resource}"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
+      "resource_classes": [
+        "user_metadata",
+        "realtime_stream"
+      ],
+      "sensitivity_class": "user-metadata",
+      "ttl_class": "0ms; retain memory while revalidating on navigation and signals",
       "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "background refresh",
+        "cold loader when missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "stream patch latency through route_refresh_completed"
       ],
-      "realtime_policy": "not realtime",
+      "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
       "reviewer_fixture": "/login?redirect=%2Fone%2Freferrals",
       "surface_map_present": true,
       "route_contract_present": true,
@@ -5212,7 +5215,7 @@
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": true,
-        "sse_or_streaming": false,
+        "sse_or_streaming": true,
         "native_beacon": false
       },
       "findings": [
@@ -7193,5 +7196,5 @@
       ]
     }
   ],
-  "content_sha256": "12f8629119c8900f073ce6aa8a07ffca7d2bdfe59784177b5b1b720822faa61d"
+  "content_sha256": "fa989f61cab9b1b2627fc279cd59ec0357c1722702771aefdaca4b6f3c9afae1"
 }

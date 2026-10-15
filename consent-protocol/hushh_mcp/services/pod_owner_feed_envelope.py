@@ -42,7 +42,7 @@ ENVELOPE_VERSION = 1
 ENVELOPE_ALG = "X25519-HKDF-SHA256-AES256GCM"
 PURPOSE = "owner_feed"
 HKDF_INFO = b"hussh/owner-feed/v1"
-FEED_KINDS = frozenset({"location", "nav", "marketplace", "command"})
+FEED_KINDS = frozenset({"location", "nav", "marketplace", "command", "consent", "information"})
 #: How far a feed's issue time may sit from the agent's clock, either way.
 MAX_CLOCK_SKEW_MS = 5 * 60 * 1000
 _MAX_CIPHERTEXT_BYTES = 512 * 1024
@@ -155,6 +155,14 @@ def project_feed_projection(kind: str, raw: Any) -> dict[str, Any]:
     """Only declared hub metadata and publication summaries enter an owner feed."""
     if not isinstance(raw, dict):
         raise OwnerFeedRefused("BAD_PROJECTION")
+    if kind == "information":
+        from hushh_mcp.services.pod_information_discovery import project_information_discovery
+
+        return project_information_discovery(raw)
+    if kind == "consent":
+        from hushh_mcp.services.pod_consent_read import project_consent_feed
+
+        return project_consent_feed(raw)
     if kind == "location":
         from hushh_mcp.services.pod_data_door import project_location_state
 

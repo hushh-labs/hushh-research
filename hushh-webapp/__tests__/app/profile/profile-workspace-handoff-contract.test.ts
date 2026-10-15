@@ -132,28 +132,22 @@ describe("profile workspace duplication contract", () => {
     expect(normalizeInternalRouteHref("//evil.example/one/feed")).toBeNull();
   });
 
-  it("opens Personal World Model as its own page, never inside the Profile pane", () => {
+  it("opens Personal World Model through the vault gate and renders inside Profile", () => {
     expect(menuEntries).toContainEqual(expect.objectContaining({
       id: "world-model", voiceControlId: "profile_world_model",
       voiceActionId: "route.profile_world_model",
     }));
-    // The authored menu dispatch retains the vault gate before leaving the pane.
     const actions = profilePageSource.split("const menuActions")[1]?.split("const profileRootContent")[0] ?? "";
     expect(actions).toContain('"world-model": () => openVaultBackedPanel("world-model")');
     expect(profilePageSource).toContain("onClick={() => { void menuActions[entry.id](); }}");
-    const view = profilePageSource.split("const updateProfileView = useMemo(")[1]?.split("const nextLocation")[1] ?? "";
-    const toPage = view.split('if (isPanePresentation && nextLocation.panel === "world-model") {')[1]?.split("return;")[0] ?? "";
-    expect(toPage).toContain("const href = buildProfileWorldModelRoute();");
-    expect(toPage).toContain("router.push(href, { scroll: false });");
-    // Negative control: the model is never pushed as a pane location.
-    expect(view.indexOf('nextLocation.panel === "world-model"')).toBeLessThan(view.indexOf("pushProfilePaneLocation("));
-    // Pane addresses naming the model (deep link, invitation, ready draft) redirect with what they carry.
-    expect(profilePageSource).toMatch(/const paneWorldModelRedirect =\s*isPanePresentation &&\s*activePanel === "world-model" &&\s*resolveProfilePaneUrlState\(searchParams\)\.open;/);
-    expect(profilePageSource).toContain("buildProfileWorldModelRoute(searchParams, window.location.hash)");
-    const panel = profilePageSource.split('activePanel === "world-model"\n  ) {')[1]?.split("} else if (")[0] ?? "";
-    expect(profilePageSource).toMatch(/!routeBlockedByVault &&\s*!isPanePresentation &&\s*activePanel === "world-model"\s*\) \{/);
+    const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
+    expect(panel).toContain("embedded");
     expect(panel).toContain('onManageDetails={() => openVaultBackedPanel("my-data")}');
+    // Negative controls: no pane-only exclusion and no redirect to the route.
+    expect(profilePageSource).not.toMatch(/!isPanePresentation &&\s*activePanel === "world-model"/);
+    expect(profilePageSource).not.toContain("buildProfileWorldModelRoute");
+    expect(profilePageSource).not.toContain("paneWorldModelRedirect");
     expect(readFileSync(join(process.cwd(), "app/one/profile/world-model/page.tsx"), "utf8")).toContain(
       'export { default } from "@/app/profile/profile-workspace-page"',
     );

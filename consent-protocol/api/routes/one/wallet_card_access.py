@@ -167,9 +167,19 @@ class ArtworkSelection(BaseModel):
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class BankDesignBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    network: str = Field(min_length=1, max_length=32)
+    country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    bankKey: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    offset: StrictInt = Field(default=0, ge=0, le=10000)
+    automatic: bool = Field(default=False, strict=True)
+
+
 class ArtworkValidationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selections: list[ArtworkSelection] = Field(min_length=1, max_length=24)
+    purpose: Literal["selection", "saved"] = "selection"
 
 
 async def owner_identity(
@@ -224,6 +234,23 @@ async def artwork_lookup(body: ArtworkLookupBody, owner: str = Depends(owner_ide
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
 
 
+@router.post("/artwork/banks")
+async def artwork_banks(body: BankDesignBody, owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    try:
+        return await run_in_threadpool(
+            bank_designs,
+            body.network,
+            body.country,
+            body.bankKey,
+            body.offset,
+            automatic=body.automatic,
+        )
+    except ValueError:
+        raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
+
+
 @router.get("/artwork/assets/{digest}")
 async def artwork_asset(digest: str, owner: str = Depends(owner_identity)):
     import re
@@ -247,7 +274,9 @@ async def artwork_validation(body: ArtworkValidationBody, owner: str = Depends(o
 
     return {
         "selections": await run_in_threadpool(
-            validate_artwork_selections, [selection.model_dump() for selection in body.selections]
+            validate_artwork_selections,
+            [selection.model_dump() for selection in body.selections],
+            purpose=body.purpose,
         )
     }
 

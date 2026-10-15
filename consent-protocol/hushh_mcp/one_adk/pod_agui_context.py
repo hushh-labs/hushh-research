@@ -251,12 +251,15 @@ class PodChatContext:
             self, owner_model=owner_model, provider=provider, model=model
         )
 
+        from hushh_mcp.services.pod_consent_read import PodConsentReadPort
+
         with self._browser_scope():
             head = build_one_text_agent(
                 model=owner_model,
                 allow_workspace_tools=False,
                 allow_private_mcp=True,
                 include_thought_summaries=True,
+                consent_bundle_lookup=PodConsentReadPort(self).lookup,
             )
         agent = build_authenticated_agui(
             head,

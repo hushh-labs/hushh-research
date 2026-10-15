@@ -55,7 +55,7 @@ export function useDocumentRequestQuote({
       })
       .catch(() => {
         if (!cancelled && isVaultSessionEpochCurrent(epoch) && getToken() === token) {
-          setError("Couldn't check the request price. Try again.");
+          setError("Couldn't check the price.");
         }
       })
       .finally(() => {
@@ -72,29 +72,34 @@ export function DocumentRequestQuoteNotice({
   loading,
   error,
   onRetry,
+  personName,
 }: {
   quote: DriveRequestQuote | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  /** Who sets the price when there is no estimate yet. */
+  personName?: string;
 }) {
-  if (loading) return <HelperText role="status">Checking request price…</HelperText>;
+  if (loading) return <HelperText role="status">Checking price…</HelperText>;
   if (error) return (
     <div className="space-y-1">
       <HelperText role="alert">{error}</HelperText>
-      <Button type="button" size="standard" variant="none" onClick={onRetry}>Retry price check</Button>
+      <Button type="button" size="standard" variant="none" onClick={onRetry}>Retry</Button>
     </div>
   );
   if (!quote) return null;
+  // The name starts the sentence, so a fallback like "this person" needs its capital.
+  const setter = personName ? personName.charAt(0).toUpperCase() + personName.slice(1) : "The owner";
   return (
     <div className="space-y-1" aria-label="Document request quote">
       {/* True for every requester, Trusted or not: the owner may still set the
           price, which is shown before any payment. */}
       <HelperText>{!quote.paymentRequired
-        ? "No payment is required for this request."
+        ? "No payment needed."
         : quote.priceReady && quote.amountCents !== null
-          ? `Estimated price ${formatDocumentRequestPrice(quote.amountCents)}. You'll see the final price before you pay. You pay only if files are found.`
-          : "The owner will set a price. You review it before paying."}</HelperText>
+          ? `About ${formatDocumentRequestPrice(quote.amountCents)}. You pay only if files are found.`
+          : `${setter} sets the price. You see it before you pay.`}</HelperText>
       {quote.paymentRequired && !quote.payoutReady ? (
         <HelperText>We'll ask the owner to set up payouts.</HelperText>
       ) : quote.paymentRequired && !quote.paymentsReady ? (

@@ -4,6 +4,11 @@ import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
 describe("financial export policy (mirror of the server's domain_contracts)", () => {
   it.each([
+    "attr.wallet.*",
+    "attr.wallet.summary",
+    "attr.wallet.summary.card_1",
+    "attr.wallet.secrets.pan",
+    "attr.wallet.runtime.*",
     "attr.one_memory.*",
     "attr.wallet.*",
     "attr.wallet.artwork.*",
@@ -31,6 +36,8 @@ describe("financial export policy (mirror of the server's domain_contracts)", ()
   });
 
   it.each([
+    "attr.wallet.summary.*",
+    "attr.wallet.secrets.*",
     "attr.financial.profile.*",
     "attr.financial.portfolio.*",
     "attr.financial.summary.*",

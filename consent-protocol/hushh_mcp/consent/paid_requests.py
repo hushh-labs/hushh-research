@@ -25,6 +25,7 @@ async def approve_paid_request(
     duration_seconds: int,
     idempotency_key: str,
     *,
+    model_processing_allowed: bool = False,
     connection: Any = None,
 ) -> dict | None:
     """Freeze owner-approved terms before buyer confirmation; return None for free."""
@@ -32,7 +33,12 @@ async def approve_paid_request(
         pool = await _pool()
         async with pool.acquire() as conn, conn.transaction():
             return await approve_paid_request(
-                owner_user_id, request_id, duration_seconds, idempotency_key, connection=conn
+                owner_user_id,
+                request_id,
+                duration_seconds,
+                idempotency_key,
+                model_processing_allowed=model_processing_allowed,
+                connection=conn,
             )
     from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE, ScopeCommerceService
     from hushh_mcp.services.scope_commerce_requests import resolve_commerce_request
@@ -45,6 +51,12 @@ async def approve_paid_request(
     service = ScopeCommerceService()
     existing = await service.lookup_by_request(request_id, conn=connection)
     if existing:
+        from hushh_mcp.consent.model_processing import (
+            model_processing_allowed as grant_allows_model,
+        )
+
+        if model_processing_allowed != grant_allows_model(binding["metadata"]):
+            raise ValueError("approved_model_processing_is_immutable")
         quote = await service.get_quote_by_request(request_id, conn=connection)
         frozen_duration = int((quote or {}).get("durationSeconds") or 0)
         if duration_seconds != frozen_duration:
@@ -74,12 +86,23 @@ async def approve_paid_request(
     if deadline and deadline <= await connection.fetchval("SELECT clock_timestamp()"):
         raise ValueError("request_expired")
     return await _freeze_authorization(
-        connection, binding, duration_seconds, idempotency_key, service
+        connection,
+        binding,
+        duration_seconds,
+        idempotency_key,
+        service,
+        model_processing_allowed=model_processing_allowed,
     )
 
 
 async def _freeze_authorization(
-    connection: Any, binding: dict, duration_seconds: int, idempotency_key: str, service: Any
+    connection: Any,
+    binding: dict,
+    duration_seconds: int,
+    idempotency_key: str,
+    service: Any,
+    *,
+    model_processing_allowed: bool = False,
 ) -> dict:
     from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -117,8 +140,11 @@ async def _freeze_authorization(
         owner_user_id=owner_user_id, quote_id=quote_id, request_id=request_id, conn=connection
     )
     purchase_id = str(purchase.get("purchase_id") or purchase.get("purchaseId"))
+    from hushh_mcp.consent.model_processing import owner_model_processing
+
     metadata = {
         **binding["metadata"],
+        "model_processing": owner_model_processing(model_processing_allowed),
         "commercial_required": True,
         "commerce_quote_id": quote_id,
         "commerce_purchase_id": purchase_id,
@@ -158,6 +184,7 @@ async def maybe_approve_paid_request(
     machine_scope: str,
     metadata: dict,
     duration_seconds: int,
+    model_processing_allowed: bool = False,
 ) -> dict | None:
     if not machine_scope.startswith("attr."):
         return None
@@ -191,7 +218,13 @@ async def maybe_approve_paid_request(
         return None
     from hushh_mcp.consent.paid_admission import approve_paid_request as approve
 
-    return await approve(owner_user_id, request_id, duration_seconds, "owner-approve:" + request_id)
+    return await approve(
+        owner_user_id,
+        request_id,
+        duration_seconds,
+        "owner-approve:" + request_id,
+        model_processing_allowed=model_processing_allowed,
+    )
 
 
 async def record_paid_funded(conn: Any, purchase: dict) -> None:

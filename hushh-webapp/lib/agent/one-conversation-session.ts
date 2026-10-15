@@ -1,5 +1,7 @@
 "use client";
 
+import type { CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { create } from "zustand";
 import { useCallback, useLayoutEffect, useState, type SetStateAction } from "react";
 import type { PendingTextAttachment } from "@/lib/agent/large-text-attachment";
@@ -38,6 +40,9 @@ export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
+  calendarSlot?: CalendarSlotHandoff;
+  calendarInvitation?: CalendarInvitationHandoff;
+  calendarRequest?: { ownerId: string; request: string };
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
   /**

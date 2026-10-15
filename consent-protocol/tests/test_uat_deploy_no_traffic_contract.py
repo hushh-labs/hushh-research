@@ -566,6 +566,18 @@ def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
     assert "--set-secrets" not in readiness_deploy
 
 
+def test_managed_vertex_readiness_job_has_cold_start_headroom() -> None:
+    backend_build = managed_vertex_probe_surface()
+    deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
+    execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
+    readiness_deploy = backend_build[deploy_start:execute_start]
+
+    # A 1 vCPU cold start reached the 90s task kill before any verdict.
+    for flag in ("--cpu=2", "--memory=2Gi", "--task-timeout=300s"):
+        assert flag in readiness_deploy
+    assert "--task-timeout=90s" not in readiness_deploy
+
+
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
     backend_build = managed_vertex_probe_surface()
 
@@ -822,7 +834,7 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
         "dev": "hushh-pda-uat",
-        "uat": "hussh-511311",
+        "uat": "hushh-vertex-personal54",
         "production": "hushh-vertex-personal54",
     }
     for env in ("dev", "uat", "production"):

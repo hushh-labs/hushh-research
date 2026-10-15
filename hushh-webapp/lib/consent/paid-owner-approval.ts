@@ -13,7 +13,7 @@ export function usePaidApprovalState() {
 
 /** Intercept before plaintext export; approved paid terms remain inactive. */
 export async function approvePaidOwnerTerms(consent: PendingConsent, vaultOwnerToken: string,
-  state: ReturnType<typeof usePaidApprovalState>, ownerError: (message: string) => Error): Promise<string | null> {
+  state: ReturnType<typeof usePaidApprovalState>, ownerError: (message: string) => Error, modelProcessingAllowed = false): Promise<string | null> {
   const metadata = consent.metadata || {};
   if (!isPkmScope(consent.scope) || !(metadata.scope_handle || metadata.commercial_required)) return null;
   const epoch = snapshotVaultSessionEpoch();
@@ -31,7 +31,7 @@ export async function approvePaidOwnerTerms(consent: PendingConsent, vaultOwnerT
     const durationHours = consent.durationHours || request.duration_seconds / 3600;
     let key = state.paidApprovalKeys.current.get(consent.id);
     if (!key) { key = crypto.randomUUID(); state.paidApprovalKeys.current.set(consent.id, key); }
-    await ScopeCommerceService.approveInactive(vaultOwnerToken, consent.id, durationHours * 3600, key);
+    await ScopeCommerceService.approveInactive(vaultOwnerToken, consent.id, durationHours * 3600, key, modelProcessingAllowed);
     state.paidApprovals.current.add(consent.id);
     return "Terms approved. Waiting for buyer payment and encrypted preparation.";
   }

@@ -69,6 +69,7 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { feedDeviceOnlySosClearStorageKey } from "@/lib/feed/feed-clear-watermark";
 import { FeedService } from "@/lib/services/feed-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
   projectFeedDriveProgress,
@@ -1434,8 +1435,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // Copy device-only clears to the server, then forget the copied ids here.
   // If the copy fails, the list stays hidden and is retried on a later visit.
   useEffect(() => {
-    if (!userId || !vaultOwnerToken || !receivedGrants) return;
-    if (deviceOnlySmsCopyRef.current === userId) return;
+    if (!userId || !vaultOwnerToken || !receivedGrants || shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    const scope = checkoutScope.current;
+    const epoch = snapshotVaultSessionEpoch();
+    const isEffectCurrent = () => scope !== null && scope.userId === userId && checkoutScope.current === scope &&
+      isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === vaultOwnerToken &&
+      !shouldSkipReviewerBackgroundWritesForAutomation();
+    if (!isEffectCurrent() || deviceOnlySmsCopyRef.current === userId) return;
     const deviceOnly = readDeviceOnlySmsClearIds(userId);
     if (deviceOnly.size === 0) return;
     deviceOnlySmsCopyRef.current = userId;
@@ -1450,19 +1456,22 @@ export function useFeedActionables(): UseFeedActionablesResult {
       .map((grant) => grant.id);
     void (async () => {
       try {
+        if (!isEffectCurrent()) return;
         if (grantIds.length > 0) {
           const cleared = await FeedService.clearSosCards({
             vaultOwnerToken,
             grantIds,
+            isEffectCurrent,
           });
+          if (!isEffectCurrent()) return;
           setServerClearedSmsIds((current) => new Set([...current, ...cleared]));
         }
-        forgetDeviceOnlySmsClearIds(userId, deviceOnly);
+        if (isEffectCurrent()) forgetDeviceOnlySmsClearIds(userId, deviceOnly);
       } catch {
         // The device list stays hidden here until a later visit copies it.
       }
     })();
-  }, [userId, vaultOwnerToken, receivedGrants]);
+  }, [userId, vaultOwnerToken, receivedGrants, getVaultOwnerToken]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];

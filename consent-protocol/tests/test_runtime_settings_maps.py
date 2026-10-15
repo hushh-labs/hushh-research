@@ -9,6 +9,37 @@ import pytest
 from hushh_mcp import runtime_settings
 
 
+def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
+    spec = importlib.util.spec_from_file_location("referral_runtime_sync", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    existing = {
+        "environment": "uat",
+        "referral_scoring_drain_enabled": True,
+        "referral_scoring_drain_scheduler_audience": "https://api.uat.hushh.ai",
+        "referral_scoring_drain_scheduler_project_id": "hushh-pda-uat",
+        "referral_scoring_drain_scheduler_service_account_email": "referral-scoring-sched@hushh-pda-uat.iam.gserviceaccount.com",
+        "unowned_configuration": "must not be retained",
+    }
+    retained = module._retained_referral_config(
+        existing, project="hushh-pda-uat", environment="uat"
+    )
+    assert "unowned_configuration" not in retained
+    for key in retained:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(retained))
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ["REFERRAL_SCORING_DRAIN_ENABLED"] == "true"
+    assert os.environ["REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE"] == "https://api.uat.hushh.ai"
+    with pytest.raises(ValueError, match="different environment"):
+        module._retained_referral_config(existing, project="hushh-pda", environment="production")
+    existing["referral_scoring_drain_scheduler_audience"] = "https://untrusted.example"
+    with pytest.raises(ValueError, match="scheduler identity"):
+        module._retained_referral_config(existing, project="hushh-pda-uat", environment="uat")
+
+
 def test_google_maps_api_key_is_read_from_env(monkeypatch):
     monkeypatch.setenv("APP_SIGNING_KEY", "x" * 64)
     monkeypatch.setenv("VAULT_DATA_KEY", "a" * 64)
@@ -168,6 +199,20 @@ def test_commerce_returns_follow_application_origin_without_opening_closed_polic
     if origin:
         expected["scope_commerce_frontend_origin"] = args.app_frontend_origin
     assert result == expected
+
+    def refuse_second_read(*_args, **_kwargs):
+        pytest.fail("A verified runtime snapshot must be shared by the retention policies")
+
+    assert (
+        _scope_policy_sync().policy_for_args(
+            args,
+            refuse_second_read,
+            lambda *_args: True,
+            normalize,
+            existing_runtime_config=policy,
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(

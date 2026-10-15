@@ -64,8 +64,10 @@ All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-r
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
 | Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| UAT | `hussh-511311` (Parth) | same | same | same |
+| UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
 | Production | `hushh-vertex-personal54` | same | same | same |
+
+UAT sharing production's project is a stopgap while `hussh-511311` is suspended for billing: UAT traffic draws on production's Vertex quota, so move UAT back to its own project once that billing is restored.
 
 Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 
@@ -237,3 +239,23 @@ User checks on the deployed UAT revision: finish setup and unlock; navigate else
 ## Profile presentation
 
 The Profile row opens the dedicated `/one/profile/world-model` route as a full page, not an in-pane panel. The Profile pane renders outside the app-wide world-model provider, so an in-pane panel could not read research status. Edit and Remove for research facts happen on the page itself; Memory still lists the saved statements. Feed, email and existing `/one/profile/world-model?claim=...` invitation links open the same route and keep their contact-bound claim flow. Research, review, saving and invitation permissions remain unchanged.
+
+## Operations: see what is happening
+
+Research is observable without reading owner content. The backend logs one
+`one.pwm_decision` line per `/ensure` and `/start` decision and
+`one.pwm_started` / `one.pwm_finished` / `one.pwm_failed` per run slice, with
+codes and counts only (`status`, `provider_code`, `searches_used`,
+`model_calls_used`, `starts_hour`); provider refusals surface as
+`provider_code=403`. Cloud Run request logs carry the HTTP status of
+`/ensure` and `/jobs`, so owner-side 429s are visible next to the runs.
+
+- Quick status: `python3 scripts/ops/pwm_uat_status.py --env uat --hours 2`
+  prints the serving revision and its `GENAI_GOOGLE_CLOUD_PROJECT`, run and
+  HTTP counts, a timeline and one verdict (`Research can run`, `Provider
+  blocked (403) since <time>`, `Owner is rate limited`, `Idle`); `--json` for
+  machines.
+- Runbook: [pwm-runbook.md](../operations/pwm-runbook.md) has the exact
+  `gcloud logging read` queries, how to read 403 / 429 / long pending, what
+  the owner sees for each backend state, the frontend-only deploy path during
+  a provider outage, and the log-based alert to create.

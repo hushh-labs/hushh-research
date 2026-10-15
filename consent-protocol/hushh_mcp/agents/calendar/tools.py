@@ -9,6 +9,7 @@ call Google until the owner presses the confirmation control.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Literal
@@ -19,6 +20,7 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
     STATE_EVENT_OFFER,
+    STATE_INVITATION_OFFER,
     current_calendar_read_offer,
     make_calendar_read_offer,
 )
@@ -100,7 +102,7 @@ def _remember_offer(
     tool_context: ToolContext,
     *,
     key: str,
-    kind: Literal["events", "calendars"],
+    kind: Literal["events", "calendars", "invitations"],
     user_id: str,
     binding: tuple[str, ...] | None,
     ids: list[str],
@@ -692,8 +694,8 @@ async def _propose(
             "reason_code": exc.reason_code or "calendar_unavailable",
             "message": _CALENDAR_UNAVAILABLE_MESSAGE,
         }
-    except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
-        logger.warning("one_adk_calendar_call_failed error_type=%s", type(exc).__name__)
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.warning("one_adk_calendar_call_failed reason=unexpected")
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     plan = proposal.get("plan")
     proposal_id = proposal.get("proposal_id")
@@ -959,3 +961,174 @@ def _display_time(value: object, time_zone: object) -> str:
         return parsed.astimezone(ZoneInfo(zone_name)).strftime("%a, %b %-d at %-I:%M %p %Z")
     except (ValueError, ZoneInfoNotFoundError):
         return text
+
+
+async def calendar_invitations(
+    tool_context: ToolContext,
+    filter: Literal["pending", "responded", "all"] = "pending",
+    start_at: str = "",
+    end_at: str = "",
+    selected_calendar_id: str = "",
+    selected_event_id: str = "",
+    expected_account_email: str = "",
+) -> dict[str, Any]:
+    """Read real received invitations; show inline results, never navigate or write.
+
+    For an RSVP request, read the relevant window first, resolve ambiguity with
+    the owner, then call open_calendar_invitation with its returned ordinal.
+    """
+
+    async def call(user_id):
+        service = get_google_calendar_service()
+        binding = await _read_binding(service, user_id)
+        tool_context.state[STATE_INVITATION_OFFER] = None
+        window = {}
+        if start_at:
+            window["start_at"] = _calendar_iso(start_at, tool_context)
+        if end_at:
+            window["end_at"] = _calendar_iso(end_at, tool_context)
+        result = await service.invitations(
+            user_id=user_id,
+            time_zone=_timezone(tool_context),
+            selected_calendar_id=selected_calendar_id or None,
+            selected_event_id=selected_event_id or None,
+            **window,
+        )
+        await _check_stable_binding(service, user_id, binding)
+        account = str(result.get("account_email") or "")
+        if expected_account_email and account.casefold() != expected_account_email.casefold():
+            raise GoogleConnectionError(
+                "The connected Calendar account changed. Check this invitation again.",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
+        events = [
+            e
+            for e in result["events"]
+            if filter == "all" or (e["response_status"] == "needsAction") == (filter == "pending")
+        ]
+        offered = events[:250]
+        _remember_offer(
+            tool_context,
+            key=STATE_INVITATION_OFFER,
+            kind="invitations",
+            user_id=user_id,
+            binding=binding,
+            ids=[
+                json.dumps(
+                    [e["calendar_id"], e["id"], result["start_at"], result["end_at"], account]
+                )
+                for e in offered
+            ],
+        )
+        directive = {
+            "kind": "action",
+            "delegateAgentId": "agent_calendar",
+            "payload": {
+                "type": "calendar.invitations",
+                "filter": filter,
+                "accountEmail": account,
+                "timeZone": _timezone(tool_context),
+                "startAt": result["start_at"],
+                "endAt": result["end_at"],
+            },
+        }
+        tool_context.state["hussh:pending_directive:calendar_invitations"] = directive
+        return {
+            "status": "completed",
+            "events": [{**e, "ordinal": i + 1} for i, e in enumerate(offered)],
+            "account_email": account,
+            "pending_count": result["pending_count"],
+            "truncated": len(events) > len(offered),
+            "complete": result["complete"],
+            "directive": directive,
+            "message": "Invitations are shown inside this conversation. No response was changed. Use open_calendar_invitation to prepare the owner's requested decision; only their explicit browser confirmation can apply it.",
+        }
+
+    return await _run_calendar_read(tool_context, call)
+
+
+async def open_calendar_invitation(
+    tool_context: ToolContext,
+    ordinal: int,
+    decision: Literal["view", "accepted", "declined", "offer_times"] = "view",
+    alternative_date: str = "",
+    alternative_start_time: str = "",
+    alternative_end_time: str = "",
+    alternative_duration_minutes: int = 0,
+    organizer_message: str = "",
+) -> dict[str, Any]:
+    """Client-only invitation review, never RSVP, Mail preparation or delivery.
+
+    Select only an ordinal from calendar_invitations. The browser re-reads the
+    event, lets the owner edit the message/window, and prepares its own exact
+    confirmation. No Calendar text can authorize a provider action here.
+    """
+
+    async def call(user_id):
+        service = get_google_calendar_service()
+        binding = await _read_binding(service, user_id)
+        offer = current_calendar_read_offer(
+            tool_context.state.get(STATE_INVITATION_OFFER),
+            kind="invitations",
+            owner_id=user_id,
+            conversation_id=_conversation_id(tool_context),
+            grant_binding=binding,
+        )
+        selected = offer.id_at(ordinal) if offer else None
+        if not selected:
+            return {
+                "status": "input_required",
+                "message": "Show the invitations again, then choose one from that list.",
+            }
+        calendar_id, event_id, start_at, end_at, account = json.loads(selected)
+        try:
+            if alternative_date:
+                date.fromisoformat(alternative_date)
+            for clock in (alternative_start_time, alternative_end_time):
+                if clock:
+                    datetime.strptime(clock, "%H:%M")
+            if alternative_duration_minutes and not 1 <= alternative_duration_minutes <= 1440:
+                raise ValueError()
+            if len(organizer_message) > 8000:
+                raise ValueError()
+        except ValueError:
+            return {
+                "status": "input_required",
+                "message": "Choose a valid alternative date, time window, duration and message.",
+            }
+        terms = {
+            key: value
+            for key, value in {
+                "date": alternative_date,
+                "startTime": alternative_start_time,
+                "endTime": alternative_end_time,
+                "durationMinutes": alternative_duration_minutes,
+                "message": organizer_message,
+            }.items()
+            if value
+        }
+        directive = {
+            "kind": "action",
+            "delegateAgentId": "agent_calendar",
+            "payload": {
+                "type": "calendar.invitations",
+                "filter": "all",
+                "calendarId": calendar_id,
+                "eventId": event_id,
+                "decision": decision,
+                "accountEmail": account,
+                **({"terms": terms} if terms else {}),
+                "timeZone": _timezone(tool_context),
+                "startAt": start_at,
+                "endAt": end_at,
+            },
+        }
+        tool_context.state["hussh:pending_directive:calendar_invitations"] = directive
+        return {
+            "status": "review_required",
+            "directive": directive,
+            "message": "Review this invitation in the current conversation. Nothing has been changed or sent.",
+        }
+
+    return await _run_calendar_read(tool_context, call)

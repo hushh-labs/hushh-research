@@ -200,7 +200,6 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
       {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"
           title={grant.recipientName} description={<span>
-            <span className="block">{grant.status === "active" ? `Until ${new Date(grant.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : grant.status === "revoked" ? "Access revoked" : "Access expired"}</span>
             {grant.createdAt ? <time className="block" dateTime={grant.createdAt}>Shared {new Date(grant.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time> : null}
           </span>}
           trailing={grant.status === "active" ? <Button variant="secondary" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)

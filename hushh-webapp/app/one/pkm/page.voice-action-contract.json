@@ -1,0 +1,141 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "pkm",
+  "surface_title": "Memory",
+  "defaults": {
+    "speaker_persona": "one",
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    },
+    "guard_ids": [
+      "auth_signed_in",
+      "vault_unlocked"
+    ]
+  },
+  "actions": [
+    {
+      "action_id": "pkm.review_sharing_price",
+      "label": "Review sharing price",
+      "meaning": "Opens the existing price editor for one exact owner-authored sharing section. Optional proposed price in USD cents (1 cent = 1 Hussh coin) and base term only prefill the form. Nothing is saved, published, purchased or paid until the person uses the existing confirmation controls. Never broaden a requested leaf into its parent section. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "aliases": [
+        "review a sharing price",
+        "set a price for my information"
+      ],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.review_sharing_price"
+      },
+      "control_ids": [
+        "pkm-review-sharing-price"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "goal": {
+        "goal_id": "goal.pkm.review_sharing_price",
+        "slot_schema": {
+          "section": "spoken_free_text",
+          "scope_choice": "opaque_id_optional",
+          "proposed_price_cents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "proposed_base_hours": {
+            "type": "integer",
+            "enum": [
+              24,
+              72,
+              168,
+              720
+            ]
+          }
+        },
+        "required_inputs": [
+          {
+            "name": "section",
+            "slot": "section",
+            "resolver": "spoken_free_text",
+            "prompt": "Which saved sharing section?",
+            "required": false
+          }
+        ],
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.review_sharing_price",
+            "label": "Open sharing price review",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.close_sharing_price_review",
+      "label": "Close sharing price review",
+      "meaning": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "aliases": [
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An existing sharing price review is open."
+        ]
+      },
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.close_sharing_price_review"
+      },
+      "control_ids": [
+        "pkm-close-sharing-price-review"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ]
+    }
+  ],
+  "search": {}
+}

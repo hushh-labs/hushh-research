@@ -58,6 +58,10 @@ ENV VIRTUAL_ENV=/opt/venv \
 # Copy application code
 COPY . .
 
+# Circle chat loads this catalogue while FastAPI imports its routes. Fail the
+# build if the Cloud Build upload filter omitted it, before deploying a revision.
+RUN test -s hushh_mcp/data/emoji-reactions.v1.json
+
 # Validate the filtered image contents with the runtime loader. compileall alone
 # cannot detect a missing YAML prompt_reference. No model or network calls.
 RUN python -c 'from pathlib import Path; from hushh_mcp.hushh_adk.manifest import ManifestLoader; paths=sorted(Path("hushh_mcp/agents").rglob("agent.yaml")); assert paths, "No runtime manifests packaged"; [ManifestLoader.load(str(path)) for path in paths]'

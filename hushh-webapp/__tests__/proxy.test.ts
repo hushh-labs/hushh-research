@@ -109,7 +109,7 @@ it("keeps private responses out of the index without redirecting registered call
 
 it.each(
   ["/one/profile/world-model", "/one/profile/world-model/"].flatMap((path) =>
-    ["claim=synthetic-opaque-token", "from=%2Fone%2Ffeed"].map((query) => `${path}?${query}`),
+    ["claim=synthetic-opaque-token", "from=%2Fone%2Ffeed", "draft_id=x&handoff=h1"].map((query) => `${path}?${query}`),
   ),
 )("keeps the dedicated Personal World Model route and query: %s", (path) => {
   const incoming = request(path);

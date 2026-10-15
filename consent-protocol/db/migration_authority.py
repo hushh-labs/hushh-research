@@ -87,7 +87,7 @@ async def _reset_connection(conn: Any, failure: BaseException) -> bool:
 def _lock_retry_delay_seconds(attempt: int) -> float:
     """Exponential backoff: 1s, 2s, 4s. Bounded, and short enough to stay
     inside a deploy window even if several migrations each need a retry."""
-    return _LOCK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+    return float(_LOCK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
 
 
 class MigrationAuthorityError(RuntimeError):
@@ -334,20 +334,36 @@ _REFERRAL_POLICY_V2_REPLAY_CHECKSUM = (
 _REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256 = (
     "ed26dc5ad4a88eaa0564200a139ded13b52e1783755c7fef569b37429138f27a"
 )
+_REFERRAL_POLICY_V4_SHA256 = "11cd7d8c9eb83a6d24f25814d3ab7b8a21182f21a98594657d6721a6dcdf5b19"
+_REFERRAL_POLICY_V5_SHA256 = "d374793348628ffc7a5155fcff42a51ae0a32c73238f434ee866d0caf8b5e0d1"
+
+
+def _referral_policy_fingerprint_sql(version: int) -> str:
+    return f"""SELECT encode(sha256(convert_to(jsonb_build_object(
+        'qualification_policy_version', qualification_policy_version,
+        'points', points, 'milestones', milestones, 'streak_rules', streak_rules,
+        'flash_windows', flash_windows, 'weekly_schedule', weekly_schedule,
+        'prize_catalogue', prize_catalogue, 'tie_break_rules', tie_break_rules,
+        'fulfillment_config', fulfillment_config, 'feature_active', feature_active
+      )::text, 'UTF8')), 'hex')
+        FROM one_referral_program_settings WHERE version = {version}"""
 
 
 def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
-    """Accept one pinned v3 successor without rewriting policy rows.
+    """Accept the pinned v3/v4/v5 successors without rewriting policy rows.
 
     The published 289 body requires v2 to remain active forever. A later
-    versioned policy retires v2. Replay recognizes only the observed UAT v3
-    contents after verifying the lineage and every authored v2 value. The v3
-    policy still requires an owner attestation before this adapter is released.
+    versioned policy retires v2. Replay recognizes only the reviewed v3 catalogue,
+    migration 347's v4 lifecycle policy and migration 349's v5 catalogue, after
+    verifying the entire lineage and every authored v2 value. Unknown successors
+    fail closed.
     Keep it out of ledger/observe mode and pin the original file's checksum.
     """
     checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
     if checksum != _REFERRAL_POLICY_V2_REPLAY_CHECKSUM or entry.checksum_sha256 != checksum:
         raise MigrationAuthorityError("Referral policy v2 replay source checksum changed")
+
+    sql = entry.sql
 
     def replace_once(old: str, new: str) -> None:
         nonlocal sql
@@ -355,7 +371,6 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
             raise MigrationAuthorityError("Referral policy v2 replay source shape changed")
         sql = sql.replace(old, new, 1)
 
-    sql = entry.sql
     replace_once(
         "  active_count INTEGER;\nBEGIN\n",
         "  active_count INTEGER;\n"
@@ -421,24 +436,89 @@ def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
         expected_successor_version := expected_successor_version + 1;
         successor_count := successor_count + 1;
       END LOOP;
-      IF successor_count <> 1 OR previous_retirement IS NOT NULL THEN
-        RAISE EXCEPTION 'migration 289: retired version 2 requires exactly one active, reviewed version 3 successor';
+      IF successor_count NOT IN (1, 2, 3) OR previous_retirement IS NOT NULL THEN
+        RAISE EXCEPTION 'migration 289: retired version 2 requires reviewed version 3, 4 or 5 successors ending in one active policy';
       END IF;
-      SELECT encode(sha256(convert_to(jsonb_build_object(
-        'qualification_policy_version', qualification_policy_version,
-        'points', points, 'milestones', milestones, 'streak_rules', streak_rules,
-        'flash_windows', flash_windows, 'weekly_schedule', weekly_schedule,
-        'prize_catalogue', prize_catalogue, 'tie_break_rules', tie_break_rules,
-        'fulfillment_config', fulfillment_config, 'feature_active', feature_active
-      )::text, 'UTF8')), 'hex') INTO successor_policy_hash
-        FROM one_referral_program_settings WHERE version = 3;
+      SELECT ({_referral_policy_fingerprint_sql(3)}) INTO successor_policy_hash;
       IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}' THEN
-        RAISE EXCEPTION 'migration 289: active version 3 contents differ from the reviewed policy fingerprint';
+        RAISE EXCEPTION 'migration 289: version 3 contents differ from the reviewed policy fingerprint';
       END IF;
-      RAISE NOTICE 'migration 289: exact historical version 2 superseded by reviewed version 3; idempotent no-op';
+      IF successor_count >= 2 THEN
+        SELECT ({_referral_policy_fingerprint_sql(4)}) INTO successor_policy_hash;
+        IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V4_SHA256}' THEN
+          RAISE EXCEPTION 'migration 289: version 4 contents differ from the reviewed policy fingerprint';
+        END IF;
+      END IF;
+      IF successor_count = 3 THEN
+        SELECT ({_referral_policy_fingerprint_sql(5)}) INTO successor_policy_hash;
+        IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V5_SHA256}' THEN
+          RAISE EXCEPTION 'migration 289: version 5 contents differ from the reviewed policy fingerprint';
+        END IF;
+      END IF;
+      RAISE NOTICE 'migration 289: exact historical version 2 superseded by reviewed policy; idempotent no-op';
     END IF;""",
     )
     return sql
+
+
+def _replay_referral_policy_v3_sql(entry: MigrationManifestEntryV2) -> str:
+    """Preserve retired v3 only under the exact, active lifecycle successor."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "8dc499738dc5d0e7d5b1d2e7d664c66381b885bf90e9563371f8259ac304fb98"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Referral policy v3 replay source checksum changed")
+    old = "IF current_row.activated_at IS NULL OR current_row.retired_at IS NOT NULL"
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral policy v3 replay source shape changed")
+    return entry.sql.replace(
+        old,
+        f"""IF current_row.activated_at IS NULL
+       OR prior.retired_at IS DISTINCT FROM current_row.activated_at
+       OR (current_row.retired_at IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM one_referral_program_settings successor
+          WHERE successor.version = 4
+            AND (successor.retired_at IS NULL OR EXISTS (
+              SELECT 1 FROM one_referral_program_settings v5 WHERE v5.version=5
+                AND v5.activated_at=successor.retired_at AND v5.retired_at IS NULL
+                AND v5.activated_at>successor.activated_at
+                AND ({_referral_policy_fingerprint_sql(5)}) = '{_REFERRAL_POLICY_V5_SHA256}'
+            ))
+            AND successor.activated_at = current_row.retired_at
+            AND successor.activated_at > current_row.activated_at
+            AND ({_referral_policy_fingerprint_sql(3)}) = '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}'
+            AND ({_referral_policy_fingerprint_sql(4)}) = '{_REFERRAL_POLICY_V4_SHA256}'
+            AND NOT EXISTS (SELECT 1 FROM one_referral_program_settings WHERE version > 5)
+       ))""",
+        1,
+    )
+
+
+def _replay_referral_policy_v4_sql(entry: MigrationManifestEntryV2) -> str:
+    """Accept only the exact reviewed v5 successor, preserving immutable 347."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "2036301cdae30b7786a568b41635d5b331e542bb132677dafb4f3227bfe11279"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Referral policy v4 replay source checksum changed")
+    old = "s.version=4\n    AND s.activated_at IS NOT NULL AND s.retired_at IS NULL"
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral policy v4 replay source shape changed")
+    return entry.sql.replace(
+        old,
+        f"""s.version=4
+    AND s.activated_at IS NOT NULL AND (s.retired_at IS NULL OR EXISTS (
+      SELECT 1 FROM one_referral_program_settings v5 WHERE v5.version=5
+        AND v5.activated_at=s.retired_at AND v5.activated_at>s.activated_at
+        AND v5.retired_at IS NULL
+        AND ({_referral_policy_fingerprint_sql(4)})='{_REFERRAL_POLICY_V4_SHA256}'
+        AND ({_referral_policy_fingerprint_sql(5)})='{_REFERRAL_POLICY_V5_SHA256}'
+        AND NOT EXISTS(SELECT 1 FROM one_referral_program_settings WHERE version>5)
+    ))""",
+        1,
+    )
 
 
 def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
@@ -486,6 +566,10 @@ END $$;"""
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
         return _replay_referral_policy_v2_sql(entry)
+    if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
+        return _replay_referral_policy_v3_sql(entry)
+    if entry.migration_id == "347" and entry.filename == "347_one_referral_dashboard_lifecycle.sql":
+        return _replay_referral_policy_v4_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
         return _replay_drive_feed_sql(entry)
     pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))

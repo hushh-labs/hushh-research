@@ -4,8 +4,8 @@ import { useLayoutEffect } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
-const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn() }));
-vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork } }));
+const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn() }));
+vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { resolveCardNetwork: networkApi.resolve, supportedCardNetworks: networkApi.supported, resolveCardArtwork: networkApi.artwork, selectCardArtwork: networkApi.select, previewCardArtwork: networkApi.preview, checkCardArtworkDisplay: networkApi.display, bankArtwork: networkApi.banks } }));
 // Exercise the real region dropdown with a bounded, representative catalog.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [
   { value: "US", label: "United States" }, { value: "IN", label: "India" },
@@ -39,6 +39,10 @@ beforeEach(() => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:owned-test-photo") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     networkApi.artwork.mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] });
+    networkApi.preview.mockResolvedValue("data:image/png;base64,c3ludGhldGlj");
+    networkApi.display.mockResolvedValue(true);
+    networkApi.banks.mockResolvedValue({ catalogVersion: "test", banks: [], variants: [], nextOffset: null });
+    networkApi.select.mockReset();
     scan.read.mockReset();
     scan.pick.mockReset();
     scan.native.mockReturnValue(false);
@@ -48,6 +52,18 @@ beforeEach(() => {
     networkApi.resolve.mockImplementation(async (_context, input) => ({ network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }));
 });
 
+it("submits the current card without a bank or design chooser so the service can assign artwork atomically", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm onSubmit={save} />); fillRequired();
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
+  expect(screen.queryByLabelText("Bank (optional)")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Card design", exact: true })).toBeNull();
+  expect(networkApi.banks).not.toHaveBeenCalled();
+  expect(networkApi.artwork).not.toHaveBeenCalled();
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan: "4242424242424242" })));
+  expect(save.mock.calls[0][0]).not.toHaveProperty("artwork");
+});
 
 vi.mock("@/lib/wallet/card-scan-image", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/wallet/card-scan-image")>(), validateCardImage: vi.fn().mockResolvedValue(undefined) }));
 const reading = (fields: { pan?: string; cardholderName?: string; expiry?: string }) => ({ fields, states: { pan: fields.pan ? "recognized" : "missing", cardholderName: fields.cardholderName ? "recognized" : "missing", expiry: fields.expiry ? "recognized" : "missing" } });
@@ -116,12 +132,12 @@ it("blocks submission when the Add surface becomes inactive", () => {
 it("hides the previous owner's private preview before passive draft cleanup", async () => {
   const photo = new Blob(["synthetic flattened pixels"], { type: "image/png" }), observations: boolean[] = [];
   let context = { userId: "owner-a", vaultOwnerToken: "synthetic-a" };
-  function PaintAudit({ owner }: { owner: string }) { useLayoutEffect(() => { if (owner === "owner-b") observations.push(Boolean(document.querySelector('img[alt="Photo design with detected text removed"]'))); }, [owner]); return null; }
+  function PaintAudit({ owner }: { owner: string }) { useLayoutEffect(() => { if (owner === "owner-b") observations.push(Boolean(document.querySelector('[data-testid="wallet-card-face"]'))); }, [owner]); return null; }
   const form = () => <><SecureCardAddForm getNetworkContext={() => context} onSubmit={vi.fn()} /><PaintAudit owner={context.userId} /></>;
   scan.read.mockResolvedValue({ ...reading({ pan: "4242424242424242", cardholderName: "Synthetic Owner", expiry: "12/30" }), candidate: photo, sanitized: photo });
-  const view = render(form()); await selectPhoto(); await screen.findByAltText("Photo design with detected text removed");
+  const view = render(form()); await selectPhoto(); await screen.findByTestId("wallet-card-face");
   context = { userId: "owner-b", vaultOwnerToken: "synthetic-b" }; view.rerender(form());
-  expect(observations).toEqual([false]); expect(screen.queryByAltText("Photo design with detected text removed")).toBeNull(); expect(screen.getByLabelText("Card number")).toHaveValue("");
+  expect(observations).toEqual([false]); expect(screen.queryByTestId("wallet-card-face")).toBeNull(); expect(screen.getByLabelText("Card number")).toHaveValue("");
 });
 it("shows a neutral label and explains a failed backend lookup", async () => {
   networkApi.resolve.mockRejectedValue(new Error("private lookup diagnostic"));
@@ -205,24 +221,38 @@ it("explains an incompatible manual network length and recovers after correction
 });
 
 
-it("cancels a scan before Add, rejects late fields and releases inactive Back ownership", async () => {
+it("consumes Back during a pending save and clears the draft only after success", async () => {
+  let finish!: () => void;
+  const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const cancel = vi.fn();
+  render(<SecureCardAddForm backRoute="/one/wallet" onCancel={cancel} onSubmit={save} />);
+  fillRequired();
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  submit(); submit();
+  expect(save).toHaveBeenCalledOnce();
+  expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(cancel).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
+});
+
+it("cancels an inline scan before Add, rejects late fields, and releases inactive Back ownership", async () => {
   let finish!: (draft: ReturnType<typeof reading>) => void;
   scan.read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const cancel = vi.fn(), save = vi.fn();
   const props = { backRoute: "/one/wallet", onCancel: cancel, onSubmit: save };
   const view = render(<SecureCardAddForm {...props} />);
   await selectPhoto();
-  const signal = scan.read.mock.calls[0][1] as AbortSignal;
+  const signal = scan.read.mock.calls.at(-1)![1] as AbortSignal;
   act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
   expect(signal.aborted).toBe(true);
   expect(cancel).not.toHaveBeenCalled();
   await act(async () => finish(reading({ pan: "5555555555554444" })));
   expect(screen.getByLabelText("Card number")).toHaveValue("");
   act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
-  expect(cancel).toHaveBeenCalledOnce();
-  expect(save).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled();
   view.rerender(<SecureCardAddForm {...props} active={false} />);
   expect(unwindBackLayer("/one/wallet")).toBe(false);
-  view.unmount();
-  expect(unwindBackLayer("/one/wallet")).toBe(false);
+  view.unmount(); expect(unwindBackLayer("/one/wallet")).toBe(false);
 });

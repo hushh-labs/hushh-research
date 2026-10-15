@@ -651,6 +651,7 @@ class GoogleCalendarService:
                 {
                     "email": item.get("email"),
                     "response_status": item.get("responseStatus"),
+                    "display_name": item.get("displayName"),
                     "self": item.get("self") is True,
                 }
                 for item in event.get("attendees", [])
@@ -665,6 +666,10 @@ class GoogleCalendarService:
                 _mapping(conference_data.get("conferenceSolution")).get("key")
             ).get("type"),
             "color_id": event.get("colorId"),
+            "transparency": event.get("transparency"),
+            "ical_uid": event.get("iCalUID"),
+            "attendees_omitted": event.get("attendeesOmitted") is True,
+            "recurrence_master": bool(event.get("recurrence")),
             "recurring_event_id": event.get("recurringEventId"),
             "original_start_time": event.get("originalStartTime"),
             "updated": event.get("updated"),
@@ -677,6 +682,7 @@ class GoogleCalendarService:
         max_results: int = 50,
         page_token: str | None = None,
         expected_binding: tuple[str, ...] | None = None,
+        include_hidden_invitations: bool = False,
     ) -> dict[str, Any]:
         """One bounded page of the owner's subscribed calendars."""
         if page_token is not None and (not page_token or len(page_token) > 2048):
@@ -771,6 +777,28 @@ class GoogleCalendarService:
             colors[identifier] = color
         return colors
 
+    async def invitations(
+        self,
+        *,
+        user_id: str,
+        time_zone: str,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        selected_calendar_id: str | None = None,
+        selected_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Reuse attendance reads with this exact Calendar grant authority."""
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+        return await CalendarScheduleService(calendar=self).invitations(
+            user_id=user_id,
+            time_zone=time_zone,
+            start_at=start_at,
+            end_at=end_at,
+            selected_calendar_id=selected_calendar_id,
+            selected_event_id=selected_event_id,
+        )
+
     async def list_events(
         self,
         *,
@@ -782,6 +810,7 @@ class GoogleCalendarService:
         calendar_id: str = "primary",
         page_token: str | None = None,
         expected_binding: tuple[str, ...] | None = None,
+        include_hidden_invitations: bool = False,
     ) -> dict[str, Any]:
         """One bounded page of primary-calendar events, honest about truncation.
 
@@ -801,6 +830,8 @@ class GoogleCalendarService:
             "orderBy": "startTime",
             "maxResults": max(1, min(int(max_results), EVENT_PAGE_MAX)),
         }
+        if include_hidden_invitations:
+            params["showHiddenInvitations"] = "true"
         search = " ".join(str(query or "").split())
         if len(search) > _EVENT_QUERY_MAX_CHARS:
             raise GoogleConnectionError("Calendar search text is too long", status_code=422)

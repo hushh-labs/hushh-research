@@ -119,6 +119,7 @@ async def prepare_memory(
             current_manifests=body.current_manifests,
             simulated_state=body.simulated_state,
             memory_profile=body.memory_profile,
+            allow_identifier_processing=body.allow_identifier_processing,
             model_override=model.model,
             continuation_scope=_continuation_binding(authorization, selected, model, revision),
         )

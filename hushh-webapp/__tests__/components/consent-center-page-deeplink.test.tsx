@@ -615,7 +615,7 @@ describe("ConsentCenterPage requestId deep links", () => {
   });
 
   // Localhost run 4 (R5): no owner surface could approve part of a request.
-  it("allows only the chosen items of a request and declines the rest", async () => {
+  it.each([false, true])("allows only chosen items; model permission requires review of that subset (%s)", async (approveModel) => {
     const member = (id: string, label: string, scope: string) => ({
       id, request_id: id, kind: "incoming_request", status: "pending", action: "REQUESTED",
       allowed_next_action: "review_request", scope, scope_description: label,
@@ -634,9 +634,14 @@ describe("ConsentCenterPage requestId deep links", () => {
     }));
     render(<ConsentCenterPage />);
     const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(screen.getByTestId("consent-bundle-choice")).getAllByRole("checkbox")).toHaveLength(2);
+    const modelPermission = within(dialog).getByRole("checkbox", { name: /selected model/i });
+    fireEvent.click(modelPermission);
+    expect(modelPermission).toBeChecked();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Financial events" }));
+    expect(modelPermission).not.toBeChecked();
+    if (approveModel) fireEvent.click(modelPermission);
     expect(screen.getByText("Access · 1 of 2 items")).toBeTruthy();
     expect(screen.getByTestId("consent-bundle-choice-summary"))
       .toHaveTextContent("Only Food preferences will be shared. Financial events won't be.");
@@ -646,7 +651,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     const [allow, decline, options] = mocks.handleDecideBundle.mock.calls[0]!;
     expect(allow.map((consent: { id: string }) => consent.id)).toEqual(["request-food"]);
     expect(decline).toEqual(["request-events"]);
-    expect(options).toMatchObject({ bundleId: "bundle-mixed" });
+    expect(options).toMatchObject({ bundleId: "bundle-mixed", modelProcessingAllowed: approveModel });
     // Negative control: a partial choice never becomes a whole Allow or a whole decline.
     expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
     expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
@@ -968,6 +973,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           id: "fixed-24",
           durationHours: 24,
         }),
+        { modelProcessingAllowed: false },
       );
     });
   });
@@ -1010,6 +1016,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           id: "agent-task",
           durationHours: undefined,
         }),
+        { modelProcessingAllowed: false },
       );
     });
   });
@@ -2151,6 +2158,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
     expect(mocks.handleApprove).toHaveBeenCalledWith(
       expect.objectContaining({ id: "req_food", durationHours: 168 }),
+      { modelProcessingAllowed: false },
     );
 
     // The shared hook reports the confirmed approval.

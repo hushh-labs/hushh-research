@@ -1,39 +1,52 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
+import { LiveMirrorClaimLines } from "@/components/profile/live-mirror-preview";
 import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   LIVE_MEMORY_BOUNDARY_COPY,
+  LIVE_MIRROR_HIDDEN_PREDICATES,
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_SOURCE_LABELS,
+  type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorHistoryEntry,
   type LiveMirrorSource,
+  type LiveMirrorSourceRoute,
   type LiveMirrorView,
 } from "@/lib/pkm/live-mirror-contract";
 import {
   formatLiveMirrorDateTime,
   LIVE_MIRROR_HISTORY_FOOTER,
+  liveMirrorClaimText,
   liveMirrorCount,
   liveMirrorFactStateLabel,
+  liveMirrorFixRoutes,
   liveMirrorGapText,
   liveMirrorHistoryAction,
   liveMirrorHistoryDetail,
   liveMirrorRecordRows,
   liveMirrorSourceDescription,
+  liveMirrorSourceRoute,
   liveMirrorSourceStateLabel,
   liveMirrorStatus,
+  type LiveMirrorRecordRow,
   type LiveMirrorStatusCopy,
 } from "@/lib/pkm/live-mirror-presentation";
 import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
 
 const PAGE_SIZE = 50;
+const HIDDEN_PREDICATES = new Set<string>(LIVE_MIRROR_HIDDEN_PREDICATES);
+
+/** What Source details shows: one record or one disagreement, found again on every render. */
+type Selection = { type: "record" | "conflict"; key: string };
 
 function DateTime({ at }: { at: string | null }) {
   const text = formatLiveMirrorDateTime(at);
@@ -72,22 +85,99 @@ function HistoryRow({ entry, facts }: { entry: LiveMirrorHistoryEntry; facts: re
   </>} />;
 }
 
+/** A disagreement's identity: its predicate and where each claim came from, so it holds while values change. */
+function conflictKey(conflict: LiveMirrorConflict): string {
+  return JSON.stringify([conflict.predicate, conflict.claims.map(claim => [claim.source, claim.label])]);
+}
+
+/**
+ * Corrections happen at the source, never in the mirror or its Markdown. Each
+ * link is titled by where it goes ("Edit profile") and closes the sheet first.
+ */
+function FixLinks({ routes, onNavigate }: { routes: readonly LiveMirrorSourceRoute[]; onNavigate: () => void }) {
+  if (routes.length === 0) return null;
+  return (
+    <SettingsGroup embedded separatorInset>
+      {routes.map(route => (
+        <SettingsRow key={route.href} asChild chevron title={route.label}>
+          <Link href={route.href} onClick={onNavigate} />
+        </SettingsRow>
+      ))}
+    </SettingsGroup>
+  );
+}
+
+function RecordDetails({ record, onNavigate }: { record: LiveMirrorRecordRow; onNavigate: () => void }) {
+  const route = liveMirrorSourceRoute(record.kind);
+  return (
+    <div className="min-w-0 space-y-3">
+      <SettingsGroup embedded separatorInset>
+        {record.fields.map(field => <SettingsRow key={field.key} title={field.label} description={field.value} />)}
+      </SettingsGroup>
+      <SettingsGroup embedded separatorInset>
+        <SettingsRow title="From" trailing={LIVE_MIRROR_SOURCE_LABELS[record.kind]} />
+        <SettingsRow title="Version" trailing={String(record.revision)} />
+        <SettingsRow title="Changed" trailing={<DateTime at={record.sourceUpdatedAt} />} />
+        <SettingsRow title="Checked" trailing={<DateTime at={record.verifiedAt} />} />
+        <SettingsRow title="Saved" trailing={<DateTime at={record.capturedAt} />} />
+      </SettingsGroup>
+      <FixLinks routes={route ? [route] : []} onNavigate={onNavigate} />
+    </div>
+  );
+}
+
+/**
+ * Every claim with its source, worded by the shared claim formatter, then one
+ * link to each place a side is corrected, in claim order: memory.md for what
+ * the owner wrote, else the screen that owns the source.
+ */
+function ConflictDetails({ conflict, now, onNavigate }: { conflict: LiveMirrorConflict; now: string; onNavigate: () => void }) {
+  return (
+    <div className="min-w-0 space-y-3">
+      <SettingsGroup embedded separatorInset>
+        {conflict.claims.map((claim, index) => {
+          const { label, value, detail } = liveMirrorClaimText(claim, conflict.predicate, now);
+          return <SettingsRow key={`${claim.source}:${index}`} title={`${label}: ${value}`} description={detail ?? undefined} />;
+        })}
+      </SettingsGroup>
+      <FixLinks routes={liveMirrorFixRoutes([conflict])} onNavigate={onNavigate} />
+    </div>
+  );
+}
+
 function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNode }) {
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
   const [recordLimits, setRecordLimits] = useState<Partial<Record<string, number>>>({});
   const [historyLimit, setHistoryLimit] = useState(PAGE_SIZE);
   const records = liveMirrorRecordRows(view.facts);
-  const selected = selectedKey ? records.find(record => record.key === selectedKey) ?? null : null;
+  // Other people's identifiers never render, not even inside a disagreement.
+  const conflicts = (view.conflicts ?? []).filter(conflict => !HIDDEN_PREDICATES.has(conflict.predicate));
+  const selectedRecord = selection?.type === "record" ? records.find(record => record.key === selection.key) ?? null : null;
+  const selectedConflict = selection?.type === "conflict"
+    ? conflicts.find(conflict => conflictKey(conflict) === selection.key) ?? null
+    : null;
+  const closeDetails = () => setSelection(null);
   const groups = LIVE_MIRROR_KINDS
     .map(kind => ({ kind, records: records.filter(record => record.kind === kind) }))
     .filter(group => group.records.length > 0);
   const living = view.sources.filter(source => source.group === "living");
   const saved = view.sources.filter(source => source.group === "saved");
   const entries = view.history.entries;
-  const sourceRow = (source: LiveMirrorSource) => (
-    <SettingsRow key={source.id} title={source.label} description={liveMirrorSourceDescription(source, view.evaluatedAt)}
-      trailing={liveMirrorSourceStateLabel(source.state)} />
-  );
+  const sourceRow = (source: LiveMirrorSource) => {
+    const description = liveMirrorSourceDescription(source, view.evaluatedAt);
+    const state = liveMirrorSourceStateLabel(source.state);
+    const route = source.kind ? liveMirrorSourceRoute(source.kind) : null;
+    if (!route) return <SettingsRow key={source.id} title={source.label} description={description} trailing={state} />;
+    // The whole row goes where this source's values are changed; its state keeps the right-hand column.
+    return (
+      <SettingsRow key={source.id} asChild chevron title={source.label} trailing={state} description={<>
+        {description ? <span className="block">{description}</span> : null}
+        <span className="block font-medium text-[color:var(--app-accent-deep)]">{route.label}</span>
+      </>}>
+        <Link href={route.href} />
+      </SettingsRow>
+    );
+  };
   return (
     <>
       {title}
@@ -100,7 +190,21 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
           <TabsTrigger value="preview" className="min-h-11">Preview</TabsTrigger>
         </TabsList>
         <TabsContent value="facts" className="min-w-0">
-          <SettingsGroup title="Sources" embedded separatorInset headingClassName="mt-0">
+          {conflicts.length > 0 ? (
+            // Every claim stays visible with its source; no value is chosen or
+            // hidden. The heading names the state once, so rows carry no badge.
+            <SettingsGroup title="Sources disagree" embedded separatorInset headingClassName="mt-0">
+              {conflicts.map((conflict, index) => {
+                const key = conflictKey(conflict);
+                return (
+                  <SettingsRow key={`${key}:${index}`} title={conflict.label}
+                    description={<LiveMirrorClaimLines conflict={conflict} now={view.evaluatedAt} />}
+                    chevron onClick={() => setSelection({ type: "conflict", key })} />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+          <SettingsGroup title="Sources" embedded separatorInset headingClassName={conflicts.length > 0 ? undefined : "mt-0"}>
             {living.map(sourceRow)}
           </SettingsGroup>
           {groups.map(group => {
@@ -112,7 +216,7 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
                   {group.records.slice(0, limit).map(record => (
                     <SettingsRow key={record.key} title={record.ref} description={record.summary}
                       trailing={liveMirrorFactStateLabel(record.state) ?? undefined}
-                      chevron onClick={() => setSelectedKey(record.key)} />
+                      chevron onClick={() => setSelection({ type: "record", key: record.key })} />
                   ))}
                 </SettingsGroup>
                 {group.records.length > limit ? (
@@ -139,35 +243,26 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
           <Footnote className="px-1">{LIVE_MIRROR_HISTORY_FOOTER}</Footnote>
         </TabsContent>
         <TabsContent value="preview" className="min-w-0">
-          {view.markdown.trim()
-            ? <div aria-label="Live memory preview" className="soul-memory-document min-w-0 px-1"><SafeMarkdown markdown={view.markdown} gfm={false} /></div>
-            : <Footnote className="px-1">Nothing to preview yet</Footnote>}
+          {view.markdown.trim() ? (
+            // "live-mirror-markdown" keeps money table cells on one line so the table scrolls on a phone.
+            <div aria-label="Live memory preview" className="soul-memory-document live-mirror-markdown min-w-0 px-1">
+              <SafeMarkdown markdown={view.markdown} gfm linkPolicy="internal" />
+            </div>
+          ) : <Footnote className="px-1">Nothing to preview yet</Footnote>}
         </TabsContent>
       </Tabs>
       <SettingsDetailPanel
-        open={selected !== null}
-        onOpenChange={(open) => { if (!open) setSelectedKey(null); }}
+        open={selectedRecord !== null || selectedConflict !== null}
+        onOpenChange={(open) => { if (!open) closeDetails(); }}
         title="Source details"
-        description={selected?.ref}
+        description={selectedRecord?.ref ?? selectedConflict?.label}
         mobilePresentation="sheet"
         showCloseButton={false}
         desktopMaxWidthClassName="sm:!max-w-[480px]"
-        footer={<Button type="button" size="standard" className="w-full" onClick={() => setSelectedKey(null)}>Done</Button>}
+        footer={<Button type="button" size="standard" className="w-full" onClick={closeDetails}>Done</Button>}
       >
-        {selected ? (
-          <div className="min-w-0 space-y-3">
-            <SettingsGroup embedded separatorInset>
-              {selected.fields.map(field => <SettingsRow key={field.key} title={field.label} description={field.value} />)}
-            </SettingsGroup>
-            <SettingsGroup embedded separatorInset>
-              <SettingsRow title="From" trailing={LIVE_MIRROR_SOURCE_LABELS[selected.kind]} />
-              <SettingsRow title="Version" trailing={String(selected.revision)} />
-              <SettingsRow title="Changed" trailing={<DateTime at={selected.sourceUpdatedAt} />} />
-              <SettingsRow title="Checked" trailing={<DateTime at={selected.verifiedAt} />} />
-              <SettingsRow title="Saved" trailing={<DateTime at={selected.capturedAt} />} />
-            </SettingsGroup>
-          </div>
-        ) : null}
+        {selectedRecord ? <RecordDetails record={selectedRecord} onNavigate={closeDetails} />
+          : selectedConflict ? <ConflictDetails conflict={selectedConflict} now={view.evaluatedAt} onNavigate={closeDetails} /> : null}
       </SettingsDetailPanel>
     </>
   );
@@ -175,8 +270,9 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
 
 /**
  * Profile's Live Mirror: one owner- and vault-epoch-fenced view of current
- * records, observed history and the Markdown preview. A lock shows only a
- * status line, and a different owner or epoch never shows the prior view.
+ * records, disagreements, observed history and the Markdown preview. A lock
+ * shows only a status line, and a different owner or epoch never shows the
+ * prior view. Corrections go to the source; nothing here writes the mirror.
  */
 export function LivingMemoryDocument() {
   const router = useRouter();

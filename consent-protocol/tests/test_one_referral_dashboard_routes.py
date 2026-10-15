@@ -1,5 +1,10 @@
 """Referral dashboard wire and owner-admission contracts; no live database."""
 
+# Load this route module directly: the One package initializer also imports
+# unrelated model runtimes, which this owner-admission test does not exercise.
+import importlib.util
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -7,7 +12,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes.one import referrals as routes
+spec = importlib.util.spec_from_file_location(
+    "referral_routes_test", Path(__file__).resolve().parents[1] / "api/routes/one/referrals.py"
+)
+routes = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = routes
+spec.loader.exec_module(routes)
 
 
 @pytest.fixture
@@ -20,7 +30,7 @@ def app():
 @pytest.mark.parametrize("path", ["points", "challenge", "milestones", "policy"])
 def test_dashboard_reads_require_auth_before_storage(app, monkeypatch, path):
     read = Mock(side_effect=AssertionError("unauthenticated storage access"))
-    monkeypatch.setattr(routes, "get_cumulative_score", read)
+    monkeypatch.setattr(routes, "get_balances", read)
     monkeypatch.setattr(routes, "get_active_program_settings", read)
     response = TestClient(app).get(f"/api/one/referrals/{path}")
     assert response.status_code == 401
@@ -61,10 +71,10 @@ def test_referral_rotation_failure_does_not_claim_success(app, monkeypatch):
 
 def test_points_use_verified_owner_not_query_parameter(app, monkeypatch):
     app.dependency_overrides[routes.require_firebase_auth] = lambda: "verified-owner"
-    read = Mock(return_value=37)
-    monkeypatch.setattr(routes, "get_cumulative_score", read)
+    read = Mock(return_value={"points": 37, "coins": 20})
+    monkeypatch.setattr(routes, "get_balances", read)
     response = TestClient(app).get("/api/one/referrals/points?user_id=other-owner")
-    assert response.json() == {"points": 37}
+    assert response.json() == {"points": 37, "coins": 20}
     read.assert_called_once_with("verified-owner")
 
 
@@ -85,10 +95,14 @@ def test_milestones_publish_active_catalogue_with_owner_progress(app, monkeypatc
 def test_challenge_without_schedule_never_invents_a_deadline(app, monkeypatch):
     app.dependency_overrides[routes.require_firebase_auth] = lambda: "verified-owner"
     monkeypatch.setattr(
-        routes, "get_active_program_settings", lambda: SimpleNamespace(weekly_schedule={})
+        "hushh_mcp.services.one_referral_challenge_service.get_active_program_settings",
+        lambda: SimpleNamespace(weekly_schedule={}),
     )
     response = TestClient(app).get("/api/one/referrals/challenge")
-    assert response.json() == {
+    assert response.json()["status"] == "not_configured"
+    assert {
+        k: response.json()[k] for k in ("active", "week_started_at", "cutoff_at", "timezone")
+    } == {
         "active": False,
         "week_started_at": None,
         "cutoff_at": None,
@@ -108,6 +122,7 @@ def test_policy_reads_active_amounts_without_changing_settings(app, monkeypatch)
             "cutoff_time": "00:00:00",
         },
         feature_active=False,
+        flash_windows=[],
     )
     read = Mock(return_value=settings)
     monkeypatch.setattr(routes, "get_active_program_settings", read)
@@ -136,9 +151,48 @@ def test_slow_referral_storage_runs_off_the_async_event_loop(app, monkeypatch):
         assert get_ident() != event_loop_thread
         with pytest.raises(RuntimeError, match="no running event loop"):
             asyncio.get_running_loop()
-        return 37
+        return {"points": 37, "coins": 20}
 
     app.dependency_overrides[routes.require_firebase_auth] = owner
-    monkeypatch.setattr(routes, "get_cumulative_score", storage_read)
+    monkeypatch.setattr(routes, "get_balances", storage_read)
     response = TestClient(app).get("/api/one/referrals/points")
-    assert response.json() == {"points": 37}
+    assert response.json() == {"points": 37, "coins": 20}
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("app-open", {}),
+        ("activity", {"message_id": "11111111-1111-1111-1111-111111111111"}),
+        ("rewards/claim", {"milestone_key": "voucher_10"}),
+    ],
+)
+def test_mutations_require_auth_before_activity_or_claim_writes(app, monkeypatch, path, payload):
+    write = Mock(side_effect=AssertionError("unauthenticated write"))
+    for name in ("record_app_open", "reconcile_product_activity", "claim_milestone"):
+        monkeypatch.setattr(routes, name, write)
+    assert TestClient(app).post(f"/api/one/referrals/{path}", json=payload).status_code == 401
+    write.assert_not_called()
+
+
+def test_activity_rejects_client_awards_and_derives_its_owner(app, monkeypatch):
+    app.dependency_overrides[routes.require_firebase_auth] = lambda: "verified-owner"
+    write = Mock(return_value={"verified_events": 0, "qualification": {"status": "not_referred"}})
+    monkeypatch.setattr(routes, "reconcile_product_activity", write)
+    client = TestClient(app)
+    message = "11111111-1111-1111-1111-111111111111"
+    assert (
+        client.post(
+            "/api/one/referrals/activity",
+            json={"message_id": message, "points": 100, "user_id": "other"},
+        ).status_code
+        == 422
+    )
+    write.assert_not_called()
+    assert (
+        client.post(
+            "/api/one/referrals/activity?user_id=other", json={"message_id": message}
+        ).status_code
+        == 200
+    )
+    write.assert_called_once_with("verified-owner", message)

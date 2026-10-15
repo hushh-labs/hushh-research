@@ -312,13 +312,17 @@
     "344_hosted_memory_scoped_source_envelope.sql",
     "345_live_memory_source_journal.sql",
     "346_one_location_recipient_feed_clear.sql",
-    "349_vault_environment_enrollment.sql",
-    "350_consumer_scope_commerce.sql",
-    "351_one_shared_hosting_choice.sql",
-    "352_public_profile_bridge.sql",
-    "353_one_placement_reader_foundation.sql",
-    "354_one_legacy_shared_continuity.sql",
-    "355_stripe_payout_source_binding.sql"
+    "347_one_referral_dashboard_lifecycle.sql",
+    "348_one_referral_confirmed_memory_reward.sql",
+    "349_one_referral_dashboard_truth.sql",
+    "350_circle_chat_full_emoji_reactions.sql",
+    "400_vault_environment_enrollment.sql",
+    "401_consumer_scope_commerce.sql",
+    "402_one_shared_hosting_choice.sql",
+    "403_public_profile_bridge.sql",
+    "404_one_placement_reader_foundation.sql",
+    "405_one_legacy_shared_continuity.sql",
+    "406_stripe_payout_source_binding.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -668,12 +672,16 @@
     "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql",
     "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql",
     "346_one_location_recipient_feed_clear.sql": "rollback/346_one_location_recipient_feed_clear.rollback.sql",
-    "349_vault_environment_enrollment.sql": "rollback/349_vault_environment_enrollment.rollback.sql",
-    "350_consumer_scope_commerce.sql": "rollback/350_consumer_scope_commerce.rollback.sql",
-    "351_one_shared_hosting_choice.sql": "rollback/351_one_shared_hosting_choice.rollback.sql",
-    "352_public_profile_bridge.sql": "rollback/352_public_profile_bridge.rollback.sql",
-    "353_one_placement_reader_foundation.sql": "rollback/353_one_placement_reader_foundation.rollback.sql",
-    "354_one_legacy_shared_continuity.sql": "rollback/354_one_legacy_shared_continuity.rollback.sql",
-    "355_stripe_payout_source_binding.sql": "rollback/355_stripe_payout_source_binding.rollback.sql"
+    "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql",
+    "348_one_referral_confirmed_memory_reward.sql": "rollback/348_one_referral_confirmed_memory_reward.rollback.sql",
+    "349_one_referral_dashboard_truth.sql": "rollback/349_one_referral_dashboard_truth.rollback.sql",
+    "400_vault_environment_enrollment.sql": "rollback/400_vault_environment_enrollment.rollback.sql",
+    "401_consumer_scope_commerce.sql": "rollback/401_consumer_scope_commerce.rollback.sql",
+    "402_one_shared_hosting_choice.sql": "rollback/402_one_shared_hosting_choice.rollback.sql",
+    "403_public_profile_bridge.sql": "rollback/403_public_profile_bridge.rollback.sql",
+    "404_one_placement_reader_foundation.sql": "rollback/404_one_placement_reader_foundation.rollback.sql",
+    "405_one_legacy_shared_continuity.sql": "rollback/405_one_legacy_shared_continuity.rollback.sql",
+    "406_stripe_payout_source_binding.sql": "rollback/406_stripe_payout_source_binding.rollback.sql",
+    "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql"
   }
 }

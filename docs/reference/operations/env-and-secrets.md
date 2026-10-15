@@ -100,6 +100,8 @@ These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
 
+### Wallet artwork catalog
+
 Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local
 path to a reviewed, versioned catalog and its approved raster assets. The empty
 default makes no external provider requests and enables no licensed artwork.

@@ -2360,6 +2360,15 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   height: 22px !important;
 }
 
+/* Details opened from Chats stay at their parent's leading edge. Keep the
+ * shared Profile material while matching the left sheet's entrance and exit. */
+[data-chat-detail-pane][data-app-side-pane] {
+  right: auto !important;
+  left: var(--app-side-pane-left-inset) !important;
+  --tw-enter-translate-x: calc(-100% - var(--app-side-pane-left-inset));
+  --tw-exit-translate-x: calc(-100% - var(--app-side-pane-left-inset));
+}
+
 /* Chat mirrors Profile at the leading edge. The card owns its material;
  * the inner sidebar only owns content and scrolling. */
 [data-agent-history-drawer],
@@ -5720,6 +5729,12 @@ body:has([data-testid="one-location-onboarding"])
   .soul-memory-document pre { overflow-x: auto; padding: 1rem; background: var(--muted); }
   .soul-memory-document code { font-family: var(--font-app-mono); }
   .soul-memory-document hr { margin-block: 2rem; }
+  /* Live memory's preview borrows these reading styles, but its money tables
+     must not inherit "anywhere" wrapping: on a phone the table would shrink and
+     break amounts mid-number, and its swipe-scroll wrapper would never scroll.
+     Cells keep one line and the table scrolls instead. Soul's tables are unchanged. */
+  .live-mirror-markdown table { overflow-wrap: normal; }
+  .live-mirror-markdown :is(th, td) { white-space: nowrap; }
 
   .app-page-shell .font-black,
   .app-page-shell .font-extrabold,
@@ -9561,6 +9576,22 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   --referral-medal-light: #d4a574;
 }
 
+.agent-chat-header [data-agent-chat-one-profile-trigger] {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:is(:hover, :focus, :active) {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:focus-visible:not(:active) {
+  outline: 1px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
 /* One shared header measure, including feature-page and History reservations.
    Identity and actions share one row. The optional cloud-model picker moves
    into One's existing profile on phones, not another shell row. */
@@ -9633,69 +9664,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     justify-self: start;
     align-self: center;
   }
-  .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control button {
-    width: 44px;
-    height: 44px;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
-    grid-column: 2;
-    grid-row: 1;
-    position: relative;
-    width: 44px;
-    height: 44px;
-    flex-direction: row;
-    justify-content: center;
-    gap: 0;
-    overflow: visible;
-    text-align: center;
-    transform: none;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-    width: 44px;
-    height: 44px;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
-    width: 44px !important;
-    height: 44px !important;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
-    width: 44px !important;
-    height: 44px !important;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
-    position: absolute;
-    top: calc(100% + 2px);
-    left: 50%;
-    width: max-content;
-    min-width: 0;
-    transform: translateX(-50%);
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
-    display: block;
-    width: fit-content;
-    max-width: 100%;
-    margin-inline: 0;
-    padding: 2px 6px;
-    font-size: 14px;
-    line-height: 20px;
-  }
-  /* Keep live status available to assistive technology without squeezing the
-     One label. The transcript's activity panel carries the visible progress. */
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] {
-    display: contents;
-  }
-  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control {
+  .agent-chat-header > :last-child {
     grid-column: 3;
     grid-row: 1;
     align-self: center;

@@ -47,7 +47,9 @@ from hushh_mcp.agents.calendar.tools import (
     calendar_event_detail,
     calendar_events,
     calendar_free_slots,
+    calendar_invitations,
     calendar_summary,
+    open_calendar_invitation,
     propose_calendar_cancellation,
     propose_calendar_event,
     propose_calendar_reschedule,
@@ -504,16 +506,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "nor creates a Gmail draft. Save to Gmail Drafts needs separate permission "
     "and no attachment. For a selected Gmail information-request thread, only "
     "open_gmail_information_request_reply opens its source-bound reply.\n"
-    "- Calendar: your connected Google Calendar. For summaries, lookups or availability, "
-    "use Calendar tools. Proposing, ask missing title, date, zone, start/end/duration, guests; "
-    "reuse supplied details. Never invent; 'at 8pm' is not today. Resolve relative dates with "
-    "get_current_time. Rescheduling needs event id/times; preserve title/attendees. Cancellation "
-    "needs event id. Find slots in stated window/duration; never invent work hours, availability, "
-    "or ids. If a proposal conflicts, name the "
-    "returned event and let the person choose the explicit schedule-anyway card. A mutation tool creates "
-    "a review card only; tell the person it will run only after they press its explicit "
-    "confirmation control. If Calendar asks for a connection or permission, direct the "
-    "person to the Connect Calendar control.\n"
+    "- Calendar: use its tools. Proposing, ask missing title, date, zone, start/end/duration, guests; "
+    "reuse supplied details. Never invent; 'at 8pm' is not today. Resolve relative dates with get_current_time. "
+    "Reschedule needs listed event id/times; preserve title/attendees. Cancellation needs event id. "
+    "Never invent hours, availability or IDs. Name conflicts for "
+    "schedule-anyway review. Mutations prepare explicit browser confirmation only. "
+    "Use Connect Calendar for missing permission.\n"
     "- Gmail information requests: approval-gated client-request work lives in the "
     "Email app surface. Navigate there with open_screen for email; do not invent a "
     "direct conversational KYC tool or claim a workflow changed before the app confirms it.\n"
@@ -2643,6 +2641,8 @@ def _one_roster_tools(
         get_current_time,
         get_my_location,
         calendar_summary,
+        calendar_invitations,
+        open_calendar_invitation,
         calendar_calendars,
         calendar_events,
         calendar_event_detail,
@@ -2782,6 +2782,7 @@ def build_one_text_agent(
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
+    consent_bundle_lookup: Callable[[str, str], Awaitable[Any]] | None = None,
 ) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
 
@@ -2796,6 +2797,11 @@ def build_one_text_agent(
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
+    async def track_current_consent(callback_context: Any) -> None:
+        await track_consent_access(
+            callback_context, lookup=consent_bundle_lookup or _requester_bundle
+        )
+
     return LlmAgent(
         name="one",
         model=text_model,
@@ -2809,7 +2815,7 @@ def build_one_text_agent(
         ),
         # Consent access is checked once per turn, then redacted before every
         # model call (consent_redaction.py, CONTRACT C3).
-        before_agent_callback=[timed_one_before_agent, _track_one_consent_access],
+        before_agent_callback=[timed_one_before_agent, track_current_consent],
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,
         # Queued messages join at a step boundary; last, so only a real model

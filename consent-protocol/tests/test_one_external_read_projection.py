@@ -346,3 +346,39 @@ def test_drive_current_evidence_state_is_ephemeral_even_without_read_events():
     projected = durable_external_read_projection(session)
     assert STATE_DRIVE_READ_OUTCOME not in projected.model_dump_json()
     assert session.state[STATE_DRIVE_READ_OUTCOME] == outcome
+
+
+def test_invitation_read_and_client_review_keep_provider_details_out_of_durable_tool_state():
+    directive_key = "hussh:pending_directive:calendar_invitations"
+    session = Session(
+        id="chat",
+        app_name="one",
+        user_id="owner",
+        state={directive_key: {"eventId": "PRIVATE_PROVIDER_ID"}},
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="calendar_invitations",
+                            response={"events": [{"title": "PRIVATE_TITLE"}]},
+                        )
+                    )
+                ]
+            ),
+            _event(
+                [
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="open_calendar_invitation",
+                            args={"ordinal": 1, "decision": "accepted"},
+                        )
+                    )
+                ]
+            ),
+        ],
+    )
+    projected = durable_external_read_projection(session)
+    assert directive_key not in projected.state
+    assert "PRIVATE_" not in projected.model_dump_json()
+    assert projected.events[1].content.parts[0].function_call.args == {}

@@ -104,7 +104,7 @@ async function assertContract(page: Page, viewportWidth: number) {
   expect(overflow).toBeLessThanOrEqual(0);
 
 
-  await expect(review).toBeVisible();
+  await expect(page.getByTestId("chat-onboarding-chips")).toBeVisible();
 
   const chips = page.getByTestId("chat-onboarding-chips").getByRole("button");
   await expect(chips).toHaveCount(10);

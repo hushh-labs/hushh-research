@@ -9,12 +9,13 @@ export type OnePresenceState = "connected" | "thinking" | "working" | "answering
 type PresenceRequest = { state: OnePresenceState };
 
 /** Presentation only: observe running work, never infer intent from text. */
-export function resolveOnePresenceState({ drafting, answering, thinking }: {
+export function resolveOnePresenceState({ working = false, drafting, answering, thinking }: {
+  working?: boolean;
   drafting: boolean;
   answering: boolean;
   thinking: boolean;
 }): OnePresenceState {
-  if (drafting) return "working";
+  if (working || drafting) return "working";
   if (answering) return "answering";
   return thinking ? "thinking" : "connected";
 }
@@ -23,14 +24,14 @@ const portrait = {
   connected: "/one-presence/profile-hd.png",
   working: "/one-presence/drafting-hd.png",
   thinking: "/one-presence/thinking-hd.png",
-  answering: "/one-presence/thinking-hd.png",
+  answering: "/one-presence/answering-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
-// Every embedded animation image is 128px; larger backing buffers add work,
-// not image detail. The HD loading/reduced-motion portraits remain separate.
-const nativeFrameSize = 128;
+// HD exports embed one 1254px texture each. Limit backing memory while covering
+// the 224px panel and larger 256px presentations at three device pixels/CSS px.
+const maxDrawingSurfaceSize = 768;
 
-/** Native Rive Solo timelines preserve the authored 72-frame, 24 FPS loops. */
+/** HD portrait motion runs in native Rive with 72-frame, 24 FPS loops. */
 export function OnePresenceAvatar({ state, className, presentation = "compact" }: {
   state: OnePresenceState;
   className?: string;
@@ -100,6 +101,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
   onReady?: (request: PresenceRequest) => void;
 }) {
   const state = request.state;
+  const portraitSize = 1254;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const posterRef = useRef<HTMLImageElement>(null);
   const onReadyRef = useRef({ request, onReady });
@@ -121,6 +123,8 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     let instance: Rive | null = null;
     let firstFrame: number | null = null;
     let presented = false;
+    let posterDecoded = false;
+    let decodingPoster = false;
     let notifiedRequest: PresenceRequest | null = null;
     let fallback = false;
     const paintProbe = document.createElement("canvas");
@@ -130,7 +134,10 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     const notifyReady = () => {
       const next = onReadyRef.current;
       const painted = presented && canvas.style.visibility === "visible";
-      const posterReady = fallback && poster.style.visibility === "visible" && poster.complete && poster.naturalWidth > 0;
+      // A decoded portrait is a complete presentation of this activity while
+      // its larger Rive file loads. Waiting only for Rive can hide an entire
+      // short-lived activity behind the previous pose on a slow connection.
+      const posterReady = poster.style.visibility === "visible" && posterDecoded;
       if (!next.onReady || notifiedRequest === next.request || (!painted && !posterReady)) return;
       notifiedRequest = next.request;
       next.onReady(next.request);
@@ -139,22 +146,36 @@ function OnePresencePlayback({ request, presentation, onReady }: {
 
     const showPoster = () => {
       // Keep a painted frame frozen if the HD fallback is still loading.
-      const usePoster = !presented || (poster.complete && poster.naturalWidth > 0);
+      const usePoster = !presented || posterDecoded;
       canvas.style.visibility = usePoster ? "hidden" : "visible";
       poster.style.visibility = usePoster ? "visible" : "hidden";
     };
-    const onPosterLoad = () => { if (fallback) { showPoster(); notifyReady(); } };
+    const onPosterLoad = () => {
+      if (!poster.complete || !poster.naturalWidth || posterDecoded || decodingPoster) return;
+      decodingPoster = true;
+      // In WebKit an async image can report complete before it is drawable.
+      // Promote only decoded pixels, including for a cached portrait.
+      const decoded = typeof poster.decode === "function" ? poster.decode() : Promise.resolve();
+      void decoded.then(() => {
+        decodingPoster = false;
+        if (disposed) return;
+        posterDecoded = true;
+        if (fallback) showPoster();
+        notifyReady();
+      }, () => { decodingPoster = false; });
+    };
     const canPlay = () => visible && !document.hidden && !motion.matches && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const resizePlayback = () => {
       if (!instance || !ready) return;
       const { width, height } = canvas.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      // Rive truncates its canvas dimensions. A 0.01px backing-pixel bias
-      // absorbs fractional square bounds while both axes still truncate to
-      // at most 128px (the largest scaled dimension is only 128.01px).
-      const ratio = Math.min(window.devicePixelRatio || 1, (nativeFrameSize + 0.01) / Math.max(width, height));
-      const pixelWidth = Math.min(nativeFrameSize, Math.floor(width * ratio));
-      const pixelHeight = Math.min(nativeFrameSize, Math.floor(height * ratio));
+      // Absorb fractional square bounds without clearing a painted buffer
+      // when the same physical pixel budget still applies.
+      const edge = Math.max(width, height);
+      const target = Math.min(maxDrawingSurfaceSize, Math.ceil(edge * (window.devicePixelRatio || 1) - 0.001));
+      const ratio = (target + 0.01) / edge;
+      const pixelWidth = Math.min(maxDrawingSurfaceSize, Math.floor(width * ratio));
+      const pixelHeight = Math.min(maxDrawingSurfaceSize, Math.floor(height * ratio));
       // Rive can resize itself at device DPR after a hidden surface returns.
       // Actual pixel bounds own this image-backed surface; changing CSS size
       // with the same target buffer must not clear an already-painted frame.
@@ -228,10 +249,10 @@ function OnePresencePlayback({ request, presentation, onReady }: {
           runtime.RuntimeLoader.setWasmFallbackUrl(null);
           instance = new runtime.Rive({
             canvas,
-            src: `/one-presence/${state}.riv`,
+            src: `/one-presence/hd/${state}.riv`,
             enableRiveAssetCDN: false,
-            // Let Rive redraw changed frames; the idle loop holds one image
-            // for most of its timeline, so continuous bitmap redraws add work.
+            // Quantized native timelines change poses at 24 FPS; let Rive
+            // skip bitmap redraws when no pose changed.
             stateMachine,
             shouldDisableRiveListeners: true,
             autoplay: false,
@@ -287,6 +308,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     motion.addEventListener("change", sync);
     const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(sync);
     sync();
+    onPosterLoad();
     return () => {
       disposed = true;
       notifyRef.current = null;
@@ -304,9 +326,9 @@ function OnePresencePlayback({ request, presentation, onReady }: {
 
   return (
     <>
-      <NextImage ref={posterRef} src={portrait[state]} alt="" width={1254} height={1254}
+      <NextImage ref={posterRef} src={portrait[state]} alt="" width={portraitSize} height={portraitSize}
         unoptimized loading="eager" decoding="async" className="absolute inset-0 size-full object-contain" />
-      <canvas ref={canvasRef} width={128} height={128} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
+      <canvas ref={canvasRef} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
     </>
   );
 }

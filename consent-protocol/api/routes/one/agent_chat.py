@@ -14,7 +14,6 @@ from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
-from google.adk.events import Event
 from google.adk.sessions import InMemorySessionService
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -50,10 +49,8 @@ from hushh_mcp.one_adk.agui_factory import _DurableSessionManager as _DurableSes
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, TimedADKAgent
 from hushh_mcp.one_adk.consent_continuation import (
     ConsentContinuationError,
-    admit_consent_continuation,
     continued_outcomes,
 )
-from hushh_mcp.one_adk.consent_redaction import access_ended_outcome, redaction_for_history
 from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
@@ -66,7 +63,6 @@ from hushh_mcp.one_adk.feed_attention import (
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text as _event_text,
 )
-from hushh_mcp.one_adk.history_descriptors import _request_source
 from hushh_mcp.one_adk.history_descriptors import (
     _safe_agent_history_metadata as _safe_agent_history_metadata,
 )
@@ -119,6 +115,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.history_projection import (
     _safe_workspace_connector_setup_descriptor as _safe_workspace_connector_setup_descriptor,
 )
+from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
@@ -533,7 +530,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context),
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -582,24 +579,6 @@ async def _admit_consent_continuation(
     """Admit the follow-up turn that reports an owner's answer, or nothing."""
     if forwarded.get("consentContinuation") is None:
         return {}
-    session = None
-    if owner_id and input_data.thread_id:
-        session = await _shared_sessions().get_session(
-            app_name=ONE_APP_NAME, user_id=owner_id, session_id=input_data.thread_id
-        )
-    session_state = dict(session.state) if session is not None else None
-
-    def asked_here(bundle_id: str) -> bool:
-        # The submission event this conversation recorded when the request was sent.
-        for event in session.events if session is not None else []:
-            metadata = _record(event.custom_metadata) or {}
-            card = _record(metadata.get("card")) or {}
-            if (
-                metadata.get("kind") == "information_request_submission_v1"
-                and str(card.get("bundleId") or "").lower() == bundle_id
-            ):
-                return True
-        return False
 
     def person_name(person_ref: str) -> str:
         try:
@@ -608,12 +587,14 @@ async def _admit_consent_continuation(
             return ""
 
     try:
-        return await admit_consent_continuation(
+        from hushh_mcp.one_adk.consent_chat_admission import admit_session_continuation
+
+        return await admit_session_continuation(
             forwarded,
+            input_data=input_data,
             owner_id=owner_id,
-            messages=input_data.messages,
-            session_state=session_state,
-            asked_here=asked_here,
+            sessions=_shared_sessions(),
+            app_name=ONE_APP_NAME,
             get_bundle=InformationRequestService().get,
             person_name=person_name,
         )
@@ -639,7 +620,7 @@ def _shared_sessions() -> EncryptedAdkSessionService:
     """
     global _session_service
     if _session_service is None:
-        _session_service = EncryptedAdkSessionService()
+        _session_service = EncryptedAdkSessionService(referral_usage_app_name=ONE_APP_NAME)
     return _session_service
 
 
@@ -759,12 +740,6 @@ class RenameConversation(BaseModel):
     title: str = Field(min_length=1, max_length=160)
 
 
-class RecordInformationRequestSubmission(BaseModel):
-    source_activity_id: str = Field(min_length=1, max_length=256)
-    bundle_id: uuid.UUID
-    idempotency_key: str = Field(min_length=16, max_length=256)
-
-
 @router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
 async def record_information_request_submission(
     conversation_id: str,
@@ -777,79 +752,19 @@ async def record_information_request_submission(
     The caller supplies locators and the one-time request key, never a card body.
     The request ledger and this owner's conversation derive every display field.
     """
-    owner = str(token["user_id"])
-    session = await _shared_sessions().get_session(
-        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id
-    )
-    if session is None:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-    source = _request_source(session, payload.source_activity_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Request card not found.")
-    source_card_id, source_card = source
+    from hushh_mcp.one_adk.information_request_submission import record_submission
+
     try:
-        bundle = await InformationRequestService().verify_submission_receipt(
-            requester_user_id=owner,
-            bundle_id=str(payload.bundle_id),
-            idempotency_key=payload.idempotency_key,
+        return await record_submission(
+            owner_id=str(token["user_id"]),
+            conversation_id=conversation_id,
+            payload=payload,
+            sessions=_shared_sessions(),
+            verify_submission=InformationRequestService().verify_submission_receipt,
+            app_name=ONE_APP_NAME,
         )
     except InformationRequestError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    person = source_card["person"]
-    if bundle["personRef"] != person.get("personRef") or not bundle.get("items"):
-        raise HTTPException(status_code=409, detail="Request recipient did not match the card.")
-    statuses = [item["status"] for item in bundle["items"]]
-    status = statuses[0] if all(value == statuses[0] for value in statuses) else "mixed"
-    hours = bundle["durationSeconds"] // 3600
-    duration_label = (
-        f"{hours // 24} {'day' if hours // 24 == 1 else 'days'}"
-        if hours % 24 == 0
-        else f"{hours} {'hour' if hours == 1 else 'hours'}"
-    )
-    card = {
-        "activityType": "one.information_request_review.v1",
-        "direction": "outgoing",
-        "phase": "submitted",
-        "status": status,
-        "personName": person["displayName"],
-        "subjectRef": bundle["personRef"],
-        "bundleId": bundle["bundleId"],
-        "purpose": bundle["purpose"],
-        "durationLabel": duration_label,
-        "fields": [
-            {
-                "requestId": item["requestId"],
-                "label": item["label"],
-                "domain": "Information",
-                "sensitivity": item.get("sensitivity") or "standard",
-                "status": item["status"],
-            }
-            for item in bundle["items"]
-        ],
-    }
-    descriptor = _safe_submitted_information_request_card(card)
-    if descriptor is None:
-        raise HTTPException(status_code=409, detail="Request receipt could not be projected.")
-    event = Event(
-        id=f"request_submission_{hashlib.sha256(source_card_id.encode()).hexdigest()[:32]}",
-        author="one",
-        invocation_id=f"information_request_{payload.bundle_id}",
-        custom_metadata={
-            "kind": "information_request_submission_v1",
-            "sourceCardId": source_card_id,
-            "card": card,
-        },
-    )
-    persisted = await _shared_sessions().append_event_once(
-        app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id, event=event
-    )
-    persisted_metadata = _record(persisted.custom_metadata) or {}
-    persisted_descriptor = _safe_submitted_information_request_card(persisted_metadata.get("card"))
-    if _submitted_source_id(persisted) != source_card_id or not persisted_descriptor:
-        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
-    if persisted_descriptor["content"].get("bundleId") != str(payload.bundle_id):
-        raise HTTPException(status_code=409, detail="Discovery was already submitted.")
-    return {"descriptor": persisted_descriptor, "sourceActivityId": source_card_id}
 
 
 @router.get("/api/one/agent-chat/conversations/{user_id}", dependencies=HUB_CHAT_GUARD)
@@ -903,22 +818,14 @@ async def _consent_access_for_history(
     history load, before any new turn runs. A failed read redacts: the safe
     direction, for this response only.
     """
-    by_invocation, ended = redaction_for_history(state)
-    pending = [bundle for bundle in dict.fromkeys(by_invocation.values()) if bundle not in ended]
+    from hushh_mcp.one_adk.consent_chat_admission import consent_history_access
+
     service = InformationRequestService()
-    for bundle_id in pending[:_MAX_CONSENT_ACCESS_CHECKS]:
-        try:
-            outcome = access_ended_outcome(
-                await service.get(requester_user_id=owner, bundle_id=bundle_id)
-            )
-        except Exception as exc:  # noqa: BLE001 - unknown means redact
-            logger.info("one.history_consent_access_unknown error=%s", type(exc).__name__)
-            outcome = "revoked"
-        if outcome:
-            ended[bundle_id] = outcome
-    for bundle_id in pending[_MAX_CONSENT_ACCESS_CHECKS:]:
-        ended[bundle_id] = "revoked"
-    return by_invocation, ended
+
+    async def lookup(owner_id, bundle_id):
+        return await service.get(requester_user_id=owner_id, bundle_id=bundle_id)
+
+    return await consent_history_access(owner, state, lookup=lookup)
 
 
 @router.get("/api/one/agent-chat/history/{conversation_id}", dependencies=HUB_CHAT_GUARD)

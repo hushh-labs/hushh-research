@@ -11,11 +11,11 @@ import contextlib
 import json
 import logging
 import time
-from collections import Counter
+from collections import Counter, deque
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_document_targets import document_targets
-from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
+from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal, evidence_digest
 from hushh_mcp.services.drive_packet_intelligence import (
     EvidenceValidationError,
     consolidate_facts,
@@ -26,10 +26,10 @@ from hushh_mcp.services.drive_packet_intelligence import (
 )
 from hushh_mcp.services.drive_packet_store import DrivePacketStore, safe_packet_failure_code
 from hushh_mcp.services.drive_work_wake import wake_drive_work
-from hushh_mcp.services.drive_worker_limits import facts_owner_leases
+from hushh_mcp.services.drive_worker_limits import facts_owner_leases, packet_slots
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-from hushh_mcp.services.owner_placement_guard import admit_hub_content
+from hushh_mcp.services.owner_placement_guard import ModeResolver, admit_hub_content
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,18 @@ def compact_evidence(document):
         "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
+        # A digest of the full facts lets the final checker tell one original
+        # selected twice from two sparse extractions that compact alike.
+        "facts_digest": evidence_digest(facts),
+        # The provider's content digest refuses one original selected twice
+        # even when its two extractions differ.
+        **(
+            {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
+        ),
+        # Preserve host evidence metadata through bounded batching. File time
+        # is withheld from the model and cannot establish reporting coverage
+        # or duplicate-record meaning.
+        **({"created_time": document["created_time"]} if document.get("created_time") else {}),
     }
 
 
@@ -121,6 +133,7 @@ class DrivePacketWorker:
         checker=verify_packet,
         policy=facts_policy_version,
         wake=wake_drive_work,
+        placement_resolver: ModeResolver | None = None,
     ):
         self.facts_store = facts_store or DriveDocumentFactsStore()
         self.packet_store = packet_store or DrivePacketStore(
@@ -129,6 +142,7 @@ class DrivePacketWorker:
         self.page_assessor, self.consolidator = page_assessor, consolidator
         self.constructor, self.checker, self.policy, self.wake = constructor, checker, policy, wake
         self._key_folds: dict[str, list] = {}
+        self._placement_resolver = placement_resolver
 
     def _policy_current(self, expected):
         if self.policy() != expected:
@@ -136,11 +150,15 @@ class DrivePacketWorker:
 
     async def _facts_current(self, job):
         await self.facts_store.require_current(job)
-        await admit_hub_content(job["user_id"], "drive_packet_facts")
+        await admit_hub_content(
+            job["user_id"], "drive_packet_facts", resolve_mode=self._placement_resolver
+        )
 
     async def _packet_current(self, job):
         await self.packet_store.require_packet_current(job)
-        await admit_hub_content(job["user_id"], "drive_packet_build")
+        await admit_hub_content(
+            job["user_id"], "drive_packet_build", resolve_mode=self._placement_resolver
+        )
 
     @contextlib.asynccontextmanager
     async def _key_fold(self, user_id):
@@ -161,7 +179,9 @@ class DrivePacketWorker:
                 self._key_folds.pop(user_id, None)
 
     async def run_facts_one(self, *, user_id, document_ids=None, enqueue=True):
-        await admit_hub_content(user_id, "drive_packet_facts_claim")
+        await admit_hub_content(
+            user_id, "drive_packet_facts_claim", resolve_mode=self._placement_resolver
+        )
         targets = document_targets(document_ids)
         targeted = {"document_ids": targets} if targets is not None else {}
         policy = self.policy()
@@ -254,7 +274,7 @@ class DrivePacketWorker:
             )
             return "facts_unavailable"
 
-    async def _check(self, job, *, packet, documents, complete, scope):
+    async def _check(self, job, *, packet, documents, complete, scope, owner):
         await self._packet_current(job)
         self._policy_current(job["policy_version"])
         result = await self.checker(
@@ -263,13 +283,16 @@ class DrivePacketWorker:
             documents=documents,
             complete=complete,
             batch_scope={**scope, "canonical_key": job["key"]},
+            owner=owner,
         )
         await self._packet_current(job)
         self._policy_current(job["policy_version"])
         return _payload(result)
 
     async def run_packet_one(self, *, user_id):
-        await admit_hub_content(user_id, "drive_packet_build_claim")
+        await admit_hub_content(
+            user_id, "drive_packet_build_claim", resolve_mode=self._placement_resolver
+        )
         stage, started = "claim_packet", time.monotonic()
         try:
             job = await self.packet_store.claim_packet(
@@ -287,6 +310,12 @@ class DrivePacketWorker:
                 if build and build.get("policy_version") != job["policy_version"]:
                     raise DriveReadError("packet_policy_changed")
                 build["policy_version"] = job["policy_version"]
+                # Read server-owned comparison context once per job. Unreadable
+                # context retries; the authored builder/checker assess names.
+                # Recheck placement and consent after the awaited read.
+                stage = "load_owner_identity"
+                owner = await self.packet_store.owner_identity(user_id=job["user_id"])
+                await self._packet_current(job)
                 if job["build_phase"] in {"construct", "verify"}:
                     stage = "load_member_evidence"
                     await self._packet_current(job)
@@ -305,6 +334,7 @@ class DrivePacketWorker:
                             documents=documents,
                             complete=bool(last and all(item["complete"] for item in documents)),
                             previous=build.get("assessment"),
+                            owner=owner,
                         )
                         self._policy_current(job["policy_version"])
                         build["assessment"] = _payload(answer)
@@ -327,6 +357,7 @@ class DrivePacketWorker:
                                 "batch_document_ids": [item["document_id"] for item in documents],
                                 "previously_checked": build.get("checked_count", 0),
                             },
+                            owner=owner,
                         )
                         build["checked_count"] = build.get("checked_count", 0) + len(documents)
                         build["batch_checks_passed"] = (
@@ -379,6 +410,7 @@ class DrivePacketWorker:
                         "batch_checks_passed": build.get("batch_checks_passed", False),
                         "batch_issues": build.get("batch_issues", []),
                     },
+                    owner=owner,
                 )
                 if not build.get("batch_checks_passed") and checked["state"] == "ready":
                     checked["state"] = "incomplete"
@@ -412,46 +444,65 @@ class DrivePacketWorker:
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
-                owners = await self.facts_store.due_owners(limit=max(1, (max_jobs + 1) // 2))
-                # Every owner first gets one facts job and one packet job, as
-                # before. Leftover budget adds facts jobs per owner, up to the
-                # durable per-owner facts cap. Packet builds stay one per owner.
-                plan = [(user_id, packet) for user_id in owners for packet in (False, True)]
-                plan += [
-                    (user_id, False) for _ in range(1, facts_owner_leases()) for user_id in owners
-                ]
-                plan = plan[:max_jobs]
-                facts_jobs = Counter(user_id for user_id, packet in plan if not packet)
+                # Least recently served first. Each of max_jobs slots runs one
+                # job; a candidate with nothing due costs a claim, not the slot.
+                owners = await self.facts_store.due_owners(limit=max_jobs)
+                # Packet builds stay one per owner and use at most packet_slots()
+                # slots. A packet slot that finds no build due runs facts.
+                packets = deque(owners)
+                # Facts go round-robin: every owner's first job before any
+                # owner's second, up to the durable per-owner cap. The claim
+                # keeps running jobs on distinct documents across instances.
+                facts = deque(user_id for _ in range(facts_owner_leases()) for user_id in owners)
+                drained, enqueued, locks = set(), set(), {}
 
                 async def one(job, **kwargs):
                     try:
-                        counts[await job(**kwargs)] += 1
+                        outcome = await job(**kwargs)
                     except Exception:  # noqa: BLE001 - one owner cannot cancel other durable lanes
-                        counts["unavailable"] += 1
+                        outcome = "unavailable"
+                    counts[outcome] += 1
+                    return outcome
 
-                async def owner_facts(user_id, jobs):
-                    # One enqueue per owner per sweep; the parallel jobs only claim.
-                    try:
-                        await admit_hub_content(user_id, "drive_packet_facts_claim")
-                        await self.facts_store.enqueue(
-                            user_id=user_id, policy_version=self.policy()
-                        )
-                    except Exception:  # noqa: BLE001 - reported like a failed facts job
-                        counts["unavailable"] += jobs
-                        return
-                    await asyncio.gather(
-                        *(
-                            one(self.run_facts_one, user_id=user_id, enqueue=False)
-                            for _ in range(jobs)
-                        )
-                    )
+                async def slot(packet):
+                    while packet and packets:
+                        if await one(self.run_packet_one, user_id=packets.popleft()) != "idle":
+                            return
+                    while facts:
+                        user_id = facts.popleft()
+                        if user_id in drained:
+                            continue
+                        # One enqueue per owner per sweep; the parallel jobs only claim.
+                        async with locks.setdefault(user_id, asyncio.Lock()):
+                            if user_id not in enqueued:
+                                enqueued.add(user_id)
+                                try:
+                                    await admit_hub_content(
+                                        user_id,
+                                        "drive_packet_facts_enqueue",
+                                        resolve_mode=self._placement_resolver,
+                                    )
+                                    await self.facts_store.enqueue(
+                                        user_id=user_id, policy_version=self.policy()
+                                    )
+                                except Exception:  # noqa: BLE001 - reported like a failed facts job
+                                    drained.add(user_id)
+                                    counts["unavailable"] += 1
+                                    return
+                        if user_id in drained:
+                            continue
+                        outcome = await one(self.run_facts_one, user_id=user_id, enqueue=False)
+                        if outcome in {"idle", "unavailable"}:
+                            # Nothing claimable now, or the store failed: skip
+                            # this owner's remaining candidates in this sweep.
+                            drained.add(user_id)
+                        if outcome != "idle":
+                            return
 
+                builds = min(packet_slots(), max_jobs // 2)
                 async with asyncio.TaskGroup() as group:
-                    for user_id in owners:
-                        if facts_jobs[user_id]:
-                            group.create_task(owner_facts(user_id, facts_jobs[user_id]))
-                        if (user_id, True) in plan:
-                            group.create_task(one(self.run_packet_one, user_id=user_id))
+                    for index in range(max_jobs):
+                        group.create_task(slot(index < builds))
         except TimeoutError:
             counts["deadline"] += 1
         return dict(counts)

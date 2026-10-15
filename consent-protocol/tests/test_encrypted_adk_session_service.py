@@ -391,7 +391,13 @@ async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_databas
         "hushh_mcp.one_adk.encrypted_session_service.get_db",
         lambda: pytest.fail("explicit runtime repository reached hub database"),
     )
-    service = EncryptedAdkSessionService(static_chat_cipher(), repository=repository)
+    shared_outbox = AsyncMock(side_effect=AssertionError("Private session reached shared outbox"))
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.adk_session_repository._replace_with_reply_usage", shared_outbox
+    )
+    service = EncryptedAdkSessionService(
+        static_chat_cipher(), repository=repository, referral_usage_app_name="one"
+    )
     session = await service.create_session(
         app_name="one",
         user_id="owner",
@@ -427,6 +433,27 @@ async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_databas
     replaced = repository.replace.call_args.kwargs
     assert replaced["user"] == "owner" and replaced["session"] == "thread"
     assert "synthetic private note" not in str(replaced)
+
+    await service.append_event(
+        restored,
+        Event(
+            author="user",
+            timestamp=3.0,
+            invocation_id="private-turn",
+            content=types.Content(role="user", parts=[types.Part(text="synthetic private prompt")]),
+        ),
+    )
+    await service.append_event(
+        restored,
+        Event(
+            author="one",
+            timestamp=4.0,
+            invocation_id="private-turn",
+            content=types.Content(role="model", parts=[types.Part(text="synthetic private reply")]),
+        ),
+    )
+    assert "reply_usage" not in repository.replace.call_args.kwargs
+    shared_outbox.assert_not_awaited()
 
     phases.clear()
     repository.replace.side_effect = RuntimeError("synthetic persistence failure")

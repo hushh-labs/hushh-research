@@ -1236,7 +1236,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/350_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/401_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -1581,7 +1581,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/350_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/401_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -3820,3 +3820,440 @@ uniform settings rows, sharing-history geometry and confirmed revocation. Back
 and Search receipts were regenerated together; workflow history and the capability
 graph remain unchanged. These synthetic checks do not replace the hosted full
 suite, private-agent software update or real Sandbox lifecycle receipts.
+
+
+### 2026-10-15 current-main integration qualification
+
+The existing infrastructure branch integrates main at
+`edcff65ed5f31f81fc90ff2fe9fff23e06cd44a8` through a normal merge. Calendar
+availability, the Wallet intake/artwork implementation and four-state private-agent
+presence are preserved together with the local private-placement and Back fences.
+The reviewed Wallet branch-scope exceptions retain their existing consent authority;
+root exports omit Wallet regardless of domain case or surrounding whitespace.
+The nearest five frontend files pass 95 focused cases, including pending-save Back
+refusal and cancellation of an inline scan before cancelling Add. This evidence is
+source qualification, not deployed payment acceptance. The preceding candidate
+`d46a9327e60f9c3cc42207d355e5618ea87d86b7` passed canonical core; the merged
+candidate must pass its own core and exact-head hosted CI before release.
+
+The previously approved temporary OpenID-token creation grant used for the primary
+Azure model repair has been removed. No additional financial action or new IAM
+authority is implied by this integration. Both reviewer funding totals remain
+$10.50 and the cumulative Sandbox capital remains $15. Scope purchases, term
+maturity, withdrawals and private-agent Stripe account/balance reads remain pending.
+
+
+The normal merge is committed at `4f38d45fd98c12b96347fd389025f5a29b47127f`.
+Its clean Back run passed 460 of 461 cases; the unchanged remaining Location file
+then passed all 103 cases in isolation, including late decrypted-refresh refusal
+after consent revocation. The earlier root run's Memory failures also do not
+reproduce in its isolated 52-case file. Initial failures are retained as evidence;
+these are not claims that either initial broad run passed. All covered behaviors
+were reviewed before Back and Search receipts were refreshed together.
+
+The reviewer transport additionally supports explicitly admitted document POSTs
+at Stripe's declared authorization endpoint only. The current-attempt callback
+remains mandatory; token, payment, wrong-origin and fragment-bearing paths are
+refused. All 63 nearest preparation-guard cases pass, and independent source review
+found no authority broadening. This is rehearsal transport support, not an OAuth
+completion receipt. The same Chrome transport and ordinary unlocked owner lease
+remain current. No ChatGPT host plugin or application SDK credential substitutes
+for the private agent's owner OAuth.
+
+
+The merged candidate's first core run stopped at 27 architecture size findings.
+Independent backend, frontend, test and architecture reviews qualified exactly
+23 existing occurrence values and four incoming-source occurrences. This records
+reviewed inherited or composed source debt; incoming main has no prior accepted
+ratchet baseline. All 2,663 previous occurrences remain represented, alongside
+unchanged detector behavior, exclusions, history and 500/250/80 size budgets.
+The resulting candidate must rerun canonical core and hosted CI before deployment.
+No new scope purchase or provider OAuth completion is established by this review.
+
+
+### 2026-10-15 Live Mirror and Drive integration checkpoint
+
+The same infrastructure branch integrates main `4542531afb75` through a normal
+merge. Migration 346 fills an unused number; task migrations 349–355, their SQL
+bodies and the preservation receipt remain intact. All three schema projections
+and the canonical manifest agree on head 355. A deployed head number alone will
+not establish that the new additive migration was applied.
+
+The union preserves private-processing admission after Drive fold-lock waits and
+before enqueue, model work and publication. Closed style settings remain separate
+from the owner/epoch-bound Live Mirror packet. Automatic SOS clear migration now
+respects restricted reviewer policy and owner/token/vault retirement; explicit
+Clear remains available. Three incoming Drive security test groups were restored.
+Focused checks pass 317 backend, 161 frontend, 67 real-PostgreSQL Drive, 27 SOS/Feed
+and all 462 Back cases. Earlier failing runs remain recorded; no timeout or
+authorization assertion was weakened. Back/Search and owned projections were
+regenerated together. Exactly 65 independently reviewed size occurrences retain
+visible incoming/composed debt with unchanged detector and 500/250/80 budgets.
+
+The first core attempt for `df3848da286a` was interrupted when the newer main
+integration superseded it; its owned process group exited. It is not a core pass.
+The completed candidate still requires canonical core, exact-head hosted CI and
+Dev/pod release. No scope purchase, refund, term maturity, bank payout or private
+agent Stripe OAuth receipt has been added at this checkpoint. Both reviewer
+funding totals remain $10.50 and cumulative Sandbox capital remains $15.
+
+Memory Saved already mounts exact-section price review, with server-side paid
+readiness enforcement and independent free sharing. Chat currently has canonical
+financial status reads and Memory navigation; exact-scope price review from chat
+is a remaining interface gap. Stripe MCP OAuth is separate from payment readiness.
+After a host restart ended the debugging client, repeated reconnect probes were
+stopped. The shared Chrome browser remains intact; further rehearsal uses headless
+sessions or the explicitly authorized AppleScript interface without fresh debugger
+connections. Physical-device acceptance remains with its separate device owner.
+
+### 2026-10-15 chat pricing review and browser interruption repair
+
+The authored `pkm.review_sharing_price` action now uses the generated journey into
+Memory and opens its existing exact-section tariff editor. It force-reads current
+owner metadata and manifests, resolves only a unique materialized handle, and
+rejects leaf-to-parent expansion, stale choices, foreign owners, expired sessions
+and unsupported proposed terms. Proposed cents and base duration only prefill the
+review. The editor retains Stripe payout eligibility checks, free sharing and its
+manual confirmation before saving. Stripe tool OAuth is not a payout prerequisite.
+
+`pkm.close_sharing_price_review` reuses the existing cancellation callbacks:
+confirmation closes before the editor. The Memory route admits only the authored
+review layer; it hides underlying actions and exposes no executable action while
+busy. A real snapshot test exposed route fallback behind blocking layers; discovery
+now uses their already-filtered executable inventory. The payment setup link closes
+the editor before opening Payments, preserving modified-link behavior. Shared
+commercial session capture also fences same-owner authentication generations before
+dispatch and publication. Removing that predicate makes the new retirement test
+fail, while its uninterrupted one-cent positive still passes.
+
+Focused verification passes 115 cases across the editor, owner-bound bridge,
+interaction-layer admission, action runtime and context snapshots. Initial failures
+and the negative-control run remain available in local evidence. These are source
+checks, not deployed chat-payment acceptance. Exactly two cohesive test-module size
+observations are independently reviewed; all earlier ratchet records, scanner
+rules and size budgets remain intact. Three exact-revision setup deprecations
+acknowledge the main merge without unioning incompatible workflow policies.
+
+At `2026-10-15T12:27:43Z`, the canonical GET-only Sandbox/provider readback confirms
+$10.50 funding per reviewer and $15 cumulative capital, with matching provider and
+ledger totals, balanced liabilities, settled backing and conserved fees. Dev still
+serves `5c2d1483aa0691134c72615b244da7c3bc0e1747`; this checkpoint submits no further
+funding, Topup, purchase or withdrawal. Canonical core, exact-head hosted CI,
+Dev/pod release, encrypted fixtures, the approved financial lifecycle and the private
+agent's Stripe account/balance OAuth reads remain required. Live payments stay off.
+
+New shared-Chrome debugger connections are stopped. No browser restart, context
+close, approval auto-click or safeguard change is used to suppress Chrome prompts.
+Further automated reviewer work uses task-owned headless sessions; authorized
+background AppleScript is available for an existing owner provider session.
+
+### 2026-10-15 latest-main composition and isolated evaluation
+
+The infrastructure branch composes main `28e9a63f4661` without creating another
+branch or preview. Additive migration 347 and task migrations 349–355 remain
+registered with their original SQL bodies and rollback mappings; all three
+schema contracts agree on head 355. Deployment must prove 346 and 347 individually,
+not infer their presence from the highest applied number.
+
+Shared referral completion uses the existing CAS transaction and content-free
+outbox. Explicit private repositories retain their owner cipher and never receive
+the shared outbox writer. The focused private-repository test protects this boundary; a separate
+broken-code negative-control execution is not established by the retained evidence. Secret synchronization
+uses one strict runtime snapshot before writes and retains only owned settings.
+
+Focused checks pass 212 backend, 100 frontend, 141 placement/PostgreSQL and 239
+evaluation cases; three pre-existing expected evaluation gaps remain. The synthetic
+replay injects only its fixed owner's placement-read port through the canonical
+guard. Foreign owners fail before content access; production defaults are intact.
+The request-only adversarial fixture now follows the authored checker's refusal
+contract. Its original falsely-Ready checker remains a paired negative control:
+independent detection reports the execution defect and the actual deploy gate
+returns failure. No runtime semantic rule, detector, gate threshold or exemption
+was changed. Synthetic responses do not prove real checker accuracy.
+
+Independent reviews qualify exactly 40 size observations: 32 replacements and
+eight additions, retaining all prior occurrences and history. Scanner behavior,
+exclusions and 500/250/80 budgets remain unchanged. This checkpoint is source
+verification; canonical core, hosted CI, Dev/pod deployment and financial/OAuth
+acceptance are still required. Funding and capital have not been repeated. The
+shared Chrome debugger is untouched; no new connection requests are made.
+
+The first full core run on `577bfa619279` passed secret/governance checks and
+20,202 protocol cases, but failed 23 cases; it is not a core pass. Corrections
+retain the actual route authority: an explicit owner-consent token admits memory,
+while Firebase-only protected context is rejected. Calendar fixtures preserve
+`httpx.AsyncClient` as a type and supply only their synthetic owner's placement
+fact through the canonical guard. Three pre-existing schema-column arrays regain
+their original main ordering without changing column sets. Seven incoming routes
+are classified in the existing Network/Support inventories.
+
+Migration 347 already supplies actor-profile cascades; no additional runtime
+delete or retention exemption is needed. The erasure inventory now proves those
+edges, and the nearest real PostgreSQL deletion case proves the deleted owner's
+activity/membership rows disappear while another owner's rows survive. Focused
+checks pass 168 route/migration cases, 28 calendar/Kai, 26 hub inventory, 22
+deployment and 25 PostgreSQL/erasure cases. One direct focused DB skip is not
+counted as PostgreSQL evidence. The Linux workflow's SHA-256 command is supplied
+locally by a task-scoped macOS adapter, qualified against independent digest
+vectors; production workflow hashing is unchanged. Four exact test-size findings
+are independently reviewed with unchanged scanner and budgets. Full core must
+rerun on the corrected commit before pushing.
+
+At `2026-10-15T13:11:48Z`, a fresh provider read confirms the same $10.50 per
+reviewer, $15 capital and conserved/backed ledger. Both reviewers then passed
+isolated headless authentication, vault unlock and owner-bound metadata checks;
+neither yet has the synthetic financial/professional scopes for paid acceptance.
+These checks create no fixtures, financial activity or shared Chrome connection.
+
+The corrected core run on `285c6eff7dba` passes all 20,225 protocol cases and all
+1,266 serial PostgreSQL cases, with 135 existing protocol skips and three existing
+expected failures. Frontend lint then catches an omitted `ShellActionSurface`
+import in the connections browser fixture; its import is restored to match the
+already-reviewed production component and fixture tags. Frontend core, MCP-package
+and integration stages must finish after this fixture-only correction. Completed
+backend/database evidence is retained; no full-core success, hosted CI, deployment
+or financial acceptance is inferred from the partial run.
+
+
+### Current-main composition and debugger admission, 2026-10-15
+
+The corrected frontend continuation on `77b798c1ea8e` passed canonical web-core,
+MCP-package and integration stages after the preceding backend/serial PostgreSQL
+stages passed on `285c6eff7dba`. This is staged evidence across the documented
+fixture-only correction, not one uninterrupted successful full-core command.
+
+A normal merge of main `db4ff6f76604` preserves the active infrastructure branch,
+its lazy One route facade, owner-private placement checks and the existing
+commercial records. PWM progress checks consent and identity binding before and
+after checkpoint reads; refusal or a changed binding exposes no progress.
+The SSE handshake uses the canonical content guard before reading jobs and
+preserves its HTTP refusal. Visibility listeners are retired with their session,
+including suppressed background sessions. Incoming reviewed migration authority
+permits only the exact intact referral v3/v4 replay chain. Migration SQL bodies,
+rollback mappings and the preservation receipt remain unchanged.
+
+Focused verification passes 170 backend, 123 frontend and 462 Back-navigation
+cases. Independent source reviews qualify exactly 18 size observations while
+retaining historical findings and unchanged scanner/budgets. The canonical graph
+regenerates against the real main merge base. Three exact-revision setup
+retirements reject older Gemini-specific cursors rather than silently accepting
+cloud-incompatible instructions. All eight predecessor references remain.
+Latest-candidate core, hosted CI and Dev/pod release remain required.
+
+Repeated Chrome debugger admission prompts are a connection-lifecycle failure,
+not evidence that an application sign-in was lost. This task makes no new shared
+CDP connection attempts or reconnect probes while the operator is away. Isolated,
+task-owned headless reviewer sessions use the canonical memory-only harness;
+shared Chrome, provider sessions and other agents' tabs remain untouched. A
+provider challenge that requires a human stays uncompleted and is recorded;
+no prompt approval or browser security-setting change is automated. This policy
+cannot guarantee that independently running clients will not request admission.
+
+No purchases, withdrawals or refunds are established by these source checks.
+The latest verified funding remains $10.50 per reviewer and $15 operating capital;
+these settled actions must not be repeated. Live payment admission stays disabled.
+
+
+The latest full core on `75eae4c391c6` passes governance, 20,245 protocol
+cases and 1,266 serial PostgreSQL cases (135 existing skips, three expected
+failures). Web verification then rejects five raw accent declarations in incoming
+onboarding CSS. Those now consume the existing accent/foreground tokens; no
+allowlist or gate is relaxed. Frontend core, MCP and integration continue on the
+CSS-only correction; backend source evidence remains applicable. Actual
+broken-code controls reject removal of stream placement admission, progress
+retirement and suppressed-session listener cleanup, then restore canonical bytes.
+A read-only provider observation at `2026-10-15T14:00:41Z` again confirms the
+same funded amounts, balanced liabilities, sufficient backing and fee conservation.
+
+
+### Concurrent-main integration, 2026-10-15
+
+Commit `046c1fbcb550` completed the local core stages across the documented
+CSS-only correction and was pushed once. GitHub reported a conflict with the
+subsequent main `fba6be0af4fa`, so no hosted CI or Dev release is inferred.
+The normal same-branch merge preserves unrelated work, published SQL and the
+commercial ledger. Incoming bank designs remain public cosmetic choices;
+credential-bearing request fields are rejected and physical exact matching
+excludes cosmetic bank designs. Its catalog endpoint is classified Support.
+
+The composition retains both bank-design revalidation and existing card-scan,
+Back and owner-retirement controls. Wallet has one outer dock host. Swipe
+selection retains explicit retargeting while a route echo does not restart the
+current animation. Chat-session retirement releases only its old local delivery
+wait, clears session UI and prevents late offers, retries and stops from writing
+into a different session. Unknown sealed appends remain unresolved and are never
+resent automatically. The existing session epoch owns synchronous retirement;
+owner-scoped composer setters are refreshed with their owner context.
+
+Focused verification passes 160 wallet/swipe/chat cases, 27 queue/transcript
+cases and 156 backend cases. The expanded 49-case migration suite directly
+rejects altered v3 values and broken v3/v4 timestamps while preserving exact
+successful replay. Generated contracts, the reviewed architecture ratchet and
+canonical core/hosted CI are required on the finished merge before release.
+Shared Chrome admission remains disabled in this task's debugger launchers;
+no other clients or browser security settings are changed.
+
+
+Canonical contract generation on the composed main base passes, including all
+462 Back cases. Independent reviews qualify exactly 13 size ceilings, preserving
+all 2,707 existing findings and historical evidence with no detector or budget
+change. The actual retirement callback-removal negative control fails the
+unknown-append case and restores the verification checkout. Hosted CI and
+financial acceptance remain unverified until their own receipts pass.
+
+
+### Release-integration status, 2026-10-15
+
+The `bcbf537b4f0f` batch passes local core stages: 20,256 protocol cases,
+1,266 PostgreSQL cases, frontend lint/build, packaged MCP and integration.
+Backend evidence is on `93c8a1584590`; its only continuation adds the completed
+Search review receipt. The exact source implementation is unchanged. The batch
+was pushed normally; another concurrent main conflict still prevents hosted CI.
+This is implementation evidence, not completed paid-scope acceptance.
+
+The current merge of `6a6f83257406` preserves incoming wallet preload/masking,
+owner/epoch/Back authority and existing separate document/answer contracts.
+It corrects an incoming semantic-boundary regression: the host must never
+replace successful model/checker copy, state, pricing rationale or identity
+judgment. Equal provider checksums reject duplicate originals through the
+existing bounded validation retry; equal extracted facts do not establish that
+identity. Existing authored policy already assesses holder ambiguity, date
+meaning and request status, so its exact fingerprint is preserved and this
+integration does not force an unrelated document-facts reindex.
+
+The adversarial harness now transports original-content checksums and generates
+consistent synthetic checksums. It retains all cohorts and pairs authored
+refusals with faulty Ready builder/checker answers: independent defect detection
+still makes the actual deploy gate fail. Scripted compliance is not a claim of
+live model accuracy. No funding, reservations, purchases or payouts were added
+by this integration; the first verified one-cent exchange remains outstanding.
+
+
+The completed composition passes 95 wallet cases, 103 focused semantic/security
+cases and the broader 267-case store/evaluation run using real PostgreSQL.
+Both Back and Search generation completed; all 462 Back cases pass. Two
+independent evidence lanes reviewed exactly 11 size observations, retaining
+all 2,707 historical findings and adding two measured slots. Scanner, budgets
+and the second store-operation occurrence remain unchanged. The next release
+requires canonical core and hosted CI; these results do not prove a purchase.
+
+
+### Dev acceptance progress, 2026-10-15
+
+The complete local core passed on `c4bc67e88e32`: 20,301 protocol cases,
+1,266 PostgreSQL cases, frontend lint/typecheck/build, packaged MCP and
+integration. The batch was pushed once. Concurrent Calendar work on main
+then required an additive three-file composition; owner/session retirement,
+message-bound confirmation and private connector authority remain intact.
+Calendar stream fixtures now supply the current owner-aware request facade
+while retaining real stream handling. Six exact size findings were independently
+reviewed without changing scanner budgets or historical evidence. The composed
+release still requires its own core and hosted CI gates.
+
+Both canonical reviewers now have a clearly labelled synthetic Professional
+fixture created through the ordinary owner-authorized encrypted PKM API. A
+source-bound browser bundle reused the serving release's crypto, manifest and
+confirmation helpers. Each save used revision-zero CAS after authoritative
+absence checks, then passed exact segmented readback and unchanged-sibling
+checks. Keys and decrypted information stayed in browser memory. This is API
+fixture setup under uninterrupted isolated-session continuity; it does not
+prove model-assisted Memory preparation or actual auth/vault epoch identity.
+No purchase or payout is inferred from those saves. Shared Chrome was untouched.
+
+### Current integration and acceptance boundary, 2026-10-15
+
+The existing branch integrates main through `dec7043e3308` without rewriting
+shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
+core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
+predates the owner-approved identifier extension and latest main composition;
+those changes require their own final core and hosted CI before Dev deployment.
+The latest merge preserves main's intentional terminal-chat/name-prompt rollback
+while retaining owner-generation, queued-delivery and consent fences. Drive
+packet judgments remain authored builder/checker outcomes; host metadata, exact
+membership, citations and original checksums retain their existing authorities.
+Two observed Drive regressions and timestamp withholding extend the nearest core
+tests; duplicate mocked semantic permutations were consolidated. These tests do
+not certify model accuracy: independent faulty-Ready evals must still expose
+unsupported account/date/completeness claims and fail the deploy gate.
+The first combined core run found eight failures: four shared Memory prompt
+caps, One's composed prompt cap, the implemented private-consent fixture and two
+exact-route inventories. Instructions were shortened without raising caps, and
+the route fixtures now include the admitted owner-only receipt endpoint. Focused
+repairs pass. Latest-main composition also restores Calendar's read-only auth
+import and carries current owner capabilities into invitation reconnects; it
+does not introduce another OAuth or payment authority.
+The `76ff725903` core run passed 20,406 protocol cases and stopped on one stale
+generated specialist matrix. Regeneration adds the two actual Calendar invitation
+tools to both owned copies. Source qualification also preserves main's closed-set
+Live Memory telemetry through the existing single validator; 111 focused checks
+and typechecking pass. The final core and hosted CI remain required.
+
+At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
+$10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled
+backing and conserved fees. A separate headless private-interface check confirms
+Stripe sign-in and connection-check controls are enabled. Its cosmetic catalog
+is not owner OAuth evidence; authenticated Stripe account reads remain unproven.
+
+Both reviewers accepted a scope-free social connection. Their existing encrypted
+synthetic fixtures expose independently discovered, exact nonwildcard role leaves.
+No paid purchase is yet proven. Frontend PKM proxy failures were observed alongside
+successful authenticated backend reads, followed by rate-limit responses. A later
+sequential unlock/profile read succeeded with one profile request. These outcomes
+remain distinct. Shared Chrome was untouched. The older commerce reader targets
+a retired JSON card; a separately reviewed, read-only canonical-crypto observer is
+prepared to prove full projected payload, independently of current card rendering.
+It has not yet been executed against a paid export.
+
+The approved next user story is employee User 1 sharing Gusto-required onboarding
+information with employer User 2. Gusto is the requirements checklist; no Gusto
+connector or submission is in scope. Government identifiers already have an
+encrypted PKM writer. Explicit owner approval of exact fields, purpose and model
+use must extend the existing grant; it must not be inferred from payment. Current
+sensitive-information withholding remains the default. The current source adds a note-bound, vault-epoch-bound identifier-processing opt-in to Memory
+Add and a separate review-bound recipient model permission to owner consent.
+Tariffs and payment do not set either permission. Paid approval freezes the
+permission; access remains unavailable until activation. Private agents use the
+existing signed owner feed for current consent, discovery and submission receipts,
+with fresh nonce-bound checks before model processing and no shared-database
+fallback in an unqualified pod. Consent-tagged original and derived invocations
+are excluded from ordinary durable pod memory before either local storage or
+provider memory receives them; unknown lineage in a tainted conversation is also
+withheld. Grant-aware conversation recovery remains authoritative. The nearest
+existing regression passes and fails under the prior unfiltered implementation.
+Previously retained memory records remain unqualified. These are source and
+focused-test results, not Dev deployment or two-reviewer acceptance.
+
+The packet covers employee legal name, SSN, birthday, phone and home address,
+following [Gusto’s employee onboarding checklist](https://support.gusto.com/article/210728164125837/add-new-employees-to-gusto).
+Other payroll details remain separately selected information; the packet does not
+prove employment eligibility, identity verification or completed Gusto onboarding.
+Recipient use stays tied to the granted information; it does not silently create
+a permanent recipient PKM copy. Credentials and security codes remain withheld.
+Rehearsals use synthetic identifiers only.
+
+The prior main integration (`812974bf4875`) preserves its published referral migrations
+348/349. The unpublished branch tail was relocated byte-for-byte from 349–355
+to 350–356 with its prior manifest, SQL and rollback bodies archived in
+`db/legacy/scope-commerce-infrastructure-ffd69db5/`. Read-only checks on
+2026-10-15 found no accepted ledger identities or baselines in that range on
+Dev, UAT or production. Existing preservation evidence remains unchanged;
+release and database preservation checks remain required.
+
+The incoming referral integration has nine independently reviewed size observations
+(eight existing slots and one `record_app_open` slot), retaining all 2,710 prior
+slots and the 500/250/80 budgets. Main has no accepted fitness baseline; these
+are explicit retained source-size debt, not prior ratchet approval. The core
+run initially stopped at stale topology, then these observations, before runtime
+tests; both failures remain in the local evidence.
+
+The subsequent `60a73734ac79` main integration retains published migration 350.
+The seven still-unpublished task migrations were allocated once to 400–406,
+which the existing sorted, unique three-digit contract permits. The exact prior
+manifest and fourteen SQL/rollback bodies are preserved in
+`db/legacy/scope-commerce-infrastructure-866c001a/`; prior archives and receipts
+remain unchanged. Fresh read-only checks at 2026-10-15 19:50 UTC found no accepted
+entries in either affected range or covering baselines on Dev/UAT/production.
+This is not a permanent range reservation. Later insertions below an established
+406 baseline must retain the existing checksum refusal and require fresh
+qualification. No database mutation or deployment is established by this source
+relocation.

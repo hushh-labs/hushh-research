@@ -260,28 +260,6 @@ function normalizePathname(pathname: string): string {
   return withoutQuery.replace(/\/+$/, "") || "/";
 }
 
-/** What a Personal World Model link names: an invitation or a ready draft. */
-const WORLD_MODEL_LINK_QUERY_KEYS = ["claim", "handoff", "draft_id"] as const;
-
-/**
- * The Personal World Model page, keeping the invitation or draft a link
- * named. The model is always this full page, never a Profile pane panel: the
- * pane is mounted outside the provider that prepares and resumes research.
- */
-export function buildProfileWorldModelRoute(
-  searchParams?: SearchParamReader | URLSearchParams | string | null,
-  hash = "",
-): string {
-  const carried = toSearchParams(searchParams);
-  const href = appendQuery(
-    ROUTES.PROFILE_WORLD_MODEL,
-    Object.fromEntries(
-      WORLD_MODEL_LINK_QUERY_KEYS.map((key) => [key, carried.get(key)]),
-    ),
-  );
-  return hash.length > 1 && hash.startsWith("#") ? `${href}${hash}` : href;
-}
-
 export function buildProfileRoute(params?: {
   panel?: ProfilePanel | null;
   detail?: ProfileDetail | null;

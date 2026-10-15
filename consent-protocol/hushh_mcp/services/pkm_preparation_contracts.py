@@ -13,6 +13,7 @@ class PKMAgentLabStructureRequest(BaseModel):
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
+    allow_identifier_processing: bool = Field(default=False, strict=True)
     memory_profile: Literal[
         "general",
         "kyc_identity_v1",

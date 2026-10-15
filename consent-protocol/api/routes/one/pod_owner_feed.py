@@ -34,6 +34,8 @@ from fastapi import APIRouter, Body, Header, HTTPException, Path, Query, Request
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.pod_command_reads import MetadataCommandReadOptions
+from hushh_mcp.services.pod_consent_read import ConsentReadOptions
+from hushh_mcp.services.pod_information_discovery import InformationDiscoveryOptions
 from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
 
 logger = logging.getLogger(__name__)
@@ -80,7 +82,21 @@ async def _read_projection(
     *,
     marketplace: Optional[MarketplaceReadOptions],
     command: Optional[MetadataCommandReadOptions],
+    consent: Optional[ConsentReadOptions] = None,
+    information: Optional[InformationDiscoveryOptions] = None,
 ) -> Any:
+    if kind == "information":
+        from hushh_mcp.services.pod_information_discovery import read_information_discovery
+
+        if information is None:
+            raise ValueError("information feed requires read options")
+        return await read_information_discovery(owner_id, information)
+    if kind == "consent":
+        from hushh_mcp.services.pod_consent_read import read_consent_feed
+
+        if consent is None:
+            raise ValueError("consent feed requires current read binding")
+        return await read_consent_feed(owner_id, consent)
     if kind == "command":
         from hushh_mcp.services.pod_command_reads import (  # noqa: PLC0415
             read_metadata_command_projection,
@@ -107,6 +123,8 @@ async def serve_owner_feed(
     *,
     marketplace: Optional[MarketplaceReadOptions] = None,
     command: Optional[MetadataCommandReadOptions] = None,
+    consent: Optional[ConsentReadOptions] = None,
+    information: Optional[InformationDiscoveryOptions] = None,
     registry: Any = None,
     verifier: Any = None,
     reader: Any = None,
@@ -115,7 +133,7 @@ async def serve_owner_feed(
     """Testable core. ``registry`` / ``verifier`` / ``reader`` are injection seams."""
     if not personal_agent_enabled():
         raise HTTPException(404, detail="owner feed is not available")
-    if kind not in _SNAPSHOT_KINDS and kind != "command":
+    if kind not in _SNAPSHOT_KINDS and kind not in {"command", "consent", "information"}:
         raise HTTPException(404, detail="no such owner feed")
     check = verifier or verify_pod_request
     verified = await check(request, authorization, owner_bound=True)
@@ -130,7 +148,12 @@ async def serve_owner_feed(
     owner_id, pod_public, pod_key_id = await _resolve_owner(verified, registry)
     try:
         projection = (reader or _read_projection)(
-            kind, owner_id, marketplace=marketplace, command=command
+            kind,
+            owner_id,
+            marketplace=marketplace,
+            command=command,
+            **({"consent": consent} if consent is not None else {}),
+            **({"information": information} if information is not None else {}),
         )
         if inspect.isawaitable(projection):
             projection = await projection
@@ -162,22 +185,73 @@ async def serve_owner_feed(
     return {"envelope": envelope}
 
 
+def _query_read_options(kind: str, options: dict[str, Any]) -> dict[str, Any]:
+    """Validate each metadata projection's options without mixing feed contracts."""
+    information_keys = {"person_ref", "scope_ref", "query", "page", "limit"}
+    consent_keys = {"bundle_id", "read_nonce", "submission_key"}
+    if kind == "information":
+        if options.get("operation") not in {
+            "connections",
+            "directory",
+            "catalog",
+            "pending",
+        } or set(options) - (information_keys | {"operation"}):
+            raise HTTPException(422, detail="information read options required")
+        values = dict(options)
+        if "scope_ref" in values:
+            values["scope_refs"] = values.pop("scope_ref")
+        return {"information": InformationDiscoveryOptions(**values)}
+    if set(options) & information_keys:
+        raise HTTPException(422, detail="information options belong to the information feed")
+    if kind == "consent":
+        if (
+            not options.get("bundle_id")
+            or not options.get("read_nonce")
+            or set(options) - consent_keys
+        ):
+            raise HTTPException(422, detail="consent read options required")
+        return {"consent": ConsentReadOptions(**options)}
+    if set(options) & consent_keys:
+        raise HTTPException(422, detail="consent options belong to the consent feed")
+    if kind not in _SNAPSHOT_KINDS:
+        raise HTTPException(404, detail="no such owner feed")
+    if options and kind != "marketplace":
+        raise HTTPException(422, detail="read options belong to the marketplace feed")
+    return {"marketplace": MarketplaceReadOptions(**options) if kind == "marketplace" else None}
+
+
 @router.get("/{kind}")
 async def owner_feed_route(
     request: Request,
     kind: str = Path(..., min_length=1, max_length=32),
     operation: Optional[
-        Literal["published", "publishable", "earnings", "commerce_summary", "commerce_activity"]
+        Literal[
+            "published",
+            "publishable",
+            "earnings",
+            "commerce_summary",
+            "commerce_activity",
+            "connections",
+            "directory",
+            "catalog",
+            "pending",
+        ]
     ] = Query(None),
     topic: Optional[str] = Query(None, max_length=160),
     power: Optional[str] = Query(None, max_length=40),
     mood: Optional[str] = Query(None, max_length=40),
     view: Optional[Literal["purchases", "sales", "transactions"]] = Query(None),
     cursor: Optional[str] = Query(None, max_length=2048),
+    person_ref: Optional[str] = Query(None, max_length=128),
+    scope_ref: Optional[list[str]] = Query(None, max_length=50),
+    query: Optional[str] = Query(None, max_length=160),
+    page: Optional[int] = Query(None, ge=1, le=250),
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    bundle_id: Optional[str] = Query(None, min_length=36, max_length=36),
+    read_nonce: Optional[str] = Query(None, pattern=r"^[0-9a-f]{32}$"),
+    submission_key: Optional[str] = Query(None, min_length=16, max_length=256),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
-    if kind not in _SNAPSHOT_KINDS:
-        raise HTTPException(404, detail="no such owner feed")
     options = {
         key: value
         for key, value in (
@@ -187,13 +261,20 @@ async def owner_feed_route(
             ("mood", mood),
             ("view", view),
             ("cursor", cursor),
+            ("person_ref", person_ref),
+            ("scope_ref", scope_ref),
+            ("query", query),
+            ("page", page),
+            ("limit", limit),
+            ("bundle_id", bundle_id),
+            ("read_nonce", read_nonce),
+            ("submission_key", submission_key),
         )
         if value is not None
     }
-    if options and kind != "marketplace":
-        raise HTTPException(422, detail="read options belong to the marketplace feed")
-    marketplace = MarketplaceReadOptions(**options) if kind == "marketplace" else None
-    return await serve_owner_feed(request, kind, authorization, marketplace=marketplace)
+    return await serve_owner_feed(
+        request, kind, authorization, **_query_read_options(kind, options)
+    )
 
 
 @router.post("/command")

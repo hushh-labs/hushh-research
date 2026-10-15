@@ -18,12 +18,11 @@ import { walletCardImageFields } from "@/lib/wallet/wallet-card-image";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./wallet-card-browser.module.css";
 
-export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, selectedCardId, selectedCardNumber, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral }: {
+export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral }: {
   cards: WalletCardSummary[];
   cardholderNames?: Readonly<Record<string, string>>;
   artworks?: Readonly<Record<string, WalletCardArtwork | undefined>>;
   selectedCardId: string | null;
-  selectedCardNumber?: string;
   onSelect: (id: string) => void;
   onOverview: () => void;
   onAdd: () => void;
@@ -158,7 +157,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
     </> : <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" showRipple={false} onClick={() => unwindBackLayer(ROUTES.ONE_WALLET)} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />Back</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" showRipple={false} disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} artwork={artworks[selected.cardId]} cardholderName={cardholderNames[selected.cardId]} revealed={active && selected.cardId === selectedCardId && selectedCardNumber ? { pan: selectedCardNumber, cardholderName: cardholderNames[selected.cardId] || "" } : null} collection />}
+        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} artwork={artworks[selected.cardId]} cardholderName={cardholderNames[selected.cardId]} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} onRevoke={active ? onRevokeReferral : undefined} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
         {selected.cardId === "agent-one-nws" ? <p className="text-xs text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}

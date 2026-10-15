@@ -85,15 +85,15 @@ function consent(id = "req-1"): PendingConsent {
 
 describe("paid owner approval releases no encrypted information", () => {
   beforeEach(() => { vi.resetAllMocks(); mocks.readiness.mockResolvedValue({ capabilities: { approve_paid_request: true } }); });
-  it("approves inactive terms before the export builder or legacy approval", async () => {
+  it.each([false, true])("freezes explicit model permission %s before the export builder or legacy approval", async (modelProcessingAllowed) => {
     mocks.commerceAccount.mockResolvedValue({ enabled: true });
     mocks.scopeRequest.mockResolvedValue({ role: "owner", tariff: { price_cents: 1 }, duration_seconds: 86400 });
     mocks.approveInactive.mockResolvedValue({ status: "approved_awaiting_payment" });
     const { buildConsentExportForScope } = await import("@/lib/consent/export-builder");
     const onActionComplete = vi.fn();
     const { result } = renderHook(() => useConsentActions({ userId: "user-1", onActionComplete }));
-    await act(async () => result.current.handleApprove({ ...consent("paid-request"), scope: "attr.travel.plans", durationHours: 24, metadata: { scope_handle: "exact-handle" } }, { quiet: true }));
-    expect(mocks.approveInactive).toHaveBeenCalledWith("vault-owner-token", "paid-request", 86400, expect.any(String));
+    await act(async () => result.current.handleApprove({ ...consent("paid-request"), scope: "attr.travel.plans", durationHours: 24, metadata: { scope_handle: "exact-handle" } }, { quiet: true, modelProcessingAllowed }));
+    expect(mocks.approveInactive).toHaveBeenCalledWith("vault-owner-token", "paid-request", 86400, expect.any(String), modelProcessingAllowed);
     expect(onActionComplete).toHaveBeenCalledWith(expect.objectContaining({ accessPending: true }));
     expect(buildConsentExportForScope).not.toHaveBeenCalled();
     expect(mocks.approvePendingConsent).not.toHaveBeenCalled();

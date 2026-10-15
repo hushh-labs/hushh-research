@@ -1044,3 +1044,21 @@ async def test_export_read_notify_is_not_pushed_to_the_owner(monkeypatch) -> Non
     await consent_listener._handle_notify(json.dumps({**base, "action": "CONSENT_GRANTED"}))
     assert dispatch.await_count == 1
     assert developer_queue.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_model_permission_comes_only_from_current_grant_and_ends_on_revocation():
+    from hushh_mcp.consent.model_processing import owner_model_processing
+
+    service, bundle_id, request_id = await _granted_service()
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is False
+    grant = service.consent.events[request_id]
+    grant["metadata"]["model_processing"] = owner_model_processing(True)
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is True
+    await service.consent.insert_event(
+        **{**grant, "action": "REVOKED", "issued_at": int(time.time() * 1000) + 1}
+    )
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["items"][0]["modelProcessingAllowed"] is False

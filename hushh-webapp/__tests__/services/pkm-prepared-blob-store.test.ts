@@ -1462,7 +1462,7 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
       .mockResolvedValueOnce({ success: false, conflict: true })
       .mockResolvedValueOnce({ success: true });
-    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation });
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation: async base => { await Promise.resolve(); return applyMutation(base); } });
     const initial = store.mock.calls[0]![0];
     const retried = store.mock.calls[1]![0];
     expect(initial.expectedDataVersion).toBe(7);

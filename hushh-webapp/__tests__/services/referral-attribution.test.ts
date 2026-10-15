@@ -1,4 +1,10 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { useRedeemReferralAttribution } from "@/lib/referral/use-redeem-referral-attribution";
+import { useDailyAppActivity } from "@/lib/referral/use-daily-app-activity";
+
+const hookAuth = vi.hoisted(() => ({ user: { uid: "owner", getIdToken: vi.fn().mockResolvedValue("id-token") } }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: hookAuth.user, loading: false }) }));
 
 import { ReferralService } from "@/lib/services/referral-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -43,6 +49,48 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.clear();
+});
+
+it("preserves a pending attribution on network failure and redeems it on reconnect", async () => {
+  rememberPendingAttribution("pending-id");
+  const bind = vi.spyOn(ReferralService, "bind").mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ status: "bound" });
+  let unmount = () => {};
+  await act(async () => { ({ unmount } = renderHook(() => useRedeemReferralAttribution())); });
+  expect(readPendingAttribution()).toBe("pending-id");
+  await act(async () => { window.dispatchEvent(new Event("online")); });
+  expect(bind).toHaveBeenCalledTimes(2);
+  expect(readPendingAttribution()).toBeNull();
+  unmount();
+});
+
+it("records server attendance on resume even when the device calendar is behind", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+  const record = vi.spyOn(ReferralService, "recordAppOpen").mockResolvedValue({
+    activity_date: "2026-10-14", timezone: "Asia/Kolkata", server_now: "2026-10-14T12:00:00Z", next_day_at: "2026-10-14T18:30:00Z",
+  });
+  let unmount = () => {};
+  try {
+    await act(async () => { ({ unmount } = renderHook(() => useDailyAppActivity(hookAuth.user as Parameters<typeof useDailyAppActivity>[0], vi.fn()))); });
+    expect(record).toHaveBeenCalledTimes(1);
+    // The next server day arrives while the device still reports the old recorded day.
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(record).toHaveBeenCalledTimes(2);
+  } finally { unmount(); vi.useRealTimers(); }
+});
+
+it("keeps invalid server day boundaries on the bounded retry interval", async () => {
+  vi.useFakeTimers();
+  const record=vi.spyOn(ReferralService,"recordAppOpen").mockResolvedValue({activity_date:"2026-10-14",timezone:"Asia/Kolkata",server_now:"invalid",next_day_at:"invalid"});
+  const hook=renderHook(()=>useDailyAppActivity(hookAuth.user as Parameters<typeof useDailyAppActivity>[0],vi.fn()));
+  try {
+    await act(async()=>{});
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+    expect(record).toHaveBeenCalledTimes(1);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(59000);});
+    expect(record).toHaveBeenCalledTimes(2);
+  } finally {hook.unmount();vi.useRealTimers();}
 });
 
 describe("ReferralService.resolve", () => {

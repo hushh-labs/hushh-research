@@ -20,7 +20,9 @@
           "calendar_event_detail",
           "calendar_events",
           "calendar_free_slots",
+          "calendar_invitations",
           "calendar_summary",
+          "open_calendar_invitation",
           "propose_calendar_cancellation",
           "propose_calendar_event",
           "propose_calendar_reschedule"

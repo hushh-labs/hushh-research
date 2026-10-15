@@ -7,12 +7,72 @@ The Postgres default keeps the current table and SQL; a pod never needs SQL acce
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 
 class SessionRecordResult(Protocol):
     data: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class CompletedReplyUsage:
+    event_id: str
+    invocation_id: str
+    occurred_at: datetime
+
+
+async def _replace_with_reply_usage(
+    execute: Callable[[str, dict[str, Any]], Awaitable[SessionRecordResult]],
+    params: dict[str, Any],
+    usage: CompletedReplyUsage,
+) -> SessionRecordResult:
+    """Shared SQL only: the content-free outbox commits with the sealed CAS."""
+    values = {
+        **params,
+        "usage_key": f"adk_reply:{params['app']}:{params['session']}:{usage.invocation_id}",
+        "usage_at": usage.occurred_at,
+        "usage_metadata": json.dumps(
+            {
+                "source": "adk_chat",
+                "session_id": params["session"],
+                "event_id": usage.event_id,
+                "message_id": usage.event_id,
+            }
+        ),
+    }
+    result = await execute(
+        """WITH persisted AS (
+            UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
+                   payload_iv = :iv, payload_tag = :tag,
+                   payload_algorithm = :algorithm, revision = revision + 1,
+                   updated_at = NOW()
+             WHERE app_name = :app AND user_id = :user AND session_id = :session
+               AND revision = :revision AND payload_ciphertext LIKE :chat_marker
+            RETURNING revision
+        ), usage AS (
+            INSERT INTO one_referral_events(user_id,event_type,idempotency_key,server_timestamp,metadata)
+            SELECT :user,'product_usage',:usage_key,:usage_at,CAST(:usage_metadata AS JSONB)
+              FROM persisted
+            ON CONFLICT(idempotency_key) DO NOTHING
+        ) SELECT revision FROM persisted""",
+        values,
+    )
+    if result.data:
+        try:
+            from hushh_mcp.services.one_referral_activity_service import reconcile_product_activity
+
+            await asyncio.to_thread(reconcile_product_activity, params["user"], usage.event_id)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "one_adk_session.referral_reconcile_deferred type=%s", type(exc).__name__
+            )
+    return result
 
 
 class AdkSessionRepository(Protocol):
@@ -148,7 +208,24 @@ class PostgresAdkSessionRepository:
         tag: str,
         algorithm: str,
         generated: bool = False,
+        reply_usage: CompletedReplyUsage | None = None,
     ) -> SessionRecordResult:
+        params = {
+            "app": app,
+            "user": user,
+            "session": session,
+            "revision": revision,
+            "generated": generated,
+            "chat_marker": chat_marker,
+            "ciphertext": ciphertext,
+            "iv": iv,
+            "tag": tag,
+            "algorithm": algorithm,
+        }
+        if reply_usage is not None:
+            if generated:
+                raise ValueError("Generated titles cannot record completed reply usage.")
+            return await _replace_with_reply_usage(self._execute, params, reply_usage)
         return await self._execute(
             """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
                       payload_iv = :iv, payload_tag = :tag,
@@ -157,16 +234,5 @@ class PostgresAdkSessionRepository:
                WHERE app_name = :app AND user_id = :user AND session_id = :session
                  AND revision = :revision AND payload_ciphertext LIKE :chat_marker
                RETURNING revision""",
-            {
-                "app": app,
-                "user": user,
-                "session": session,
-                "revision": revision,
-                "generated": generated,
-                "chat_marker": chat_marker,
-                "ciphertext": ciphertext,
-                "iv": iv,
-                "tag": tag,
-                "algorithm": algorithm,
-            },
+            params,
         )
