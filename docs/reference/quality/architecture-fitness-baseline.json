@@ -2605,7 +2605,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2940
+      "value": 2945
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3055,7 +3055,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 1101
+      "value": 1181
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3865,7 +3865,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": "WalletCardAccessService",
-      "value": 681
+      "value": 709
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6619,7 +6619,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "__init__",
-      "value": 748
+      "value": 751
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6637,7 +6637,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 277
+      "value": 278
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6646,7 +6646,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 541
+      "value": 542
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11767,7 +11767,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": "create_grants",
-      "value": 155
+      "value": 183
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16645,7 +16645,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 3024
+      "value": 3029
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17095,7 +17095,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1500
+      "value": 1583
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18445,7 +18445,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1776
+      "value": 1777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20245,7 +20245,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1260
+      "value": 1394
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20794,7 +20794,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/feed/feed-notification-projection-renderers.test.ts",
       "symbol": null,
-      "value": 516
+      "value": 525
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21631,7 +21631,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1153
+      "value": 1156
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21694,7 +21694,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 2232
+      "value": 2233
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22675,7 +22675,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1381
+      "value": 1426
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22846,7 +22846,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
-      "value": 1862
+      "value": 1869
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24710,7 +24710,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": null,
-      "value": 749
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25804,7 +25804,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
       "symbol": null,
-      "value": 906
+      "value": 999
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26922,6 +26922,24 @@
       "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
       "symbol": null,
       "value": 643
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "symbol": "test_one_time_uat_vertex_skip_is_bound_to_the_approved_release",
+      "value": 144
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_wallet_card_access_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_wallet_card_access_postgres.py",
+      "symbol": null,
+      "value": 673
     }
   ],
   "inspected_files": 6625,
@@ -53716,6 +53734,217 @@
     "incoming_main": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
     "retained_parent": "a1b0a6ed3b",
     "review": "Independent ci_registry_review qualifies exactly seven incoming/retained composition spans. Signed-settlement AST is unchanged; the restored ADK progress test retains its positive control and uses the canonical timeout category. Wallet backend classification is composed with existing owner, vault and Back checks. Preserve every other entry, multiplicity, budget, scanner and future-growth gate. Stop HTTP coverage was moved to its existing 488-line test owner instead of accepting growth in the generic fetch suite. Source qualification does not establish deployed acceptance."
+  },
+  "scope_commerce_wallet_sso_main_union_20261015": {
+    "composed_revision": "be9287c08b57a208bf6a6a045ae9ce7269257736",
+    "incoming_main_revision": "39f4c75fa0a17c79e146df371f6cb8f38f709341",
+    "prior_baseline_sha256": "6f848d6d7130458fbd02d3f7e6418d38036df97123baded3ef2e8a0c7cc3f5e6",
+    "qualified_updates": [
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2940,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "9697a0f26a38bdcecae3795cb44246cb2fe6d11827bed269a7226c84112785ef",
+        "value": 2945
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1101,
+        "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "f62cb1e6cfea623201179072041b703d42e392ba3b0f841c57e11d0415231f74",
+        "value": 1181
+      },
+      {
+        "classification": "exact_incoming_main_bytes",
+        "key": "class_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py|WalletCardAccessService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 681,
+        "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "39f5859f0f5c8792754be1305cfc37deef9a7d72f090b7882514abd6ad93f7d8",
+        "value": 709
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|__init__|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 748,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "9697a0f26a38bdcecae3795cb44246cb2fe6d11827bed269a7226c84112785ef",
+        "value": 751
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 541,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "9697a0f26a38bdcecae3795cb44246cb2fe6d11827bed269a7226c84112785ef",
+        "value": 542
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 277,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "9697a0f26a38bdcecae3795cb44246cb2fe6d11827bed269a7226c84112785ef",
+        "value": 278
+      },
+      {
+        "classification": "exact_incoming_main_bytes",
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py|create_grants|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": 155,
+        "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "39f5859f0f5c8792754be1305cfc37deef9a7d72f090b7882514abd6ad93f7d8",
+        "value": 183
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_one_time_uat_vertex_skip_is_bound_to_the_approved_release|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "c86af21e8379a3107a98f7bf80156bcb48b22532afdfdf17570131791a5b5dbd",
+        "value": 144
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 3024,
+        "path": "consent-protocol/hushh_mcp/services/account_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "9697a0f26a38bdcecae3795cb44246cb2fe6d11827bed269a7226c84112785ef",
+        "value": 3029
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 2232,
+        "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "b1fc3e97c9f4d31961940f9c20ed693192fe6c47bd350bbd405684a8459a10bb",
+        "value": 2233
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1862,
+        "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "8299fd367fe0d413a57faa73f217935903ef39ac00bae7a608182de3fbd44b76",
+        "value": 1869
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1776,
+        "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "8b857fbdee8a2de9a3da1603cbe4bcdc9fb0bc9c7c387cf6fd329351bf532472",
+        "value": 1777
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1500,
+        "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "f62cb1e6cfea623201179072041b703d42e392ba3b0f841c57e11d0415231f74",
+        "value": 1583
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1381,
+        "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+        "reviewer": "architecture_review",
+        "source_sha256": "851d1267065722f975865c96cef966158fefb0c0daae1b46fca25568856ca99d",
+        "value": 1426
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1260,
+        "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "c86af21e8379a3107a98f7bf80156bcb48b22532afdfdf17570131791a5b5dbd",
+        "value": 1394
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 1153,
+        "path": "hushh-webapp/components/connections/person-profile-page.tsx",
+        "reviewer": "architecture_review",
+        "source_sha256": "990851a1c2a1fa05a19eff2279aa8e02f3d4e94ae7f1d4f36147a7cd7f6e899c",
+        "value": 1156
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|consent-protocol/tests/test_workos_enterprise_sso_flow.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 906,
+        "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "a575b9fc4800b1ad38a81b5e010ad1e5e0fb19b0bd96febb8133dfb8d8ebf050",
+        "value": 999
+      },
+      {
+        "classification": "exact_incoming_main_bytes",
+        "key": "module_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 749,
+        "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "39f5859f0f5c8792754be1305cfc37deef9a7d72f090b7882514abd6ad93f7d8",
+        "value": 777
+      },
+      {
+        "classification": "exact_incoming_main_bytes",
+        "key": "module_size|consent-protocol/tests/test_wallet_card_access_postgres.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": null,
+        "path": "consent-protocol/tests/test_wallet_card_access_postgres.py",
+        "reviewer": "architecture_review",
+        "source_sha256": "bd5947c2884109b982304beafbef034f37e9342fc30b330889d70fc319aa0e89",
+        "value": 673
+      },
+      {
+        "classification": "reviewed_bounded_union",
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/feed-notification-projection-renderers.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "old_value": 516,
+        "path": "hushh-webapp/__tests__/lib/feed/feed-notification-projection-renderers.test.ts",
+        "reviewer": "architecture_review",
+        "source_sha256": "b3e25a66a12e457b8119a426725f7a8cedb3a6cf295c30a9f50ae4ef6d111d3d",
+        "value": 525
+      }
+    ],
+    "retained_task_revision": "67aacf009881c8ea1fc619331fe1b29de37926d7",
+    "review": "Twenty singleton size occurrences independently reviewed: eighteen exact-ceiling replacements and two appends. Preserve all previous nonvalue fields/history, scanner, exclusions and budgets500/250/80. No import or authority findings accepted. Retained debt is visible; this is not a rollout or architectural-compliance claim. UAT test adds actual seven-helper preservation/restoration proof while retaining every exact-release negative. The subsequent trusted-source S603 rationale changes no executable bytes.",
+    "reviewed_report_sha256": "26fedc3e0bfa4aee83cf6884ac3204797b5e5b60f8cfccaf4b172cd3aada2ab0",
+    "verification": "54 focused frontend,42 deployment-contract and16 Chromium/WebKit Wallet cases pass. Exact merged core/full CI and deployed acceptance remain required."
   },
   "shared_files_resumable_composition_review_20261014": {
     "entries": [

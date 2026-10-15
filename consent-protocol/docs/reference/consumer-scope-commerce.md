@@ -4162,7 +4162,7 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-The existing branch integrates main through `dec7043e3308` without rewriting
+The existing branch integrates main through `39f4c75fa0a1` without rewriting
 shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
 core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
 predates the owner-approved identifier extension and latest main composition;
@@ -4195,6 +4195,14 @@ regression. The follow-up restores the existing no-halo and keyboard-focus
 contracts, corrects the contradictory inline-name assertion and narrows Wallet's
 recipient locator without dropping history or revocation checks. Its final core,
 hosted CI and Dev acceptance remain required; no paid delivery is inferred.
+The next main union preserves Wallet card requests and SSO profile names,
+including migration 351 alongside unchanged 400–406 SQL and rollback bodies.
+It retains the visit/owner attachment fence and exact-recipient card review.
+The existing one-time UAT exception keeps its exact target and expiry; its
+matched deployment helpers survive the older checkout. Forty-two deployment
+contracts, 54 frontend cases and 16 Wallet browser cases pass. The merged
+candidate still requires its own full core and CI; the separate `67aacf0098`
+Dev candidate does not establish this merge's deployment or paid acceptance.
 
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled
