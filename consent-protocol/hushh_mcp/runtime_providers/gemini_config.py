@@ -74,7 +74,7 @@ def _sanitize_thinking_config(thinking_cfg: Any) -> Any:
 
     ``include_thoughts`` and ``thinking_budget`` pass through as they always have.
     ``thinking_level`` passes through, except MINIMAL which the fleet policy normalizes and
-    the adapter maps to LOW. A ``None`` level is left to the provider default (MEDIUM).
+    the adapter maps to LOW. A ``None`` level is left to the provider default.
     """
     if thinking_cfg is None:
         return None

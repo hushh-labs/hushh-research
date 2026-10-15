@@ -428,9 +428,9 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 #
 # One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
 # at once (manifests say `gemini-default` and resolve here). The default is the
-# selected generation; a lane flips the switch through the
-# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex policy admits it.
-# The 2026-09-25 performance decision selects 3.7 Flash and 3.6 Flash, with 3.7
+# configured release target; each lane proves model availability under its own
+# runtime identity before traffic promotion. Its Vertex policy must admit it.
+# Owner decision 2026-10-15 selects 3.8 Flash and 3.7 Flash, with 3.8
 # as default. The catalog and registry retain exactly two supported text models;
 # recency alone does not determine the selected pair.
 # Every text manifest, the memory chain included, names `gemini-default`; only
