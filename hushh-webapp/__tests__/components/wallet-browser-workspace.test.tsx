@@ -272,7 +272,11 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Choose from photos" })).toBeNull();
+    const photos = screen.getByRole("button", { name: "Choose from photos", exact: true });
+    expect(photos).toBeVisible();
+    const choosePhoto = vi.spyOn(screen.getByLabelText("Choose a card photo", { exact: true }), "click");
+    fireEvent.click(photos);
+    expect(choosePhoto).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Scan card" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
