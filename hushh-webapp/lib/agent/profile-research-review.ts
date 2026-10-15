@@ -24,6 +24,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 export const PROFILE_RESEARCH_SOURCE = "profile_research_review";
 export type ProfileReviewSession = {
   worldModel?: boolean;
+  sourceReview?: boolean;
   draftId?: string;
   userId: string;
   vaultKey: string;
@@ -226,10 +227,7 @@ export async function prepareProfileReview(
     // The model may select a current business, but cannot mint or relabel a
     // directory identity. Bind to the same inventory used during preparation,
     // never a later cache refresh with another business at the reviewed path.
-    const bound = inventory.businessTarget(
-      card,
-      resolveCardTargetDomain(card),
-    );
+    const bound = inventory.businessTarget(card, resolveCardTargetDomain(card));
     if (bound || touchesBusinessRecord(card)) {
       if (!bound)
         throw new Error("The proposed business identity needs a fresh review.");
@@ -319,6 +317,7 @@ export async function saveProfileReview(
     await session.assertCurrent();
     await ProfileResearchService.complete({
       worldModel: session.worldModel,
+      sourceReview: session.sourceReview,
       draftId: session.draftId,
       vaultKey: session.vaultKey,
       vaultOwnerToken: session.vaultOwnerToken,

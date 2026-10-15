@@ -28,6 +28,7 @@ import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from db.connection import dedicated_connection
 from hushh_mcp.agents.email.runtime import (
     EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA,
     run_email_gene,
@@ -106,20 +107,19 @@ _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_RETRIES = 1
-# A model failure for one message (timeout, unavailable provider, malformed or
-# unverifiable answer) asks the model once more for that message. Every answer
-# is still fully validated, and a second failure still fails the page typed.
+# Only transient model failures are retried. Invalid or unverifiable extraction
+# is a permanent validation failure for this scan, and fails the page typed.
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
         "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
-        "GMAIL_RECEIPT_EXTRACTION_INVALID",
-        "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
     }
 )
 _EXTRACTOR_RETRY_DELAY_SECONDS = 1.0
 _CANCEL_DRAIN_SECONDS = 1.0
 _SCAN_STALE_SECONDS = _DEADLINE_SECONDS + _CANCEL_DRAIN_SECONDS + 4.0
+# Bound dedicated lock sessions independently of Cloud Run request concurrency.
+_SCAN_CONNECTIONS_PER_WORKER = 2
 _RESPONSE_BUDGET = 4 * 1024 * 1024
 _BODY_EVIDENCE_BYTES = 12_000
 _DETAIL_EXCERPT_BYTES = 4_000
@@ -915,6 +915,7 @@ class GmailLiveReceiptsService:
         self._extractor = extractor or self._run_extractor
         self._active_scans: dict[str, _ScanLease] = {}
         self._active_owners_guard = asyncio.Lock()
+        self._scan_connections = asyncio.Semaphore(_SCAN_CONNECTIONS_PER_WORKER)
 
     def _secret(self) -> bytes:
         if self._source_secret is not None:
@@ -958,12 +959,26 @@ class GmailLiveReceiptsService:
                 payload.get("page") != page
                 or payload.get("per_page") != per_page
                 or not isinstance(payload.get("before"), int)
-                or not now - 7200 <= payload["before"] <= now + 60
+                or payload["before"] > now + 60
                 or not _pagination_token(payload.get("token"))
             ):
                 raise ValueError
+            if payload["before"] < now - 7200:
+                raise GmailApiError(
+                    "Receipt continuation expired. Start a new scan.",
+                    status_code=409,
+                    code="GMAIL_RECEIPT_CURSOR_EXPIRED",
+                )
             return payload
-        except (ValueError, TypeError, KeyError, GmailApiError):
+        except GmailApiError as exc:
+            if exc.code == "GMAIL_RECEIPT_CURSOR_EXPIRED":
+                raise
+            raise GmailApiError(
+                "Receipt continuation is invalid. Start a new scan.",
+                status_code=400,
+                code="GMAIL_RECEIPT_INVALID_RESPONSE",
+            ) from None
+        except (ValueError, TypeError, KeyError):
             raise GmailApiError(
                 "Receipt continuation expired or is invalid. Start a new scan.",
                 status_code=400,
@@ -1071,6 +1086,7 @@ class GmailLiveReceiptsService:
                 consent_token=consent_token,
                 output_schema=EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA,
                 timeout_seconds=_EXTRACTOR_TIMEOUT_SECONDS,
+                retry_on_failure=False,
             )
         except TimeoutError:
             raise GmailApiError(
@@ -1078,7 +1094,20 @@ class GmailLiveReceiptsService:
                 status_code=504,
                 code="GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
             ) from None
-        except Exception:
+        except Exception as exc:
+            # The ADK boundary may wrap schema/JSON errors. Keep them permanent
+            # rather than relabelling them as retryable provider unavailability.
+            current: BaseException | None = exc
+            seen: set[int] = set()
+            while current is not None and id(current) not in seen:
+                seen.add(id(current))
+                if isinstance(current, ValueError):
+                    raise GmailApiError(
+                        "Receipt extraction returned an invalid result.",
+                        status_code=502,
+                        code="GMAIL_RECEIPT_EXTRACTION_INVALID",
+                    ) from None
+                current = current.__cause__ or current.__context__
             raise GmailApiError(
                 "Receipt extraction is temporarily unavailable.",
                 status_code=503,
@@ -1316,10 +1345,29 @@ class GmailLiveReceiptsService:
                         code="GMAIL_RECEIPT_NOT_FOUND",
                     )
                 if response.status_code != 200:
+                    if (
+                        response.status_code == 400
+                        and path == "/messages"
+                        and params.get("pageToken")
+                    ):
+                        raise GmailApiError(
+                            "Receipt continuation expired. Start a new scan.",
+                            status_code=409,
+                            code="GMAIL_RECEIPT_CURSOR_EXPIRED",
+                            provider_status_code=400,
+                        )
+                    if 400 <= response.status_code < 500 and response.status_code != 429:
+                        raise GmailApiError(
+                            "Gmail rejected the receipt request.",
+                            status_code=502,
+                            code="GMAIL_RECEIPT_INVALID_RESPONSE",
+                            provider_status_code=response.status_code,
+                        )
                     raise GmailApiError(
                         "Gmail is temporarily unavailable.",
-                        status_code=502,
+                        status_code=503,
                         code="GMAIL_PROVIDER_UNAVAILABLE",
+                        provider_status_code=response.status_code,
                     )
                 if response.headers.get("content-encoding", "identity").lower() != "identity":
                     raise GmailApiError(
@@ -1606,9 +1654,50 @@ class GmailLiveReceiptsService:
         per_page: int = _MAX_PER_PAGE,
         cursor: str | None = None,
     ) -> dict[str, Any]:
+        # A process-local lease cannot fence another Cloud Run instance. A
+        # nonblocking session lock shares the owner lane across instances;
+        # closing its dedicated connection releases it even on cancellation.
+        lock_key = int.from_bytes(
+            hashlib.sha256(f"gmail-receipt-scan\x00{user_id}".encode()).digest()[:8],
+            "big",
+            signed=True,
+        )
+        lease_identity = await self._claim_scan(user_id)
+        try:
+            async with asyncio.timeout(_DEADLINE_SECONDS):
+                async with self._scan_connections, dedicated_connection() as conn:
+                    acquired = await conn.fetchval("SELECT pg_try_advisory_lock($1)", lock_key)
+                    if not acquired:
+                        raise self._scan_in_progress()
+                    return await self._scan_page(
+                        user_id=user_id,
+                        consent_token=consent_token,
+                        require_access=require_access,
+                        page=page,
+                        per_page=per_page,
+                        cursor=cursor,
+                    )
+        except TimeoutError:
+            raise GmailApiError(
+                "The Gmail receipt scan timed out. Please try again.",
+                status_code=504,
+                code="GMAIL_RECEIPT_SCAN_TIMEOUT",
+            ) from None
+        finally:
+            await self._release_scan(user_id, lease_identity)
+
+    async def _scan_page(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        require_access: RequireAccess,
+        page: int = 1,
+        per_page: int = _MAX_PER_PAGE,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
         page = max(1, min(_MAX_PAGE, int(page)))
         per_page = max(1, min(_MAX_PER_PAGE, int(per_page)))
-        lease_identity = await self._claim_scan(user_id)
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
                 authority = await self._authority(user_id=user_id, require_access=require_access)
@@ -1818,11 +1907,9 @@ class GmailLiveReceiptsService:
         except httpx.HTTPError:
             raise GmailApiError(
                 "Gmail is temporarily unavailable.",
-                status_code=502,
+                status_code=503,
                 code="GMAIL_PROVIDER_UNAVAILABLE",
             ) from None
-        finally:
-            await self._release_scan(user_id, lease_identity)
 
     async def detail(
         self,

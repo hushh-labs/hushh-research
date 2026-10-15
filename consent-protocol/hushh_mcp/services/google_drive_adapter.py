@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
@@ -35,6 +35,23 @@ CONTENT_LIMIT = 4 * 1024 * 1024
 LIVE_COLLECTION_CONTENT_LIMIT = 32 * 1024 * 1024
 DEADLINE_SECONDS = 20
 MAX_SELECTION = 25
+
+
+def valid_metadata_name(value: object) -> TypeGuard[str]:
+    """Preserve provider titles within the existing metadata response budget.
+
+    Drive's File.name is a string, not a 1,024-character local filename. A
+    valid long title must not stall discovery or fail a later source recheck.
+    Display and model-context limits belong at their respective boundaries.
+    """
+    if not isinstance(value, str) or not 1 <= len(value) <= METADATA_LIMIT:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= METADATA_LIMIT
+    except UnicodeError:
+        return False
+
+
 SELECTED_POLICY = {
     "version": 1,
     "access": "selected_files",
@@ -153,6 +170,24 @@ LIVE_SUPPORTED_TYPES = SUPPORTED_TYPES | frozenset(
         "image/jpeg",
         "image/jpg",
     }
+)
+# The live provider can read more types than the page extractor can parse.
+# Use this original-file allowlist only when admitting background extraction.
+LIVE_EXTRACTABLE_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+)
+LIVE_EXTRACTABLE_ORIGINAL_TYPES = (
+    LIVE_SUPPORTED_TYPES & LIVE_EXTRACTABLE_CONTENT_TYPES
+) | frozenset(
+    original
+    for original, exported in LIVE_EXPORTS.items()
+    if exported in LIVE_EXTRACTABLE_CONTENT_TYPES
 )
 
 
@@ -626,8 +661,7 @@ class GoogleDriveAdapter:
             raise DriveReadError("unsupported_format")
         name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
         if (
-            not isinstance(name, str)
-            or not 1 <= len(name) <= 1024
+            not valid_metadata_name(name)
             or not isinstance(version, str)
             or not re.fullmatch(r"[0-9]{1,30}", version)
             or not isinstance(modified, str)
@@ -776,8 +810,7 @@ class GoogleDriveAdapter:
         name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
         created = result.get("createdTime")
         if (
-            not isinstance(name, str)
-            or not 1 <= len(name) <= 1024
+            not valid_metadata_name(name)
             or not isinstance(version, str)
             or not re.fullmatch(r"[0-9]{1,30}", version)
             or not isinstance(modified, str)

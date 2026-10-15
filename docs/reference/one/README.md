@@ -76,4 +76,4 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
 - [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.
 
-- [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md).
+- [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md): default-on background research after setup and vault unlock, the dedicated `/one/profile/world-model` page, and per-fact Yes / No / Edit / Remove saved to the owner's encrypted Soul.md memory.

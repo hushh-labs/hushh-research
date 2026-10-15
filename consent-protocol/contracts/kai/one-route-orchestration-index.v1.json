@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -212,6 +212,49 @@
         "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/calendar/reschedule",
+      "page_file": "app/calendar/reschedule/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.calendar.reschedule",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.calendar.reschedule",
+        "purpose": "Review offered alternatives and reply to the sender without login or booking.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that the offered availability could not be checked.",
+          "cancelled": "Keep the meeting unchanged.",
+          "failed": "Ask the sender for another link without claiming any free time.",
+          "timeout": "Offer to check the same reviewed alternatives again.",
+          "callback_error": "No sign-in callback is required; ask the sender for a valid link.",
+          "route_mismatch": "Use only this capability reader; never open the logged-in Calendar homepage."
+        },
+        "completion_boundary": "The organizer updates the invitation after an email reply; this page never changes a meeting.",
+        "next_route": null,
+        "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -1432,7 +1475,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model research is explicitly started from Profile; mounting chat or completing onboarding never dispatches public-profile or business discovery.",
+        "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1492,7 +1535,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+        "completion_boundary": "Calendar changes happen only after the person confirms the exact review in Calendar or the exact proposal in chat. Attendance changes only the connected attendee response; email delivery has its own confirmed outcome.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5216,7 +5259,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.world_model",
-        "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Explicit Build starts public research; the owner checks exact statements and sources before saving. Invitation claiming verifies a contact and grants no sharing.",
+        "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares the model automatically; the owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
         "screen": "profile_world_model",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -7279,6 +7322,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/world-model/invite",
+      "page_file": "app/world-model/invite/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.world_model.invite",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.world_model.invite",
+        "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
+        "screen": "app",
+        "entry_cue": "Check your invitation, then continue when ready.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+        "next_route": "/one/profile/world-model",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pwm-invite"
     }
   ]
 }

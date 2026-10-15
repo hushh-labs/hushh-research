@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectDomainRows } from "@/lib/pkm/memory-complete-rows";
+import { collectDomainRows, MAX_LIVING_SOURCE_MEMORY_ROWS } from "@/lib/pkm/memory-complete-rows";
 import { buildMemoryDocument } from "@/lib/pkm/memory-document";
 import type { PkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 
@@ -78,6 +78,84 @@ describe("a memory record is complete, not a display summary", () => {
 });
 
 describe("exclusion still applies to the complete walk", () => {
+  it("keeps private Wallet artwork out of owner and agent documents while retaining owner summaries", () => {
+    const wallet = { summary: { card_1: { nickname: "Everyday card" } },
+      artwork: { card_1: { image: "private-raster-marker" } } };
+    for (const audience of ["self", "agent"] as const) {
+      const rows = collectDomainRows({ domain: "wallet", domainData: wallet, audience });
+      const document = buildMemoryDocument({ snapshot: emptySnapshot, audience,
+        sources: [{ domain: "wallet", contentRevision: 1 }], domainData: { wallet },
+        builtAt: "2026-10-15T00:00:00.000Z" });
+      expect(JSON.stringify(rows)).not.toContain("private-raster-marker");
+      expect(document.markdown).not.toContain("private-raster-marker");
+      if (audience === "self") expect(document.markdown).toContain("Everyday card");
+    }
+  });
+
+  it("bounds source rows deterministically and reports an incomplete record at the cap", () => {
+    const now = "2026-10-15T00:00:00.000Z";
+    const records = Array.from({ length: 2_224 }, (_, index) => ({
+      kind: "connection", id: `peer-${String(index).padStart(4, "0")}`,
+      revision: 1, createdAt: now, updatedAt: now, capturedAt: now,
+      deletedAt: null, value: { counterpartId: `peer-${index}` },
+    }));
+    const inventory = { complete: true, unavailable: [], observedAt: now,
+      verifiedAt: { connection: now }, records };
+    const collect = (sourceRecords: typeof records) => collectDomainRows({
+      domain: "one_living_sources", audience: "self", ownerUserId: "owner", now,
+      domainData: { _private: { inventory: { ...inventory, records: sourceRecords } } },
+    });
+    const first = collect(records);
+    const reordered = collect([...records].reverse());
+    expect(first.rows).toHaveLength(MAX_LIVING_SOURCE_MEMORY_ROWS);
+    expect(first.truncated).toBe(true);
+    expect(reordered.truncated).toBe(true);
+    expect(reordered.rows).toEqual(first.rows);
+    expect(inventory.records).toHaveLength(2_224);
+  });
+
+  it("shows only the owner a bounded retained change log and its retention boundary", () => {
+    const now = "2026-10-15T00:00:00.000Z";
+    const domainData = { _private: {
+      inventory: { complete: true, unavailable: [], observedAt: now, records: [] },
+      observed_history: { firstRetainedSequence: 5, nextSequence: 7,
+        truncatedAt: "2026-10-14T00:00:00.000Z", changes: [
+          { sequence: 6, kind: "profile", id: "owner", revision: 2,
+            operation: "upsert", capturedAt: now, sourceUpdatedAt: now,
+            value: { name: "Ankit" } },
+          { sequence: 5, kind: "profile", id: "owner", revision: 1,
+            operation: "upsert", capturedAt: now, sourceUpdatedAt: now,
+            value: { name: "Ankit Kumar Singh" } },
+        ] },
+    } };
+    const owner = collectDomainRows({ domain: "one_living_sources", domainData,
+      audience: "self", ownerUserId: "owner", now });
+    const agent = collectDomainRows({ domain: "one_living_sources", domainData,
+      audience: "agent" });
+    expect(owner.rows.map(row => row.value)).toContain('{"name":"Ankit"}');
+    expect(owner.rows.some(row => row.label.includes("First retained sequence"))).toBe(false);
+    expect(owner.rows.some(row => row.value.includes("First retained sequence 5"))).toBe(true);
+    expect(owner.rows.some(row => row.label.includes("Recent observed change #6"))).toBe(true);
+    expect(agent.rows).toHaveLength(0);
+    expect(JSON.stringify(agent)).not.toContain("Ankit");
+  });
+
+  it("keeps indexed source facts in the owner's document and out of agent exports", () => {
+    const now = "2026-10-15T00:00:00.000Z";
+    const domainData = { one_living_sources: { _private: { inventory: {
+      complete: true, unavailable: [], observedAt: now,
+      records: [{ kind: "profile", id: "owner", revision: 1, createdAt: now,
+        updatedAt: now, capturedAt: now, deletedAt: null, value: { name: "Ankit" } }],
+    } } } };
+    const build = (audience: "self" | "agent") => buildMemoryDocument({
+      snapshot: emptySnapshot, domainData, ownerUserId: "owner", audience,
+      sources: [{ domain: "one_living_sources", contentRevision: 1 }], builtAt: now,
+    });
+    expect(build("self").markdown).toContain("profile.name · verified");
+    expect(build("agent").markdown).not.toContain("Ankit");
+    expect(build("agent").markdown).not.toContain("profile.name · verified");
+  });
+
   it("withholds a reserved label_only branch from an agent record and names it", () => {
     const section = collectDomainRows({
       domain: "wallet",

@@ -11,16 +11,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
 from db.db_client import get_db
+from hushh_mcp.consent.audit_logger import get_trace_id
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
@@ -39,6 +43,7 @@ CALENDAR_READ_DEADLINE_SECONDS = 12.0
 _CALENDAR_READ_ATTEMPT_TIMEOUT = 5.0
 _CALENDAR_READ_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
+_MISSING = object()
 # Attendee fields an events.patch may carry back. Read-only fields (id, self,
 # organizer) are recomputed by Google and never echoed.
 _WRITABLE_ATTENDEE_FIELDS = frozenset(
@@ -56,6 +61,94 @@ _WRITABLE_ATTENDEE_FIELDS = frozenset(
 
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _provider_color(value: object) -> str | None:
+    return (
+        value.lower()
+        if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value)
+        else None
+    )
+
+
+class _MeetingAnchors(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "a":
+            self.links.extend(value for name, value in attrs if name.lower() == "href" and value)
+
+
+def _meeting_link(value: object) -> tuple[str, str] | None:
+    """Admit actual HTTPS join paths, never provider homepages or booking links."""
+    if not isinstance(value, str) or len(value) > 8192:
+        return None
+    candidate = unescape(value).strip()
+    if any(ord(character) < 32 for character in candidate):
+        return None
+    try:
+        url = urlsplit(candidate)
+        if (
+            url.scheme != "https"
+            or url.username is not None
+            or url.password is not None
+            or url.port not in (None, 443)
+        ):
+            return None
+        host, path = (url.hostname or "").lower(), url.path
+        if host == "meet.google.com" and (
+            re.fullmatch(r"/[a-z]{3}-[a-z]{4}-[a-z]{3}/?", path)
+            or re.fullmatch(r"/lookup/[A-Za-z0-9_-]+/?", path)
+        ):
+            return candidate, "Google Meet"
+        if any(
+            host == suffix or host.endswith("." + suffix) for suffix in ("zoom.us", "zoomgov.com")
+        ) and (
+            re.fullmatch(r"/(?:j|w|wc/j)/[0-9]{9,12}/?", path)
+            or re.fullmatch(r"/wc/[0-9]{9,12}/join/?", path)
+            or re.fullmatch(r"/my/[A-Za-z0-9][A-Za-z0-9._-]{0,99}/?", path)
+        ):
+            return candidate, "Zoom Meeting"
+        if host in {"teams.microsoft.com", "teams.live.com", "teams.cloud.microsoft"} and (
+            re.fullmatch(r"/l/meetup-join/[^\s<>]+", path)
+            or re.fullmatch(r"/meet/[0-9]{10,40}/?", path)
+        ):
+            return candidate, "Microsoft Teams"
+    except ValueError:
+        return None
+    return None
+
+
+def _event_meeting(event: dict[str, Any]) -> tuple[str, str] | None:
+    conference = _mapping(event.get("conferenceData"))
+    entries = conference.get("entryPoints")
+    candidates = (
+        [
+            item.get("uri")
+            for item in entries
+            if isinstance(item, dict) and item.get("entryPointType") == "video"
+        ]
+        if isinstance(entries, list)
+        else []
+    )
+    candidates.append(event.get("hangoutLink"))
+    for field in ("description", "location"):
+        text = event.get(field)
+        if not isinstance(text, str):
+            continue
+        text = unescape(text)
+        anchors = _MeetingAnchors()
+        try:
+            anchors.feed(text)
+        except ValueError:
+            pass
+        candidates.extend(anchors.links)
+        candidates.extend(
+            match.rstrip(".,;)]}") for match in re.findall(r"https://[^\s<>\"']+", text)
+        )
+    return next((link for value in candidates if (link := _meeting_link(value))), None)
 
 
 class GoogleCalendarService:
@@ -109,6 +202,7 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         required_scope: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         # Include token refresh and grant checks in one wall-clock read budget.
         # Mutations keep their existing timeout and are never retried here.
@@ -125,6 +219,7 @@ class GoogleCalendarService:
                     payload=payload,
                     headers=headers,
                     required_scope=required_scope,
+                    expected_binding=expected_binding,
                 )
         except (TimeoutError, httpx.TimeoutException) as exc:
             raise GoogleConnectionError(
@@ -150,12 +245,19 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None,
         headers: dict[str, str] | None,
         required_scope: str | None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         before = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
-            if access == "read"
+            if access == "read" or expected_binding is not None
             else None
         )
+        if expected_binding is not None and before != expected_binding:
+            raise GoogleConnectionError(
+                "Google Calendar connection changed",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
         if access == "read" and before is None:
             status_reader = getattr(self.connections, "status", None)
             status = (
@@ -196,10 +298,12 @@ class GoogleCalendarService:
             ) from exc
         current = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
-            if access == "read"
+            if access == "read" or expected_binding is not None
             else None
         )
-        if access == "read" and (current is None or current != before):
+        if (access == "read" or expected_binding is not None) and (
+            current is None or current != before
+        ):
             raise GoogleConnectionError(
                 "Google Calendar connection changed",
                 status_code=409,
@@ -244,7 +348,7 @@ class GoogleCalendarService:
                         if isinstance(exc, httpx.TimeoutException)
                         else "calendar_unavailable",
                     ) from exc
-                if access == "read":
+                if access == "read" or expected_binding is not None:
                     await self._check_read_binding(user_id, current)
                 error_reason = self._response_error_reason(response)
                 transient = (
@@ -271,10 +375,16 @@ class GoogleCalendarService:
                         reason_code="calendar_reauthorization_required",
                     )
                 if response.status_code == 403:
+                    if error_reason == "insufficientPermissions":
+                        raise GoogleConnectionError(
+                            "Google Calendar permission is insufficient",
+                            status_code=403,
+                            reason_code="calendar_permission_required",
+                        )
                     raise GoogleConnectionError(
-                        "Google Calendar permission is insufficient",
-                        status_code=403,
-                        reason_code="calendar_permission_required",
+                        "Google Calendar could not read the requested calendar",
+                        status_code=502,
+                        reason_code="calendar_unreadable",
                     )
                 if response.status_code in {404, 410}:
                     raise GoogleConnectionError(
@@ -298,14 +408,20 @@ class GoogleCalendarService:
                     )
                 if response.status_code == 204:
                     if access == "read":
-                        raise self._invalid_response()
+                        raise self._invalid_response(
+                            "provider_empty_response", received=_MISSING, reason="missing_read_body"
+                        )
                     return {}
                 try:
                     parsed = response.json()
                 except ValueError as exc:
-                    raise self._invalid_response() from exc
+                    raise self._invalid_response(
+                        "provider_json", expected="JSON_object", received="", reason="invalid_json"
+                    ) from exc
                 if not isinstance(parsed, dict):
-                    raise self._invalid_response()
+                    raise self._invalid_response(
+                        "provider_envelope", expected="object", received=parsed, reason="wrong_type"
+                    )
                 return parsed
         raise self._invalid_response()
 
@@ -328,11 +444,11 @@ class GoogleCalendarService:
         ) as response:
             declared = response.headers.get("Content-Length", "")
             if declared.isdigit() and int(declared) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
-                raise self._invalid_response()
+                raise self._invalid_response("provider_body_size", reason="response_too_large")
             body = bytearray()
             async for chunk in response.aiter_bytes(chunk_size=65536):
                 if len(body) + len(chunk) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
-                    raise self._invalid_response()
+                    raise self._invalid_response("provider_body_size", reason="response_too_large")
                 body.extend(chunk)
             # aiter_bytes has already decoded Content-Encoding. Rebuilding a
             # bounded response must not decode compressed content a second time.
@@ -393,11 +509,107 @@ class GoogleCalendarService:
         return 0.1 + secrets.randbelow(150) / 1000
 
     @staticmethod
-    def _invalid_response() -> GoogleConnectionError:
+    def _invalid_response(
+        stage: str = "provider_response",
+        *,
+        field_path: str = "$",
+        expected: str = "valid_response",
+        received: object = _MISSING,
+        reason: str = "invalid_response",
+    ) -> GoogleConnectionError:
+        # Only code-authored paths/types/reasons: never payload values or IDs.
+        received_type = (
+            "missing"
+            if received is _MISSING
+            else "null"
+            if received is None
+            else "object"
+            if isinstance(received, dict)
+            else "array"
+            if isinstance(received, list)
+            else "string"
+            if isinstance(received, str)
+            else "boolean"
+            if isinstance(received, bool)
+            else "number"
+            if isinstance(received, (int, float))
+            else "unknown"
+        )
+        logger.warning(
+            "calendar.response.invalid request_id=%s stage=%s field_path=%s expected=%s received=%s reason=%s",
+            get_trace_id(),
+            stage.replace("_", "."),
+            field_path,
+            expected,
+            received_type,
+            reason,
+        )
         return GoogleConnectionError(
             "Calendar availability could not be checked",
             status_code=502,
             reason_code="calendar_invalid_response",
+        )
+
+    @classmethod
+    def _freebusy_errors(cls, errors: object, *, field_path: str = "$.calendars.*.errors") -> None:
+        """Preserve safe provider reasons without logging calendar IDs or payloads."""
+        if errors is None or errors == []:
+            return
+        if not isinstance(errors, list):
+            raise cls._invalid_response(
+                "freebusy_errors_shape",
+                field_path=field_path,
+                expected="array",
+                received=errors,
+                reason="wrong_type",
+            )
+        for item in errors:
+            if not isinstance(item, dict):
+                raise cls._invalid_response(
+                    "freebusy_errors_shape",
+                    field_path=f"{field_path}[]",
+                    expected="object",
+                    received=item,
+                    reason="wrong_type",
+                )
+            if not isinstance(item.get("reason"), str):
+                raise cls._invalid_response(
+                    "freebusy_errors_shape",
+                    field_path=f"{field_path}[].reason",
+                    expected="string",
+                    received=item.get("reason", _MISSING),
+                    reason="wrong_type",
+                )
+        known = {
+            "notFound",
+            "forbidden",
+            "internalError",
+            "groupTooBig",
+            "tooManyCalendarsRequested",
+            *_RATE_LIMIT_REASONS,
+        }
+        reasons = {
+            item.get("reason")
+            if isinstance(item.get("reason"), str) and item.get("reason") in known
+            else "unknown"
+            for item in errors
+        }
+        logger.warning(
+            "calendar.freebusy.partial_failure request_id=%s reasons=%s",
+            get_trace_id(),
+            ",".join(sorted(reasons)),
+        )
+        if reasons and reasons <= (_RATE_LIMIT_REASONS | {"internalError"}):
+            raise GoogleConnectionError(
+                "Google could not check every calendar. Try again shortly.",
+                status_code=503,
+                reason_code="calendar_provider_unavailable",
+            )
+        raise GoogleConnectionError(
+            "Availability could not be checked because Google cannot read an included calendar. "
+            "Check access to your calendars in Google Calendar, then retry.",
+            status_code=502,
+            reason_code="calendar_unreadable",
         )
 
     @classmethod
@@ -416,21 +628,7 @@ class GoogleCalendarService:
     @staticmethod
     def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
         conference_data = _mapping(event.get("conferenceData"))
-        entry_points = conference_data.get("entryPoints")
-        video_entry = (
-            next(
-                (
-                    item
-                    for item in entry_points
-                    if isinstance(item, dict)
-                    and item.get("entryPointType") == "video"
-                    and isinstance(item.get("uri"), str)
-                ),
-                None,
-            )
-            if isinstance(entry_points, list)
-            else None
-        )
+        meeting = _event_meeting(event)
         conference_request = _mapping(conference_data.get("createRequest"))
         conference_status = _mapping(conference_request.get("status"))
         return {
@@ -442,19 +640,43 @@ class GoogleCalendarService:
             "start": event.get("start"),
             "end": event.get("end"),
             "status": event.get("status"),
+            "organizer": event.get("organizer"),
+            "can_decline": not _mapping(event.get("organizer")).get("self")
+            and not event.get("attendeesOmitted")
+            and any(
+                isinstance(item, dict) and item.get("self") and not item.get("organizer")
+                for item in event.get("attendees", [])
+            ),
             "attendees": [
-                {"email": item.get("email"), "response_status": item.get("responseStatus")}
+                {
+                    "email": item.get("email"),
+                    "response_status": item.get("responseStatus"),
+                    "self": item.get("self") is True,
+                }
                 for item in event.get("attendees", [])
                 if isinstance(item, dict)
             ],
             "html_link": event.get("htmlLink"),
-            "conference_url": (video_entry.get("uri") if video_entry else event.get("hangoutLink")),
+            "conference_url": meeting[0] if meeting else None,
+            "conference_name": meeting[1] if meeting else None,
             "conference_status": conference_status.get("statusCode") or None,
+            "conference_provider": _mapping(conference_data.get("conferenceSolution")).get("name"),
+            "conference_type": _mapping(
+                _mapping(conference_data.get("conferenceSolution")).get("key")
+            ).get("type"),
+            "color_id": event.get("colorId"),
+            "recurring_event_id": event.get("recurringEventId"),
+            "original_start_time": event.get("originalStartTime"),
             "updated": event.get("updated"),
         }
 
     async def list_calendars(
-        self, *, user_id: str, max_results: int = 50, page_token: str | None = None
+        self,
+        *,
+        user_id: str,
+        max_results: int = 50,
+        page_token: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """One bounded page of the owner's subscribed calendars."""
         if page_token is not None and (not page_token or len(page_token) > 2048):
@@ -469,17 +691,45 @@ class GoogleCalendarService:
             access="read",
             params=params,
             required_scope=CALENDAR_LIST_READ_SCOPE,
+            expected_binding=expected_binding,
         )
         items = response.get("items", [])
-        if not isinstance(items, list):
-            raise GoogleConnectionError("Calendar list is unavailable", status_code=502)
+        if not isinstance(items, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+            for item in items
+        ):
+            raise GoogleConnectionError(
+                "Calendar list is unavailable",
+                status_code=502,
+                reason_code="calendar_invalid_response",
+            )
         calendars = [
             {
                 "id": item.get("id"),
-                "name": item.get("summary") or "Untitled calendar",
+                "name": item.get("summaryOverride") or item.get("summary") or "Untitled calendar",
                 "primary": item.get("primary") is True,
                 "access_role": item.get("accessRole"),
                 "time_zone": item.get("timeZone"),
+                **{
+                    name: value
+                    for name, source, value in (
+                        ("location", "location", item.get("location") or None),
+                        ("color_id", "colorId", item.get("colorId")),
+                        (
+                            "background_color",
+                            "backgroundColor",
+                            _provider_color(item.get("backgroundColor")),
+                        ),
+                        (
+                            "foreground_color",
+                            "foregroundColor",
+                            _provider_color(item.get("foregroundColor")),
+                        ),
+                        ("selected", "selected", item.get("selected") is True),
+                        ("hidden", "hidden", item.get("hidden") is True),
+                    )
+                    if source in item
+                },
             }
             for item in items
             if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
@@ -492,6 +742,35 @@ class GoogleCalendarService:
             **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
         }
 
+    async def event_colors(
+        self, *, user_id: str, expected_binding: tuple[str, ...] | None = None
+    ) -> dict[str, str]:
+        """Resolve provider event-color overrides without inventing a palette."""
+        response = await self._request(
+            user_id=user_id,
+            method="GET",
+            path="/colors",
+            access="read",
+            required_scope=CALENDAR_LIST_READ_SCOPE,
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
+        )
+        palette = response.get("event")
+        if not isinstance(palette, dict) or not 1 <= len(palette) <= 256:
+            raise self._invalid_response()
+        colors: dict[str, str] = {}
+        for identifier, definition in palette.items():
+            if not isinstance(identifier, str) or not identifier or len(identifier) > 32:
+                raise self._invalid_response()
+            if not isinstance(definition, dict):
+                raise self._invalid_response()
+            color = _provider_color(definition.get("background"))
+            if color is None or (
+                "foreground" in definition and _provider_color(definition["foreground"]) is None
+            ):
+                raise self._invalid_response()
+            colors[identifier] = color
+        return colors
+
     async def list_events(
         self,
         *,
@@ -502,6 +781,7 @@ class GoogleCalendarService:
         query: str | None = None,
         calendar_id: str = "primary",
         page_token: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """One bounded page of primary-calendar events, honest about truncation.
 
@@ -534,10 +814,17 @@ class GoogleCalendarService:
             path=f"/calendars/{quote(calendar_id, safe='')}/events",
             access="read",
             params=params,
+            expected_binding=expected_binding,
         )
-        items = response.get("items", [])
-        if not isinstance(items, list):
-            raise GoogleConnectionError("Calendar events are unavailable", status_code=502)
+        items = response.get("items")
+        if "items" not in response and response.get("kind") == "calendar#events":
+            items = []
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise GoogleConnectionError(
+                "Calendar events are unavailable",
+                status_code=502,
+                reason_code="calendar_invalid_response",
+            )
         events = [
             {**self._event_summary(item), "calendar_id": calendar_id}
             for item in items
@@ -582,7 +869,13 @@ class GoogleCalendarService:
         }
 
     async def freebusy(
-        self, *, user_id: str, start_at: str, end_at: str, calendar_ids: list[str] | None = None
+        self,
+        *,
+        user_id: str,
+        start_at: str,
+        end_at: str,
+        calendar_ids: list[str] | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         start, end = self._read_window(start_at, end_at)
         ids = [value.strip() for value in (calendar_ids or ["primary"]) if value and value.strip()]
@@ -594,21 +887,47 @@ class GoogleCalendarService:
             path="/freeBusy",
             access="read",
             payload={"timeMin": start, "timeMax": end, "items": [{"id": value} for value in ids]},
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
-        calendars = response.get("calendars")
+        calendars = response.get("calendars", _MISSING)
         groups = response.get("groups", {})
-        if not isinstance(calendars, dict) or not isinstance(groups, dict):
-            raise self._invalid_response()
+        for path, value in (("$.calendars", calendars), ("$.groups", groups)):
+            if not isinstance(value, dict):
+                raise self._invalid_response(
+                    "freebusy_envelope",
+                    field_path=path,
+                    expected="object",
+                    received=value,
+                    reason="wrong_type",
+                )
         for group in groups.values():
-            if not isinstance(group, dict) or group.get("errors"):
-                raise self._invalid_response()
-            members = group.get("calendars")
+            if not isinstance(group, dict):
+                raise self._invalid_response(
+                    "freebusy_group_shape",
+                    field_path="$.groups.*",
+                    expected="object",
+                    received=group,
+                    reason="wrong_type",
+                )
+            self._freebusy_errors(group.get("errors"), field_path="$.groups.*.errors")
+            members = group.get("calendars", _MISSING)
             if not isinstance(members, list) or any(
                 not isinstance(member, str) or member not in calendars for member in members
             ):
-                raise self._invalid_response()
+                raise self._invalid_response(
+                    "freebusy_group_members",
+                    field_path="$.groups.*.calendars",
+                    expected="array_of_returned_calendar_ids",
+                    received=members,
+                    reason="invalid_members",
+                )
         if any(value not in calendars and value not in groups for value in ids):
-            raise self._invalid_response()
+            raise self._invalid_response(
+                "freebusy_missing_calendar",
+                field_path="$.calendars.*",
+                expected="requested_calendar",
+                reason="missing_requested_calendar",
+            )
         # HTTP 200 can contain partial errors or malformed intervals. Neither
         # may be interpreted as a free slot, even when other calendars succeeded.
         self._merged_busy_intervals(
@@ -709,25 +1028,67 @@ class GoogleCalendarService:
     ) -> list[tuple[datetime, datetime]]:
         intervals: list[tuple[datetime, datetime]] = []
         if not isinstance(calendars, dict):
-            raise cls._invalid_response()
+            raise cls._invalid_response(
+                "freebusy_calendars_shape",
+                field_path="$.calendars",
+                expected="object",
+                received=calendars,
+                reason="wrong_type",
+            )
         for calendar in calendars.values():
-            if not isinstance(calendar, dict) or calendar.get("errors"):
-                raise cls._invalid_response()
-            busy = calendar.get("busy")
+            if not isinstance(calendar, dict):
+                raise cls._invalid_response(
+                    "freebusy_calendar_shape",
+                    field_path="$.calendars.*",
+                    expected="object",
+                    received=calendar,
+                    reason="wrong_type",
+                )
+            cls._freebusy_errors(calendar.get("errors"))
+            busy = calendar.get("busy", _MISSING)
             if not isinstance(busy, list):
-                raise cls._invalid_response()
+                raise cls._invalid_response(
+                    "freebusy_busy_shape",
+                    field_path="$.calendars.*.busy",
+                    expected="array",
+                    received=busy,
+                    reason="wrong_type",
+                )
             for item in busy:
                 if not isinstance(item, dict):
-                    raise cls._invalid_response()
-                try:
-                    start = datetime.fromisoformat(
-                        cls._iso(str(item["start"])).replace("Z", "+00:00")
+                    raise cls._invalid_response(
+                        "freebusy_interval_shape",
+                        field_path="$.calendars.*.busy[]",
+                        expected="object",
+                        received=item,
+                        reason="wrong_type",
                     )
-                    end = datetime.fromisoformat(cls._iso(str(item["end"])).replace("Z", "+00:00"))
-                except (KeyError, TypeError, ValueError, GoogleConnectionError) as exc:
-                    raise cls._invalid_response() from exc
+                parsed = []
+                for field in ("start", "end"):
+                    value = item.get(field, _MISSING)
+                    try:
+                        if not isinstance(value, str):
+                            raise ValueError()
+                        parsed.append(
+                            datetime.fromisoformat(cls._iso(value).replace("Z", "+00:00"))
+                        )
+                    except (ValueError, GoogleConnectionError) as exc:
+                        raise cls._invalid_response(
+                            "freebusy_interval_timestamp",
+                            field_path=f"$.calendars.*.busy[].{field}",
+                            expected="RFC3339_string",
+                            received=value,
+                            reason="invalid_timestamp",
+                        ) from exc
+                start, end = parsed
                 if end <= start:
-                    raise cls._invalid_response()
+                    raise cls._invalid_response(
+                        "freebusy_interval_order",
+                        field_path="$.calendars.*.busy[]",
+                        expected="start_before_end",
+                        received=item,
+                        reason="invalid_order",
+                    )
                 start, end = max(start, range_start), min(end, range_end)
                 if start < end:
                     intervals.append((start, end))
@@ -751,6 +1112,7 @@ class GoogleCalendarService:
         start_at: str,
         end_at: str,
         exclude_event_id: str | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         """Read the exact overlapping events used to warn the owner."""
         response = await self._request(
@@ -758,6 +1120,7 @@ class GoogleCalendarService:
             method="GET",
             path="/calendars/primary/events",
             access="manage",
+            expected_binding=expected_binding,
             params={
                 "timeMin": start_at,
                 "timeMax": end_at,
@@ -787,10 +1150,25 @@ class GoogleCalendarService:
         # connection reached the confirmation screen and failed only after the
         # owner pressed Schedule. Verify the management grant before creating
         # any proposal so the agent can request the incremental scope instead.
+        binding = await self.connections.read_grant_binding(user_id=user_id, service="calendar")
         await self.connections.access_token(
             user_id=user_id, service="calendar", access_level="manage"
         )
+        if not binding:
+            raise GoogleConnectionError(
+                "Reconnect Calendar before reviewing a booking",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
+        await self._check_read_binding(user_id, binding)
         plan = self._validate_plan(action=action, payload=payload)
+        plan["connection_binding"] = list(binding)
+        if action == "create" and await self.connections.has_service_scope(
+            user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
+        ):
+            plan["included_conflicts"] = await self._creation_conflicts(
+                user_id=user_id, plan=plan, binding=binding
+            )
         expected_etag: str | None = None
         if action != "create":
             event = await self._request(
@@ -798,6 +1176,7 @@ class GoogleCalendarService:
                 method="GET",
                 path=f"/calendars/primary/events/{plan['event_id']}",
                 access="manage",
+                expected_binding=binding,
             )
             expected_etag = str(event.get("etag") or "") or None
             plan["current_event"] = self._event_summary(event)
@@ -809,7 +1188,21 @@ class GoogleCalendarService:
                 start_at=plan["start_at"],
                 end_at=plan["end_at"],
                 exclude_event_id=plan.get("event_id"),
+                expected_binding=binding,
             )
+        if "included_conflicts" in plan:
+            plan["primary_conflicts"] = plan["conflicts"]
+            # Primary event details already warn about covered periods. Keep
+            # every busy period internally for the confirmation-time comparison.
+            extra = [
+                busy
+                for busy in plan["included_conflicts"]
+                if not any(
+                    self._covers_busy_period(event, busy) for event in plan["primary_conflicts"]
+                )
+            ]
+            plan["conflicts"] = [*plan["conflicts"], *extra]
+        await self._check_read_binding(user_id, binding)
         proposal_id = f"gcal_{secrets.token_urlsafe(24)}"
         await self._execute_raw_async(
             """INSERT INTO google_calendar_action_proposals
@@ -824,6 +1217,7 @@ class GoogleCalendarService:
                 "expires_at": datetime.now(UTC) + timedelta(minutes=10),
             },
         )
+        await self._check_read_binding(user_id, binding)
         return {
             "proposal_id": proposal_id,
             "action": action,
@@ -996,6 +1390,64 @@ class GoogleCalendarService:
             ] + [{"email": email} for email in added]
         return body
 
+    @staticmethod
+    def _covers_busy_period(event, busy):
+        try:
+
+            def instant(value):
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+            return instant(event["start"]["dateTime"]) <= instant(
+                busy["start"]["dateTime"]
+            ) and instant(event["end"]["dateTime"]) >= instant(busy["end"]["dateTime"])
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    async def _creation_conflicts(self, *, user_id, plan, binding):
+        # Reuse the same included-calendar inventory as Schedule. A free window
+        # may have changed while the owner was reviewing the booking in chat.
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+        schedule = CalendarScheduleService(calendar=self)
+        inventory = await schedule._included_calendars(user_id, binding=binding)
+        calendars, _ = schedule._availability_selection(inventory)
+        selected_ids = plan.get("availability_calendar_ids")
+        if selected_ids is None:
+            selected_ids = [item["id"] for item in calendars]
+            # Existing short-lived proposal JSON owns the reviewed selection;
+            # no new persistent preference or schema is needed.
+            plan["availability_calendar_ids"] = selected_ids
+        elif (
+            not isinstance(selected_ids, list)
+            or not selected_ids
+            or any(not isinstance(value, str) for value in selected_ids)
+            or len(set(selected_ids)) != len(selected_ids)
+            or set(selected_ids) != {item["id"] for item in calendars}
+        ):
+            raise GoogleConnectionError(
+                "Calendar selection changed; review the meeting again",
+                status_code=409,
+                reason_code="calendar_selection_changed",
+            )
+        start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00"))
+        busy = await schedule._busy_intervals(
+            user_id=user_id,
+            start=start,
+            end=end,
+            calendar_ids=selected_ids,
+            binding=binding,
+        )
+        return [
+            {
+                "id": f"busy:{self._utc_iso(left)}:{self._utc_iso(right)}",
+                "title": "Busy time in included calendars",
+                "start": {"dateTime": self._utc_iso(left)},
+                "end": {"dateTime": self._utc_iso(right)},
+            }
+            for left, right in busy
+        ]
+
     async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
         claim = await self._execute_raw_async(
@@ -1016,7 +1468,23 @@ class GoogleCalendarService:
             else json.loads(proposal["payload_json"])
         )
         try:
+            binding = tuple(plan["connection_binding"]) if plan.get("connection_binding") else None
+            if binding is not None:
+                await self._check_read_binding(user_id, binding)
             action = proposal["action"]
+            if action == "create" and "included_conflicts" in plan:
+                if "availability_calendar_ids" not in plan:
+                    raise GoogleConnectionError(
+                        "Calendar selection needs a new meeting review",
+                        status_code=409,
+                        reason_code="calendar_selection_changed",
+                    )
+                self._reject_new_conflicts(
+                    planned=plan["included_conflicts"],
+                    current=await self._creation_conflicts(
+                        user_id=user_id, plan=plan, binding=binding
+                    ),
+                )
             if action == "create":
                 if not str(plan.get("conference_request_id") or "").strip():
                     # A proposal persisted immediately before Meet support
@@ -1027,11 +1495,12 @@ class GoogleCalendarService:
                         f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
                     )
                 self._reject_new_conflicts(
-                    planned=plan.get("conflicts"),
+                    planned=plan.get("primary_conflicts", plan.get("conflicts")),
                     current=await self._find_conflicts(
                         user_id=user_id,
                         start_at=plan["start_at"],
                         end_at=plan["end_at"],
+                        expected_binding=binding,
                     ),
                 )
                 response = await self._request(
@@ -1039,6 +1508,7 @@ class GoogleCalendarService:
                     method="POST",
                     path="/calendars/primary/events",
                     access="manage",
+                    expected_binding=binding,
                     params={
                         "sendUpdates": "all" if plan["send_updates"] else "none",
                         "conferenceDataVersion": 1,
@@ -1051,6 +1521,7 @@ class GoogleCalendarService:
                     method="GET",
                     path=f"/calendars/primary/events/{plan['event_id']}",
                     access="manage",
+                    expected_binding=binding,
                 )
                 if (
                     proposal.get("expected_event_etag")
@@ -1061,11 +1532,12 @@ class GoogleCalendarService:
                     )
                 if action == "reschedule":
                     self._reject_new_conflicts(
-                        planned=plan.get("conflicts"),
+                        planned=plan.get("primary_conflicts", plan.get("conflicts")),
                         current=await self._find_conflicts(
                             user_id=user_id,
                             start_at=plan["start_at"],
                             end_at=plan["end_at"],
+                            expected_binding=binding,
                             exclude_event_id=plan["event_id"],
                         ),
                     )
@@ -1083,6 +1555,7 @@ class GoogleCalendarService:
                         method="PATCH",
                         path=f"/calendars/primary/events/{plan['event_id']}",
                         access="manage",
+                        expected_binding=binding,
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
                         headers=headers,
                         payload=self._reschedule_patch(plan, current),
@@ -1093,10 +1566,17 @@ class GoogleCalendarService:
                         method="DELETE",
                         path=f"/calendars/primary/events/{plan['event_id']}",
                         access="manage",
+                        expected_binding=binding,
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
                         headers=headers,
                     )
                     response = {"id": plan["event_id"], "status": "cancelled"}
+            if not isinstance(response.get("id"), str) or not response["id"].strip():
+                raise GoogleConnectionError(
+                    "Calendar did not confirm the event. Check Google Calendar before booking again.",
+                    status_code=502,
+                    reason_code="calendar_mutation_unconfirmed",
+                )
             await self._execute_raw_async(
                 """UPDATE google_calendar_action_proposals
                    SET status = 'executed', executed_at = NOW()

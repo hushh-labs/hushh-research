@@ -22,6 +22,19 @@ function ciWorkers(): number {
   return Number(raw);
 }
 
+/** Partition every existing browser command using Playwright's native shard. */
+function ciShard(): { current: number; total: number } | undefined {
+  const raw = process.env.PLAYWRIGHT_SHARD;
+  if (raw === undefined || raw === "") return undefined;
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(raw);
+  const current = Number(match?.[1]);
+  const total = Number(match?.[2]);
+  if (!match || !Number.isSafeInteger(current) || !Number.isSafeInteger(total) || current > total) {
+    throw new Error(`PLAYWRIGHT_SHARD must be current/total with 1 <= current <= total, got ${JSON.stringify(raw)}`);
+  }
+  return { current, total };
+}
+
 /**
  * Playwright E2E Configuration for Hushh Webapp (Kai)
  *
@@ -32,14 +45,26 @@ function ciWorkers(): number {
  *
  * Environment:
  *   BASE_URL - override the dev server URL (default: http://localhost:3000)
- *   CI       - set in GitHub Actions; disables retries and video recording
+ *   CI       - set in GitHub Actions and by the npm scripts that pass CI=1:
+ *              forbids test.only, allows one retry, reads PLAYWRIGHT_WORKERS,
+ *              reports to GitHub, and starts no dev server unless
+ *              PLAYWRIGHT_START_SERVER=1
  */
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // One retry absorbs a genuine transient. A second hid specs that fail two
+  // runs in three: in 313 green browser legs sampled from 2026-10-08..14, 12
+  // passed a test only on its third attempt, 11 of them WebKit
+  // wallet-workspace layout tests. It also gave every real failure a third
+  // run, in a fresh worker that rebuilds its beforeAll fixture, inside a browser
+  // leg that took 17-29 minutes before it was split into two shards: 100 of 102
+  // failing legs ran a test three times before going red. The same budget
+  // applies to the macOS editor-performance lane, which uses this config.
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
+  shard: ciShard(),
   reporter: process.env.CI ? "github" : "html",
 
   use: {
@@ -149,6 +174,7 @@ export default defineConfig({
         /wallet-workspace\.layout\.spec\.ts/,
         /wallet-scroll-reveal\.layout\.spec\.ts/,
         /wallet-card-scan\.layout\.spec\.ts/,
+        /wallet-intelligent-card-add\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
         // Paid photos need WebKit's native image loader and browser recipient
@@ -190,6 +216,7 @@ export default defineConfig({
         // subject hold in the engine the app ships in.
         /one-voice-mail-open\.layout\.spec\.ts/,
         /mail-overview\.layout\.spec\.ts/,
+        /calendar-connected-workspace\.layout\.spec\.ts/,
         // receipt-sync-hero: the receipt hero and compact table are shipped
         // inside the iOS WKWebView and the fixture is self-contained.
         /receipt-sync-hero\.layout\.spec\.ts/,

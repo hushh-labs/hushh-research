@@ -29,7 +29,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
-    "documents": 8,
+    "documents": 20,
     "suggestions": 1,
     "searches": 1,
     "permissions": 20,
@@ -113,6 +113,7 @@ _WORKER_ALLOWED_OUTCOMES = {
             "unavailable",
             "superseded",
             "not_ready",
+            "unsupported",
             "disabled",
             "deadline",
             "deferred",

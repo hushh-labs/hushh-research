@@ -84,7 +84,18 @@ describe("memory.md audience exclusion", () => {
     };
     const openCard = card("personal_data", "Home city", "Bengaluru");
 
-    const forAgent = build([walletCard, documentsCard, openCard], "agent", [
+    const privateArtwork = [
+      { ...card("wallet", "Image", "private-raster-relative"), pathSegments: ["artwork", "card_1", "image"] },
+      { ...card("wallet", "Image", "private-raster-prefixed"), pathSegments: ["wallet", "artwork", "card_2", "image"] },
+    ];
+    const forSelf = buildMemoryDocument({
+      snapshot: { ...snapshotOf([walletCard, openCard, ...privateArtwork]),
+        domainInsights: [{ domain: "wallet", title: "Wallet", summary: "private-raster-derived", highlights: ["private-raster-highlight"], updatedAt: null, cardCount: 3 }] },
+      sources: [], audience: "self", builtAt: "2026-10-10T12:00:00.000Z",
+    });
+    expect(forSelf.markdown).toContain("Visa ending 4242");
+    expect(forSelf.markdown).not.toContain("private-raster");
+    const forAgent = build([walletCard, documentsCard, openCard, ...privateArtwork], "agent", [
       { domain: "wallet", contentRevision: 1 },
       { domain: "identity", contentRevision: 1 },
       { domain: "personal_data", contentRevision: 1 },
@@ -203,6 +214,37 @@ it("shares revision-linked stated identity facts and derived age without copying
   expect(result.markdown).toContain("https://example.test/avatar.jpg");
   expect(result.markdown).not.toContain("Private free prose");
   expect(result.sourceLinks).toContainEqual(expect.objectContaining({ domain: "one_memory", path: "markdown.legal name", contentRevision: 9 }));
+});
+
+it("keeps a distinct legal name while flagging only a conflicting Soul display name", () => {
+  const soul = { markdown: "- Legal name: Ankit Kumar Singh\n- Display name: Ankit Kumar Singh\n" };
+  const params = { snapshot: snapshotOf([]),
+    domainData: { one_memory: soul },
+    sources: [{ domain: "one_memory", contentRevision: 9 }],
+    builtAt: "2026-10-15T00:00:00Z", account: { displayName: "Ankit" },
+    verifiedProfileName: "Ankit" };
+  const owner = buildMemoryDocument({ ...params, audience: "self" });
+  expect(owner.complete).toBe(false);
+  expect(owner.freshness.find(row => row.domain === "one_memory")?.status).toBe("conflicted");
+  expect(owner.markdown).toContain("Legal name (owner-authored Soul)");
+  expect(owner.markdown).toContain("Display name (owner-authored Soul; conflicted)");
+  expect(owner.markdown).toContain("Name conflict.");
+  expect(soul.markdown).toContain("Display name: Ankit Kumar Singh");
+  const agent = buildMemoryDocument({ ...params, audience: "agent" });
+  expect(agent.markdown).not.toContain("Ankit Kumar Singh");
+  expect(agent.markdown).not.toContain("Name conflict.");
+
+  const onlyLegal = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { markdown: "- Legal name: Ankit Kumar Singh\n" } } });
+  expect(onlyLegal.complete).toBe(true);
+  expect(onlyLegal.markdown).not.toContain("Name conflict.");
+  const corrected = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { markdown: "- Legal name: Ankit Kumar Singh\n- Display name: Ankit\n" } } });
+  expect(corrected.complete).toBe(true);
+  const deleted = buildMemoryDocument({ ...params, audience: "self",
+    domainData: { one_memory: { ...soul, _deleted_fact_labels: ["display name"] } } });
+  expect(deleted.complete).toBe(true);
+  expect(deleted.markdown).not.toContain("Display name (owner-authored Soul; conflicted)");
 });
 
 it("shows corrections once and removes deleted identity rows without changing the source", () => {

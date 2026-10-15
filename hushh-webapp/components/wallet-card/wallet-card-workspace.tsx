@@ -92,7 +92,7 @@ function WalletProfileShell({ embedded, title, description, children, preview }:
   embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
   return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} space-y-4`}>
-    <div className="space-y-1"><h3 className="text-[13px] font-medium leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
+    <div className="space-y-1"><h3 className="text-[13px] font-normal leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }

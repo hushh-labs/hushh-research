@@ -13,6 +13,9 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -107,11 +110,12 @@ def test_routes_answer_404_while_the_flag_is_off(monkeypatch):
     from api.routes import workos as routes
 
     monkeypatch.delenv("WORKOS_SSO_ENABLED", raising=False)
+    monkeypatch.delenv("WORKOS_WEBHOOK_SECRET", raising=False)
     app = FastAPI()
     app.include_router(routes.router)
     app.include_router(routes.webhook_router)
     client = TestClient(app)
-    assert client.get("/api/auth/sso/start", params={"email": "a@b.example"}).status_code == 404
+    assert client.post("/api/auth/sso/start", json={"email": "a@b.example"}).status_code == 404
     assert (
         client.post("/api/auth/sso/exchange", json={"code": "c", "state": "s"}).status_code == 404
     )
@@ -183,9 +187,9 @@ def _sdk_connection(state):
     )
 
 
-def _real_adapter(orgs, connection_states):
+def _real_adapter(orgs, connection_states, api_key="sk_test_x"):
     adapter = WorkOSSdkAdapter(
-        WorkOSConfig(api_key="sk_test_x", client_id="client_x", redirect_uri="https://a.example/b")
+        WorkOSConfig(api_key=api_key, client_id="client_x", redirect_uri="https://a.example/b")
     )
     connections = [_sdk_connection(state) for state in connection_states]
     adapter._client = SimpleNamespace(
@@ -296,6 +300,7 @@ class FakeWorkOS:
         self.profile = SsoProfile(id="prof_1", organization_id="org_01", email="Ada@Acme.example")
         self.orgs = {"org_01": _acme()}
         self.urls = []
+        self.redirects = []
 
     def find_organization_by_domain(self, domain):
         for org in self.orgs.values():
@@ -306,8 +311,9 @@ class FakeWorkOS:
     def get_organization(self, organization_id):
         return self.orgs.get(organization_id)
 
-    def authorization_url(self, *, organization_id, state, login_hint):
+    def authorization_url(self, *, organization_id, state, login_hint, redirect_uri=None):
         self.urls.append((organization_id, login_hint))
+        self.redirects.append(redirect_uri)
         return f"https://workos.example/authorize?organization={organization_id}&state={state}"
 
     def exchange_code(self, code):
@@ -661,12 +667,21 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
     for name in [n for n in os.environ if n.startswith("WORKOS_")]:
         monkeypatch.delenv(name)
     for name in bound:
-        monkeypatch.setenv(name, "https://app.example/login" if name.endswith("_URI") else "true")
+        value = {"_URI": "https://app.example/login", "_ORIGINS": "https://app.example"}
+        monkeypatch.setenv(name, next((v for k, v in value.items() if name.endswith(k)), "true"))
 
     config = WorkOSConfig.from_env()
 
     assert workos_sso_enabled()
-    assert config.sign_in_ready and config.webhook_secret
+    assert config.sign_in_ready and config.webhook_secret and config.redirect_origins
+
+
+def test_cloudbuild_packs_sso_settings_in_binder_order():
+    cloudbuild = Path(__file__).resolve().parents[2] / "deploy" / "backend.cloudbuild.yaml"
+    assert (
+        "_WORKOS_CONFIG=${_WORKOS_SSO_ENABLED}|${_WORKOS_REDIRECT_URI}|${_WORKOS_REDIRECT_ORIGINS}"
+        in cloudbuild.read_text(encoding="utf-8")
+    )
 
 
 async def test_sign_in_is_unavailable_without_the_webhook_secret():
@@ -684,3 +699,206 @@ async def test_sign_in_is_unavailable_without_the_webhook_secret():
 
     assert refused.value.code == "sso_unavailable"
     assert refused.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    ("connection_states", "disabled"),
+    [([], True), (["active"], False), (["inactive"], True)],
+)
+def test_production_reads_an_empty_connection_list_as_no_sso(connection_states, disabled):
+    # Production has no hidden test provider, so an organization with no connection must not
+    # be sent to WorkOS (the person would land on a failed sign-in).
+    org = _sdk_org([("acme.example", "verified")])
+    adapter = _real_adapter([org], connection_states, api_key="sk_live_x")
+    assert adapter.get_organization("org_01").sso_disabled is disabled
+
+
+_DEFAULT_REDIRECT = "https://uat.one.hushh.ai/login"
+_ORIGINS = ("https://uat.one.hushh.ai", "https://uat.one.hussh.ai", "https://uat.one.hussh.si")
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        ("https://uat.one.hussh.ai", "https://uat.one.hussh.ai/login"),
+        ("https://UAT.one.hussh.si/", "https://uat.one.hussh.si/login"),
+        ("https://evil.example", _DEFAULT_REDIRECT),  # not a host we serve
+        ("http://uat.one.hussh.ai", _DEFAULT_REDIRECT),  # plain http is never honoured
+        (None, _DEFAULT_REDIRECT),
+    ],
+)
+def test_sso_returns_only_to_an_origin_we_serve(origin, expected):
+    config = replace(CONFIG, redirect_uri=_DEFAULT_REDIRECT, redirect_origins=_ORIGINS)
+    assert config.redirect_uri_for(origin) == expected
+
+
+def test_a_misconfigured_insecure_origin_is_still_never_honoured_except_localhost():
+    config = replace(
+        CONFIG,
+        redirect_uri=_DEFAULT_REDIRECT,
+        redirect_origins=("http://insecure.example", "http://localhost:3000"),
+    )
+    assert config.redirect_uri_for("http://insecure.example") == _DEFAULT_REDIRECT
+    assert config.redirect_uri_for("http://localhost:3000") == "http://localhost:3000/login"
+
+
+async def test_start_sends_workos_the_redirect_for_the_origin_the_person_started_on():
+    workos = FakeWorkOS()
+    service = EnterpriseSsoService(
+        workos=workos,
+        config=replace(CONFIG, redirect_origins=("https://alt.example",)),
+        firebase=FakeFirebase(),
+        consent=FakeConsent(),
+        is_tombstoned=lambda uid: False,
+    )
+
+    await service.start(
+        email="someone@acme.example", organization_id=None, origin="https://alt.example"
+    )
+    await service.start(
+        email="someone@acme.example", organization_id=None, origin="https://evil.example"
+    )
+
+    assert workos.redirects == ["https://alt.example/cb", "https://app.example/cb"]
+
+
+def _routes_client(monkeypatch, *, enabled, secret=None):
+    from api.routes import workos as routes
+
+    monkeypatch.delenv("WORKOS_SSO_ENABLED", raising=False)
+    monkeypatch.delenv("WORKOS_WEBHOOK_SECRET", raising=False)
+    if enabled:
+        monkeypatch.setenv("WORKOS_SSO_ENABLED", "true")
+    if secret:
+        monkeypatch.setenv("WORKOS_WEBHOOK_SECRET", secret)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.include_router(routes.webhook_router)
+    return TestClient(app)
+
+
+def test_the_webhook_keeps_working_after_sign_in_is_switched_off(monkeypatch):
+    # Turning sign-in off is the rollback. It must not make WorkOS's offboarding events fail.
+    client = _routes_client(monkeypatch, enabled=False, secret=SECRET)
+
+    bad = client.post(
+        "/api/webhooks/workos", content=b"{}", headers={"WorkOS-Signature": "t=1, v1=00"}
+    )
+
+    assert bad.status_code == 400  # reachable and verifying, not the 404 of a dark deployment
+    assert client.post("/api/auth/sso/start", json={"email": "a@acme.example"}).status_code == 404
+
+
+def test_start_takes_the_email_in_the_body_never_the_url(monkeypatch):
+    client = _routes_client(monkeypatch, enabled=True, secret=SECRET)
+
+    assert client.get("/api/auth/sso/start", params={"email": "a@acme.example"}).status_code == 405
+    assert client.post("/api/auth/sso/start", json={}).status_code == 422
+
+
+def test_the_limited_routes_work_with_the_limiter_switched_on(monkeypatch):
+    # The limiter is off under pytest, so a broken key function never ran. slowapi hands the request
+    # only to a key function whose parameter is named `request` and calls any other with no
+    # argument; that made both routes answer 500 on UAT while every other test passed.
+    from slowapi.errors import RateLimitExceeded
+
+    from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
+
+    client = _routes_client(monkeypatch, enabled=True, secret=SECRET)
+    client.app.state.limiter = limiter
+    client.app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()
+    try:
+        # 61 requests: whichever way a minute boundary splits them, one window holds more than 30.
+        starts = [client.post("/api/auth/sso/start", json={}).status_code for _ in range(61)]
+        exchange = client.post("/api/auth/sso/exchange", json={"code": "x", "state": "y"})
+    finally:
+        limiter.reset()
+
+    assert set(starts) == {422, 429}  # reached the handler (422) until the ceiling held (429)
+    assert exchange.status_code not in (429, 500)
+
+
+def _request(forwarded=None, peer="10.0.0.1"):
+    from starlette.requests import Request
+
+    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    return Request({"type": "http", "headers": headers, "client": (peer, 1234)})
+
+
+@pytest.mark.parametrize(
+    ("forwarded", "expected"),
+    [
+        ("203.0.113.9, 10.0.0.1", "sso:203.0.113.9"),
+        # A visitor who sends their own X-Forwarded-For cannot take over the slot we read.
+        ("1.1.1.1, 203.0.113.9, 10.0.0.1", "sso:203.0.113.9"),
+        ("203.0.113.9", "sso:10.0.0.1"),  # no proxy hop to trust: fall back to the peer
+        (None, "sso:10.0.0.1"),
+    ],
+)
+def test_the_rate_limit_tells_visitors_apart_behind_the_proxy(forwarded, expected):
+    from api.routes import workos as routes
+
+    assert routes._client_key(_request(forwarded)) == expected
+
+
+@pytest.mark.parametrize(
+    ("event", "state", "expected"),
+    [
+        ("dsync.user.deleted", None, True),
+        ("dsync.user.updated", "inactive", True),
+        ("dsync.user.updated", "suspended", True),
+        ("dsync.user.updated", "active", False),
+        ("dsync.group.created", "inactive", False),
+    ],
+)
+def test_which_directory_events_deprovision(event, state, expected):
+    data = {"state": state} if state else {}
+    assert EnterpriseSsoService._is_deprovision(event, data) is expected
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs POSIX bash")
+@pytest.mark.parametrize(
+    ("flag", "bound", "redirect_uri", "ok"),
+    [
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET",
+            "https://app.example/login",
+            True,
+        ),
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID",
+            "https://app.example/login",
+            False,
+        ),  # missing secret
+        (
+            "true",
+            "WORKOS_API_KEY WORKOS_CLIENT_ID WORKOS_WEBHOOK_SECRET",
+            "",
+            False,
+        ),  # missing redirect
+        ("", "", "", True),  # SSO off: the secrets stay optional
+    ],
+)
+def test_deploy_refuses_to_enable_sso_with_missing_required_configuration(
+    flag, bound, redirect_uri, ok
+):
+    script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
+    stubs = (
+        "secrets=BASE=x:latest; PROJECT_ID=p\n"
+        'add_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
+        "add_env() { :; }\n"
+    )
+    # Cloud Build packs these three substitutions into one step env entry.
+    env = {
+        **os.environ,
+        "BOUND": bound,
+        "_WORKOS_CONFIG": f"{flag}|{redirect_uri}|https://app.example",
+    }
+    run = subprocess.run(  # noqa: S603 - fixed shell and repository script; fixed inputs
+        ["bash", "-c", f"{stubs}source {script}"], env=env, capture_output=True, text=True
+    )
+    assert (run.returncode == 0) is ok

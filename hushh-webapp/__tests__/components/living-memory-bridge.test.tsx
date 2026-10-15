@@ -204,7 +204,7 @@ describe("LivingMemoryBridge", () => {
     );
   });
 
-  it("wakes immediately for earnings payout hints only", async () => {
+  it("wakes payout activity on bank changes and both sources on earnings changes", async () => {
     render(<LivingMemoryBridge />);
     await act(async () => {
       await Promise.resolve();
@@ -216,8 +216,13 @@ describe("LivingMemoryBridge", () => {
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.syncLivingSources).toHaveBeenCalledWith(
+      expect.objectContaining({ forcePayoutActivity: true, forceDocumentEarnings: false,
+        forceDocumentRequestPayments: false }),
+    );
+    m.syncLivingSources.mockClear();
     act(() => m.payoutChangeListener?.({ kinds: ["earnings"] }));
     await act(async () => {
       await Promise.resolve();
@@ -225,7 +230,7 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
-      expect.objectContaining({ forceDocumentEarnings: true }),
+      expect.objectContaining({ forceDocumentEarnings: true, forcePayoutActivity: true }),
     );
   });
 
@@ -251,7 +256,7 @@ describe("LivingMemoryBridge", () => {
       await Promise.resolve();
     });
     expect(m.syncLivingSources).toHaveBeenCalledWith(
-      expect.objectContaining({ forceConsent: true }),
+      expect.objectContaining({ forceConsent: true, forceDocumentRequestPayments: true }),
     );
     m.syncLivingSources.mockClear();
     act(() => window.dispatchEvent(new CustomEvent("hushh:native-connector-return", {
@@ -265,5 +270,14 @@ describe("LivingMemoryBridge", () => {
     expect(m.syncLivingSources).toHaveBeenCalledWith(
       expect.objectContaining({ forceCuratedConnectors: true }),
     );
+  });
+
+  it("retries an incomplete encrypted source scan on the next owner wake", async () => {
+    m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
+    render(<LivingMemoryBridge />);
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
   });
 });

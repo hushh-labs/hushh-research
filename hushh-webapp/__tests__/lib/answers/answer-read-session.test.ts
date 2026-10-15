@@ -644,7 +644,7 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     expect(cached).toEqual(first);
     expect(transport.apiFetch).toHaveBeenCalledTimes(2);
     expect(decrypt).toHaveBeenCalledTimes(1);
-    const keys = await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:");
+    const keys = await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v2:");
     expect(keys).toHaveLength(1);
     expect(JSON.stringify(await rawCache())).not.toContain("Synthetic Ava");
     expect(JSON.stringify(await rawCache())).not.toContain(PARAMS.vaultOwnerToken);
@@ -686,7 +686,7 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     await expect(session().build(NAME_SCOPE)).rejects.toThrow("coherent PKM domain snapshot");
     transport.apiFetch.mockResolvedValueOnce(new Response("", { status: 404 }));
     await expect(session().build(NAME_SCOPE)).resolves.toEqual({ payload: {} });
-    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v2:")).toEqual([]);
   });
 
   it("uses current root storage routing for a custom top-level source key without exposing siblings", async () => {
@@ -749,7 +749,7 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     release(snapshotResponse(stored, "/domain-snapshot/owner/identity"));
     await expect(preparing).rejects.toThrow("Vault session changed");
     expect(decrypt).not.toHaveBeenCalled();
-    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v2:")).toEqual([]);
   });
 
   it("withdraws a source snapshot overtaken by a PKM deletion before publishing or caching it", async () => {
@@ -763,7 +763,7 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     release(snapshotResponse(stored, "/domain-snapshot/owner/identity"));
     await expect(preparing).rejects.toThrow(/changed/i);
     expect(decrypt).not.toHaveBeenCalled();
-    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v2:")).toEqual([]);
   });
 
   it("does not compose public identity as a replacement for an unreadable approved source", async () => {
@@ -779,7 +779,7 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     expect(result.payload.unavailableScopes).toEqual([NAME_SCOPE]);
     expect(result.payload.answer).toBeNull();
     expect(transport.apiFetch.mock.calls.filter(([url]) => String(url).endsWith("/compose"))).toHaveLength(0);
-    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:")).toEqual([]);
+    expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v2:")).toEqual([]);
   });
 
   it("prepares a name-only answer after confirmed source absence without inventing profile facts", async () => {

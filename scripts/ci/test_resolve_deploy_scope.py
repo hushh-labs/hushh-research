@@ -241,6 +241,9 @@ def test_auto_single_surface_lifecycle_change_deploys_both() -> None:
     for path in (
         "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
         "hushh-webapp/lib/auth/session-invalidation.ts",
+        "hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts",
+        "hushh-webapp/lib/services/initial-contacts-onboarding-service.ts",
+        "consent-protocol/db/migrations/337_initial_contacts_onboarding.sql",
     ):
         tempdir, repo = with_git_repo()
         with tempdir:

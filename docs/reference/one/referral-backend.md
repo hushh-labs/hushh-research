@@ -49,7 +49,7 @@ Earned milestones, claims, and fulfillment are separate persisted states. Claimi
 
 ## Deployment and verification
 
-Apply migration 339 after 338 using the existing migration release lane. No production database is modified by local tests. Enable the existing authenticated scoring scheduler for qualification reconciliation, score settlement, snapshot publication and ended-round processing. Weekly gifts and shipping remain disabled until their operational configuration is supplied.
+Apply migration 346 after 345 using the existing migration release lane. No production database is modified by local tests. Enable the existing authenticated scoring scheduler for qualification reconciliation, score settlement, snapshot publication and ended-round processing. Weekly gifts and shipping remain disabled until their operational configuration is supplied.
 
 Test results and remaining external prerequisites are recorded at delivery; local verification does not establish deployment or real gift delivery.
 
@@ -62,7 +62,7 @@ Verified on Windows using Python 3.13.16 and disposable PostgreSQL 18, with no p
 | Six referral frontend suites: dashboard, profile panel, service, attribution, stream and route layout | 87 passed after main reconciliation |
 | TypeScript typecheck and ESLint on changed frontend files | Passed |
 | Ruff on changed/new Python files | Passed |
-| Migration release manifest and all three schema contracts | Passed, head 339 aligned |
+| Migration release manifest and all three schema contracts | Passed, head 346 aligned |
 | Required Back behavior pack | 452 passed after main reconciliation |
 | Back/Search, catalog, Surface Map, gateway, Siri, route orchestration and validator gate | Passed; 12 validator regression tests passed |
 | Production Next.js build | Passed, 172 pages generated |
@@ -72,7 +72,7 @@ The SQL suite verifies the invitation → join → trusted usage → qualificati
 
 ## Changed file groups
 
-- Migration 339 and its registered rollback extend the existing ledger, daily attendance, claims, persisted rounds and referral genealogy. The rollback retains all earned history and additive schema. Exact replay rejects conflicting policy versions.
+- Migration 346 and its registered rollback extend the existing ledger, daily attendance, claims, persisted rounds and referral genealogy. The rollback retains all earned history and additive schema. Exact replay rejects conflicting policy versions.
 - Referral core, policy, scoring and maintenance services enforce product usage, idempotency, bounded retries/leases, due-work fairness, bulk snapshot publication and historical rule selection.
 - Activity, network and challenge services keep their database and business rules below authenticated API routes. Existing web/native proxy transport remains the owner of requests.
 - Dashboard, profile panel, How It Works and service contracts consume persisted names, balances, streaks, ranks and reward state. App-entry and attribution hooks support retries and server time.
@@ -81,7 +81,7 @@ The SQL suite verifies the invitation → join → trusted usage → qualificati
 | Paths | Reason |
 | --- | --- |
 | `consent-protocol/db/migrations/339_one_referral_dashboard_lifecycle.sql`; `db/migrations/rollback/339_one_referral_dashboard_lifecycle.rollback.sql` | Forward and behavioral rollback, durable source triggers, attendance, balances, genealogy, claims and rounds |
-| `consent-protocol/db/release_migration_manifest.json`; `db/contracts/{dev_minimum_schema,prod_core_schema,uat_integrated_schema}.json` | Register release 339 and describe its tables, columns and functions |
+| `consent-protocol/db/release_migration_manifest.json`; `db/contracts/{dev_minimum_schema,prod_core_schema,uat_integrated_schema}.json` | Register release 346 and describe its tables, columns and functions |
 | `consent-protocol/api/routes/one/referrals.py`; `api/routes/referral_scoring_drain.py`; `api/referral_listener.py` | Authenticated contracts, bounded scheduled recovery and device-safe realtime refresh |
 | `consent-protocol/hushh_mcp/operons/referral/policy.py`; `hushh_mcp/services/one_referral_service.py` | Verified qualification, names/counts, immutable binding and selected activity policy |
 | `consent-protocol/hushh_mcp/services/one_referral_activity_service.py`; `one_referral_network_service.py`; `one_referral_challenge_service.py`; `one_referral_maintenance_service.py` | Implement persisted activity/streaks, referral genealogy, challenge timing and bounded recovery |
@@ -99,7 +99,7 @@ Implementation stays on the existing `ui/referral-dashboard-polish` branch. The 
 
 ## Operational prerequisites
 
-The existing OIDC scoring scheduler must be enabled and dispatched against the deployed revision. Set `REFERRAL_SCORING_DRAIN_ENABLED=true` and the existing pins `REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE`, `REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID` and `REFERRAL_SCORING_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL`. Migration 339 must deploy before the new backend/frontend. No production credentials or deployment action are part of this local change. Weekly prize activation, circle competition gifts and actual physical fulfillment remain operationally unconfigured; the UI reports their available state without inventing gifts, deadlines or delivered status.
+The existing OIDC scoring scheduler must be enabled and dispatched against the deployed revision. Set `REFERRAL_SCORING_DRAIN_ENABLED=true` and the existing pins `REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE`, `REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID` and `REFERRAL_SCORING_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL`. Migration 346 must deploy before the new backend/frontend. No production credentials or deployment action are part of this local change. Weekly prize activation, circle competition gifts and actual physical fulfillment remain operationally unconfigured; the UI reports their available state without inventing gifts, deadlines or delivered status.
 
 To run database integration checks, set `REFERRAL_TEST_DATABASE_URL` to disposable PostgreSQL and run `python -m pytest tests/test_one_referral_lifecycle_postgres.py` from `consent-protocol`. Each case creates and cleans its own random schema. These tests use actual PostgreSQL transactions and triggers; Firebase token admission is separately tested with negative controls and verified-owner dependency fixtures. They do not establish live Firebase, model-provider, scheduler or production deployment readiness.
 
@@ -126,7 +126,7 @@ From the repository root, run `python scripts/ops/verify_release_migration_contr
 
 ## UAT release preparation
 
-The user explicitly selected **UAT only**. Current main owns migrations 332–338 and the USD catalogue; lifecycle migration 339 creates program settings version 4 from active version 3, preserving the $25 voucher, wireless earbuds, Apple Watch, iPhone and all existing earned descriptions. Behavioral rollback restores version 3.
+The user explicitly selected **UAT only**. Current main owns migrations 332–345 and the USD catalogue; lifecycle migration 346 creates program settings version 4 from active version 3, preserving the $25 voucher, wireless earbuds, Apple Watch, iPhone and all existing earned descriptions. Behavioral rollback restores version 3.
 
 The canonical runtime transport now recognizes the four referral scoring scheduler settings. Deployment sync retains only an explicitly activated, fully validated environment/project/audience/service-account configuration, rejecting mixed environments and unrelated keys. Runtime configuration and directory compatibility suites: 18 passed.
 

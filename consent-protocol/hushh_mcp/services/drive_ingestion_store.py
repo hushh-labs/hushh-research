@@ -18,14 +18,21 @@ from hushh_mcp.services.document_index_service import (
     PreparedIndex,
     index_version,
 )
+from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
 )
-from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
+from hushh_mcp.services.drive_document_targets import document_targets
+from hushh_mcp.services.google_drive_adapter import (
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
+    DriveMetadata,
+    DriveReadError,
+)
 
 LEASE_SECONDS = 190
 MAX_ATTEMPTS = 5
+LIVE_UNSUPPORTED_SCAN_LIMIT = 128
 PURGE_ERRORS = frozenset({"source_unavailable", "reconnect_required", "unsafe_document"})
 RETRYABLE_ERRORS = frozenset(
     {
@@ -67,7 +74,64 @@ class DriveIngestionStore(DriveDocumentStore):
         self._selection_policy(connection, user_id, feature="drive_document_indexing")
         return dict(current)
 
-    async def claim(self, *, user_id: str, generation: int) -> dict | None:
+    def _classify_unsupported_live_due(self, connection, *, user_id: str, generation: int) -> None:
+        """Retire a bounded old queue prefix using the same MIME rule as live fetch."""
+        rows = list(
+            connection.execute(
+                text("""
+            SELECT document_id,user_id,connection_generation,source_version,metadata_envelope
+            FROM connected_documents
+            WHERE user_id=:user AND connection_generation=:generation AND source_profile='live'
+              AND processing_enabled AND processing_disclosure_version='live-drive-collection-v1'
+              AND status='queued' AND next_attempt_at<=clock_timestamp()
+              AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+            ORDER BY next_attempt_at,created_at,document_id
+            LIMIT :limit FOR UPDATE SKIP LOCKED
+        """),
+                {
+                    "user": user_id,
+                    "generation": generation,
+                    "limit": LIVE_UNSUPPORTED_SCAN_LIMIT,
+                },
+            ).mappings()
+        )
+        unsupported = []
+        for row in rows:
+            try:
+                metadata = self.cipher.open(dict(row))
+            except DriveReadError:
+                # The normal claim path reports corrupt metadata as a failure.
+                continue
+            if metadata.get("mime_type") not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+                unsupported.append((str(row["document_id"]), row["source_version"]))
+        if unsupported:
+            connection.execute(
+                text("""
+                UPDATE connected_documents d SET status='unsupported',
+                  last_error_code='unsupported_format',updated_at=clock_timestamp()
+                FROM unnest(CAST(:ids AS uuid[]),CAST(:versions AS text[]))
+                  AS candidate(document_id,source_version)
+                WHERE d.document_id=candidate.document_id
+                  AND d.source_version=candidate.source_version
+                  AND d.user_id=:user AND d.connection_generation=:generation
+                  AND d.source_profile='live' AND d.processing_enabled
+                  AND d.processing_disclosure_version='live-drive-collection-v1'
+                  AND d.status='queued'
+            """),
+                {
+                    "ids": [item[0] for item in unsupported],
+                    "versions": [item[1] for item in unsupported],
+                    "user": user_id,
+                    "generation": generation,
+                },
+            )
+
+    async def claim(
+        self, *, user_id: str, generation: int, document_ids=None, prefer_profile_upgrade=False
+    ) -> dict | None:
+        targets = document_targets(document_ids)
+        if type(prefer_profile_upgrade) is not bool:
+            raise DriveReadError("invalid_argument")
         self.cipher._key()
 
         def operation(connection):
@@ -106,35 +170,77 @@ class DriveIngestionStore(DriveDocumentStore):
             )
             if active:
                 return None
-            claimed = self._row(
-                connection,
+            if profile == "live" and targets is None and not prefer_profile_upgrade:
+                self._classify_unsupported_live_due(
+                    connection, user_id=user_id, generation=generation
+                )
+            params = {
+                "user": user_id,
+                "generation": generation,
+                "attempts": MAX_ATTEMPTS,
+                "lease": str(uuid.uuid4()),
+                "seconds": LEASE_SECONDS,
+                "disclosure": "live-drive-collection-v1"
+                if profile == "live"
+                else PROCESSING_DISCLOSURE_VERSION,
+                "extraction_profile": EXTRACTION_PROFILE,
+                "profile": profile,
+                "all_documents": targets is None,
+                "document_ids": list(targets or ()),
+            }
+            # Keep the ordinary due queue on its (user_id,next_attempt_at) index.
+            # The bounded upgrade lane starts from the much smaller extraction
+            # table, so it does not sort an owner's entire live collection.
+            upgrade_sql = """
+                    WITH candidate AS (
+                      SELECT d.document_id FROM drive_document_extractions e
+                      JOIN connected_documents d ON d.document_id=e.document_id
+                        AND d.active_version=e.extraction_version
+                      WHERE e.user_id=:user AND e.connection_generation=:generation
+                        AND e.extraction_profile<>:extraction_profile
+                        AND d.user_id=:user AND d.connection_generation=:generation
+                        AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
+                        AND d.source_profile='live' AND d.processing_enabled
+                        AND d.processing_disclosure_version=:disclosure
+                        AND d.status='ready'
+                        AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                      ORDER BY e.updated_at,e.document_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
                 """
-                WITH candidate AS (
-                  SELECT document_id FROM connected_documents
-                  WHERE user_id=:user AND connection_generation=:generation
-                    AND source_profile=:profile
-                    AND processing_enabled AND processing_disclosure_version=:disclosure
-                    AND status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
-                    AND next_attempt_at <= clock_timestamp() AND (source_profile='live' OR attempt_count < :attempts)
-                    AND (lease_id IS NULL OR lease_expires_at <= clock_timestamp())
-                  ORDER BY next_attempt_at, created_at, document_id LIMIT 1 FOR UPDATE SKIP LOCKED
-                ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
-                    lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
-                    attempt_count=attempt_count+1, updated_at=clock_timestamp()
-                  FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
-            """,
-                {
-                    "user": user_id,
-                    "generation": generation,
-                    "attempts": MAX_ATTEMPTS,
-                    "lease": str(uuid.uuid4()),
-                    "seconds": LEASE_SECONDS,
-                    "disclosure": "live-drive-collection-v1"
-                    if profile == "live"
-                    else PROCESSING_DISCLOSURE_VERSION,
-                    "profile": profile,
-                },
-            )
+            claimed = None
+            if profile == "live" and (prefer_profile_upgrade or targets is not None):
+                claimed = self._row(connection, upgrade_sql, params)
+            if claimed is None:
+                claimed = self._row(
+                    connection,
+                    """
+                    WITH candidate AS (
+                      SELECT d.document_id FROM connected_documents d
+                      WHERE d.user_id=:user AND d.connection_generation=:generation
+                        AND (:all_documents OR d.document_id=ANY(CAST(:document_ids AS uuid[])))
+                        AND d.source_profile=:profile
+                        AND d.processing_enabled AND d.processing_disclosure_version=:disclosure
+                        AND d.status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
+                        AND d.next_attempt_at<=clock_timestamp()
+                        AND (d.source_profile='live' OR d.attempt_count<:attempts)
+                        AND (d.lease_id IS NULL OR d.lease_expires_at<=clock_timestamp())
+                      ORDER BY d.next_attempt_at,d.created_at,d.document_id
+                      LIMIT 1 FOR UPDATE SKIP LOCKED
+                    ) UPDATE connected_documents d SET status='fetching', lease_id=:lease,
+                        lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds),
+                        attempt_count=attempt_count+1, updated_at=clock_timestamp()
+                      FROM candidate c WHERE d.document_id=c.document_id RETURNING d.*
+                    """,
+                    params,
+                )
+            # An owner with only old-profile Ready rows still makes progress in
+            # ordinary slots; the preferred lane only controls ordering when
+            # both fresh due work and upgrades are available.
+            if claimed is None and profile == "live" and not prefer_profile_upgrade:
+                claimed = self._row(connection, upgrade_sql, params)
             return (
                 {**dict(claimed), "background_revision": background_revision} if claimed else None
             )
@@ -194,10 +300,66 @@ class DriveIngestionStore(DriveDocumentStore):
         from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 
         def operation(connection):
-            self._job(connection, job)
-            return DriveDocumentPageStore(cipher=self.cipher).progress(
-                connection, job, source_version
-            )
+            row = self._job(connection, job)
+            pages = DriveDocumentPageStore(cipher=self.cipher)
+            progress = pages.progress(connection, job, source_version)
+            from hushh_mcp.services.drive_document_pages import RENDER_POLICY_VERSION
+
+            if (
+                row.get("source_profile") == "live"
+                and progress["has_gaps"]
+                and progress.get("engine_versions", {}).get("render_policy")
+                != RENDER_POLICY_VERSION
+            ):
+                # Reuse good evidence. Only the proven legacy rendering failure
+                # justifies reprocessing unchanged bytes under the new policy.
+                after = 0
+                while True:
+                    evidence = pages.read(
+                        connection,
+                        job,
+                        source_version,
+                        after_page=after,
+                        limit=32,
+                        require_complete=False,
+                    )["pages"]
+                    if not evidence:
+                        break
+                    if any(p.error_code == "page_render_budget_exceeded" for p in evidence):
+                        params = {
+                            "document": row["document_id"],
+                            "user": row["user_id"],
+                            "version": progress["extraction_version"],
+                        }
+                        # Nulling the active version invokes the existing source
+                        # invalidation trigger before dependent facts are removed.
+                        connection.execute(
+                            text("""
+                            UPDATE connected_documents SET active_version=NULL,
+                              last_indexed_at=NULL,updated_at=clock_timestamp()
+                            WHERE document_id=:document AND user_id=:user
+                        """),
+                            params,
+                        )
+                        connection.execute(
+                            text("""
+                            DELETE FROM drive_document_facts
+                            WHERE document_id=:document AND user_id=:user
+                              AND extraction_version=:version
+                        """),
+                            params,
+                        )
+                        connection.execute(
+                            text("""
+                            DELETE FROM drive_document_extractions
+                            WHERE document_id=:document AND user_id=:user
+                              AND extraction_version=:version
+                        """),
+                            params,
+                        )
+                        return pages.progress(connection, job, source_version)
+                    after = evidence[-1].page_number
+            return progress
 
         return await self._transaction(operation)
 
@@ -435,7 +597,9 @@ class DriveIngestionStore(DriveDocumentStore):
                     "id": document_id,
                     "user": user_id,
                     "generation": generation,
-                    "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                    "disclosure": "live-drive-collection-v1"
+                    if current and current.get("source_profile") == "live"
+                    else PROCESSING_DISCLOSURE_VERSION,
                 },
             )
             if not row:

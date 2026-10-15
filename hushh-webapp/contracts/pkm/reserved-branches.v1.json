@@ -58,11 +58,15 @@
     "one_settings_communication_preferences": {"feature": "settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wallet_artwork_change": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_remove": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_share_card": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
 
     "gmail_receipt_memory_save_button": {"feature": "gmail_receipts", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+
+    "$comment_pwm_owner_review": "The owner's Yes, No, Edit and Remove taps on the Personal World Model page (hushh-webapp/lib/services/world-model-decision-service.ts). Each tap commits the Soul.md (one_memory) bullet change and its private _pwm_claims decision together; No writes only the decision.",
+    "pwm_owner_review": {"feature": "personal_world_model", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_secrets": "The device guard (hushh-webapp/lib/pkm/secret-span-guard.ts) saves a secret the owner sends, pastes or asks to save; sending it is the owner's act. secrets_vault_remove is the owner's delete on the Secrets list.",
     "secrets_vault": {"feature": "secrets", "class": "feature", "surfaces": ["chat", "web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
@@ -226,10 +230,21 @@
     },
     {
       "domain": "wallet",
+      "branch_prefix": "artwork",
+      "except": [],
+      "owner_feature": "wallet",
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_artwork_change"],
+      "agent_memory_sibling": null,
+      "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Open Wallet"},
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "domain": "wallet",
       "branch_prefix": "*",
       "except": [],
       "owner_feature": "wallet",
-      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add"],
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add", "one_wallet_artwork_change"],
       "agent_memory_sibling": "financial.agent_memory",
       "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Add {label} to Wallet"},
       "shareable": "policy",

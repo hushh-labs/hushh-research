@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from contextlib import asynccontextmanager, nullcontext
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +34,7 @@ from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
 from hushh_mcp.one_adk.output_privacy import public_text
+from hushh_mcp.one_adk.queued_input import current_run, registry
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -142,6 +144,15 @@ def session_payload_aad(app_name: str, session_id: str) -> str:
     return binding
 
 
+@asynccontextmanager
+async def _checkpoint_connection(pool, existing):
+    if existing is not None:
+        yield existing
+    else:
+        async with pool.acquire(timeout=8) as connection:
+            yield connection
+
+
 class EncryptedSessionCheckpointStore:
     """Opaque owner checkpoints behind the canonical person-key storage boundary.
 
@@ -151,11 +162,22 @@ class EncryptedSessionCheckpointStore:
     This port can gain a different adapter without moving checkpoint authority.
     """
 
-    def __init__(self, *, app_name: str, session_id: str, pool_provider=get_pool, cipher=None):
+    def __init__(
+        self,
+        *,
+        app_name: str,
+        session_id: str,
+        pool_provider=get_pool,
+        cipher=None,
+        on_commit=None,
+        before_write=None,
+    ):
         self.app_name = app_name
         self.session_id = session_id
         self.pool_provider = pool_provider
         self.cipher = cipher or ChatCipher()
+        self.on_commit = on_commit
+        self.before_write = before_write
 
     def encode(self, user_id: str, state: dict[str, Any]):
         return self.cipher.seal(
@@ -164,9 +186,9 @@ class EncryptedSessionCheckpointStore:
             aad=session_payload_aad(self.app_name, self.session_id),
         )
 
-    async def get(self, user_id: str) -> dict[str, Any] | None:
+    async def get(self, user_id: str, *, conn=None) -> dict[str, Any] | None:
         pool = await self.pool_provider()
-        async with pool.acquire(timeout=8) as conn:
+        async with _checkpoint_connection(pool, conn) as conn:
             row = await conn.fetchrow(
                 """SELECT payload_ciphertext,payload_iv,payload_tag,payload_algorithm,revision
                    FROM one_adk_sessions WHERE app_name=$1 AND user_id=$2 AND session_id=$3
@@ -190,11 +212,16 @@ class EncryptedSessionCheckpointStore:
         return {**state, "revision": int(row["revision"]), "fence": row["payload_ciphertext"]}
 
     async def write(
-        self, user_id: str, state: dict[str, Any], expected: dict | None
+        self, user_id: str, state: dict[str, Any], expected: dict | None, *, conn=None
     ) -> dict | None:
         payload = self.encode(user_id, state)
         pool = await self.pool_provider()
-        async with pool.acquire(timeout=8) as conn:
+        async with (
+            _checkpoint_connection(pool, conn) as conn,
+            conn.transaction() if self.on_commit or self.before_write else nullcontext(),
+        ):
+            if self.before_write is not None:
+                await self.before_write(conn, user_id)
             if expected is None:
                 row = await conn.fetchrow(
                     """INSERT INTO one_adk_sessions
@@ -229,7 +256,27 @@ class EncryptedSessionCheckpointStore:
                     CHAT_CIPHERTEXT_LIKE,
                     timeout=8,
                 )
+            if row and self.on_commit is not None:
+                # Trusted domain adapter only, inside the same transaction as
+                # the winning CAS. Failure rolls back both draft and outbox.
+                await self.on_commit(conn, user_id, state)
         return {"revision": int(row["revision"]), "fence": payload.ciphertext} if row else None
+
+    async def has_fresh_checkpoint(self, conn, user_id: str) -> bool:
+        # Metadata-only readiness check; no retained key is needed. Row lock
+        # keeps retention from removing a draft during completion dispatch.
+        return bool(
+            await conn.fetchval(
+                """SELECT 1 FROM one_adk_sessions WHERE app_name=$1 AND user_id=$2
+            AND session_id=$3 AND updated_at>NOW()-INTERVAL '24 hours'
+            AND payload_ciphertext LIKE $4 FOR SHARE""",
+                self.app_name,
+                user_id,
+                self.session_id,
+                CHAT_CIPHERTEXT_LIKE,
+                timeout=5,
+            )
+        )
 
     async def purge_expired(self) -> None:
         pool = await self.pool_provider()
@@ -280,6 +327,15 @@ class EncryptedAdkSessionService(BaseSessionService):
                 for prior in reversed(session.events)
             )
         )
+        if qualifies:
+            run = current_run()
+            if (
+                run is not None
+                and run.owner_id == session.user_id
+                and run.conversation_id == session.id
+                and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id)
+            ):
+                qualifies = False
         if qualifies:
             # Never decrypt in SQL or copy a prompt, answer, key or session state.
             sql = """WITH persisted AS (

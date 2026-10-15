@@ -16,7 +16,9 @@
  * Pure and import-safe.
  */
 
-import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { isPrivateWalletArtworkBranch, reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
+import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
 import {
   shouldSkipPkmAgentContextKey,
   shouldSkipPkmMemoryKey,
@@ -48,6 +50,11 @@ export interface DomainRows {
  */
 const MAX_NODE_VISITS = 200_000;
 const MAX_DEPTH = 24;
+// The inventory itself stays intact in the encrypted vault. A rendered copy
+// must have a separate bound so source records and fact rows cannot create an
+// unbounded Markdown document while bypassing the ordinary traversal limit.
+export const MAX_LIVING_SOURCE_MEMORY_ROWS = 20_000;
+const MAX_RETAINED_LIVING_SOURCE_MEMORY_CHANGES = 2_048;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -59,6 +66,7 @@ function excluded(
   domain: string,
   branch: string,
 ): boolean {
+  if (isPrivateWalletArtworkBranch(domain, branch)) return true;
   if (audience === "agent") {
     if (shouldSkipPkmAgentContextKey(key)) return true;
     const entry = reservedEntryFor(domain, branch);
@@ -93,6 +101,9 @@ export function collectDomainRows(params: {
   domain: string;
   domainData: unknown;
   audience: MemoryRowAudience;
+  /** Required to render private source facts; never passed for an agent export. */
+  ownerUserId?: string;
+  now?: string;
 }): DomainRows {
   const rows: MemoryRow[] = [];
   const withheld = new Set<string>();
@@ -235,14 +246,103 @@ export function collectDomainRows(params: {
     const inventory = isRecord(privateData) ? privateData.inventory : null;
     if (isRecord(inventory)) {
       if (inventory.complete !== true) truncated = true;
+      let sourceRows = 0;
+      const pushSourceRow = (row: MemoryRow): boolean => {
+        if (sourceRows >= MAX_LIVING_SOURCE_MEMORY_ROWS) {
+          truncated = true;
+          return false;
+        }
+        rows.push(row);
+        sourceRows += 1;
+        return true;
+      };
+      const history = isRecord(privateData) ? privateData.observed_history : null;
+      if (isRecord(history)) {
+        const changes = Array.isArray(history.changes) ? history.changes : null;
+        if (!changes || changes.length > MAX_RETAINED_LIVING_SOURCE_MEMORY_CHANGES ||
+            !Number.isSafeInteger(history.firstRetainedSequence) ||
+            (history.truncatedAt !== null && typeof history.truncatedAt !== "string")) {
+          truncated = true;
+        } else {
+          pushSourceRow({
+            path: "observed_history.retention",
+            label: "Recent observed changes · retention",
+            value: `First retained sequence ${history.firstRetainedSequence}; earlier changes ${history.truncatedAt ? `removed at ${history.truncatedAt}` : "not recorded"}`,
+          });
+          // The encrypted history is already retained to 2,048 entries. Sort
+          // by sequence so the visible slice is deterministic across reads.
+          const orderedChanges = [...changes].sort((a, b) =>
+            Number(isRecord(a) ? a.sequence : 0) - Number(isRecord(b) ? b.sequence : 0));
+          for (const change of orderedChanges) {
+            if (!isRecord(change) || !Number.isSafeInteger(change.sequence) ||
+                typeof change.kind !== "string" || typeof change.id !== "string" ||
+                typeof change.operation !== "string" ||
+                !Number.isSafeInteger(change.revision) ||
+                typeof change.capturedAt !== "string" || !isRecord(change.value)) {
+              truncated = true;
+              continue;
+            }
+            if (!pushSourceRow({
+              path: `observed_history.changes.${String(change.sequence).padStart(19, "0")}`,
+              label: `Recent observed change #${change.sequence} · ${change.kind}:${change.id} · ${change.operation} · revision ${change.revision} · captured ${change.capturedAt}`,
+              value: change.operation === "delete" ? "Removed" : renderScalar(change.value),
+            })) break;
+          }
+        }
+      } else if (history !== null && history !== undefined) {
+        truncated = true;
+      }
+      // A private fact view is a lookup over the source records, not another
+      // authority. The authenticated owner ID is supplied by memory-refresh.
+      // Do not construct it for documents that may leave this owner session.
+      const factIndex = params.ownerUserId && params.now &&
+        typeof inventory.complete === "boolean" &&
+        typeof inventory.observedAt === "string" &&
+        Array.isArray(inventory.unavailable) &&
+        Array.isArray(inventory.records)
+        ? buildOwnerLivingFactIndex({
+          expectedOwnerId: params.ownerUserId,
+          inventory: inventory as unknown as LivingSourceInventory,
+          now: params.now,
+        })
+        : null;
+      if (params.ownerUserId && !factIndex) truncated = true;
+      if (factIndex) {
+        if (!factIndex.complete) truncated = true;
+        for (const node of factIndex.nodes) {
+          const source = node.provenance;
+          if (!pushSourceRow({
+            path: `facts.${encodeURIComponent(node.key)}`,
+            label: `${node.predicate} · ${node.status} · ${source.kind}:${source.sourceId} · revision ${source.revision} · captured ${source.capturedAt} · verified ${source.verifiedAt ?? "unknown"}`,
+            value: node.value === null
+              ? node.status === "deleted" ? "Removed" : "Unresolved source conflict"
+              : String(node.value),
+          })) break;
+        }
+      }
+      const statusByRecord = new Map(
+        (factIndex?.nodes ?? [])
+          .filter(node => node.predicate.endsWith(".__record"))
+          .map(node => [JSON.stringify([node.provenance.kind, node.provenance.sourceId]), node.status] as const),
+      );
       if (Array.isArray(inventory.records)) {
-        for (const record of inventory.records) {
+        const orderedRecords = [...inventory.records].sort((a, b) => {
+          const key = (record: unknown) => isRecord(record)
+            ? JSON.stringify([record.kind, record.id, record.revision]) : "";
+          return key(a).localeCompare(key(b));
+        });
+        for (const record of orderedRecords) {
+          if (sourceRows >= MAX_LIVING_SOURCE_MEMORY_ROWS) {
+            truncated = true;
+            break;
+          }
           if (!isRecord(record)) {
             truncated = true;
             continue;
           }
           // The schema has no credentials or raw provider payloads.
           const key = `${String(record.kind)}:${String(record.id)}`;
+          const status = statusByRecord.get(JSON.stringify([record.kind, record.id]));
           for (const field of [
             "kind",
             "id",
@@ -254,12 +354,11 @@ export function collectDomainRows(params: {
             "value",
           ]) {
             const value = renderScalar(record[field]);
-            if (value)
-              rows.push({
+            if (value && !pushSourceRow({
                 path: `${key}.${field}`,
-                label: `${key} › ${humanize(field)}`,
+                label: `${key}${status ? ` · ${status}` : ""} › ${humanize(field)}`,
                 value,
-              });
+              })) break;
           }
         }
       }

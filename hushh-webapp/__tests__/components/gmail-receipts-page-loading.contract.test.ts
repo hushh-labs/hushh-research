@@ -29,7 +29,7 @@ function expectOwnerScopedReceiptProjection(pageSource: string) {
     "displayedReceiptScopeRef.current === receiptDisplayScope",
   );
   expect(pageSource).toContain(
-    "const visibleReceipts = receiptDisplayScopeCurrent ? receipts : [];",
+    "const visibleReceipts = useMemo(() => receiptDisplayScopeCurrent ? receipts : [], [receiptDisplayScopeCurrent, receipts]);",
   );
   expect(pageSource).toContain(
     "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
@@ -83,9 +83,14 @@ describe("Gmail workspace background loading contract", () => {
     expect(() =>
       expectOwnerScopedReceiptProjection(
         source.replace(
-          "const visibleReceipts = receiptDisplayScopeCurrent ? receipts : [];",
-          "const visibleReceipts = receipts;",
+          "const visibleReceipts = useMemo(() => receiptDisplayScopeCurrent ? receipts : [], [receiptDisplayScopeCurrent, receipts]);",
+          "const visibleReceipts = useMemo(() => receipts, [receiptDisplayScopeCurrent, receipts]);",
         ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectOwnerScopedReceiptProjection(
+        source.replace("[receiptDisplayScopeCurrent, receipts]", "[receipts]"),
       ),
     ).toThrow();
     expect(() =>

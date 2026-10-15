@@ -251,7 +251,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
           className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{entry.name}</span>
+            <span className="block truncate text-sm font-normal">{entry.name}</span>
             {status ? (
               <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
             ) : entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
@@ -260,7 +260,7 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
         </button>
       ) : (
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{entry.name}</span>
+          <span className="block truncate text-sm font-normal">{entry.name}</span>
           {status ? (
             <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
           ) : entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
@@ -2267,7 +2267,7 @@ function OwnerConnectorsPanel({
             {listSections.map(([heading, items]) =>
               query && items.length === 0 ? null : (
                 <section key={heading} aria-label={heading} className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">{heading}</h3>
+                  <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
                   <ul className="overflow-hidden rounded-2xl bg-foreground/10">
                     {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} />) : (
                       <li className="px-4 py-4 text-sm text-muted-foreground">
@@ -2302,7 +2302,7 @@ function OwnerConnectorsPanel({
                     Your profile should be a public figure profile.
                   </p>
                   <div className="min-w-0 space-y-2">
-                    <label htmlFor={`social-profile-link-${activeConnector}`} className="text-sm font-medium">
+                    <label htmlFor={`social-profile-link-${activeConnector}`} className="text-sm font-semibold">
                       Profile link
                     </label>
                     <Input
@@ -2433,7 +2433,7 @@ function OwnerConnectorsPanel({
               {overview?.features.google_drive_live === true &&
                 (drive?.status !== "connected" || drive?.profile !== "live") && (
                 <p className="text-sm text-muted-foreground">
-                  Full Drive access turns on background reads by default unless you turned them off. While you’re away, One may search Drive, send excerpts to Gemini, and share matching originals for document requests from accepted Trusted Circle members without asking again. The requester can open a file only after Google confirms access. Turn background access off anytime; your choice is saved.
+                  Agent One prepares packets from your Drive automatically.
                 </p>
               )}
               <div className="flex flex-wrap gap-2">
@@ -2492,34 +2492,25 @@ function OwnerConnectorsPanel({
                 </p>
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
-                <div className="rounded-2xl bg-foreground/5 px-4 py-3">
-                  <label htmlFor={driveBackgroundId} className={`flex min-h-11 items-center justify-between gap-4${liveBackground === null ? "" : " cursor-pointer"}`}>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">Background Drive access</span>
-                      <span className="block text-xs text-muted-foreground">On by default. One may read Drive files, send excerpts to Gemini, and share matching originals for requests from accepted Trusted Circle members while you’re away. Turn off anytime.</span>
-                    </span>
-                    {liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
+                <SettingsGroup density="compact">
+                  <SettingsRow title="Background Drive access" description={liveBackground === null
+                    ? liveBackgroundError ? "Couldn’t check background access." : "Checking background access…"
+                    : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away."}
+                    trailing={liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
                       disabled={driveBusy}
                       onCheckedChange={(next) => void runDrive(async (token) => {
                         const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
                         setLiveBackground(confirmed);
-                        setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off. New automatic document requests will wait.");
+                        setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off.");
                       })}
-                    /> : null}
-                  </label>
-                  {liveBackground === null ? <div className="mt-2 text-xs text-muted-foreground">
-                    {liveBackgroundError ? <>
-                      Couldn’t check background Drive access. <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>
-                    </> : "Checking background Drive access…"}
-                  </div> : <p className="mt-2 text-xs text-muted-foreground">
-                    {liveBackground ? "On. Relevant work can continue while you’re away." : "Off. New automatic document requests wait until you turn this on."}
-                  </p>}
-                </div>
+                    /> : null} />
+                  {liveBackground === null && liveBackgroundError && <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>}
+                </SettingsGroup>
               )}
               {drive?.profile === "live" && drive.status === "connected" && <DriveCollectionPanel backgroundEnabled={liveBackground} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium [&::-webkit-details-marker]:hidden">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-normal [&::-webkit-details-marker]:hidden">
                     Sharing and approval
                     <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
                   </summary>
@@ -2577,7 +2568,7 @@ function OwnerConnectorsPanel({
                           setAllowBackground(event.target.checked)
                         }
                       />
-                      <span>Prepare these files while the app is closed. Relevant excerpts may be sent to Gemini. Prepared file information is stored outside your vault. Sharing still needs your approval.</span>
+                      <span>Agent One prepares these files while you’re away.</span>
                     </label>
                   )}
                   <div className="flex flex-wrap gap-2">
@@ -2703,7 +2694,7 @@ function OwnerConnectorsPanel({
                               });
                             }}
                           />
-                          <span>Prepare this file while the app is closed. Excerpts may be sent to Gemini. Prepared information is stored outside your vault. Turning this off stops new preparation; remove the file to clear what was prepared. Sharing still needs your approval.</span>
+                          <span>Agent One prepares this file while you’re away.</span>
                         </label>
                       )}
                       {item.backgroundProcessing &&
@@ -2829,7 +2820,7 @@ function OwnerConnectorsPanel({
                 {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
                   <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{connection.institution_name || "Bank connection"}</p>
+                      <p className="truncate text-sm font-normal">{connection.institution_name || "Bank connection"}</p>
                       <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
                     </div>
                     <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => setConfirm(`plaid:${itemId}`)}>

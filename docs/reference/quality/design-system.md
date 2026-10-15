@@ -162,11 +162,34 @@ images, emoji, and provider logos are not home-agent artwork.
    - Radius grammar: shapes carry meaning. `--app-radius-pill` = action signal (CTAs, chips, search, toggles); `--app-radius-lg` (18px) = compact utility cards (the shipped `--app-card-radius-*` 20/22/24 contract remains canonical for app cards); `--app-radius-sm` (8px) = compact utility rects. Do not invent radii between the stops in new components.
    - Field geometry: direct-entry controls use `--app-input-radius`, which resolves to the capsule stop `--app-radius-pill`. `Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells use it; compound controls keep only their outer shell rounded. Use `--app-form-field-gap` (label/control), `--app-form-related-gap` (label/related action), and `--app-form-section-gap` (primary/secondary sections) instead of local spacing guesses. Credential fallback groups keep the “Can’t get in?” descriptor on one centered line and all available quiet actions on the next centered row inside a capped `max-w-[21rem]` measure. Separate multiple actions with middle-dot separators; never add a second primary CTA, pill, column, or vertical divider. If only one action is available, keep it as the single centered element without a separator. Use `--app-form-section-gap` for the larger pause after the primary unlock action and `--app-form-related-gap` to keep the descriptor close to its action row. Visible link text stays close to the descriptor while the transparent control retains a 44px hit area; do not add pill padding, `self-start`, or a left-anchored row. Recovery, alternate unlock, and Sign out share the same quiet escape row when present.
    - Press physics: the system-wide active state is the `.press-scale` utility (`--motion-press-scale: 0.95`, transform-only, reduced-motion aware), layered with the md-ripple. Wired into the Morphy Button and all segmented primitives; do not write per-component press styles.
-   - Weight ladder: 300 / 400 / 600 / 700. Weight 500 (`font-medium`) is deliberately absent from `lib/morphy-ux`; labels are 400, active/strong emphasis is 600, weight 300 is a rare opt-in "airy" cue (`.type-lead-airy`).
-   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/300), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
+   - Weight ladder: self-hosted Plus Jakarta Sans 400 / 600 / 700. CSS navigation weight 550 resolves to the 600 face; CSS primary-action weight 650 resolves to the 700 face. The airy lead uses regular 400.
+   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/400), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
    - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
    - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
-   - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
+   - Legal note: the product faces are OFL-licensed Plus Jakarta Sans in `public/fonts/PlusJakartaSans`. Emoji and unsupported glyphs use the platform fallback. Never bundle Apple font files.
+
+### Product font map
+
+The careers type hierarchy is the app-wide source for web and native WebView
+content. Use `--font-app-display` and `--font-app-body` for product text, and
+`--font-app-mono` for uppercase metadata and code. The shipped faces are 400,
+600 and 700, in normal and italic styles.
+
+| Placement | CSS weight | Shipped face |
+| --- | ---: | ---: |
+| Hussh wordmark, page H1, section heading | 600 | 600 |
+| Header navigation and agent tabs | 550 | 600 |
+| Highlighted hero phrase | 700 | 700 |
+| Primary CTA and button label | 650 | 700 |
+| Paragraph, card title, FAQ question, job-detail heading, footer copy/link | 400 | 400 |
+| Form label and pay amount | 600 | 600 |
+| Uppercase section label, footer column heading, copyright | 400 system monospace | platform |
+
+Keep the **role** distinction: a section heading is semibold, while a card
+title or FAQ question can be regular even when marked up as a heading. Use the
+semantic roles in `components/app-ui/typography.tsx` rather than applying a
+weight by element name alone. Technical code and third-party email remain in
+their appropriate portable font stacks.
 
 ## Typography and CTA contract
 
@@ -287,8 +310,10 @@ Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
 `text-muted-foreground` classes. Generic icons come from the canonical
 `@/components/icons` Phosphor registry and preserve their native viewBox and
-weight. Use the registry's regular weight for Plus/X controls and duotone for
-capabilities and utility icons; do not add per-surface stroke overrides.
+weight. Use the registry's regular outline weight for capabilities and utility
+icons, without translucent interior shading; do not add per-surface stroke
+overrides. Key aliases share the neutral outline and blue accent pinpoint used
+by password fields.
 
 Location, Finance, Consent Center, and RIA route bodies render equal fixed
 tracks from the central registry below their module headers. The fixed top

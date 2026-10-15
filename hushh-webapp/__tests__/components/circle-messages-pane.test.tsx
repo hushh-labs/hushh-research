@@ -48,6 +48,12 @@ describe("CircleMessagesPane saved selection", () => {
     mocks.listCircles.mockResolvedValue([circle("room"), circle("family")]);
     const view = render(<CircleMessagesPane active initialCircleId="room" theme="light" />);
     expect(await screen.findByTestId("circle-chat")).toHaveTextContent("room");
+    // CircleChat starts its connection in a passive effect. findByTestId
+    // resolves on the commit that renders it, and a loaded runner can return
+    // before React runs that effect: shard 2/3 failed here with 0 calls in
+    // runs 38265939592, 38294003568, 38377135031 and 38540199373 (attempt 1),
+    // each on a PR that never touched Circles. Flush effects, then count.
+    await act(async () => {});
     expect(mocks.startChat).toHaveBeenCalledTimes(1);
 
     view.rerender(<CircleMessagesPane active initialCircleId="room" theme="dark" headerActions={<span>Updated header</span>} />);

@@ -50,7 +50,7 @@ def db(monkeypatch):
               CREATE TABLE pkm_data(user_id TEXT PRIMARY KEY,encrypted_data_ciphertext TEXT);
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
             """)
-            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 339):
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 346):
                 path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
                 conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
 
@@ -141,6 +141,7 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
     from google.genai import types
 
     from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.queued_input import STOPPED_ANSWER, registry, run_scope, settle
     from tests.helpers.chat_keys import static_chat_cipher
 
     _actor(db, "alice")
@@ -174,6 +175,20 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(db,
         content=types.Content(role="model", parts=[types.Part(text="synthetic failed reply")]),
     )
     await service.append_event(session, failed)
+    async with run_scope("bob", session.id, "cancelled-run", accepting=True) as run:
+        try:
+            registry.request_stop("bob", session.id)
+            await service.append_event(
+                session,
+                Event(
+                    author="one",
+                    invocation_id="turn",
+                    timestamp=time.time(),
+                    content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
+                ),
+            )
+        finally:
+            settle(run)
     for part in [
         types.Part(text="synthetic private reasoning", thought=True),
         types.Part(text=" \n\t"),
@@ -264,7 +279,7 @@ def test_referral_journey_and_replay_awards(db):
     with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
             conn.connection.cursor().execute(
-                (ROOT / "db/migrations/339_one_referral_dashboard_lifecycle.sql").read_text(
+                (ROOT / "db/migrations/346_one_referral_dashboard_lifecycle.sql").read_text(
                     encoding="utf-8"
                 )
             )
@@ -555,7 +570,7 @@ def test_conflicting_migration_replay_is_rejected_without_rewriting_history(db):
     ):
         try:
             conn.connection.cursor().execute(
-                (ROOT / "db/migrations/339_one_referral_dashboard_lifecycle.sql").read_text(
+                (ROOT / "db/migrations/346_one_referral_dashboard_lifecycle.sql").read_text(
                     encoding="utf-8"
                 )
             )
@@ -618,7 +633,7 @@ def test_rollback_preserves_awards_and_claim_history(db):
     with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.connection.cursor().execute(
             (
-                ROOT / "db/migrations/rollback/339_one_referral_dashboard_lifecycle.rollback.sql"
+                ROOT / "db/migrations/rollback/346_one_referral_dashboard_lifecycle.rollback.sql"
             ).read_text(encoding="utf-8")
         )
     assert activity.get_balances("alice") == earned
