@@ -4217,6 +4217,13 @@ does not qualify the combined source. Shared Chrome remains untouched, no
 funding or operating capital is repeated, and the Dev 20 private-image recovery
 and upgrade qualification hold remains in force.
 
+The combined core run passes 20,645 backend cases and identifies four incoming
+Wallet request endpoints missing from the hub route inventory. They carry only
+authenticated person-to-person request metadata and now join the existing
+`NETWORK` inventory; no content guard, owner authorization or handler changes.
+The existing inventory test fails before this correction. Final core and hosted
+CI remain required after the correction.
+
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled
 backing and conserved fees. A separate headless private-interface check confirms

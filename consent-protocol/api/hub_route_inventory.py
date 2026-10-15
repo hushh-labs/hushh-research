@@ -117,6 +117,7 @@ GET /api/one/wallet/card-access/grants/{grant_id}
 GET /api/one/wallet/card-access/history
 GET /api/one/wallet/card-access/history/{grant_id}
 GET /api/one/wallet/card-access/profile
+GET /api/one/wallet/card-access/requests/{request_id}
 POST /api/one/answer-requests
 POST /api/one/answer-requests/payout-account/{action}
 POST /api/one/answer-requests/{request_id}/approve
@@ -129,6 +130,9 @@ POST /api/one/payouts/hashcoins/redeem
 POST /api/one/wallet/card-access/cards/{card_id}/grants
 POST /api/one/wallet/card-access/grants/{grant_id}/verify
 POST /api/one/wallet/card-access/registrations
+POST /api/one/wallet/card-access/requests
+POST /api/one/wallet/card-access/requests/{request_id}/cancel
+POST /api/one/wallet/card-access/requests/{request_id}/decline
 DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction
 GET /api/one/messages/conversations/{conversation_id}/messages/{message_id}/attachment
 GET /api/one/payouts/account
