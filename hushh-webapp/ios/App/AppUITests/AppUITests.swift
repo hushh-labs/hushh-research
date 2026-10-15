@@ -117,6 +117,11 @@ final class AppUITests: XCTestCase {
                ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(choice) {
                 print("NATIVE_CONTROL_CHOICE control=\(control.replacingOccurrences(of: "-", with: "_")) outcome=\(choice)")
             }
+            let guardKeys = ["overlayBlocked", "inertBlocked", "moving", "suppressed", "voiceBlocked", "documentHidden"]
+            if guardKeys.allSatisfy({ fields[$0] is Bool }) {
+                let flags = guardKeys.map { fields[$0] as? Bool == true ? "1" : "0" }.joined(separator: ",")
+                print("NATIVE_CONTROL_GUARDS control=\(control.replacingOccurrences(of: "-", with: "_")) flags=\(flags)")
+            }
         }
     }
 
@@ -219,6 +224,19 @@ final class AppUITests: XCTestCase {
                     print("COHERENT_NATIVE_HIT seq=\(sequence) phase=\(phase) \(flags) frame=\(publicFrame) hits=\(publicHits)")
                 }
             }
+            if let level = Int(fields["profilePaneLevel"] ?? ""), (0...2).contains(level) {
+                print("COHERENT_PROFILE_LOCATION level=\(level)")
+            }
+            let choiceOutcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
+                "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
+            let backPresent = fields["present"] ?? (fields["pbAvailable"] == "1" ? "true" : "false")
+            for (control, prefix, present) in [("back", "profileBack", backPresent), ("close", "profileClose", fields["profileClosePresent"])] {
+                if let choice = fields["\(prefix)Choice"], choiceOutcomes.contains(choice),
+                   let allowed = fields["\(prefix)Allowed"], ["true", "false"].contains(allowed),
+                   let present, ["true", "false"].contains(present) {
+                    print("COHERENT_PROFILE_CHOICE control=\(control) outcome=\(choice) allowed=\(allowed) present=\(present)")
+                }
+            }
             let stage = fields["stage"] ?? "none", outcome = fields["outcome"] ?? "none", code = fields["code"] ?? "none"
             guard ["none", "skip", "retire", "prepare", "activate", "update"].contains(stage),
                   ["none", "pending", "acknowledged", "rejected"].contains(outcome),
@@ -227,15 +245,6 @@ final class AppUITests: XCTestCase {
                   let width = Int(fields["width"] ?? ""), let height = Int(fields["height"] ?? ""), let top = Int(fields["top"] ?? ""),
                   [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
             print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
-            let choiceOutcomes = ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
-                "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"]
-            for (control, prefix, present) in [("back", "profileBack", fields["present"]), ("close", "profileClose", fields["profileClosePresent"])] {
-                if let choice = fields["\(prefix)Choice"], choiceOutcomes.contains(choice),
-                   let allowed = fields["\(prefix)Allowed"], ["true", "false"].contains(allowed),
-                   let present, ["true", "false"].contains(present) {
-                    print("COHERENT_PROFILE_CHOICE control=\(control) outcome=\(choice) allowed=\(allowed) present=\(present)")
-                }
-            }
             let historyStage = fields["historyStage"] ?? "none", historyOutcome = fields["historyOutcome"] ?? "none"
             let historyCode = fields["historyCode"] ?? "none"
             let historyChoice = fields["historyChoice"] ?? "none", historyNative = fields["historyNative"] ?? "none"
