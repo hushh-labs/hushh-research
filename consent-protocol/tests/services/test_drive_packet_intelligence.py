@@ -1,6 +1,8 @@
 """Evidence integrity cannot be supplied by the model's confidence score."""
 
+import hashlib
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -27,6 +29,34 @@ def test_facts_policy_changes_with_extraction_profile(monkeypatch):
         drive_packet_intelligence, "EXTRACTION_PROFILE", "future-extraction-profile"
     )
     assert drive_packet_intelligence.facts_policy_version() != current
+
+
+# Every input below feeds facts_policy_version(). Any edit, even a comment,
+# re-queues facts for every extracted Drive file and makes every packet version
+# policy-stale until facts run again. Update a pin only on purpose, ship all
+# bumps in one release, and name the bump and its re-queued count in the PR.
+FACTS_POLICY_INPUTS = {
+    "hushh_mcp/agents/documents/agent.yaml": (
+        "9cca6a5e780814523a9d470a760c2a00a6457d848da1afd6ec929806a2aef700"
+    ),
+    "hushh_mcp/services/drive_packet_contract.py": (
+        "ef981abc2f54055e79ba52b8560b404b6624295183c164085ca4cdcbb84491b8"
+    ),
+    "hushh_mcp/services/drive_citation_references.py": (
+        "495762e617c36bd62f0dec8ddc998e49a4994707e2d2eb344f281117c44f6309"
+    ),
+}
+
+
+def test_facts_policy_inputs_are_pinned():
+    root = Path(drive_packet_intelligence.__file__).resolve().parents[2]
+    assert {
+        path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in FACTS_POLICY_INPUTS
+    } == FACTS_POLICY_INPUTS, "facts policy bump: every extracted file re-queues for facts"
+    assert drive_packet_intelligence.FACTS_SCHEMA_VERSION == "document-facts-v6-record-status"
+    assert drive_packet_intelligence.EXTRACTION_PROFILE == (
+        "drive-pages-v2:pdfplumber-0.11.10:pdfium:tesseract-5-eng:ocr-signal"
+    )
 
 
 def page_facts():

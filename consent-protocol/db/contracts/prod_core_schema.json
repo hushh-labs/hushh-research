@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 345,
+  "expected_migration_version": 346,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2279,7 +2279,8 @@
       "revoked_at",
       "metadata",
       "latest_envelope_id",
-      "source_circle_id"
+      "source_circle_id",
+      "recipient_cleared_at"
     ],
     "one_location_sms_contacts": [
       "owner_user_id",

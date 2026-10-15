@@ -2,9 +2,13 @@
 
 The encrypted `one_living_sources._private.inventory` is a derived, owner-only
 projection. Its authority remains in the source services and PKM domains.
-`memory.md` is a further projection, not a second source of truth. The current
-bridge runs only while the owner client is open and the vault is unlocked; it
-does not provide closed-app or continuous 24/7 capture. See the
+Profile Live Mirror, the Memory workspace, the private agent's profile sheet and
+the private agent read one owner-scoped Live Mirror projection. It is built in
+memory from this inventory and its observed history and is never persisted. Its Markdown and
+`memory.md` are derived previews, not a second source of truth. The bridge
+runs only while the owner client is open and the vault is unlocked; it does
+not provide closed-app or continuous 24/7 capture. Every surface shows one
+boundary line: "Updates while the app is open and unlocked." See the
 [freshness ADR](./living-memory-freshness-adr.md).
 
 ## Visual Map
@@ -14,21 +18,51 @@ flowchart LR
   Authority[Owner source authority] --> Snapshot[Verified bounded snapshot]
   Signal[Change signal or recovery timer] --> Snapshot
   Snapshot --> Admission[Declared source and CI admission gate]
-  Admission --> Inventory[Encrypted owner inventory]
+  Admission --> Inventory[Encrypted owner inventory and history]
   Inventory --> Document[Derived Profile memory document]
+  Inventory --> Mirror[In-memory Live Mirror projection]
+  Mirror --> Surfaces[Profile, profile sheet and private agent]
 ```
 
 The signal wakes a read; only the verified source snapshot can change the
-encrypted inventory. The gate checks registered kinds and writer sites before
-the change can enter the release pipeline.
+encrypted inventory. The gate checks registered kinds, journal kinds, writer
+sites and paid-answer imports before the change can enter the release
+pipeline.
 
 Each verified change to an admitted inventory record also enters
 `one_living_sources._private.observed_history` in the same encrypted write.
-This owner-only history retains at most 2,048 observed revisions and records
+This owner-only history retains at most 2,048 entries and records
 `firstRetainedSequence` and `truncatedAt` when it rolls over. The server
-journals contain kind-only hints, never source values. The observed history
-cannot reconstruct intermediate values that changed while every owner client
-was closed; it must not be sold as a complete account activity export.
+journals contain kind-only hints, never source values.
+
+- **Pending hints.** Encrypted `journal_pending` is stored in the same write
+  as the journal cursors. A cursor moves past a hint only when that write
+  verifies the hint's kind or records the kind as pending. One failing source
+  no longer holds every cursor, and no hint is dropped.
+- **Gap markers.** When more changes were committed than an unlocked client
+  verified, the history gets an explicit `gap` entry with counts and times. It
+  never invents the values in between and shares the 2,048-entry cap. A
+  verified source that recorded no change gets no marker, and an unknown
+  recorded count reads "recorded count unknown".
+- **Reset repair.** A journal reset, including the backend's reset for a
+  missing event inside the retained range, forces an authoritative rescan of
+  every kind instead of trusting hints.
+- **Freshness.** A source is current for five minutes after its last verified
+  read, plus a two-minute grace, judged when the view is read. An unchanged
+  sync's verification applies on read without a rebuild; a source whose
+  records changed keeps its stored time until the rebuilt mirror lands, and
+  the mirror shows "Updating" meanwhile. Routine wakes otherwise rebuild
+  quietly. A failing kind retries with bounded per-kind backoff.
+  Commit-to-encrypted-write lag is measured per kind and shown only to the
+  owner.
+- **Private agent packet.** The packet is bounded so the server's
+  20,000-character clip never cuts it. Finance and Investor receive the whole
+  block with its rule, or none of it; only Soul.md is clipped to fit.
+
+The observed history cannot reconstruct values that changed while every owner
+client was closed; it must not be sold as a complete account activity export.
+The Live Mirror and the private agent's packet hide earlier values of a record
+that was later removed; the encrypted history keeps them until rollover.
 
 ## Adding a durable source
 
@@ -66,6 +100,33 @@ The JSON block is machine checked. `source_file` plus `source_anchor` identify
 the emitted registration. `signal` and `snapshot` must point to existing code,
 and `evidence` must point to focused tests. Reviewers must verify the meaning
 of those references; the static gate cannot prove runtime completeness.
+
+### Journal kinds and paid answers
+
+The gate requires the newest `live_memory_source_events.source_kind` CHECK
+list to equal `SOURCE_JOURNAL_KINDS` in `source-journal-service.ts`, and both
+to be declared kinds below. Curated OAuth status uses its separate connector
+journal, so it is the one declared kind without a source-journal entry.
+
+Paid exact-scope answers read authoritative domains and Soul only. The gate
+rejects any `living-source-*` or `live-mirror-*` import in
+`memory-scope-retrieval.ts` or `answer-scope-availability.ts`. A focused test
+proves the inventory cannot make a scope chargeable, even when it holds a
+value and the authoritative reads fail.
+
+## Not yet admitted
+
+No source kind is added in this release. Each family below stays outside the
+inventory until it passes every admission rule above.
+
+| Story | Information | Decision | Reason |
+| --- | --- | --- | --- |
+| E03 | Saved onboarding and communication preferences | Later | Shown in Profile from the encrypted identity domain, but there is no change hint and it overlaps the per-turn style channel. |
+| E07 | Mail and receipts | Excluded | Continuous mail capture first needs an owner decision on consent, retention and sharing. |
+| E08 | Document handoffs | Later | No owner-scoped handoff snapshot or journal trigger exists. |
+| E09 | Saved places and visit ratings | Later | Shown in Profile from the encrypted location domain with receipts, but there is no record cap, it holds coordinates and removed addresses would stay in history. |
+| E10 | Reviewed PWM claims | Later | PWM is a separate authority and its review-and-approve projection is not built. |
+| E11, A11 | Specialist-agent outcomes | Later | No single authority exists; each outcome needs its own durable source. Raw tool logs stay excluded. |
 
 ## Owner projection writer admission
 
@@ -112,7 +173,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable profile:userId source key; content revision increases when projected values change; source timestamps remain separate.",
       "tombstone": "A verified complete profile snapshot may remove a missing record; unavailable identity preserves the previous record.",
       "freshness_errors": "Open-and-unlocked only; refresh failure marks profile unavailable and inventory incomplete, then retries on later triggers.",
-      "exposure": "Owner-only one_living_sources._private; never a grant or automatic share. Answer scopes require separate approval and exposure checks.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. The photo URL becomes presence only and is never sent to the model. Never a grant or automatic share; answer scopes require separate approval and exposure checks.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no plaintext source values in telemetry or checkpoints.",
       "capacity": {
         "mode": "bounded",
@@ -144,7 +205,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable curated_oauth_connector:connectorId key; local revision increments on projected status or timestamp changes. Two equal scans reject a racing read; there is no server revision fence.",
       "tombstone": "Only matching complete overviews may tombstone an omitted or not_connected OAuth source, including a genuine empty catalog. Malformed, racing, or over-cap reads retain prior records.",
       "freshness_errors": "Open-and-unlocked only; failed overview marks curated_oauth_connector unavailable and the inventory incomplete, then retries on a later bridge trigger. Five-minute complete-scan freshness is checked at each 60-second wake.",
-      "exposure": "Owner-only one_living_sources._private; connection status does not grant access or become an automatic answer scope.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. No credentials, scopes or account labels enter it. Connection status does not grant access or become an automatic answer scope.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no credentials or plaintext source records in telemetry.",
       "capacity": {
         "mode": "bounded",
@@ -180,7 +241,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable document_earning:requestId key; local revision increments when an allowlisted amount, status or settlement field changes. verifiedAt tracks the last complete scan separately from content revision.",
       "tombstone": "Only two matching complete live-and-test scans may tombstone a missing requestId. A failed, shifted, duplicate or over-cap page retains prior records.",
       "freshness_errors": "Open-and-unlocked only; five-minute per-owner/session verification age is checked by the 60-second bridge. A failed due read marks document_earning unavailable and inventory incomplete.",
-      "exposure": "Owner-only one_living_sources._private; this source does not create a payment entitlement, grant or automatic answer scope.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. This source does not create a payment entitlement, grant or automatic answer scope.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no payment description, bank details or plaintext earnings in telemetry.",
       "capacity": {
         "mode": "bounded",
@@ -216,7 +277,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable document_request_payment:requestId key; local revision increments when an allowlisted payment or refund value changes. verifiedAt tracks the last complete two-snapshot read separately from content revision.",
       "tombstone": "Only two matching complete owner snapshots may tombstone an absent request. Failed, racing, wrong-owner, malformed or over-cap reads retain prior records. Legally retained anonymous payment obligations are not reimported after requester erasure.",
       "freshness_errors": "Open-and-unlocked only; the 60-second bridge checks a five-minute verification age, while a committed request-scoped feed hint forces a reread. A private SOURCE_CAPACITY_EXCEEDED 503 backs off five minutes unless a hint forces retry; other failures retry normally and leave the inventory incomplete.",
-      "exposure": "Owner-only one_living_sources._private; a payment record is not an entitlement, grant, purchasable answer scope or automatic share.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. The opaque counterpart reference never becomes a mirror fact or packet value. A payment record is not an entitlement, grant, purchasable answer scope or automatic share.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion. No raw payment provider reference, counterpart identity, document content or plaintext value enters telemetry.",
       "capacity": {
         "mode": "bounded",
@@ -252,7 +313,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable mode-prefixed SHA-256 pseudonym of the source item ID; local revision increments on allowlisted value changes. A deterministic hash does not guarantee secrecy for guessable IDs. Per-kind verifiedAt records the last complete scan separately.",
       "tombstone": "Only two matching complete live-and-test scans may tombstone a missing activity item. Failed, racing, reset, duplicate or over-limit scans preserve prior records.",
       "freshness_errors": "Open-and-unlocked only; owner hints force a scan and the 60-second wake checks five-minute complete-scan freshness. A failed due read marks payout_activity unavailable and inventory incomplete.",
-      "exposure": "Owner-only one_living_sources._private; payout activity is not a payment entitlement, grant, scope or complete transaction ledger.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. Payout activity is not a payment entitlement, grant, scope or complete transaction ledger.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no raw provider IDs, bank details or plaintext activity in telemetry.",
       "capacity": {
         "mode": "bounded",
@@ -288,7 +349,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable consent:entryId source key; changed projected values increment the local revision; source fence guards complete scans.",
       "tombstone": "Only a verified complete scan can tombstone an absent entry; failed or racing pages preserve previous records.",
       "freshness_errors": "Open-and-unlocked only; unavailable reads mark inventory incomplete and retain previous consent records for retry. Capacity overflow retries after five minutes or an owner consent change signal.",
-      "exposure": "Owner-only one_living_sources._private; the inventory cannot create grants or exports. Scope approval remains separate.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. Counterpart IDs never become mirror facts or packet values. The inventory cannot create grants or exports; scope approval remains separate.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; no tokens or plaintext source records in telemetry.",
       "capacity": {
         "mode": "bounded",
@@ -324,7 +385,7 @@ the resulting data flow and source contract before extending either allowlist.
       "revision": "Stable connection:connectionId source key; local revision increases on value change. Double complete scan checks page, audience, count, duplicates, and row shape; there is no server revision fence.",
       "tombstone": "Only matching complete scans tombstone a missing connection. Failed, over-limit, shifted, or racing scans retain prior records.",
       "freshness_errors": "Open-and-unlocked only; invalid or unavailable pages mark connection unavailable and inventory incomplete for retry.",
-      "exposure": "Owner-only one_living_sources._private; connection records are not a grant, shared list, or implicit answer scope.",
+      "exposure": "Owner-only one_living_sources._private; shareable never. Registry send_to_model owner_turn_allowlist: only the owner's own private agent may receive a bounded, allowlisted, value-minimal Live Mirror packet on a consented, unlocked turn. Counterpart user IDs never become mirror facts or packet values. Connection records are not a grant, shared list or implicit answer scope.",
       "retention": "Encrypted PKM projection follows owner domain lifecycle and deletion; counterpart identifiers are excluded from plaintext telemetry.",
       "capacity": {
         "mode": "bounded",

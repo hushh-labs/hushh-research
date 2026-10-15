@@ -1,0 +1,41 @@
+{
+  "answer": {
+    "account": null,
+    "ambiguous": false,
+    "date_evidence": [],
+    "document_type": {
+      "citation_refs": [
+        "p1s9"
+      ],
+      "value": "Monthly statement"
+    },
+    "facts": [],
+    "issuer": null,
+    "missing_information": [],
+    "pages": [
+      1
+    ],
+    "periods": [],
+    "record_status": {
+      "citation_refs": [],
+      "evidence_basis": "unknown",
+      "explanation": "Not assessed.",
+      "status": "unknown"
+    },
+    "subject": null,
+    "topics": []
+  },
+  "description": "Page facts cite a text span that does not exist.",
+  "documents": [],
+  "id": "fabricated-citation",
+  "known_gap": null,
+  "pages": [
+    {
+      "page": 1,
+      "text": "Example Bank\nMonthly statement\n",
+      "unit_kind": "page"
+    }
+  ],
+  "schema_version": "dpe.guard.v1",
+  "stage": "page_facts"
+}

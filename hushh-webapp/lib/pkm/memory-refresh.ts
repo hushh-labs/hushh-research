@@ -1,6 +1,6 @@
 "use client";
 
-import { CacheService, CACHE_TTL } from "@/lib/services/cache-service";
+import { CacheService, CACHE_TTL, type CacheSnapshot } from "@/lib/services/cache-service";
 import {
   buildMemoryDocument,
   type MemoryAccountIdentity,
@@ -8,11 +8,23 @@ import {
 } from "@/lib/pkm/memory-document";
 import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
 import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
-import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
+import type {
+  LivingJournalPending,
+  LivingSourceHealth,
+  LivingSourceHistory,
+  LivingSourceInventory,
+} from "@/lib/pkm/living-source-records";
+import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PROFILE_MEMORY_SCOPE_IDS, retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
+import type { LiveMirrorProjection, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import {
+  applyLiveMirrorReadTime,
+  buildLiveMirrorProjection,
+  liveMirrorHasExpiredSource,
+} from "@/lib/pkm/live-mirror-projection";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -41,7 +53,51 @@ type Cached = {
   signature: string;
   networkVerified: boolean;
   freshnessDate: string;
+  /** Owner-only Live Mirror; RAM only, dropped with this entry. */
+  projection: LiveMirrorProjection | null;
 };
+const peekCached = (userId: string) => CacheService.getInstance().peek<Cached>(CACHE_KEY(userId));
+
+/**
+ * Newer source verifications from this owner's unlocked session. An unchanged
+ * sync re-verified its sources without a write or a rebuild, so its time is
+ * applied when the mirror is read. Another owner or vault epoch adds nothing.
+ */
+function withSessionVerification(userId: string, projection: LiveMirrorProjection): LiveMirrorProjection {
+  if (projection.ownerId !== userId || projection.vaultEpoch !== snapshotVaultSessionEpoch()) return projection;
+  const session = getLivingSourceSessionVerification(userId, projection.vaultEpoch);
+  const newer = (kind: keyof typeof session, at: string | null): string | null => {
+    const verified = session[kind];
+    return verified && (at === null || Date.parse(verified) > Date.parse(at)) ? verified : null;
+  };
+  const refreshed = new Map<string, string>();
+  const sources = projection.sources.map((source) => {
+    if (source.group !== "living" || !source.kind || source.state === "unavailable") return source;
+    const verifiedAt = newer(source.kind, source.verifiedAt);
+    if (!verifiedAt) return source;
+    refreshed.set(source.kind, verifiedAt);
+    return { ...source, verifiedAt };
+  });
+  if (!refreshed.size) return projection;
+  const facts = projection.facts.map((fact) => {
+    const verifiedAt = refreshed.get(fact.kind);
+    return verifiedAt && newer(fact.kind, fact.verifiedAt) ? { ...fact, verifiedAt } : fact;
+  });
+  return { ...projection, sources, facts };
+}
+
+/** Document-level status, without the per-source verification-age check. */
+function documentStatus(userId: string, entry: CacheSnapshot<Cached>, now: number): MemoryRefreshStatus {
+  const cached = entry.data;
+  return !cached.document.complete
+    ? "refresh_failed"
+    : cached.change !== (changes.get(userId) ?? 0)
+      ? "refresh_pending"
+      : !cached.networkVerified || Math.max(0, now - entry.timestamp) > entry.ttl ||
+          cached.freshnessDate !== new Date(now).toISOString().slice(0, 10)
+        ? "stale"
+        : "current";
+}
 
 /** Owner-filtered, deduplicated freshness subscription; never holds a key. */
 export function watchMemoryFreshness(userId: string): () => void {
@@ -71,21 +127,31 @@ export function markMemoryRefreshPending(userId: string): void {
 }
 
 export function peekMemoryView(userId: string): MemoryView {
-  const entry = CacheService.getInstance().peek<Cached>(CACHE_KEY(userId));
-  const cached = entry?.data;
-  if (!cached) return stale();
+  const entry = peekCached(userId);
+  if (!entry?.data) return stale();
+  const now = Date.now();
+  const status = documentStatus(userId, entry, now);
+  const { document, builtAt, projection } = entry.data;
+  // A living source past its verification window is never current, even
+  // while the session cache entry is fresh.
   return {
-    document: cached.document,
-    builtAt: cached.builtAt,
-    status: !cached.document.complete
-      ? "refresh_failed"
-      : cached.change !== (changes.get(userId) ?? 0)
-        ? "refresh_pending"
-        : !cached.networkVerified || entry?.isStale || cached.freshnessDate !== new Date().toISOString().slice(0, 10)
-          ? "stale"
-          : "current",
+    document,
+    builtAt,
+    status: status === "current" && projection &&
+      liveMirrorHasExpiredSource(withSessionVerification(userId, projection), now) ? "stale" : status,
   };
 }
+/**
+ * The owner's shared Live Mirror with read-time states applied, or null before
+ * a build exists. "Current" is re-derived on every read, never cached.
+ */
+export function peekLiveMirror(userId: string, now: number = Date.now()): LiveMirrorView | null {
+  const entry = peekCached(userId);
+  const projection = entry?.data.projection;
+  if (!entry || !projection || projection.ownerId !== userId) return null;
+  return applyLiveMirrorReadTime(withSessionVerification(userId, projection), now, documentStatus(userId, entry, now));
+}
+
 export interface RefreshMemoryParams {
   userId: string;
   vaultKey: string;
@@ -104,16 +170,15 @@ export async function refreshMemoryDocument(
     [...new Set(params.domains)].sort(),
     params.account ?? null,
   ]);
-  const cached = CacheService.getInstance().peek<Cached>(
-    CACHE_KEY(params.userId),
-  )?.data;
-  const existing = peekMemoryView(params.userId);
+  const existing = peekCached(params.userId);
+  // Verification age alone is not a reason to re-read every domain: only a
+  // source sync can renew it, and each sync wake already marks this pending.
   if (
     !params.force &&
-    existing.status === "current" &&
-    cached?.signature === signature
+    existing?.data.signature === signature &&
+    documentStatus(params.userId, existing, Date.now()) === "current"
   )
-    return existing;
+    return peekMemoryView(params.userId);
   const epoch = snapshotVaultSessionEpoch();
   const generation = (generations.get(params.userId) ?? 0) + 1;
   generations.set(params.userId, generation);
@@ -128,6 +193,10 @@ export async function refreshMemoryDocument(
     unavailableReason?: string;
   }[] = [];
   const fullBlob: Record<string, unknown> = {};
+  // Live Mirror inputs, kept even when the inventory is incomplete. They never
+  // enter fullBlob, the persisted document or paid scope retrieval.
+  let mirrorInputs: Record<string, unknown> | null = null;
+  let mirrorReadFailed = false;
   let networkVerified = true;
   for (const domain of [...new Set(params.domains)].sort()) {
     if (!valid()) return stale();
@@ -146,12 +215,18 @@ export async function refreshMemoryDocument(
         networkVerified = false;
       }
       if (!snapshot?.data) {
+        if (domain === "one_living_sources") mirrorReadFailed = true;
         sources.push({
           domain,
           contentRevision: null,
           unavailableReason: "could not be read",
         });
         continue;
+      }
+      if (domain === "one_living_sources") {
+        const mirrorPrivate = snapshot.data._private;
+        mirrorInputs = mirrorPrivate && typeof mirrorPrivate === "object" && !Array.isArray(mirrorPrivate)
+          ? mirrorPrivate as Record<string, unknown> : null;
       }
       const inventory = (
         snapshot.data._private as
@@ -171,6 +246,7 @@ export async function refreshMemoryDocument(
       sources.push({ domain, contentRevision: domain === "one_living_sources" ? null : snapshot.key.contentRevision,
         manifestRevision: domain === "one_living_sources" ? null : snapshot.manifestRevision });
     } catch {
+      if (domain === "one_living_sources") mirrorReadFailed = true;
       sources.push({
         domain,
         contentRevision: null,
@@ -265,9 +341,29 @@ export async function refreshMemoryDocument(
     }
   }
   if (!valid()) return stale();
+  let projection: LiveMirrorProjection | null = null;
+  try {
+    projection = buildLiveMirrorProjection({
+      ownerId: params.userId,
+      vaultEpoch: epoch,
+      now: new Date().toISOString(),
+      inventory: (mirrorInputs?.inventory ?? null) as LivingSourceInventory | null,
+      history: (mirrorInputs?.observed_history ?? null) as LivingSourceHistory | null,
+      pending: (mirrorInputs?.journal_pending ?? null) as LivingJournalPending | null,
+      health: (mirrorInputs?.source_health ?? null) as LivingSourceHealth | null,
+      document,
+      sessionVerifiedAt: getLivingSourceSessionVerification(params.userId, epoch),
+      nameConflict: document.freshness.some(entry => entry.domain === "one_memory" && entry.status === "conflicted"),
+      inventoryReadFailed: mirrorReadFailed,
+      excludeSavedDomains: ["one_living_sources"],
+    });
+  } catch {
+    // The mirror stays "Checking sources"; the document itself is unaffected.
+    projection = null;
+  }
   CacheService.getInstance().set(
     CACHE_KEY(params.userId),
-    { document, builtAt, change, signature, networkVerified, freshnessDate: checkedDate },
+    { document, builtAt, change, signature, networkVerified, freshnessDate: checkedDate, projection },
     CACHE_TTL.SESSION,
   );
   // Preserve the captured event revision: edits arriving during readback stay pending.

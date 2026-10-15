@@ -9198,3 +9198,31 @@ def test_stopping_a_legacy_sos_share_without_stored_kind_still_names_the_sms_lan
     push = service.notifications[-1]
     assert push["title"] == "SMS location sharing stopped"
     assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
+    """Clearing an ended SOS card is the recipient's state. The sender's view
+    of the same grant never says whether, or when, it was cleared."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+    cleared_at = datetime(2026, 10, 15, 4, 0, tzinfo=timezone.utc)
+    service.grants[sos["id"]]["recipient_cleared_at"] = cleared_at
+
+    received = {
+        grant["id"]: grant for grant in service.list_state(user_id="user_b")["receivedGrants"]
+    }
+    owned = {grant["id"]: grant for grant in service.list_state(user_id="user_a")["ownerGrants"]}
+
+    assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
+    assert "recipientClearedAt" not in owned[sos["id"]]
+    assert all("recipientClearedAt" not in grant for grant in owned.values())
