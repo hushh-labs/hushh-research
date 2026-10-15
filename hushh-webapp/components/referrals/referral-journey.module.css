@@ -40,12 +40,12 @@
 .rewardRow[data-earning="connections"] { --earning-color: var(--journey-teal); }
 .earningIcon { display: grid; width: 36px; height: 36px; place-items: center; color: var(--earning-color); }
 .earningIcon svg { width: 21px; height: 21px; }
-.earningCopy h4 { --foundation-headline-size: var(--type-row-label-compact-size); --foundation-headline-line: var(--type-row-label-compact-line); --foundation-headline-weight: var(--type-row-label-compact-weight); margin: 0 0 3px; }
-.earningCopy p { margin: 0; color: var(--muted-foreground); font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); }
+.earningCopy h4 { --foundation-headline-size: max(var(--type-row-label-compact-size), .9375rem); --foundation-headline-line: var(--type-row-label-compact-line); --foundation-headline-weight: var(--type-row-label-compact-weight); margin: 0 0 3px; }
+.earningCopy p { margin: 0; color: var(--muted-foreground); font-size: max(var(--type-row-description-size), .8125rem); line-height: var(--type-row-description-line); }
 .pointAward { text-align: right; }
 .pointAmount { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin: 0; color: var(--foreground); font-variant-numeric: tabular-nums; }
-.pointAmount strong { font-size: var(--type-row-label-size); font-weight: var(--type-row-label-emphasis-weight); line-height: var(--type-row-label-line); }
-.pointAmount > span { color: var(--muted-foreground); font-size: var(--type-row-description-size); line-height: var(--type-row-description-line); }
+.pointAmount strong { font-size: max(var(--type-row-label-size), .9375rem); font-weight: var(--type-row-label-emphasis-weight); line-height: var(--type-row-label-line); }
+.pointAmount > span { color: var(--muted-foreground); font-size: max(var(--type-row-description-size), .8125rem); line-height: var(--type-row-description-line); }
 :global(.dark) .rewardRow[data-earning="streak"] { --earning-color: var(--app-warning-bright); }
 
 @container referral-journey (max-width: 680px) {

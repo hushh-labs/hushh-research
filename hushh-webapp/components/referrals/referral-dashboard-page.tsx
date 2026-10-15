@@ -52,7 +52,7 @@ const COLORS = {
   blueSoft: "var(--app-accent-tint)",
   meSurface: "var(--app-accent-surface)",
   green: "var(--app-success)",
-  greenText: "var(--app-success-deep)",
+  greenText: "var(--referral-success-ink)",
   gold: "var(--referral-medal-deep)",
   goldSoft: "var(--referral-medal-light)",
   goldText: "#8a6431",
@@ -990,7 +990,7 @@ function BoardRow({
     >
       <span
         className="referral-type-support tabular-nums"
-        style={{ color: first ? "#8a6431" : rank <= 3 ? COLORS.text : COLORS.text2 }}
+        style={{ color: first ? "var(--referral-reward-ink)" : rank <= 3 ? COLORS.text : COLORS.text2 }}
       >
         {rank}
       </span>
