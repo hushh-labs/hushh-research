@@ -854,9 +854,16 @@ Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the che
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub `production` environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. The provider accepts only the `production` environment on `main`. |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | GitHub `production` environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Production deploy identity, reused for the read-only posture check; never the Cloud Run LLM runtime identity. |
 
-The deploy identity holds more access than this check needs, so the next
-hardening step is a dedicated read-only service account (`roles/cloudsql.viewer`
-on `hushh-pda`, bound to the production WIF pool).
+The deploy identity holds more access than this check needs. Naming another
+`service_account` in the workflow would not narrow that: any step in a
+`production` job with `id-token: write` can mint an OIDC token that the deploy
+identity accepts. The next hardening step, scripted under `deploy/iam/`, runs
+the check from its own `main`-only GitHub environment as a dedicated read-only
+service account (`roles/cloudsql.viewer` on `hushh-pda`) through a WIF provider
+that accepts only that environment. It also narrows the deploy identity's
+`roles/iam.workloadIdentityUser` binding from the repository-wide principal
+set, which matches this repository's tokens from every provider in the pool, to
+the subject `repo:hushh-labs/hushh-research:environment:production`.
 
 ### Backup posture config (Cloud SQL)
 
