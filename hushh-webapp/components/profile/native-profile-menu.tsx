@@ -7,7 +7,7 @@ import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model";
-import { useEffect, useLayoutEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 
 export function projectNativeProfileMenu(name: string, email: string | null, ready: boolean,
   groups: ReturnType<typeof profileMenuGroups>, actions: ProfileMenuActions, onClose: () => void) {
@@ -80,6 +80,13 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   const webDetail = detail && !nativeAccount;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);
+  // Retain the committed display, not its operation authority. On Back the
+  // caller already projects Profile root; rendering those new children while
+  // native return is pending would visibly replace the outgoing detail.
+  // Private bodies remain process-local and cannot cross an owner/vault lease.
+  const displayedDetail = useRef<{
+    lifetime: string; children: ReactNode; title: string; context: string; backLabel?: string;
+  } | null>(null);
   useLayoutEffect(() => {
     if (!menu.surfaceOpen || !menu.ready) {
       setPrepared(null); setRestored(null);
@@ -89,6 +96,15 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   }, [menu.surfaceOpen, menu.ready, webDetail, lifetime]);
   const holdingDetail = !webDetail && prepared === lifetime && restored !== lifetime;
   const active = menu.surfaceOpen === true && menu.ready;
+  const retained = active && holdingDetail && displayedDetail.current?.lifetime === lifetime
+    ? displayedDetail.current : null;
+  useLayoutEffect(() => {
+    if (active && webDetail) {
+      displayedDetail.current = { lifetime, children, title: page.title, context: page.context, backLabel: page.backLabel };
+    } else if (!active || !holdingDetail || displayedDetail.current?.lifetime !== lifetime) {
+      displayedDetail.current = null;
+    }
+  }, [active, webDetail, holdingDetail, lifetime, children, page.title, page.context, page.backLabel]);
   // Decide the composition before the first visible native menu. Do not first
   // display a legacy menu and replace it with a stack after capability discovery.
   if (account && stackSupported === null) return null;
@@ -98,11 +114,13 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
       onPresented={() => {
       if (active && !webDetail) { setRestored(lifetime); setPrepared(null); }
     }} />
-    <NativeFeaturePage {...page} open={active && (webDetail || holdingDetail)} onReady={() => {
+    <NativeFeaturePage {...page} {...(retained ? {
+      title: retained.title, context: retained.context, backLabel: retained.backLabel,
+    } : {})} backEnabled={!holdingDetail} open={active && (webDetail || !!retained)} onReady={() => {
       if (active && webDetail) setPrepared(lifetime);
     }}>
       <div inert={holdingDetail || undefined}>
-        {children}
+        {retained ? retained.children : children}
       </div>
     </NativeFeaturePage>
     {account?.editor(destinationId)}

@@ -3096,7 +3096,7 @@ describe("native chrome presentation lease", () => {
     }
   });
 
-  it("keeps the outgoing Profile detail painted until the returning native menu is acknowledged", async () => {
+  it.each(["return", "new-detail", "close", "owner"] as const)("retains the outgoing Profile display without stale Back authority during %s handoff", async outcome => {
     measureSlot();
     vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
     publishValidatedAuthSessionOwner("owner-a");
@@ -3121,25 +3121,55 @@ describe("native chrome presentation lease", () => {
     bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
-    const scene = (detail: boolean) => <NativeProfilePresentation lifetime="owner-a:vault-a" detail={detail}
-      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
-      page={{ pane: true, title: "Preferences", owner: "owner-a", context: detail ? "preferences" : "root", onBack: vi.fn(), onClose: vi.fn() }}>
-      <p>{detail ? "Public preference controls" : "Menu destination"}</p>
+    const back = vi.fn(), close = vi.fn();
+    const scene = (detail: "preferences" | "security" | null, open = true, lifetime = "owner-a:vault-a") => <NativeProfilePresentation lifetime={lifetime} detail={!!detail}
+      menu={{ owner: "owner-a", ready: true, open, surfaceOpen: open, name: "Public sample", email: null, groups, actions, onClose: close }}
+      page={{ pane: true, title: detail === "preferences" ? "Preferences" : detail === "security" ? "Security" : "Profile",
+        owner: "owner-a", context: detail ?? "root", onBack: back, onClose: close }}>
+      <p>{detail === "preferences" ? "Public preference controls" : detail === "security" ? "Public security controls" : "Menu destination"}</p>
     </NativeProfilePresentation>;
-    const view = render(scene(true));
+    const view = render(scene("preferences"));
     await waitFor(() => expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible());
     await waitFor(() => expect(drawerBridge.apply.mock.calls.some(([state]) => !state.open)).toBe(true));
     const pane = view.getByRole("dialog", { name: "Preferences" });
     holdReturn = true;
-    view.rerender(scene(false));
+    view.rerender(scene(null));
     await waitFor(() => expect(returning).toBeDefined());
     expect(pane).toBeVisible();
-    expect(view.getByText("Menu destination").closest("[inert]")).not.toBeNull();
-    expect(view.queryByText("Public preference controls")).toBeNull();
+    expect(view.getByRole("dialog", { name: "Preferences" })).toBe(pane);
+    expect(view.getByText("Public preference controls").closest("[inert]")).not.toBeNull();
+    expect(view.queryByText("Menu destination")).toBeNull();
+    expect(pane.querySelector('button[aria-label="Back in Profile"]')).toBeDisabled();
+    // An obsolete Back (including Escape) cannot pop the already-requested
+    // parent again. Close retains the current lifetime callback.
+    fireEvent.keyDown(pane, { key: "Escape" });
+    expect(back).not.toHaveBeenCalled();
     expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    if (outcome === "new-detail") {
+      view.rerender(scene("security"));
+      expect(view.getByRole("dialog", { name: "Security" })).toBe(pane);
+      expect(view.getByText("Public security controls").closest("[inert]")).toBeNull();
+      expect(view.queryByText("Public preference controls")).toBeNull();
+    } else if (outcome === "close") {
+      view.rerender(scene(null, false));
+      await waitFor(() => expect(view.queryByText("Public preference controls")).toBeNull());
+    } else if (outcome === "owner") {
+      // The owner/vault lease invalidates the private display immediately.
+      view.rerender(scene(null, true, "owner-a:vault-b"));
+      expect(view.queryByText("Public preference controls")).toBeNull();
+    }
     await act(async () => { rootAdmission.resolve({ ...returning!, phase: "active" }); });
-    await waitFor(() => expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull());
-    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalledOnce());
+    if (outcome === "new-detail") {
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].open).toBe(false));
+      expect(view.getByRole("dialog", { name: "Security" })).toBeVisible();
+      expect(view.getByText("Public security controls")).toBeVisible();
+      expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull());
+      await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalledOnce());
+    }
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
   });
   it.each(["current", "owner", "closed"] as const)("settles Profile readiness after an appearance change during activation only for the %s pane", async outcome => {
     measureSlot();

@@ -4052,7 +4052,11 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process memory only.
         let opener = app.buttons["Open Profile"].firstMatch
         let close = app.buttons["native-profile-drawer-close"].firstMatch
-        let back = app.buttons["Back in Profile"].firstMatch
+        let nativeAccountBack = app.navigationBars["Your account"].buttons["Profile"].firstMatch
+        var back: XCUIElement {
+            nativeAccountBack.exists && nativeAccountBack.isHittable
+                ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
+        }
         let destinations = ["account", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
         if let requestedStart, !destinations.contains(requestedStart) {
@@ -4109,6 +4113,16 @@ final class AppUITests: XCTestCase {
         // Back must restore the roster; opening Profile is not a root reset.
         for _ in 0..<3 {
             if close.exists && close.isHittable && root("account").exists { break }
+            if nativeAccountBack.exists && nativeAccountBack.isHittable {
+                nativeAccountBack.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    close.exists && close.isHittable && root("account").exists && root("account").isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
+                }
+                continue
+            }
             guard waitForAdmittedControl(back), let level = publicPaneLevel(), level > 0 else { break }
             print("PROFILE_RESUMED_PARENT phase=before level=\(level)")
             back.tap()
@@ -4159,6 +4173,25 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             destination.tap()
+            if id == "account", nativeAccountBack.waitForExistence(timeout: 5) {
+                // Account has an owned UIKit destination, not the React
+                // content plane used by the remaining rich detail families.
+                // Require the actual body and return, not a path receipt.
+                let name = app.buttons["native-profile-row-account-name"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(name) else {
+                    XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_UNAVAILABLE"); return
+                }
+                XCTAssertTrue(close.exists && close.isHittable)
+                nativeAccountBack.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    close.exists && close.isHittable && destination.exists && destination.isHittable
+                }, object: app)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("PROFILE_BATCH_NATIVE_ACCOUNT_PARENT_NOT_RESTORED"); return
+                }
+                print("PROFILE_NATIVE_DESTINATION family=account warm=true single_host=true")
+                continue
+            }
             if id == "invite" {
                 // Referrals is a standalone destination. The shared origin
                 // owner restores the initiating Profile query; One is only
