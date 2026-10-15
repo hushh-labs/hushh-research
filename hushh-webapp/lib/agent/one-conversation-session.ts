@@ -1,5 +1,6 @@
 "use client";
 
+import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { create } from "zustand";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
 import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
@@ -36,6 +37,7 @@ export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
+  calendarSlot?: CalendarSlotHandoff;
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
   /**

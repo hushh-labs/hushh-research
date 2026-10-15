@@ -1,12 +1,14 @@
+import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { ApiService } from "@/lib/services/api-service";
-import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarService, GoogleCalendarError } from "@/lib/services/google-calendar-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const fixture = vi.hoisted(() => {
@@ -46,16 +48,19 @@ function sse(delivery: "tool" | "state", toolResult: unknown = result) {
     { type: "TOOL_CALL_END", toolCallId: "call-calendar" },
     { type: "TOOL_CALL_RESULT", messageId: "result-calendar", toolCallId: "call-calendar", role: "tool", content: JSON.stringify(toolResult) },
   );
-  else events.push({ type: "STATE_DELTA", delta: [{ op: "add", path: "/hussh:pending_directive:calendar", value: result.directive }] });
+  else events.push({ type: "STATE_DELTA", delta: [{ op: "add", path: "/hussh:pending_directive:calendar", value: (toolResult as typeof result).directive }] });
   events.push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "run-calendar" });
   return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });
 }
 
 beforeEach(() => {
+  configure({ asyncUtilTimeout: 5000 });
+  useOneConversationSession.getState().clearSession();
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
   fixture.auth.user.uid = "owner";
   publishValidatedAuthSessionOwner("owner");
+  vi.spyOn(GoogleCalendarService, "status").mockResolvedValue({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
   vi.spyOn(ApiService, "getPendingConsents").mockResolvedValue({ pending: [] } as never);
   vi.spyOn(ApiService, "listAgentChatConversations").mockResolvedValue(Response.json({ conversations: [] }));
   vi.spyOn(ApiService, "getAgentChatHistory").mockResolvedValue(Response.json({ messages: [] }));
@@ -66,7 +71,134 @@ function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
 }
 
-describe("full Calendar workspace with real AG-UI stream handling", () => {
+describe("full Calendar workspace with real AG-UI stream handling", { timeout: 30000 }, () => {
+  it("retains a cold slot through failed history and resumes after explicit retry", async () => {
+    clearAgentChatHistoryCache("owner");
+    vi.mocked(ApiService.listAgentChatConversations).mockRejectedValueOnce(new Error("temporary history failure"));
+    const start = new Date(Date.now() + 3600000).toISOString();
+    useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } });
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    workspace();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry conversation" }));
+    await screen.findByText("Who should join?");
+    expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["tool", "state"] as const)("continues the existing conversation through attendee entry, change-time and confirmation (%s)", async delivery => {
+    const start = new Date(Date.now() + 3600000).toISOString();
+    let proposedStart = start;
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => {
+      const proposal = structuredClone(result);
+      Object.assign(proposal.directive.payload, { startAt: proposedStart, endAt: new Date(Date.parse(proposedStart) + 1800000).toISOString(), timeZone: "UTC" });
+      return sse(delivery, proposal);
+    });
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal").mockResolvedValue({ action: "create", event: { id: "event", title: "Call" } });
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Earlier conversation" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByRole("button", { name: "Schedule meeting" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
+    expect(screen.getByText("Earlier conversation")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+    expect(fetchStream).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+    fireEvent.change(composer, { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByRole("button", { name: "Change time" });
+    const body = JSON.parse(String(fetchStream.mock.calls[1][1]?.body));
+    expect(body.threadId).toBe(JSON.parse(String(fetchStream.mock.calls[0][1]?.body)).threadId);
+    const parts = body.messages.at(-1).content;
+    expect(parts).toContainEqual({ type: "text", text: "guest@example.com" });
+    const context = Buffer.from(parts.find((part: { type: string }) => part.type === "document").source.value, "base64").toString();
+    expect(context).toContain('"durationMinutes":30');
+    expect(context).toContain('"timeZone":"UTC"');
+    expect(context).toContain(start);
+    expect(screen.getByTestId("agent-calendar-proposal-card")).toHaveTextContent("guest@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Change time" }));
+    expect(screen.getByRole("button", { name: "Schedule meeting" })).toBeDisabled();
+    expect(execute).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Choose a start inside your free window" }), { key: "ArrowDown" });
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(7);
+    proposedStart = new Date(Date.parse(start) + 900000).toISOString();
+    fireEvent.click(options[1]);
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(3));
+    const confirm = await screen.findByRole("button", { name: "Schedule meeting" });
+    const changedBody = JSON.parse(String(fetchStream.mock.calls[2][1]?.body));
+    expect(changedBody.threadId).toBe(body.threadId);
+    expect(changedBody.messages.at(-1).content).toContain(proposedStart);
+    expect(changedBody.messages.at(-1).content).toContain('"guest@example.com"');
+    expect(changedBody.messages.at(-1).content).toContain('"Call"');
+    fireEvent.click(confirm); fireEvent.click(confirm);
+    await waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
+  }, 30000);
+
+  it.each(["tool", "state"] as const)("blocks an out-of-window %s proposal without creating an event", async delivery => {
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse(delivery));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    const start = new Date(Date.now() + 3600000).toISOString();
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0,10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
+    fireEvent.change(composer, { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    const confirm = await screen.findByRole("button", { name: "Schedule meeting" });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("does not fit");
+    fireEvent.click(confirm);
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(execute).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+  });
+
+  it.each(["conflict", "account change"])("fails closed after %s during confirmation", async failure => {
+    const start = new Date(Date.now() + 3600000).toISOString();
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start)+1800000).toISOString(), timeZone: "UTC" });
+    const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal").mockRejectedValue(new GoogleCalendarError("Calendar availability changed; review the proposed time again before confirming", null, 409));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0,10), windowStart: start,
+      windowEnd: new Date(Date.parse(start)+7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
+    fireEvent.change(composer, { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    if (failure === "account change") vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, google_email: "different@example.com", access_level: "manage" } as never);
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule meeting" }));
+    if (failure === "account change") {
+      await screen.findByText("The connected Calendar account changed. Ask One to check this meeting again before scheduling.");
+      expect(execute).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+      return;
+    }
+    await screen.findByText("Calendar availability changed; review the proposed time again before confirming");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Find newly available times/ }));
+    expect((composer as HTMLTextAreaElement).value).toContain("guest@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it.each(["tool", "state"] as const)("renders %s response and confirms once without reconnecting", async delivery => {
     const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse(delivery));
     let resolveExecution!: (value: never) => void;
