@@ -29,7 +29,11 @@ Cases with `known_gap` are tracked runtime work and run as strict expected failu
 (when the runtime closes a gap, its case passes and the strict marker fails CI until
 `known_gap` is removed from the generator). No gaps are open today: the runtime
 refuses one original selected twice and an undated or wrongly dated Ready
-month, and closes a packet whose sources name different accounts.
+month, and closes a packet whose sources name different accounts. The runtime
+also closes a Ready packet whose account record names someone other than the
+owner's name on file (`tests/services/test_drive_packet_owner_guard.py`). The
+replay and this suite pass no owner name, so neither exercises that fence, and a
+real-Drive batch does not yet measure it.
 
 ## Operator runbook (real Drive, read-only)
 

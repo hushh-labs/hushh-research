@@ -495,6 +495,31 @@ class DrivePacketStore(DriveDocumentFactsStore):
     async def require_packet_current(self, job):
         await self._transaction(lambda connection: self._packet_current(connection, job))
 
+    async def owner_identity(self, *, user_id):
+        """The Drive owner's name on file, for the Ready fence on whom a source names.
+
+        It is the identity the sharing center already labels the owner with;
+        nothing here syncs or writes it. No name on file, or no identity cache
+        at all (as in isolated schemas, like the other Drive name readers),
+        yields an empty listing, which the fence treats as unconfirmed, never
+        as a match.
+        """
+
+        def operation(connection):
+            if not connection.execute(
+                text("SELECT to_regclass('actor_identity_cache') IS NOT NULL")
+            ).scalar_one():
+                return {"names": []}
+            row = self._row(
+                connection,
+                "SELECT display_name FROM actor_identity_cache WHERE user_id=:user",
+                {"user": user_id},
+            )
+            name = row["display_name"] if row else None
+            return {"names": [name.strip()] if isinstance(name, str) and name.strip() else []}
+
+        return await self._transaction(operation)
+
     async def evidence_page(self, job, *, after_document_id=None, limit=6):
         if not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
