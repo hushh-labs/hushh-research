@@ -77,6 +77,30 @@ the counterpart remains ready. Funding, capital, backing and balanced liabilitie
 are unchanged. The existing shared Chrome transport remains connected. No new
 financial action or Dev promotion occurred in this correction.
 
+The subsequent consumer-path audit found intake substituted a fallback handle
+for the current PKM registry handle, causing paid review to reject ordinary
+person requests. Intake now retains that exact handle; public catalog rows keep
+their existing shape, and handle rotation invalidates the catalog revision.
+The nearest service and PostgreSQL packs pass 199 cases. The old intake/catalog
+fail two regressions while absent-handle compatibility passes. Both consumer and
+developer variants prove approval and a one-cent quote without a usable export;
+the consumer variant removes all developer mappings. This is not funded-delivery
+or deployed financial acceptance.
+
+Core on `eef733e19c8f` finished with 19,263 protocol cases passing and five
+model-configuration fixture failures. Tests that intentionally override local
+model projects or locations must declare the local environment; hosted profiles
+remain centrally pinned. The final candidate requires a fresh core and CI run.
+All 63 focused configuration cases pass, including hosted-profile and
+cross-project refusal controls; no production configuration guard changed.
+
+Read-only Azure checks also found a same-subscription trial option: GPT-5-mini
+`2025-08-07`, GlobalStandard, reports unused quota while the default Luna models
+report zero. This avoids assuming that billing must change, but does not prove
+deployment. Choosing it requires a recorded owner configuration repair through
+the existing maintenance/custody boundary; image-only approval is insufficient.
+No model, role, pod configuration or billing change has been made.
+
 The existing Chrome process and shared tabs are preserved. Before an interrupted
 turn, a task-owned background page proved the primary's ordinary Firebase owner,
 visible cold vault challenge, unlock and same-session Saved/Add and information-

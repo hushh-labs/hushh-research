@@ -2488,7 +2488,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4021
+      "value": 4025
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16564,7 +16564,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4355
+      "value": 4359
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18274,7 +18274,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connections_service.py",
       "symbol": null,
-      "value": 3322
+      "value": 3336
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18607,7 +18607,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_information_request_service.py",
       "symbol": null,
-      "value": 1041
+      "value": 1046
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -38548,6 +38548,50 @@
       "source_revision": "6476c9c746f0af80dac62d98ea8b22dad0dbb664"
     },
     "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f",
+    "person_request_registry_handle_20261015": {
+      "parent_revision": "eef733e19c8fed9d59959cbff4b55d61b8d69641",
+      "reason": "Consumer request intake dropped the current authored registry handle and substituted a different fallback, causing scope-commerce binding refusal. Preserve internal metadata while omitting it from public rows; include rotation in the catalog revision. Extend nearest real consent and catalog tests; synthetic person authority setup stays in the existing fixture module. Production intake shrinks; no provider, query or consent authority is added.",
+      "reviewer": "main_backend_reconciliation",
+      "scope": "Exactly four existing findings. Budgets 500/250/80, scanner, exclusions, multiplicity and unrelated ceilings are unchanged.",
+      "slots": [
+        {
+          "after": 4359,
+          "before": 4355,
+          "key": "module_size|consent-protocol/hushh_mcp/services/connections_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+          "source_sha256": "d5c1fdc3c88fdb65fa8f638ab9dd9d7db7c81a5caf00e31eaa226016847d3114"
+        },
+        {
+          "after": 4025,
+          "before": 4021,
+          "key": "class_size|consent-protocol/hushh_mcp/services/connections_service.py|ConnectionsService|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+          "source_sha256": "d5c1fdc3c88fdb65fa8f638ab9dd9d7db7c81a5caf00e31eaa226016847d3114"
+        },
+        {
+          "after": 3336,
+          "before": 3322,
+          "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "source_sha256": "2e77e7b052490bbbc7bfc237430530db6bc466f196144a25b34d5b2c1a981f88"
+        },
+        {
+          "after": 1046,
+          "before": 1041,
+          "key": "module_size|consent-protocol/tests/services/test_information_request_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_information_request_service.py",
+          "source_sha256": "eb17e7d76095991c90bdf00af152ed5ba32893943fa447eb8dbaf7fdfb5e20cd"
+        }
+      ],
+      "verification": {
+        "consumer_funded_delivery": "not established by this test",
+        "consumer_postgres_proof": "owner approval and quote; no developer mapping; no premature export",
+        "focused_cases": 199,
+        "full_core": "required_before_push",
+        "old_code_absent_handle_positive": true,
+        "old_code_negative_failures": 2
+      }
+    },
     "relay_release_boundaries_20261011": {
       "changes": [
         {

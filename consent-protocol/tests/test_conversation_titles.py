@@ -88,6 +88,7 @@ async def test_authenticated_conversation_titles_use_chat_project_only_for_gener
     from api.routes.one import agent_chat
     from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
 
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")

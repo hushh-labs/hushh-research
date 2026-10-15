@@ -183,6 +183,31 @@ def contract_app() -> FastAPI:
     return app
 
 
+async def bind_person_request(pool: asyncpg.Pool, request_id: str) -> None:
+    """Use the real consumer bundle/key authority without a developer mapping."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "CREATE TABLE one_kyc_client_connectors(user_id TEXT, connector_key_id TEXT, connector_public_key TEXT, connector_wrapping_alg TEXT, status TEXT)"
+        )
+        await conn.execute(
+            "INSERT INTO one_kyc_client_connectors VALUES('payer','key',$1,'X25519-AES256-GCM','active')",
+            PUBLIC_KEY,
+        )
+        bundle_id = uuid4()
+        await conn.execute(
+            "INSERT INTO one_information_request_bundles VALUES($1,'payer','owner','one_person:contract','key',3600,'Synthetic scope contract')",
+            bundle_id,
+        )
+        await conn.execute(
+            "INSERT INTO one_information_request_items VALUES($1,$2)", bundle_id, request_id
+        )
+        await conn.execute(
+            "UPDATE consent_audit SET agent_id='one_person:contract', metadata=jsonb_set(metadata,'{developer_app_id}','\"agent_one\"'::jsonb) WHERE request_id=$1",
+            request_id,
+        )
+        await conn.execute("DELETE FROM developer_connector_keys; DELETE FROM developer_apps")
+
+
 async def seed_authorities(
     pool: asyncpg.Pool, service: ScopeCommerceService, request_id: str
 ) -> None:

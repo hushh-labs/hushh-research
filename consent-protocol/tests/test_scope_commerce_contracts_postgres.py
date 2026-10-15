@@ -66,8 +66,13 @@ def test_paid_scope_schema_readiness_projections_match_registered_migration(monk
         assert "scope_commerce_balanced" in expected["required_functions"]
 
 
-async def test_exact_registry_owner_approval_creates_no_usable_export(paid_contract: PaidContract):
+@pytest.mark.parametrize("requester_kind", ["developer", "person"])
+async def test_exact_registry_owner_approval_creates_no_usable_export(
+    paid_contract: PaidContract, requester_kind: str
+):
     ctx = paid_contract
+    if requester_kind == "person":
+        await fixtures.bind_person_request(ctx.pool, ctx.request_id)
     assert HANDLE != scope_handle_for_machine_scope("owner", SCOPE)
     tariff = await ctx.tariff()
     assert tariff.status_code == 200, tariff.text

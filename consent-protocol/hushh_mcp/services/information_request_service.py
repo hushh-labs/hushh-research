@@ -573,9 +573,8 @@ class InformationRequestService:
                     # connector key is transport/key custody; it is not consent
                     # authority and never receives VAULT_OWNER privileges.
                     "developer_app_id": _ONE_INFORMATION_REQUEST_APP_ID,
-                    "scope_handle": scope_handle_for_machine_scope(
-                        subject_user_id, str(scope["scope"])
-                    ),
+                    "scope_handle": scope.get("registry_handle")
+                    or scope_handle_for_machine_scope(subject_user_id, str(scope["scope"])),
                     "scope_contract_version": 2,
                     "expiry_hours": expiry_hours,
                     "requester_actor_type": "person",
