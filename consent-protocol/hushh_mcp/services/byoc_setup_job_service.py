@@ -120,8 +120,12 @@ class ByocSetupJobRepo:
               status = 'running', stage = 'starting', stages = EXCLUDED.stages,
               error_code = NULL, error_message = NULL,
               created_at = now(), updated_at = now()
-            WHERE byoc_setup_jobs.status <> 'running'
-               OR byoc_setup_jobs.updated_at < now() - (:stale_seconds * interval '1 second')
+            WHERE (byoc_setup_jobs.status <> 'running'
+               OR byoc_setup_jobs.updated_at < now() - (:stale_seconds * interval '1 second'))
+              AND NOT (byoc_setup_jobs.status='running'
+                AND byoc_setup_jobs.project_id LIKE '/subscriptions/%/resourceGroups/%'
+                AND EXISTS (SELECT 1 FROM jsonb_array_elements(byoc_setup_jobs.stages) s
+                    WHERE s->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')))
             RETURNING job_id
             """,
             {
@@ -514,7 +518,7 @@ def new_job_id() -> str:
 
 
 def is_stale(row: dict, *, now: datetime | None = None) -> bool:
-    """A running job whose record stopped advancing is presumed dead."""
+    """The record stopped advancing; this does not prove worker/provider termination."""
     if (row.get("status") or "") != "running":
         return False
     raw = str(row.get("updated_at") or "")

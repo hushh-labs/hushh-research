@@ -17530,7 +17530,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/byoc_setup_job_service.py",
       "symbol": null,
-      "value": 574
+      "value": 578
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -52324,6 +52324,19 @@
         "after": 574,
         "reviewer": "owner_lifecycle_cleanup_review",
         "source_sha256": "04d510941d2f07397fa42b1b60e2293c9b7ad2fbe4b70e8106b519ec760fbfa8"
+      }
+    ]
+  },
+  "azure_setup_retry_history_review_20261015": {
+    "evidence_revision": "3c28325791",
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py||module exceeds the advisory operon budget",
+        "before": 574,
+        "after": 578,
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "d5a2fba0950289bcb0389275608f504e0ad980a3210d3a664cf6fab333eeed38"
       }
     ]
   }

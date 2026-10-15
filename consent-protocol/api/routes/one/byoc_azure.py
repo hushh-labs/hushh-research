@@ -308,6 +308,18 @@ async def _claim_job(
         return job_id, True
     current = await repo.get(user_id)
     if current and current.get("status") == "running" and current.get("project_id") == group_ref:
+        bound = any(
+            isinstance(item, dict)
+            and item.get("stage") in ("azure_setup_intent", "azure_setup_prior_intent")
+            for item in current.get("stages", [])
+        )
+        if bound and jobs.is_stale(current):
+            raise _refuse(
+                409,
+                "AZURE_SETUP_RECONCILIATION_REQUIRED",
+                "Your previous cloud setup needs its cloud operations checked before retrying. "
+                "Existing resources are preserved; contact support to continue safely.",
+            )
         selected = any(
             item.get("stage") == "files_selection" and item.get("enabled") is True
             for item in current.get("stages", [])

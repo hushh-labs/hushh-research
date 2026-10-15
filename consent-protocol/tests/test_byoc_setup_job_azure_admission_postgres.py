@@ -286,3 +286,90 @@ def test_without_951_an_azure_job_is_refused(monkeypatch):
             _start(server, group_id(SUB, GROUP))
     finally:
         server.stop()
+
+
+async def test_retry_preserves_original_azure_setup_binding_and_refuses_stale_running_reset(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    target = group_id(SUB, GROUP)
+    assert await repo.start(user_id=OWNER, job_id="original", project_id=target)
+    intent = {
+        "version": 1,
+        "jobId": "original",
+        "hushhId": HUSHH_ID,
+        "tenantId": TENANT,
+        "subscriptionId": SUB,
+        "resourceGroup": GROUP,
+        "location": "eastus2",
+        "setupNonce": "0" * 16,
+    }
+    assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id="original", intent=intent)
+    pg.execute(
+        "UPDATE byoc_setup_jobs SET updated_at=now()-interval '1 hour' WHERE user_id=%s", (OWNER,)
+    )
+    assert await repo.start(user_id=OWNER, job_id="retry", project_id=target) is False
+    assert (
+        pg.execute("SELECT job_id FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+        == "original"
+    )
+    # A terminal local failure can retry in the same cloud without discarding
+    # which resources the previous attempt may have created.
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="retry", project_id=target)
+    history = [{"stage": "azure_setup_prior_intent", "intent": intent}]
+    assert (
+        pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0] == history
+    )
+    next_intent = {**intent, "jobId": "retry", "setupNonce": "1" * 16}
+    assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id="retry", intent=next_intent)
+    for query in (
+        "UPDATE byoc_setup_jobs SET stages='[]'::jsonb WHERE user_id=%s",
+        "UPDATE byoc_setup_jobs SET project_id='owner-project-123' WHERE user_id=%s",
+        "DELETE FROM byoc_setup_jobs WHERE user_id=%s",
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="Azure setup recovery"):
+            pg.execute(query, (OWNER,))
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="third", project_id=target)
+    assert pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0] == [
+        *history,
+        {"stage": "azure_setup_prior_intent", "intent": next_intent},
+    ]
+
+
+async def test_setup_history_cap_refuses_new_writes_but_allows_failure_settlement(pg):
+    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
+    _reserved_owner(pg)
+    repo = ByocSetupJobRepo(client=_Client(pg))
+    target = group_id(SUB, GROUP)
+    for number in range(64):
+        job = f"attempt-{number}"
+        assert await repo.start(user_id=OWNER, job_id=job, project_id=target)
+        intent = {
+            "version": 1,
+            "jobId": job,
+            "hushhId": HUSHH_ID,
+            "tenantId": TENANT,
+            "subscriptionId": SUB,
+            "resourceGroup": GROUP,
+            "location": "eastus2",
+            "setupNonce": format(number, "016x"),
+        }
+        assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id=job, intent=intent)
+        pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    assert await repo.start(user_id=OWNER, job_id="overflow", project_id=target)
+    assert (
+        await repo.retain_azure_setup_intent(
+            user_id=OWNER,
+            job_id="overflow",
+            intent={**intent, "jobId": "overflow"},
+        )
+        is False
+    )
+    # Refusing the 65th binding must not wedge the job's terminal bookkeeping.
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id=%s", (OWNER,))
+    status, stages = pg.execute(
+        "SELECT status,stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,)
+    )[0]
+    assert status == "failed" and len(stages) == 64

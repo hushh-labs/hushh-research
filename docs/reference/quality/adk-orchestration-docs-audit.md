@@ -50,8 +50,9 @@ retention of exact provider outcomes. New GCP inventories exclude uncreated
 legacy mail resources while historical receipts keep their obligations. Dev-only
 migration 960 must be admitted before using the new Azure erasure response.
 Dev-only 961 additionally retains Azure setup identity before writes and fences
-job replacement against erasure using serialized owner locks. The 174 focused
-cases cover trigger refusal, provider retry fencing and actual local thread exit
+job replacement against erasure using serialized owner locks. Bounded retry
+history preserves previous resource bindings; stale observations cannot replace
+a bound worker. Focused cases cover trigger refusal, provider retry fencing and actual local thread exit
 on queued/running cancellation, with broken-code negative controls. Teardown
 authorization is attempt-bound but refuses execution. Complete Azure deletion,
 durable worker/provider reconciliation and

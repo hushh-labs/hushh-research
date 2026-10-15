@@ -440,3 +440,29 @@ def test_flag_off_refuses_setup_before_provider_or_resource_access(spawned, monk
     response = _client().post(_BEGIN, json={})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "BYOC_UNAVAILABLE"
+
+
+async def test_stale_bound_setup_requires_reconciliation_not_a_new_or_fake_running_job(
+    spawned, monkeypatch
+):
+    from fastapi import HTTPException
+
+    async def blocked(self, **kwargs):
+        return False
+
+    async def current(self, owner):
+        return {
+            "status": "running",
+            "project_id": "group",
+            "job_id": "original",
+            "updated_at": "2000-01-01T00:00:00Z",
+            "stages": [{"stage": "azure_setup_intent", "intent": {}}],
+        }
+
+    monkeypatch.setattr(_Jobs, "start", blocked)
+    monkeypatch.setattr(_Jobs, "get", current)
+    with pytest.raises(HTTPException) as refused:
+        await byoc_azure._claim_job(_UID, "group")
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AZURE_SETUP_RECONCILIATION_REQUIRED"
+    assert spawned == []

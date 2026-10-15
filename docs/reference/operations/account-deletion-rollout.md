@@ -33,8 +33,11 @@ new retained outcomes. Other erasure schema rollback requires its own fenced,
 drained release procedure; an application rollback does not recover deleted keys.
 
 Dev-only 961 records the original Azure setup nonce and coordinates in the
-existing job before its first write. Owner locks serialize job replacement with
-erasure reservation; disabled or missing guards refuse admission. This fence
+existing job before its first write. Same-cloud retries preserve prior bindings
+in that job; stale bound workers require reconciliation, and protected history
+cannot be cleared or moved to another cloud. The 64-binding cap refuses another
+binding while allowing terminal bookkeeping. Owner locks serialize replacement
+with erasure reservation; disabled or missing guards refuse admission. This fence
 prevents subsequent setup stages and internal ARM write retries. Setup/rebuild
 cancellation joins the actual local execution, including queued and repeated
 cancellation, before reporting interruption. That exit is not proof that a cloud

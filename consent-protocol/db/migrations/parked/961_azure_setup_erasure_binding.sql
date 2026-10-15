@@ -52,7 +52,10 @@ BEGIN
  SELECT count(*), (jsonb_agg(s->'intent'))->0 INTO matches, previous
    FROM jsonb_array_elements(job.stages) s WHERE s->>'stage'='azure_setup_intent';
  IF matches > 0 THEN RETURN matches=1 AND previous=intent; END IF;
- IF jsonb_array_length(job.stages) >= 256 THEN RETURN false; END IF;
+ IF jsonb_array_length(job.stages) >= 256 OR (SELECT count(*)
+   FROM jsonb_array_elements(job.stages) x
+   WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent')) >= 64
+ THEN RETURN false; END IF;
  UPDATE public.byoc_setup_jobs SET stages=stages || jsonb_build_array(
    jsonb_build_object('stage','azure_setup_intent','intent',intent)), updated_at=now()
  WHERE user_id=owner_id AND job_id=expected_job AND status='running';
@@ -90,7 +93,7 @@ $$;
 -- nevertheless survive a reserved erasure. Worker liveness is not drain proof.
 CREATE OR REPLACE FUNCTION public.guard_byoc_azure_erasure_job()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE reservation jsonb; owner_id text; previous_target text;
+DECLARE reservation jsonb; owner_id text; previous_target text; item jsonb; history jsonb;
 BEGIN
  IF TG_OP='INSERT' THEN owner_id:=NEW.user_id; previous_target:=NEW.project_id;
  ELSE owner_id:=OLD.user_id; previous_target:=OLD.project_id; END IF;
@@ -110,7 +113,42 @@ BEGIN
  SELECT backend_metadata->'erasure' INTO reservation FROM public.personal_agent_registry
    WHERE user_id=owner_id;
  IF reservation IS NULL THEN
-   IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+   IF TG_OP='INSERT' THEN
+     IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) x
+       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))
+     THEN RAISE EXCEPTION 'Azure setup binding admission required' USING ERRCODE='42501'; END IF;
+     RETURN NEW;
+   END IF;
+   SELECT coalesce(jsonb_agg(x),'[]'::jsonb) INTO history
+     FROM jsonb_array_elements(OLD.stages) x
+     WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent');
+   IF history='[]'::jsonb THEN
+     IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+     RETURN NEW;
+   END IF;
+   IF TG_OP='DELETE' OR NEW.project_id IS DISTINCT FROM OLD.project_id
+   THEN RAISE EXCEPTION 'Azure setup recovery retained' USING ERRCODE='42501'; END IF;
+   IF NEW.job_id IS DISTINCT FROM OLD.job_id THEN
+     IF OLD.status='running' THEN
+       RAISE EXCEPTION 'Azure setup worker reconciliation required' USING ERRCODE='42501';
+     END IF;
+     IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) x
+       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))
+     THEN RAISE EXCEPTION 'Azure retry binding must be retained by admission' USING ERRCODE='42501'; END IF;
+     FOR item IN SELECT value FROM jsonb_array_elements(history) LOOP
+       NEW.stages:=NEW.stages||jsonb_build_array(jsonb_set(item,'{stage}','"azure_setup_prior_intent"'::jsonb));
+     END LOOP;
+   ELSE
+     FOR item IN SELECT value FROM jsonb_array_elements(history) LOOP
+       IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.stages) x WHERE x=item)
+       THEN RAISE EXCEPTION 'Azure setup recovery immutable' USING ERRCODE='42501'; END IF;
+     END LOOP;
+   END IF;
+   IF NEW.stages IS DISTINCT FROM OLD.stages AND (
+     (SELECT count(*) FROM jsonb_array_elements(NEW.stages) x
+       WHERE x->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))>64
+     OR jsonb_array_length(NEW.stages)>256 OR octet_length(NEW.stages::text)>262144)
+   THEN RAISE EXCEPTION 'Azure setup recovery requires reconciliation' USING ERRCODE='42501'; END IF;
    RETURN NEW;
  END IF;
  IF TG_OP='DELETE' AND public.personal_agent_erasure_archived(owner_id,reservation) IS TRUE

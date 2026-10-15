@@ -6,7 +6,7 @@ DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM public.byoc_setup_jobs j WHERE
    j.project_id LIKE '/subscriptions/%/resourceGroups/%'
    AND (j.status='running' OR EXISTS (SELECT 1 FROM jsonb_array_elements(j.stages) s
-     WHERE s->>'stage'='azure_setup_intent')))
+     WHERE s->>'stage' IN ('azure_setup_intent','azure_setup_prior_intent'))))
  OR EXISTS (SELECT 1 FROM public.personal_agent_registry r
    JOIN public.byoc_setup_jobs j ON j.user_id=r.user_id
    WHERE r.backend_metadata ? 'erasure'
