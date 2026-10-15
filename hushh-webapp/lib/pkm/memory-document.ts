@@ -189,6 +189,7 @@ function excludeForAudience(
   // One chat's canonical Markdown document is already a projection. Never
   // recursively render it into this legacy structured-domain export.
   if (key === "one_memory") return true;
+  if (reservedEntryFor(key, branch)?.sendToModel === "never") return true;
   if (audience !== "agent") return shouldSkipPkmMemoryKey(key);
   return shouldSkipPkmAgentContextKey(key) || restrictedByReservedRegistry(key, branch);
 }

@@ -37,6 +37,7 @@ import com.hussh.app.plugins.HushhSettings.HushhSettingsPlugin
 import com.hussh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hussh.app.plugins.HushhAccount.HushhAccountPlugin
 import com.hussh.app.plugins.HushhLocation.HushhLocationPlugin
+import com.hussh.app.plugins.HushhCardCapture.HushhCardCapturePlugin
 import com.hussh.app.plugins.HushhContacts.HushhContactsPlugin
 import com.hussh.app.plugins.HushhInvitations.HushhInvitationsPlugin
 import com.hussh.app.plugins.HushhNotifications.HushhNotificationsPlugin
@@ -255,6 +256,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
+        registerPlugin(HushhCardCapturePlugin::class.java)
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
         registerPlugin(HushhVoiceInvocationPlugin::class.java)
         registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations

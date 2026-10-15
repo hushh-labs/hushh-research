@@ -1,4 +1,5 @@
 "use client";
+import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
 
 import { SUPERSEDED_KEY } from "@/lib/pkm/pkm-supersede-merge";
 import {
@@ -343,6 +344,7 @@ function flattenCards(params: {
   visits?: { count: number };
 }): PkmMemoryCard[] {
   const pathSegments = params.pathSegments || [];
+  if (reservedEntryFor(params.domain, pathSegments.slice(1).map(String).join("."))?.sendToModel === "never") return params.cards || [];
   const cards = params.cards || [];
   const visits = params.visits || { count: 0 };
   visits.count += 1;

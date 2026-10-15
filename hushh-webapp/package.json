@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
+    "test:wallet-scanning": "cross-env PLAYWRIGHT_START_SERVER=0 playwright test e2e/wallet-card-scan.layout.spec.ts e2e/wallet-intelligent-card-add.layout.spec.ts --project=chromium --project=webkit --workers=1",
     "bench:pkm-crypto": "cross-env RUN_PKM_CRYPTO_BENCHMARK=1 vitest run __tests__/benchmarks/pkm-crypto-benchmark.test.ts --maxWorkers=1 --reporter=verbose",
     "verify:vault-unlock": "vitest run __tests__/components/vault-flow-create-validation.test.tsx __tests__/components/vault-unlock-dialog.test.tsx __tests__/services/vault-biometric-enrollment.test.ts __tests__/services/vault-bootstrap-service-unlock.test.ts __tests__/services/vault-method-service.test.ts __tests__/services/vault-method-enrollment-verification.test.ts __tests__/vault/prf-auth-concurrency.test.ts --maxWorkers=2",
     "verify:contact-invitations": "vitest run lib/contacts/__tests__/invitation-picker.test.ts lib/contacts/__tests__/invitation-candidates.test.ts lib/contacts/__tests__/use-contact-invitations.test.tsx __tests__/components/contact-invitation-sheet.test.tsx __tests__/components/contact-invitation-session.test.tsx __tests__/services/contact-invitations-service.test.ts",

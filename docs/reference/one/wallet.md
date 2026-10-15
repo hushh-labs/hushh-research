@@ -20,7 +20,7 @@ flowchart TD
   route["/one/wallet (WalletWorkspace)"]
   vault["wallet PKM domain (owner's BYOK vault)"]
   summary["wallet.summary (nickname, brand, last4, expiry)"]
-  secrets["wallet.secrets (PAN, CVV, PIN; pruned from memory context)"]
+  secrets["wallet.secrets (PAN and name; owner-only reveal)"]
   scopes["attr.wallet.summary.* / attr.wallet.secrets.* (consent-gated export)"]
   memory["/one/pkm (summary visible, secrets pruned)"]
 
@@ -110,8 +110,9 @@ source artwork.
 
 ## Adding a payment card
 
-The Add tab accepts manual entry only: card number, name on card, expiry and CVV
-are required. Card provider, PIN and issuing region are optional. A blank provider
+The Add tab accepts local camera capture, photo selection and manual entry.
+Card number, name on card and expiry are required. Network and issuing region
+are optional. Security codes are never collected or retained. A blank network
 uses number-based network detection, with Other for a valid unrecognized number;
 a supplied provider supports overlapping network ranges. A supplied region is
 validated, while a blank region stays blank. Existing nicknames remain readable;
@@ -119,8 +120,8 @@ new cards use the network label without asking for a nickname.
 
 A confirmed encrypted save inserts the returned card immediately into Cards,
 selects it, and clears the draft. Failed saves retain the draft for retry. The
-20 supplied payment-card finishes are selected deterministically from the saved
-card ID, so reload, renaming and incoming information do not change the artwork.
+card design comes from an approved catalog, an explicitly approved sanitized
+private photo, or the solid neutral Wallet design; it is never chosen by card ID.
 The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
 chat projection. Collection faces show only the last four number digits; the
@@ -182,12 +183,12 @@ has bounded batches, prints counts only, requires encrypted link recovery when
 applying, and never edits existing rows. Apply it in each environment only after
 its schema and runtime are deployed; a UAT deployment does not deploy production.
 
-### Add: manual entry
+### Add: local capture and review
 
-Wallet Add and the secure chat widget share `SecureCardAddForm`. Neither offers
-Scan card or Choose photo. Previously saved cards and Secrets handoffs continue
-to use the same encrypted WalletService path. The standalone scanner module is
-not reachable from Add.
+Wallet Add and the secure chat widget share `SecureCardAddForm`. Take photo and
+Choose from photos feed one local scan pipeline. The chat writer can read fields
+and add a neutral card; private design changes remain owned by the Wallet page.
+Previously saved cards and Secrets handoffs retain the encrypted WalletService path.
 
 ### Sharing: review and manage inside Wallet
 
@@ -217,8 +218,8 @@ confirmed revocation through the existing consent actions. Pending requests stay
 in Consent Center. Loading and read errors are distinct from empty access.
 
 Wallet panels use solid surfaces and Location section typography. The collection
-omits example labels and fictional total-due content. PIN is optional; blank or
-whitespace-only PIN input is omitted before validation and saving.
+omits example labels and fictional total-due content. CVV/CVC and PIN controls,
+validation requirements, current-write persistence and reveal rows are removed.
 
 ### Card browsing gestures
 
@@ -366,7 +367,7 @@ mismatch immediately, and local credential validation rejects saving the card
 until it is corrected; an input mismatch is not a network-service outage.
 These rules are not a live issuer registry. On lookup
 failure, a valid card can still be saved with the neutral Card network. Client
-Luhn, expiry, CVV/PIN and region validation remain local; the backend continues
+Luhn, expiry and region validation remain local; the backend continues
 validating only the non-secret stored envelope. The stored summary holds the
 normalized network, and the full card remains encrypted with the owner's key.
 Requests and saves are fenced by the existing validated account generation and
@@ -383,8 +384,156 @@ until specialized client rules or approved artwork are available. Network-specif
 credential rules for future networks still require a client update. Malformed
 catalogue entries fail the request instead of silently disappearing.
 The form distinguishes owner selection from prefix identification and explains
-that neither verifies the card or issuing bank. No issuer lookup is performed.
+that neither verifies the card or issuing bank. The artwork resolver can match a
+reviewed catalog using a permitted IIN; no external issuer provider is configured.
 
 Visa previously lacked an official asset in the mark inventory, so its compact
 mark showed a generic icon. The existing fallback cell now prints `VISA` for
 recognition. No new official artwork or network partnership claim is introduced.
+
+## Intelligent local scanning and private card design
+
+### Architecture and failure causes
+
+- `wallet-card-scanner.tsx` owns camera/gallery acquisition, unsaved Blob URLs,
+  suggested edges, keyboard-adjustable corners and the scan Back layer.
+  `wallet-live-card-capture.tsx` uses the rear camera in the current browser page
+  with an ID-1 guide; every stream stops on cancel, hiding or unmount. Android
+  uses the system camera through `HushhCardCapture`; iOS uses Capacitor Camera.
+  Native system camera UI has its own guide controls; Wallet crop review follows capture.
+- `wallet-card-scan.ts` validates headers before decoding, captures owner/session
+  authority and supervises an owned worker. The previous worker depended on
+  `OffscreenCanvas` and required a unique valid PAN before returning any fields.
+  The new pipeline keeps fields independent and uses a portable RGBA/PNG codec.
+  iOS Vision remains available; useful Vision fields survive optional artwork
+  worker failures, with no partially inspected photo approved.
+- `card-scan-worker.ts`, `card-scan-image.ts`, `card-scan-region.ts` and
+  `card-scan-spatial.ts` perform bounded crop detection, a homography, rotations,
+  lighting normalization and spatial number grouping locally. Transcript order
+  alone never justifies joining a number with a short security code. Ambiguous
+  validated PANs stay ambiguous across composed readings. Checksum-invalid
+  readings are correction drafts; they cannot veto an independently valid PAN.
+  Grouped low-confidence glyphs remain marked for review.
+- `secure-card-add-form.tsx` preserves manual corrections, fills independently
+  readable fields and offers one **Add to Wallet** confirmation. It does not
+  save automatically. A backend metadata failure keeps the recognized fields.
+  Lock, owner change, cancellation and a second capture fence delayed effects.
+- `wallet-service.ts` reuses backend network authority and the existing PKM
+  AES-256-GCM write. A logical draft keeps one canonical card ID across uncertain
+  replies and registration fallback. Card details and design commit atomically;
+  the returned presentation appears immediately and decrypts after reload.
+  Change Card Design preserves card identity, credentials, receipts and grants.
+
+Inputs are JPEG, PNG or WebP, at most 15 MB compressed and 24 megapixels.
+Native acquisition converts compatible library images to a fresh JPEG; unsupported
+browser formats require a compatible photo. Decode is bounded to a 2000-pixel side;
+card recognition is bounded to 1600 pixels. There are at most five recognition
+passes plus four masking and four final-inspection passes. The complete scan has
+a 90-second supervisor budget; crop preparation has 10 seconds, native OCR 30,
+and acquisition 180. Pixel processing and OCR run in the owned local worker.
+No camera/photo/transcript goes to a cloud vision service. Real-device latency,
+embossed metal and severe glare are not guaranteed by these bounds.
+
+### Authorized catalog and coverage
+
+`wallet_artwork_catalog.py` defines the `MetadataProvider` port and a strict
+versioned catalog. `HUSHH_WALLET_ARTWORK_CATALOG_PATH` optionally names a mounted,
+reviewed JSON file; its `assets/` directory contains digest-named rasters.
+There is **no configured issuer provider and no bundled production bank artwork**
+in this change. No API keys, partnerships, scraped assets or exact product coverage
+are implied. The fully working fallback paths are a reviewed private photo or neutral.
+
+The catalog records issuer, product, family, variant, country, network, IINs,
+version, SHA-256 digest, raster MIME, provenance, rights reference, approving
+reviewer/date and status. Only approved, sanitized assets with a reviewed
+`perpetual_private_display` right are eligible. Time-limited licenses are rejected.
+Approvals must be nonblank, timezone-aware and already completed. A catalog can
+be replaced without a React change; version or status changes invalidate saved
+catalog presentation on the next authorized read. This does not erase a durable
+encrypted copy, so a license requiring copy deletion is unsupported.
+
+The owner-authorized endpoints under `/api/one/wallet/card-access/artwork` are
+`POST /resolve`, `GET /assets/{sha256}` and `POST /validate`. Resolve accepts only
+a six/eight-digit IIN, PAN length and optional selected network. It refuses full
+credentials, names and photos without echoing them. Validate accepts at most
+24 explicit catalog references, within the private 16 KB body cap. Responses
+are private/no-store; binary transport uses arraybuffer on native.
+
+An IIN/network match is issuer-only or ambiguous, never exact-product evidence.
+Exact selection requires authorized provider product and variant proof, then
+automatically prepares its unique approved design for owner review. Multiple
+approved variants use a compact chooser. Download, save and reload revalidate
+catalog authority. Revocation/outage before Add falls back to neutral without
+discarding valid card details; an explicit design update asks for a current choice.
+Production provider adapters must implement their own bounded transport and
+permission/rights review before configuration.
+
+### Private photo and prohibited security codes
+
+The sanitizer flattens transparency onto an opaque background, discarding hidden
+RGB/alpha information. It conservatively overwrites all detected printed text, plus any
+owner-selected masking, in the pixel buffer. This can remove public text branding
+too; it preserves the remaining photograph rather than fabricating issuer art.
+It downsamples, encodes a new PNG containing only IHDR/IDAT/IEND, decodes those
+final bytes and reinspects all four orientations. No source image, EXIF, hidden
+layer or reversible overlay is stored. Uncertain output needs more masking and
+reinspection or a neutral design. Final visual inspection and **I checked — use
+photo** approval are required even when OCR sees no text.
+OCR cannot establish privacy for text it never detects, so owner inspection is
+part of the permission boundary, not an optional cosmetic step.
+
+Photo approval binds the exact Blob/object, final digest, validated account
+generation and vault epoch. Raw, copied, forged, stale and foreign approvals fail.
+Editing the mask invalidates the prior choice. Sanitized PNGs are at most 512 KB;
+the encrypted artwork branch is capped at two million JSON characters. The
+no-CompressionStream path uses a smaller raster within the same byte cap.
+
+`wallet.artwork` is an encrypted private PKM segment with exposure disabled,
+`shareable=never` and `send_to_model=never`. Plaintext summaries keep only masked
+metadata. Consent, readable downloads, Memory and private-agent context project
+Wallet fields through an allowlist that excludes artwork, receipts and codes;
+root consent export excludes Wallet. Projection cache version 2 cannot reuse old
+cached plaintext projections. Dedicated card sharing retains its existing exact
+owner-authorized encrypted payload and grant identities; artwork is not attached.
+The client compares actual before/after values against reserved-writer authority
+before encryption and after conflict reconstruction; chat cannot modify artwork.
+
+CVV/CVC and PIN are absent from collection, reveal, card rendering and current
+Wallet writes. Current writes also scrub legacy per-card fields and receipt
+extras and refuse malformed records. **Historical encrypted revisions, backups,
+restoration downloads, delivered exports and older clients are not purged by this
+feature. Their retention/migration and minimum-client-write policy remain a
+separate governed release blocker.** No production deletion is performed here.
+
+Local PAN validation uses Luhn except for a backend-resolved UnionPay card,
+consistent with [Braintree card-validator](https://github.com/braintree/card-validator).
+A unique non-Luhn OCR number is marked for correction until backend resolution
+and owner review; other networks still require their supported lengths/checksum.
+This is storage validation, not payment authorization or issuer verification.
+
+### Verification and release status
+
+Only owned synthetic cards and test keys are used. `npm run test:wallet-scanning`
+exercises real bundled Tesseract in Chromium/WebKit: 13/14/15/16/19 digits, Visa,
+Mastercard, AmEx, RuPay, Discover and Diners layouts; dim/low contrast/shadow,
+rotations, skew correction, partial fields, competing PANs, worker cancellation
+and language-asset failure. A production-component transport fixture proves
+capture → crop → local OCR → explicit photo approval → backend-shaped metadata
+→ **real PKM segmentation and AES encryption** → Cards → reload → lock at
+320/390/1440 px. Fixture authority and encrypted read/write endpoints are
+explicit test seams, not a live-account or production-backend rehearsal.
+Screenshots are generated as Playwright artifacts from synthetic information.
+
+Unit/API checks cover private pixels/metadata, owner/epoch changes, final-byte
+approval, code removal, writer value differences, network fallback, stable retry
+identity, native binary transport, invalid catalog rights and revoked references.
+The shipping Wallet/Location layout pack remains responsible for shared padding,
+fonts, compact 44+ px controls, Back behavior and reduced motion.
+
+Browser proof does not establish Samsung Internet or physical mobile camera
+compatibility. iOS compile/device proof requires a Mac. Android production build
+and authenticated device rehearsal require the approved local Firebase config;
+any isolated compilation performed without that config is explicitly limited.
+Licensed product coverage, historical credential retention and native/device
+rehearsals must be approved before this draft feature is released. No deploy or
+merge is part of this task.

@@ -73,6 +73,13 @@ flowchart TB
 
 ## Canonical 3-environment contract
 
+Wallet artwork optionally reads `HUSHH_WALLET_ARTWORK_CATALOG_PATH`, a local
+path to a reviewed, versioned catalog and its approved raster assets. The empty
+default makes no external provider requests and enables no licensed artwork.
+This is deployment configuration, not an API key; configure a read-only mount
+only after rights and asset approval. Private photo and neutral artwork work
+without it. See [Wallet artwork](../one/wallet.md) for the catalog contract.
+
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
 3. Legacy frontend fallback keys are read-only compatibility paths for one release cycle:

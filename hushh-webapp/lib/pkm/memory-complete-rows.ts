@@ -66,6 +66,7 @@ function excluded(
   domain: string,
   branch: string,
 ): boolean {
+  if (reservedEntryFor(domain, branch)?.sendToModel === "never") return true;
   if (audience === "agent") {
     if (shouldSkipPkmAgentContextKey(key)) return true;
     const entry = reservedEntryFor(domain, branch);

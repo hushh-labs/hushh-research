@@ -60,11 +60,11 @@ describe("validateCardForRegion", () => {
     expect(result.last4).toBe("1111");
   });
 
-  it("requires the name and CVV while permitting omitted optional fields", () => {
+  it("requires the name without collecting security codes", () => {
     const minimal = { ...base, issuingRegion: undefined, pin: undefined };
     expect(validateCardForRegion(minimal).valid).toBe(true);
     expect(validateCardForRegion({ ...minimal, cardholderName: "  ", cvv: undefined }).errors)
-      .toEqual(expect.arrayContaining(["cardholder_name_required", "cvv_required"]));
+      .toEqual(expect.arrayContaining(["cardholder_name_required"]));
     expect(validateCardForRegion({ ...minimal, issuingRegion: "", pin: "" }).valid).toBe(true);
   });
 
@@ -73,7 +73,7 @@ describe("validateCardForRegion", () => {
     expect(validateCardForRegion({ ...base, pan, brand: undefined }).brand).toBe("other");
     expect(validateCardForRegion({ ...base, pan, brand: undefined, cvv: "1234" }).valid).toBe(true);
     expect(validateCardForRegion({ ...base, pan, brand: "mastercard" }).brand).toBe("mastercard");
-    expect(validateCardForRegion({ ...base, pan, brand: "mastercard", cvv: "1234" }).errors).toContain("cvv_invalid");
+    expect(validateCardForRegion({ ...base, pan, brand: "mastercard", cvv: "1234" }).valid).toBe(true);
     expect(validateCardForRegion({ ...base, pan: "0000000000000000" }).valid).toBe(false);
   });
 
@@ -86,7 +86,7 @@ describe("validateCardForRegion", () => {
   it("retains new backend network IDs without guessing from the PAN and keeps generic credential checks", () => {
     expect(validateCardForRegion({ ...base, brand: "future_network", cvv: "1234" })).toMatchObject({ valid: true, brand: "future_network" });
     expect(validateCardForRegion({ ...base, brand: "future_network", pan: "4111111111111112" }).errors).toContain("pan_checksum_invalid");
-    expect(validateCardForRegion({ ...base, brand: "future_network", cvv: "12" }).errors).toContain("cvv_invalid");
+    expect(validateCardForRegion({ ...base, brand: "future_network", cvv: "12" }).valid).toBe(true);
     expect(validateCardForRegion({ ...base, brand: undefined }).brand).toBe("other");
   });
 
@@ -104,21 +104,9 @@ describe("validateCardForRegion", () => {
     expect(validateCardForRegion({ ...base, issuingRegion: "IN" }).valid).toBe(true);
   });
 
-  it("requires a 4-digit CVV for amex and 3 for others", () => {
-    expect(
-      validateCardForRegion({ ...base, pan: AMEX, brand: "amex", cvv: "123" }).errors,
-    ).toContain("cvv_invalid");
-    expect(
-      validateCardForRegion({ ...base, pan: AMEX, brand: "amex", cvv: "1234" }).valid,
-    ).toBe(true);
-    expect(validateCardForRegion({ ...base, cvv: "1234" }).errors).toContain(
-      "cvv_invalid",
-    );
-  });
-
-  it("bounds the PIN at 4-6 digits and keeps it optional", () => {
-    expect(validateCardForRegion({ ...base, pin: "12" }).errors).toContain("pin_invalid");
-    expect(validateCardForRegion({ ...base, pin: undefined }).valid).toBe(true);
+  it("does not require or validate legacy security-code input", () => {
+    expect(validateCardForRegion({ ...base, cvv: undefined, pin: undefined }).valid).toBe(true);
+    expect(validateCardForRegion({ ...base, pan: AMEX, brand: "amex", cvv: "invalid", pin: "invalid" }).valid).toBe(true);
   });
 
   it("rejects an expired card and bad expiry shapes", () => {

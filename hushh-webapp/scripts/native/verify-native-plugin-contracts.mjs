@@ -48,6 +48,7 @@ const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
 // Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
+const androidOnlyPlugins = new Set(["HushhCardCapture"]);
 const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
@@ -325,7 +326,7 @@ for (const pluginName of sorted(tsContracts.keys())) {
   const iosContract = iosContracts.get(pluginName);
   const androidContract = androidContracts.get(pluginName);
 
-  if (!iosContract) {
+  if (!iosContract && !androidOnlyPlugins.has(pluginName)) {
     fail(`${pluginName}: TypeScript contract exists in ${tsContract.source}, but iOS plugin is missing.`);
   }
   if (!androidContract && !iosOnlyPlugins.has(pluginName)) {
@@ -361,7 +362,7 @@ for (const pluginName of sorted(androidContracts.keys())) {
 }
 
 for (const pluginName of sorted(tsContracts.keys())) {
-  if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName)) continue;
+  if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName) || androidOnlyPlugins.has(pluginName)) continue;
   if (!iosContracts.has(pluginName) || !androidContracts.has(pluginName)) continue;
   const iosMethods = new Set([...iosContracts.get(pluginName).methods].filter((method) =>
     pluginName !== "HushhVoiceInvocation" || !appleInvocationMethods.has(method)));
