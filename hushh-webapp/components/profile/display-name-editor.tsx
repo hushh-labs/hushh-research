@@ -17,7 +17,6 @@
 
 import {
   useCallback,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -198,7 +197,7 @@ export function useDisplayNameEditor({
     setStateOwner(owner.current);
   }, [uid, user, initialDisplayName]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;

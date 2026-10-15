@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { User } from "firebase/auth";
+import { useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -115,6 +116,23 @@ describe("DisplayNameEditor", () => {
     vi.mocked(AccountIdentityService.refreshCurrentUserIdentity).mockReset();
     vi.mocked(morphyToast.success).mockClear();
     useVoiceSessionStore.getState().effects.clear();
+  });
+
+  it("rejects a retained submit during layout teardown before provider admission", async () => {
+    vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValue({ user_id: testUser.uid, display_name: "Changed Name" });
+    let model!: ReturnType<typeof useDisplayNameEditor>;
+    let completion: ReturnType<typeof model.submit> | undefined;
+    function Consumer() {
+      const editor = useDisplayNameEditor({ user: testUser });
+      useLayoutEffect(() => { model = editor; });
+      useLayoutEffect(() => () => { completion = model.submit(); }, []);
+      return null;
+    }
+    const view = render(<Consumer />);
+    act(() => model.changeDraft("Changed Name"));
+    view.unmount();
+    expect((await completion)?.kind).toBe("stale");
+    expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
   });
 
   it("starts from the current name and keeps Save off until it changes", () => {

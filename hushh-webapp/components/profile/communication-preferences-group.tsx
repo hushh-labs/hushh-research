@@ -92,6 +92,7 @@ export function CommunicationPreferencesGroup({
   onSave,
   dirty,
   saving,
+  loading = false,
   unavailable = false,
   suggested,
 }: {
@@ -100,6 +101,7 @@ export function CommunicationPreferencesGroup({
   onSave: () => void;
   dirty: boolean;
   saving: boolean;
+  loading?: boolean;
   /** The stored values could not be read, so saving is held back. */
   unavailable?: boolean;
   /** True when the values came from a chat offer and are not saved yet. */
@@ -112,8 +114,9 @@ export function CommunicationPreferencesGroup({
     onChange(updated);
   };
   const note = value.owner_style_note ?? "";
+  const disabled = saving || loading;
   return (
-    <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings">
+    <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings" aria-busy={loading}>
       <SettingsGroup
         title="How One writes to you"
         description="One follows these on every reply. They change its writing only, never what it can see, share or do."
@@ -130,7 +133,7 @@ export function CommunicationPreferencesGroup({
               maxLength={PREFERRED_NAME_MAX}
               placeholder="Your name"
               aria-label="Name One calls you"
-              disabled={saving}
+              disabled={disabled}
               className={CONTROL_WIDTH}
               onChange={(event) => set("preferred_name", event.target.value)}
             />
@@ -146,7 +149,7 @@ export function CommunicationPreferencesGroup({
           description="How One sounds."
           trailing={
             <ChoiceSelect value={value.tone} options={OWNER_STYLE_TONES} labels={OWNER_STYLE_TONE_LABEL}
-              label="Tone" disabled={saving} onChange={(next) => set("tone", next)} />
+              label="Tone" disabled={disabled} onChange={(next) => set("tone", next)} />
           }
           stackTrailingOnMobile
           className={ROW_CLASSNAME}
@@ -159,7 +162,7 @@ export function CommunicationPreferencesGroup({
           description="How much One writes."
           trailing={
             <ChoiceSelect value={value.length} options={OWNER_STYLE_LENGTHS} labels={OWNER_STYLE_LENGTH_LABEL}
-              label="Length" disabled={saving} onChange={(next) => set("length", next)} />
+              label="Length" disabled={disabled} onChange={(next) => set("length", next)} />
           }
           stackTrailingOnMobile
           className={ROW_CLASSNAME}
@@ -172,7 +175,7 @@ export function CommunicationPreferencesGroup({
           description="The language One replies in."
           trailing={
             <ChoiceSelect value={value.language} options={OWNER_STYLE_LANGUAGES} labels={OWNER_STYLE_LANGUAGE_LABEL}
-              label="Language" disabled={saving} onChange={(next) => set("language", next)} />
+              label="Language" disabled={disabled} onChange={(next) => set("language", next)} />
           }
           stackTrailingOnMobile
           className={ROW_CLASSNAME}
@@ -188,7 +191,7 @@ export function CommunicationPreferencesGroup({
             <span className="inline-flex h-11 items-center">
               <Switch
                 checked={value.avoid_em_dashes === true}
-                disabled={saving}
+                disabled={disabled}
                 aria-label="Avoid em dashes"
                 onCheckedChange={(checked) => set("avoid_em_dashes", checked)}
               />
@@ -207,7 +210,7 @@ export function CommunicationPreferencesGroup({
             value={note}
             maxLength={STYLE_NOTE_MAX}
             rows={3}
-            disabled={saving}
+            disabled={disabled}
             aria-label="Style note"
             placeholder="For example: write Hussh with two s's, and lead with numbers."
             className="ui-text-input-value block h-28 w-full resize-none rounded-[var(--app-radius-md,14px)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 py-3 outline-none placeholder:text-muted-foreground focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] disabled:opacity-50"
@@ -224,7 +227,7 @@ export function CommunicationPreferencesGroup({
             ? "Couldn't load your writing style. Reopen to try again."
             : suggested ? "Suggested in chat. Check it, then save." : dirty ? "Unsaved changes." : "Saved in your vault."}
         </p>
-        <MorphyButton type="button" size="sm" disabled={!dirty || saving || unavailable} onClick={onSave}
+        <MorphyButton type="button" size="sm" disabled={!dirty || disabled || unavailable} onClick={onSave}
           className="min-h-11 shrink-0 px-6" data-testid="style-settings-save">
           {saving ? "Saving" : "Save"}
         </MorphyButton>
