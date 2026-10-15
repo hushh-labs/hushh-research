@@ -13,7 +13,7 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
-### Profile transition owner and single custom-shell switch — candidate
+### Profile transition owner and single custom-shell switch — 2026-10-15
 
 Profile's bounded Account stack now uses an owned `UINavigationController`
 containing retained SwiftUI page hosts. UIKit owns push/pop and actual completion;
@@ -23,7 +23,20 @@ updates, and emit user Back only after a completed pop. A cancelled edge swipe
 does not emit Back. Retired controllers cannot revive presentation or callbacks.
 The drawer, WebView, private editor and session are not recreated by page Back.
 This replaces the experimental SwiftUI path binding, not the React router.
-Physical integrated acceptance remains pending for this replacement.
+Physical functional verification passes at `3a60bc7b84`: ten warm Account →
+Name → Cancel → Back cycles, preserved draft/single-host assertions, two
+background/resume cycles and an observed Control Center interruption with touch
+recovery. No checks were skipped. Three native regressions also pass, including
+superseded Account-pop rejection and callbacks after retirement. This is not
+whole-Profile conversion, visual/accessibility qualification or Release frame
+pacing acceptance. The installed native-only candidate retains the preceding
+web bundle; a final full preparation includes the latest Wallet artwork.
+
+Keep interaction gates with their renderer. UIKit's transition flag must not be
+sampled into a SwiftUI hit-testing/accessibility modifier without observation:
+that left Account visible but inert after `didShow`. UIKit now gates transition
+touch/AX directly; SwiftUI observes only the published route-acknowledgement
+state. Actual destination and touch evidence supersede path/host receipts.
 
 The complete custom shell has one build-time kill switch:
 `NativeDrawerQualificationPolicy.customPresentationAllowed` in
@@ -36,7 +49,7 @@ blanket production qualification or iPad acceptance.
 
 ### Current-main sync and Account navigation investigation — 2026-10-15
 
-Merge `f7f38e6236` includes main `85831a2595`, including Wallet capture,
+Merges `f7f38e6236` and `fdb43cec37` include main through `edcff65ed5`, including Wallet capture,
 Calendar availability and Chat detail presentation changes. Mobile header
 geometry and caller-sized artwork deliberately retain the reviewed compact
 shell rather than main's centered/larger variant. Web Drive details inherit
@@ -45,13 +58,14 @@ The advisory merge checker inspected 94 files and flagged these intentional
 avatar fixture differences plus a still-used `JSONResponse` import. No semantic
 operation was removed to satisfy that text heuristic.
 
-Repeated Account navigation is **not accepted**. Device tests reproduced a
+The preceding SwiftUI Account candidate was **not accepted**. Device tests reproduced a
 projected Account path with no reachable name row, despite active drawer touch
 and no pending choice. The bounded Back presentation fix passes its physical
 native regression but did not resolve the integrated failure. Destination
 appearance diagnostics therefore remain Debug-only booleans, not private body
 logs or a new product telemetry stream. Do not enable additional families on
-the strength of these admission receipts.
+the strength of those admission receipts. The retained UIKit replacement's
+bounded functional evidence is recorded above.
 
 On this merged source, typecheck and plugin parity pass. The Back run passed
 458/459 cases; its one timeout passed unchanged in isolation. Back/Search
