@@ -43,6 +43,7 @@ import {
   liveMirrorGapText,
   liveMirrorHistoryAction,
   liveMirrorHistoryDetail,
+  liveMirrorIsMoneyPredicate,
   liveMirrorRecordCurrency,
   liveMirrorSourceRoute,
   liveMirrorSourceStateLabel,
@@ -92,7 +93,7 @@ const MAX_VALUE_LENGTH = 2_048;
 const PREVIEW_HISTORY_LIMIT = 20;
 const PREVIEW_RECORDS_PER_SOURCE = 100;
 /** Where an owner-authored name claim comes from: what they wrote in chat memory. */
-const SOUL_CLAIM_LABEL = "Memory (you wrote)";
+const SOUL_CLAIM_LABEL = "Your memory";
 const RECORD_LABELS: Record<LiveMirrorKind, string> = {
   profile: "Profile",
   consent: "Consent",
@@ -273,6 +274,11 @@ function claimValue(predicate: string, value: unknown): LiveMirrorFactValue | nu
   return admittedValue(value);
 }
 
+/** A copy's own ISO currency code, else null (money then reads as US dollars, as everywhere else). */
+function claimCurrency(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z]{3}$/.test(value.trim()) ? value.trim().toUpperCase() : null;
+}
+
 function claimText(value: unknown): string | null {
   return typeof value === "string" && value.trim() && value.length <= MAX_VALUE_LENGTH ? value : null;
 }
@@ -281,7 +287,10 @@ function claimText(value: unknown): string | null {
  * A conflicted record's claims by predicate: every distinct value an admitted
  * field holds across the versions at the record's latest revision, each with
  * that revision. A deleted version claims no value, a photo claims presence
- * only, and other people's identifiers never become claims.
+ * only, and other people's identifiers never become claims. Each side is named
+ * by its copy ("Payment 2, copy 1"), numbered in a stable order so a copy keeps
+ * its number on every field and rebuild, and a money side carries its own
+ * copy's currency.
  */
 function recordClaims(params: {
   kind: LiveMirrorKind;
@@ -301,22 +310,32 @@ function recordClaims(params: {
       updatedAt: isIso(version.updatedAt) ? version.updatedAt : null,
     });
   }
+  const time = (at: string | null) => {
+    const ms = at === null ? NaN : Date.parse(at);
+    return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
+  };
+  versions.sort((a, b) => time(a.updatedAt) - time(b.updatedAt) || Number(a.deleted) - Number(b.deleted) ||
+    byCodeUnit(JSON.stringify(a.value), JSON.stringify(b.value)));
   const claims = new Map<string, LiveMirrorClaim[]>();
   for (const field of LIVING_SOURCE_FACT_FIELDS[params.kind]) {
     const predicate = `${params.kind}.${field}`;
     if (HIDDEN_PREDICATES.has(predicate)) continue;
+    const money = liveMirrorIsMoneyPredicate(predicate);
     const seen = new Set<string>();
     const sides: LiveMirrorClaim[] = [];
-    for (const version of versions) {
+    versions.forEach((version, index) => {
       const value = claimValue(predicate, version.deleted ? undefined : version.value[field]);
-      const key = JSON.stringify(value);
-      if (seen.has(key)) continue;
+      // The same amount in another currency is a different claim.
+      const currency = money && !version.deleted ? claimCurrency(version.value.currency) : null;
+      const key = JSON.stringify([value, currency]);
+      if (seen.has(key)) return;
       seen.add(key);
       sides.push({
-        source: params.kind, label: params.ref, value, revision: params.revision,
-        sourceUpdatedAt: version.updatedAt, verifiedAt: params.verifiedAt,
+        source: params.kind, origin: "record", label: `${params.ref}, copy ${index + 1}`, value,
+        revision: params.revision, sourceUpdatedAt: version.updatedAt, verifiedAt: params.verifiedAt,
+        ...(money ? { currency } : {}),
       });
-    }
+    });
     if (sides.length > 1) claims.set(predicate, sides);
   }
   return claims;
@@ -337,7 +356,7 @@ function nameConflictClaims(
   const memory = (Array.isArray(params.document?.freshness) ? params.document.freshness : [])
     .find(entry => isObject(entry) && entry.domain === "one_memory");
   const soul = (value: string | null): LiveMirrorClaim => ({
-    source: "soul", label: SOUL_CLAIM_LABEL, value,
+    source: "soul", origin: "named", label: SOUL_CLAIM_LABEL, value,
     revision: typeof memory?.contentRevision === "number" ? memory.contentRevision : null,
     sourceUpdatedAt: isIso(memory?.updatedAt) ? memory.updatedAt : null, verifiedAt: null,
   });
@@ -346,7 +365,7 @@ function nameConflictClaims(
   return [
     ...(written.length ? written.map(soul) : [soul(null)]),
     {
-      source: "profile", label: LIVE_MIRROR_SOURCE_LABELS.profile,
+      source: "profile", origin: "named", label: LIVE_MIRROR_SOURCE_LABELS.profile,
       value: claimText(profileName?.value) ?? claimText(given.profile),
       revision: profileName?.provenance.revision ?? null,
       sourceUpdatedAt: profileName?.provenance.updatedAt ?? null, verifiedAt,
@@ -358,6 +377,9 @@ function nameConflictClaims(
  * One conflict per predicate, in display order (source kind, then admitted
  * field), so each is listed once. The name conflict's claims come first,
  * then each conflicted record's in ref order, each claim naming its record.
+ * A profile record whose own copies disagree on the name leaves no verified
+ * name to compare memory with, so its copies stand alone, as in memory-refresh,
+ * which raises no name conflict then either.
  */
 function liveMirrorConflicts(
   named: readonly LiveMirrorClaim[] | null,
@@ -366,7 +388,7 @@ function liveMirrorConflicts(
   const byPredicate = new Map<string, LiveMirrorClaim[]>();
   const add = (predicate: string, claims: readonly LiveMirrorClaim[]) =>
     byPredicate.set(predicate, [...(byPredicate.get(predicate) ?? []), ...claims]);
-  if (named) add("profile.name", named);
+  if (named && !records.some(record => record.claims.has("profile.name"))) add("profile.name", named);
   const rank = (ref: string) => Number(/(\d+)$/.exec(ref)?.[1] ?? 0);
   for (const record of [...records].sort((a, b) => rank(a.ref) - rank(b.ref) || byCodeUnit(a.ref, b.ref))) {
     for (const [predicate, claims] of record.claims) add(predicate, claims);
@@ -690,7 +712,9 @@ export function applyLiveMirrorReadTime(
   // "Partial" names sources that could not be checked. A conflict also leaves
   // the document incomplete, so a failed refresh alone means "may be out of
   // date" and never hides a conflict behind "Some sources unavailable".
-  const conflicts = Array.isArray(projection.conflicts) ? projection.conflicts : [];
+  // Other people's identifiers never reach a surface, even inside a disagreement.
+  const conflicts = (Array.isArray(projection.conflicts) ? projection.conflicts : [])
+    .filter(conflict => !HIDDEN_PREDICATES.has(conflict?.predicate));
   const overall: LiveMirrorOverall =
     sources.some(source => source.state === "unavailable") ? "partial"
       : projection.nameConflict || conflicts.length > 0 || projection.issues.includes("conflict") ||

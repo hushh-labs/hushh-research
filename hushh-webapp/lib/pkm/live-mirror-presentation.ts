@@ -167,6 +167,12 @@ export function formatLiveMirrorDateTime(at: unknown, timeZone?: string): string
   return format.format(new Date(ms));
 }
 
+/** True for a field stored in minor units of money ("document_earning.netCents"). */
+export function liveMirrorIsMoneyPredicate(predicate: string): boolean {
+  const field = predicate.slice(predicate.indexOf(".") + 1);
+  return Object.hasOwn(FIELD_FORMATS, field) && FIELD_FORMATS[field] === "money";
+}
+
 /** Minor units as money in the record's own currency, else US dollars. */
 function formatMoney(minorUnits: number, currency: string | null | undefined): string {
   const code = typeof currency === "string" && /^[A-Za-z]{3}$/.test(currency.trim())
@@ -436,7 +442,7 @@ export interface LiveMirrorClaimText {
   /** Who says it: "Your memory", "Profile", "Earning 2". */
   label: string;
   value: string;
-  /** "Checked 4 min ago · Version 3", or when it changed if never checked. */
+  /** "Checked 4 min ago · Version 3"; when it changed for a record's copy, or if never checked. */
   detail: string | null;
 }
 
@@ -454,7 +460,10 @@ export function liveMirrorClaimText(
       timeZone,
     });
   const changed = claim.sourceUpdatedAt ? formatLiveMirrorDateTime(claim.sourceUpdatedAt, timeZone) : null;
-  const when = claim.verifiedAt ? `Checked ${liveMirrorAgo(claim.verifiedAt, now)}` : changed ? `Changed ${changed}` : null;
+  // A record's copies share one check, so each copy is told apart by when it changed.
+  const when = claim.origin === "record" && changed ? `Changed ${changed}`
+    : claim.verifiedAt ? `Checked ${liveMirrorAgo(claim.verifiedAt, now)}`
+      : changed ? `Changed ${changed}` : null;
   const detail = [when, claim.revision ? `Version ${claim.revision}` : null].filter(Boolean).join(" · ");
   return { label: claim.source === "soul" ? "Your memory" : claim.label, value, detail: detail || null };
 }
