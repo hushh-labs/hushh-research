@@ -1201,7 +1201,7 @@
       "when": "I open Profile Live Mirror",
       "then": "I see safely rendered headings, lists and links generated from those records",
       "status": "implemented_in_code",
-      "baseline": "The Profile preview renders headings, lists and GFM money tables generated from the projection, with one in-app link per source. Owner values are escaped and joined so URLs and emails stay text; only app-relative links render, and they navigate client-side.",
+      "baseline": "The Profile preview renders headings, lists and GFM money tables generated from the projection, with one in-app link per source section that has records. Owner values are escaped so they cannot break a table or add markup, and SafeMarkdown's internal link policy renders only app-relative links (client-side), so owner URLs and emails stay text.",
       "confidence": 0.96,
       "evidence": [
         {
@@ -1386,7 +1386,7 @@
       "when": "I choose correct or delete and confirm",
       "then": "the source authority changes and both mirrors refresh without editing generated Markdown",
       "status": "partial",
-      "baseline": "Each source and record links to the screen that owns its value (profile account, consents, connections, connectors, payouts, sent documents) through one route map built from existing routes, and each side of a disagreement links to its own source, including memory.md. The Live Mirror has no write path; the bridge refreshes both mirrors after a source change. Earnings and wallet activity are view-only at Payouts, so those records cannot be corrected or deleted there, and no journey proves a correction end to end.",
+      "baseline": "Each living source and record links to the screen that owns its value (profile account, consents, connections, connectors, payouts, sent documents) through one route map built from existing routes, and each side of a disagreement links to its own source, including memory.md. The Live Mirror has no write path; the bridge refreshes both mirrors after a source or PKM change (the PKM-domain path is tested; the profile-edit cache path has no direct test). Earnings and wallet activity are view-only at Payouts, so those records cannot be corrected or deleted there, and no journey proves a correction end to end.",
       "confidence": 0.9,
       "evidence": [
         {
@@ -1666,7 +1666,7 @@
       "when": "I inspect either mirror or ask the agent",
       "then": "both claims and their provenance are shown for review without silent overwrite",
       "status": "implemented_in_code",
-      "baseline": "The projection carries both claims for a Soul-versus-profile name conflict and for records whose revisions disagree, with source, revision and check time. Profile, the Memory workspace and the private agent's profile sheet show them in a 'Needs review' row without choosing a value; the private agent's packet names both names.",
+      "baseline": "The projection carries every claim for a Soul-versus-profile name conflict and for a record whose copies disagree, each with its source, version, its own currency for money, and a check or change time. Profile groups them under 'Sources disagree'; the Memory workspace and the private agent's profile sheet show one conflict row per field; no value is chosen. The private agent's packet names both names only while the profile name is singular and its source is current, stale, updating or unavailable, and otherwise uses a value-free line.",
       "confidence": 0.96,
       "evidence": [
         {
