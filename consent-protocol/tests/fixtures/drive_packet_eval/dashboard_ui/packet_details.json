@@ -1,0 +1,291 @@
+{
+  "pkt-synthetic-0001": {
+    "packet_id": "pkt-synthetic-0001",
+    "version_id": "ver-synthetic-0001-3",
+    "title": "Example Bank statements, Apr - Sep 2026",
+    "status": "ready",
+    "status_reason": null,
+    "buyer_title": "Bank statements, April to September 2026",
+    "buyer_summary": "Three monthly statements from one checking account. Each statement period is quoted from the document.",
+    "price_cents": 1200,
+    "listed": true,
+    "members": [
+      {
+        "document_id": "doc-synthetic-0101",
+        "file_name": "example-bank-2026-04.pdf",
+        "kind": "bank_statement",
+        "pages": 4,
+        "period_start": "2026-04-01",
+        "period_end": "2026-04-30",
+        "period_role": "statement_period",
+        "quotes": [
+          {
+            "text": "Statement period: April 1, 2026 to April 30, 2026",
+            "page": 1
+          }
+        ],
+        "issuer": "Example Bank",
+        "account_mask": "••••0001",
+        "holder_name": "Test Holder"
+      },
+      {
+        "document_id": "doc-synthetic-0102",
+        "file_name": "example-bank-2026-05.pdf",
+        "kind": "bank_statement",
+        "pages": 4,
+        "period_start": "2026-05-01",
+        "period_end": "2026-05-31",
+        "period_role": "statement_period",
+        "quotes": [
+          {
+            "text": "Statement period: May 1, 2026 to May 31, 2026",
+            "page": 1
+          },
+          {
+            "text": "Closing balance as of May 31, 2026",
+            "page": 3
+          }
+        ],
+        "issuer": "Example Bank",
+        "account_mask": "••••0001",
+        "holder_name": "Test Holder"
+      },
+      {
+        "document_id": "doc-synthetic-0103",
+        "file_name": "example-bank-2026-06 <draft>.pdf",
+        "kind": "bank_statement",
+        "pages": 3,
+        "period_start": "2026-06-01",
+        "period_end": "2026-06-30",
+        "period_role": "statement_period",
+        "quotes": [],
+        "issuer": "Example Bank",
+        "account_mask": "000123456789",
+        "holder_name": "Test Holder"
+      }
+    ],
+    "checks": [
+      {
+        "name": "period_evidence",
+        "ok": true,
+        "reason": null
+      },
+      {
+        "name": "one_account",
+        "ok": true,
+        "reason": null
+      },
+      {
+        "name": "owner_name_matches",
+        "ok": true,
+        "reason": null
+      },
+      {
+        "name": "no_duplicate_originals",
+        "ok": false,
+        "reason": "same_content_twice"
+      }
+    ],
+    "eval_verdicts": [
+      {
+        "batch": "B-SYN-001",
+        "judge": "j1",
+        "verdict": "pass",
+        "severity": null
+      },
+      {
+        "batch": "B-SYN-001",
+        "judge": "j2",
+        "verdict": "pass",
+        "severity": null
+      }
+    ],
+    "human_label": null
+  },
+  "pkt-synthetic-0002": {
+    "packet_id": "pkt-synthetic-0002",
+    "version_id": "ver-synthetic-0002-1",
+    "title": "Example Brokerage statements 2026",
+    "status": "ready",
+    "status_reason": null,
+    "buyer_title": "Brokerage statements, 2026",
+    "buyer_summary": "Two brokerage statements.",
+    "price_cents": 900,
+    "listed": false,
+    "members": [
+      {
+        "document_id": "doc-synthetic-0201",
+        "file_name": "example-brokerage-2026-q1.pdf",
+        "kind": "brokerage_statement",
+        "pages": 6,
+        "period_start": "2026-01-01",
+        "period_end": "2026-03-31",
+        "period_role": "statement_period",
+        "quotes": [
+          {
+            "text": "Account statement for January 1 - March 31, 2026",
+            "page": 1
+          }
+        ],
+        "issuer": "Example Brokerage",
+        "account_mask": "••••0002",
+        "holder_name": "Test Holder"
+      },
+      {
+        "document_id": "doc-synthetic-0202",
+        "file_name": "example-brokerage-account-history.pdf",
+        "kind": "brokerage_statement",
+        "pages": 12,
+        "period_start": "2014-01-01",
+        "period_end": "2016-12-31",
+        "period_role": "history_range",
+        "quotes": [
+          {
+            "text": "Account history January 2014 through December 2016",
+            "page": 1
+          }
+        ],
+        "issuer": "Example Brokerage",
+        "account_mask": "••••0002",
+        "holder_name": "Test Holder"
+      }
+    ],
+    "checks": [
+      {
+        "name": "period_evidence",
+        "ok": false,
+        "reason": "member_outside_requested_period"
+      },
+      {
+        "name": "one_account",
+        "ok": true,
+        "reason": null
+      }
+    ],
+    "eval_verdicts": [
+      {
+        "batch": "B-SYN-001",
+        "judge": "j1",
+        "verdict": "pass",
+        "severity": null
+      },
+      {
+        "batch": "B-SYN-001",
+        "judge": "j2",
+        "verdict": "pass",
+        "severity": null
+      }
+    ],
+    "human_label": {
+      "verdict": "wrong",
+      "reason": "wrong_period",
+      "note": "One file is a 2014-2016 account history.",
+      "at": "2026-10-16T17:02:00Z"
+    }
+  },
+  "pkt-synthetic-0003": {
+    "packet_id": "pkt-synthetic-0003",
+    "version_id": "ver-synthetic-0003-2",
+    "title": "Card statements, Q2 2026",
+    "status": "ready",
+    "status_reason": null,
+    "buyer_title": "Card statements, April to June 2026",
+    "buyer_summary": "Two monthly card statements.",
+    "price_cents": null,
+    "listed": false,
+    "members": [
+      {
+        "document_id": "doc-synthetic-0301",
+        "file_name": "example-card-2026-04.pdf",
+        "kind": "card_statement",
+        "pages": 2,
+        "period_start": "2026-03-15",
+        "period_end": "2026-04-14",
+        "period_role": "billing_cycle",
+        "quotes": [
+          {
+            "text": "Billing cycle 03/15/2026 - 04/14/2026",
+            "page": 1
+          }
+        ],
+        "issuer": "Example Card Co",
+        "account_mask": "••••0003",
+        "holder_name": "Test Holder"
+      },
+      {
+        "document_id": "doc-synthetic-0302",
+        "file_name": "example-card-2026-05.pdf",
+        "kind": "card_statement",
+        "pages": null,
+        "period_start": null,
+        "period_end": null,
+        "period_role": null,
+        "quotes": [],
+        "issuer": null,
+        "account_mask": null,
+        "holder_name": null
+      }
+    ],
+    "checks": [],
+    "eval_verdicts": [
+      {
+        "batch": "B-SYN-001",
+        "judge": "j1",
+        "verdict": "pass",
+        "severity": null
+      },
+      {
+        "batch": "B-SYN-001",
+        "judge": "j2",
+        "verdict": "unknown",
+        "severity": "S2"
+      }
+    ],
+    "human_label": {
+      "verdict": "correct",
+      "reason": null,
+      "note": "",
+      "at": "2026-10-16T12:00:00Z"
+    }
+  },
+  "pkt-synthetic-0004": {
+    "packet_id": "pkt-synthetic-0004",
+    "version_id": "ver-synthetic-0004-1",
+    "title": "Utility bills 2025",
+    "status": "blocked",
+    "status_reason": "Sources name different accounts.",
+    "buyer_title": null,
+    "buyer_summary": null,
+    "price_cents": null,
+    "listed": false,
+    "members": [
+      {
+        "document_id": "doc-synthetic-0401",
+        "file_name": "utility-2025-annual.pdf",
+        "kind": "utility_bill",
+        "pages": 2,
+        "period_start": "2025-01-01",
+        "period_end": "2025-12-31",
+        "period_role": "billing_year",
+        "quotes": [
+          {
+            "text": "Annual summary 2025",
+            "page": 1
+          }
+        ],
+        "issuer": "Example Utility",
+        "account_mask": "••••0004",
+        "holder_name": "Another Holder"
+      }
+    ],
+    "checks": [
+      {
+        "name": "one_account",
+        "ok": false,
+        "reason": "accounts_differ"
+      }
+    ],
+    "eval_verdicts": [],
+    "human_label": null
+  }
+}

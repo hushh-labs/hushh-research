@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<title>Manish's Drive check</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="engine-strip engine-wait" id="engine-strip" role="status" aria-live="polite">
+    <span class="engine-text">Testing deployed UAT: reading which code it runs…</span>
+  </div>
+  <div class="top-inner">
+    <div class="title-block">
+      <h1>Manish's Drive check</h1>
+      <p class="owner-line" id="owner-line">Loading…</p>
+    </div>
+    <div class="top-actions">
+      <span class="pill" title="Runs on this laptop only. It reads UAT and Drive and never writes, shares, lists or charges. Your marks stay on this laptop.">Local · read-only</span>
+      <button type="button" class="btn-ghost" id="theme-toggle">Theme: Auto</button>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Sections">
+    <a class="tab" href="#/request" id="tab-request">Request</a>
+    <a class="tab" href="#/real" id="tab-real">Real requests</a>
+    <a class="tab" href="#/packets" id="tab-packets">Packets</a>
+    <a class="tab" href="#/accuracy" id="tab-accuracy">Accuracy</a>
+    <a class="tab" href="#/health" id="tab-health">Index health</a>
+    <a class="tab" href="#/eval" id="tab-eval">Eval</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="view" id="view-request" aria-label="Request, dry run">
+    <form class="card ask-card" id="ask-form" autocomplete="off" novalidate>
+      <div class="ask-top">
+        <div class="who">
+          <span class="avatar" aria-hidden="true">C</span>
+          <div>
+            <h2 class="who-title">Chris asks Manish</h2>
+            <p class="hint">The Request files box on Manish's profile. Chris is simulated.</p>
+          </div>
+        </div>
+        <span class="tag tone-info">Dry run</span>
+      </div>
+      <label class="field-label" for="ask-prompt">What do you need?</label>
+      <textarea id="ask-prompt" rows="2" maxlength="2000" placeholder="I need six months of financial statements"></textarea>
+      <div class="ask-row">
+        <label class="date-field"><span>Start date</span><input type="date" id="ask-start"></label>
+        <label class="date-field"><span>End date</span><input type="date" id="ask-end"></label>
+        <div class="chips">
+          <button type="button" class="chip" id="range-6">Last 6 months</button>
+          <button type="button" class="chip" id="range-8">Last 8 months</button>
+          <button type="button" class="chip chip-quiet" id="range-none">Clear dates</button>
+        </div>
+      </div>
+      <div class="ask-row">
+        <span class="row-label">Replay</span>
+        <div class="chips" id="preset-list"></div>
+      </div>
+      <p class="preset-note" id="ask-preset-note" hidden></p>
+      <div class="ask-actions">
+        <p class="hint">Runs the deployed engine on this laptop against UAT data. Nothing is saved to UAT, shared, charged or sent.</p>
+        <button type="submit" class="btn-primary" id="ask-run">Send</button>
+      </div>
+      <p class="form-error" id="ask-error" role="alert" hidden></p>
+    </form>
+    <div class="result" id="ask-result" aria-live="polite"></div>
+  </section>
+
+  <section class="view" id="view-real" aria-label="Real requests" hidden></section>
+  <section class="view" id="view-real-detail" aria-label="Real request" hidden></section>
+  <section class="view" id="view-packets" aria-label="Packets" hidden></section>
+  <section class="view" id="view-packet" aria-label="Packet" hidden></section>
+  <section class="view" id="view-accuracy" aria-label="Accuracy" hidden></section>
+  <section class="view" id="view-health" aria-label="Index health" hidden></section>
+  <section class="view" id="view-eval" aria-label="Eval" hidden></section>
+</main>
+<noscript><p class="wrap">This page needs JavaScript.</p></noscript>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "batches": [
+    {
+      "batch_id": "B-SYN-001",
+      "code_sha": "fedcba9876543210fedcba9876543210fedcba98",
+      "founder_report_lines": [
+        "Drive packet check B-SYN-001: replay of code fedcba9, 120 files.",
+        "Ready packets wrong: 0 of 21 (95% bar needs 0 of 59; 99.9% bar needs 0 of 2,995).",
+        "Checked by a person: 4 of 21; the rest by two AI judges and fixed rules.",
+        "Not decided yet: 2 Ready packets (counted as not passed).",
+        "Safe to list: not yet, because 21 independent Ready packets were checked and 59 are needed."
+      ],
+      "gates": {
+        "listing": {"status": "insufficient", "reasons": ["needs_59_independent_ready_has_21"]},
+        "ready": "pass",
+        "deploy": "pass"
+      },
+      "ready_wrong": 0,
+      "ready_total": 21,
+      "undecided": 2,
+      "human_checked": 4
+    },
+    {
+      "batch_id": "B-SYN-002",
+      "code_sha": "0123456789abcdef0123456789abcdef01234567",
+      "founder_report_lines": [
+        "Drive packet check B-SYN-002: served UAT build 0123456, 80 files.",
+        "Ready packets wrong: 1 of 9 (95% bar needs 0 of 59; 99.9% bar needs 0 of 2,995)."
+      ],
+      "gates": {"listing": "fail", "ready": "fail", "deploy": null},
+      "ready_wrong": 1,
+      "ready_total": 9,
+      "undecided": 0,
+      "human_checked": 1
+    }
+  ],
+  "human_queue": {
+    "wrong": ["pkt-synthetic-0002"],
+    "undecided": [{"packet_id": "pkt-synthetic-0003", "title": "Card statements, Q2 2026", "reason": "judges_split"}],
+    "high_risk": [{"packet_key": "f00dfeedf00dfeedf00dfeedf00dfeed", "reason": "period_s1", "severity": "S1"}]
+  }
+}

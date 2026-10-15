@@ -1,0 +1,21 @@
+{
+  "packets": {
+    "ai": {"correct": 57, "wrong": 1, "undecided": 3, "n": 61},
+    "human": {"correct": 12, "wrong": 1, "unsure": 2, "n": 15},
+    "agreement": {
+      "both": 11,
+      "agree": 10,
+      "disagree": 1,
+      "disagreements": [{"packet_id": "pkt-synthetic-0002", "ai": "correct", "human": "wrong"}]
+    },
+    "bars": {"n95": 59, "n999": 2995}
+  },
+  "requests": {
+    "system_selected": 7,
+    "human": {"right": 5, "wrong": 1, "unsure": 1, "missed": 1, "n": 8, "precision": 0.8333},
+    "by_source": {
+      "dry_run": {"system_selected": 4, "right": 3, "wrong": 1, "unsure": 0, "missed": 1, "n": 5, "precision": 0.75},
+      "real": {"system_selected": 3, "right": 2, "wrong": 0, "unsure": 1, "missed": 0, "n": 3, "precision": 1.0}
+    }
+  }
+}

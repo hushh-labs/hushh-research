@@ -1,0 +1,64 @@
+[
+  {
+    "packet_id": "pkt-synthetic-0001",
+    "version_id": "ver-synthetic-0001-3",
+    "title": "Example Bank statements, Apr - Sep 2026",
+    "status": "ready",
+    "member_count": 3,
+    "period_label": "Apr - Sep 2026",
+    "price_cents": 1200,
+    "listed": true,
+    "updated_at": "2026-10-16T18:40:00Z",
+    "ai_verdict": "correct",
+    "human_label": null
+  },
+  {
+    "packet_id": "pkt-synthetic-0002",
+    "version_id": "ver-synthetic-0002-1",
+    "title": "Example Brokerage statements 2026",
+    "status": "ready",
+    "member_count": 2,
+    "period_label": "Jan - Mar 2026",
+    "price_cents": 900,
+    "listed": false,
+    "updated_at": "2026-10-16T16:12:00Z",
+    "ai_verdict": "correct",
+    "human_label": {
+      "verdict": "wrong",
+      "reason": "wrong_period",
+      "note": "One file is a 2014-2016 account history.",
+      "at": "2026-10-16T17:02:00Z"
+    }
+  },
+  {
+    "packet_id": "pkt-synthetic-0003",
+    "version_id": "ver-synthetic-0003-2",
+    "title": "Card statements, Q2 2026",
+    "status": "ready",
+    "member_count": 2,
+    "period_label": "Apr - Jun 2026",
+    "price_cents": null,
+    "listed": false,
+    "updated_at": "2026-10-15T09:30:00Z",
+    "ai_verdict": "undecided",
+    "human_label": {
+      "verdict": "correct",
+      "reason": null,
+      "note": "",
+      "at": "2026-10-16T12:00:00Z"
+    }
+  },
+  {
+    "packet_id": "pkt-synthetic-0004",
+    "version_id": "ver-synthetic-0004-1",
+    "title": "Utility bills 2025",
+    "status": "blocked",
+    "member_count": 1,
+    "period_label": null,
+    "price_cents": null,
+    "listed": false,
+    "updated_at": "2026-10-14T08:00:00Z",
+    "ai_verdict": null,
+    "human_label": null
+  }
+]

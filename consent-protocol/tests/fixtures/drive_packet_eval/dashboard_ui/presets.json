@@ -1,0 +1,26 @@
+[
+  {
+    "id": "six-months",
+    "label": "Six months of statements",
+    "prompt": "I need six months of financial statements",
+    "period_start": "2026-04-16",
+    "period_end": "2026-10-15",
+    "as_of": "2026-10-16"
+  },
+  {
+    "id": "replay-brokerage-2026",
+    "label": "Replay: 2026 brokerage statements",
+    "prompt": "all brokerage statements that contains Example Brokerage from 2026",
+    "period_start": "2026-04-16",
+    "period_end": "2026-10-15",
+    "as_of": "2026-10-13"
+  },
+  {
+    "id": "preview-regression",
+    "label": "Preview only: the 13 Oct mistake",
+    "prompt": "regression: brokerage statements from 2026",
+    "period_start": "2026-04-16",
+    "period_end": "2026-10-15",
+    "as_of": "2026-10-13"
+  }
+]

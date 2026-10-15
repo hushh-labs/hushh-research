@@ -1,0 +1,317 @@
+{
+  "req-synthetic-0002": {
+    "request_id": "req-synthetic-0002",
+    "created_at": "2026-10-16T18:20:00Z",
+    "requester_display_name": "Test Buyer",
+    "purpose_text": "Six months of bank statements",
+    "period_start": "2026-04-16",
+    "period_end": "2026-10-15",
+    "status": "delivered",
+    "selected_count": 3,
+    "paid": true,
+    "delivered": true,
+    "human_label": null,
+    "plan": {
+      "summary": "bank statements",
+      "kinds": [
+        "bank_statement"
+      ],
+      "period_start": "2026-04-16",
+      "period_end": "2026-10-15",
+      "terms": [
+        "bank",
+        "statement"
+      ],
+      "planner": "synthetic"
+    },
+    "drive_api": {
+      "calls": [
+        {
+          "q": "fullText contains 'bank statement' and trashed = false",
+          "page": 1,
+          "rows": 4,
+          "ms": 390
+        }
+      ],
+      "rows": [
+        {
+          "file_name": "example-bank-2026-05.pdf",
+          "mime": "application/pdf",
+          "modified_time": "2026-06-02T10:00:00Z",
+          "created_time": "2026-06-02T10:00:00Z",
+          "kept": true,
+          "drop_stage": null,
+          "drop_reason": null
+        },
+        {
+          "file_name": "example-bank-2026-06.pdf",
+          "mime": "application/pdf",
+          "modified_time": "2026-07-03T09:12:00Z",
+          "created_time": "2026-07-03T09:12:00Z",
+          "kept": true,
+          "drop_stage": null,
+          "drop_reason": null
+        },
+        {
+          "file_name": "example-bank-2026-07.pdf",
+          "mime": "application/pdf",
+          "modified_time": "2026-08-04T09:00:00Z",
+          "created_time": "2026-08-04T09:00:00Z",
+          "kept": true,
+          "drop_stage": null,
+          "drop_reason": null
+        },
+        {
+          "file_name": "bank-letter.pdf",
+          "mime": "application/pdf",
+          "modified_time": "2026-05-20T09:00:00Z",
+          "created_time": "2026-05-20T09:00:00Z",
+          "kept": false,
+          "drop_stage": "kind",
+          "drop_reason": "not_a_statement"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "name": "plan",
+        "in": 1,
+        "kept": 1,
+        "dropped": 0,
+        "ms": 1100,
+        "notes": null
+      },
+      {
+        "name": "drive_search",
+        "in": 1,
+        "kept": 4,
+        "dropped": 0,
+        "ms": 390,
+        "notes": null
+      },
+      {
+        "name": "select",
+        "in": 4,
+        "kept": 3,
+        "dropped": 1,
+        "ms": 300,
+        "notes": "1 not a statement"
+      }
+    ],
+    "documents": [
+      {
+        "document_id": "doc-synthetic-0101",
+        "file_name": "example-bank-2026-05.pdf",
+        "kind": "bank_statement",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": "2026-05-01",
+        "period_end": "2026-05-31",
+        "period_role": "statement_period",
+        "evidence_quote": "Statement period: May 1, 2026 to May 31, 2026",
+        "page": 1,
+        "selected": true,
+        "reason": "period_proven_by_quote",
+        "flags": []
+      },
+      {
+        "document_id": "doc-synthetic-0102",
+        "file_name": "example-bank-2026-06.pdf",
+        "kind": "bank_statement",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": "2026-06-01",
+        "period_end": "2026-06-30",
+        "period_role": "statement_period",
+        "evidence_quote": "Statement period: June 1, 2026 to June 30, 2026",
+        "page": 1,
+        "selected": true,
+        "reason": "period_proven_by_quote",
+        "flags": []
+      },
+      {
+        "document_id": "doc-synthetic-0107",
+        "file_name": "example-bank-2026-07.pdf",
+        "kind": "bank_statement",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": "2026-07-01",
+        "period_end": "2026-07-31",
+        "period_role": "statement_period",
+        "evidence_quote": "Statement period: July 1, 2026 to July 31, 2026",
+        "page": 1,
+        "selected": true,
+        "reason": "period_proven_by_quote",
+        "flags": []
+      },
+      {
+        "document_id": "doc-synthetic-0108",
+        "file_name": "bank-letter.pdf",
+        "kind": "letter",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": null,
+        "period_end": null,
+        "period_role": null,
+        "evidence_quote": null,
+        "page": null,
+        "selected": false,
+        "reason": "not_a_statement",
+        "flags": []
+      }
+    ],
+    "owner_review": {
+      "files": [
+        {
+          "file_name": "example-bank-2026-05.pdf",
+          "period_start": "2026-05-01",
+          "period_end": "2026-05-31"
+        },
+        {
+          "file_name": "example-bank-2026-06.pdf",
+          "period_start": "2026-06-01",
+          "period_end": "2026-06-30"
+        },
+        {
+          "file_name": "example-bank-2026-07.pdf",
+          "period_start": "2026-07-01",
+          "period_end": "2026-07-31"
+        }
+      ],
+      "coverage_text": "Covers May to Jul 2026. Apr, Aug, Sep and Oct are missing.",
+      "price_cents": 300,
+      "would_allow_now": true,
+      "why_not": null,
+      "decision": "allowed",
+      "decided_at": "2026-10-16T18:31:00Z"
+    },
+    "payment": {
+      "status": "paid",
+      "amount_cents": 300,
+      "refunded": false
+    },
+    "delivery": [
+      {
+        "file_name": "example-bank-2026-05.pdf",
+        "outcome": "shared"
+      },
+      {
+        "file_name": "example-bank-2026-06.pdf",
+        "outcome": "already_had_access"
+      },
+      {
+        "file_name": "example-bank-2026-07.pdf",
+        "outcome": "shared"
+      }
+    ],
+    "logs": [
+      {
+        "t": "2026-10-16T18:20:01.000Z",
+        "level": "INFO",
+        "logger": "synthetic.request",
+        "msg": "request created"
+      },
+      {
+        "t": "2026-10-16T18:31:00.000Z",
+        "level": "INFO",
+        "logger": "synthetic.review",
+        "msg": "owner allowed 3 files at $3.00"
+      },
+      {
+        "t": "2026-10-16T18:40:00.000Z",
+        "level": "ERROR",
+        "logger": "synthetic.share",
+        "msg": "1 file already shared before payment"
+      }
+    ]
+  },
+  "req-synthetic-0001": {
+    "request_id": "req-synthetic-0001",
+    "created_at": "2026-10-13T16:05:00Z",
+    "requester_display_name": "Test Buyer",
+    "purpose_text": "Last months brokerage statements",
+    "period_start": "2026-09-01",
+    "period_end": "2026-10-09",
+    "status": "owner_review",
+    "selected_count": 1,
+    "paid": false,
+    "delivered": false,
+    "human_label": {
+      "overall": {
+        "verdict": "wrong",
+        "note": "Old 2014-2016 history picked.",
+        "at": "2026-10-16T17:30:00Z"
+      },
+      "documents": {
+        "doc-synthetic-0202": {
+          "verdict": "wrong",
+          "note": "2014-2016",
+          "at": "2026-10-16T17:31:00Z"
+        }
+      }
+    },
+    "plan": "not recorded",
+    "drive_api": "not recorded",
+    "steps": "not recorded",
+    "documents": [
+      {
+        "document_id": "doc-synthetic-0202",
+        "file_name": "example-brokerage-account-history.pdf",
+        "kind": "brokerage_statement",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": "2014-01-01",
+        "period_end": "2016-12-31",
+        "period_role": "drive_modified_time",
+        "evidence_quote": "Account history January 2014 through December 2016",
+        "page": 1,
+        "selected": true,
+        "reason": "modified_in_requested_period",
+        "flags": [
+          "selected_by_modified_time"
+        ]
+      },
+      {
+        "document_id": "doc-synthetic-0203",
+        "file_name": "example-brokerage-2026-sep.pdf",
+        "kind": "brokerage_statement",
+        "indexed_state": "indexed",
+        "extraction_state": "complete",
+        "facts_state": "complete",
+        "period_start": "2026-09-01",
+        "period_end": "2026-09-30",
+        "period_role": "statement_period",
+        "evidence_quote": "Account statement for September 1 - 30, 2026",
+        "page": 2,
+        "selected": null,
+        "reason": null,
+        "flags": []
+      }
+    ],
+    "owner_review": {
+      "files": [
+        {
+          "file_name": "example-brokerage-account-history.pdf",
+          "period_start": null,
+          "period_end": null
+        }
+      ],
+      "coverage_text": "Covers Sep 2026.",
+      "price_cents": 100,
+      "would_allow_now": true,
+      "why_not": null
+    },
+    "payment": {
+      "status": "not_started",
+      "amount_cents": null,
+      "refunded": "not recorded"
+    },
+    "delivery": [],
+    "logs": "not recorded"
+  }
+}

@@ -1,0 +1,537 @@
+{
+  "ask_id": "ask-synthetic-0002",
+  "as_buyer": "Chris (simulated)",
+  "owner": "Synthetic Owner",
+  "engine": {
+    "entry_point": "synthetic_engine.plan_search_select",
+    "engine_sha": "0123456789abcdef0123456789abcdef01234567",
+    "deployed_sha": "0123456789abcdef0123456789abcdef01234567",
+    "match": true,
+    "dry_run": true
+  },
+  "understood": {
+    "summary": "bank, brokerage and card statements",
+    "kinds": [
+      "bank_statement",
+      "brokerage_statement",
+      "card_statement"
+    ],
+    "period_start": "2026-04-16",
+    "period_end": "2026-10-15",
+    "terms": [
+      "statement",
+      "bank",
+      "brokerage",
+      "card"
+    ]
+  },
+  "drive_api": {
+    "calls": [
+      {
+        "q": "fullText contains 'statement' and trashed = false",
+        "page": 1,
+        "rows": 8,
+        "ms": 412
+      },
+      {
+        "q": "fullText contains 'brokerage' and trashed = false",
+        "page": 1,
+        "rows": 3,
+        "ms": 288
+      },
+      {
+        "q": "name contains 'statement' and trashed = false",
+        "page": 1,
+        "rows": 1,
+        "ms": 140
+      }
+    ],
+    "rows": [
+      {
+        "file_name": "example-bank-2026-05.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-06-02T10:00:00Z",
+        "created_time": "2026-06-02T10:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-bank-2026-06.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-07-03T09:12:00Z",
+        "created_time": "2026-07-03T09:12:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-card-2026-07.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-07-16T08:30:00Z",
+        "created_time": "2026-07-16T08:30:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-brokerage-2026-sep.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-10-04T12:00:00Z",
+        "created_time": "2026-10-04T12:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-bank-2026-05 (1).pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-06-05T11:00:00Z",
+        "created_time": "2026-06-05T11:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-brokerage-2026-q1.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-04-05T12:00:00Z",
+        "created_time": "2026-04-05T12:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-brokerage-account-history.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-10-02T15:40:00Z",
+        "created_time": "2017-01-10T09:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "example-bank-2026-08.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-03T10:00:00Z",
+        "created_time": "2026-09-03T10:00:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "statement-scan-sep.jpg",
+        "mime": "image/jpeg",
+        "modified_time": "2026-10-01T18:22:00Z",
+        "created_time": "2026-10-01T18:22:00Z",
+        "kept": true,
+        "drop_stage": null,
+        "drop_reason": null
+      },
+      {
+        "file_name": "holiday-photos.zip",
+        "mime": "application/zip",
+        "modified_time": "2026-08-20T07:00:00Z",
+        "created_time": "2026-08-20T07:00:00Z",
+        "kept": false,
+        "drop_stage": "type",
+        "drop_reason": "not_a_document"
+      },
+      {
+        "file_name": "meeting-notes",
+        "mime": "application/vnd.google-apps.document",
+        "modified_time": "2026-09-11T16:00:00Z",
+        "created_time": "2026-09-11T16:00:00Z",
+        "kept": false,
+        "drop_stage": "kind",
+        "drop_reason": "not_a_statement"
+      },
+      {
+        "file_name": "statement-template.xlsx",
+        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "modified_time": "2026-05-01T10:00:00Z",
+        "created_time": "2026-05-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "kind",
+        "drop_reason": "template_not_a_statement"
+      },
+      {
+        "file_name": "example-statement-01.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-02T10:00:00Z",
+        "created_time": "2026-09-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "filename_rule",
+        "drop_reason": "name_not_statement_like"
+      },
+      {
+        "file_name": "example-statement-02.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-03T10:00:00Z",
+        "created_time": "2026-09-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "filename_rule",
+        "drop_reason": "name_not_statement_like"
+      },
+      {
+        "file_name": "example-statement-03.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-04T10:00:00Z",
+        "created_time": "2026-09-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "filename_rule",
+        "drop_reason": "name_not_statement_like"
+      },
+      {
+        "file_name": "example-statement-04.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-05T10:00:00Z",
+        "created_time": "2026-09-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "filename_rule",
+        "drop_reason": "name_not_statement_like"
+      },
+      {
+        "file_name": "example-statement-05.pdf",
+        "mime": "application/pdf",
+        "modified_time": "2026-09-06T10:00:00Z",
+        "created_time": "2026-09-01T10:00:00Z",
+        "kept": false,
+        "drop_stage": "filename_rule",
+        "drop_reason": "name_not_statement_like"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "plan",
+      "in": 1,
+      "kept": 1,
+      "dropped": 0,
+      "ms": 1320,
+      "notes": "Kinds and dates from the request"
+    },
+    {
+      "name": "drive_search",
+      "in": 3,
+      "kept": 12,
+      "dropped": 0,
+      "ms": 840,
+      "notes": "3 Drive searches"
+    },
+    {
+      "name": "filter",
+      "in": 12,
+      "kept": 9,
+      "dropped": 3,
+      "ms": 40,
+      "notes": {
+        "not_a_document": 1,
+        "not_a_statement": 2
+      }
+    },
+    {
+      "name": "index_lookup",
+      "in": 9,
+      "kept": 7,
+      "dropped": 2,
+      "ms": 25,
+      "notes": "2 files not indexed yet"
+    },
+    {
+      "name": "period_proof",
+      "in": 7,
+      "kept": 5,
+      "dropped": 2,
+      "ms": 120,
+      "notes": [
+        "2 outside the asked dates"
+      ]
+    },
+    {
+      "name": "select",
+      "in": 5,
+      "kept": 4,
+      "dropped": 1,
+      "ms": 260,
+      "notes": "1 duplicate"
+    }
+  ],
+  "documents": [
+    {
+      "document_id": "doc-synthetic-0101",
+      "file_name": "example-bank-2026-05.pdf",
+      "kind": "bank_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-05-01",
+      "period_end": "2026-05-31",
+      "period_role": "statement_period",
+      "evidence_quote": "Statement period: May 1, 2026 to May 31, 2026",
+      "page": 1,
+      "selected": true,
+      "reason": "period_proven_by_quote",
+      "flags": []
+    },
+    {
+      "document_id": "doc-synthetic-0102",
+      "file_name": "example-bank-2026-06.pdf",
+      "kind": "bank_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-06-01",
+      "period_end": "2026-06-30",
+      "period_role": "statement_period",
+      "evidence_quote": "Statement period: June 1, 2026 to June 30, 2026",
+      "page": 1,
+      "selected": true,
+      "reason": "period_proven_by_quote",
+      "flags": []
+    },
+    {
+      "document_id": "doc-synthetic-0301",
+      "file_name": "example-card-2026-07.pdf",
+      "kind": "card_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-06-15",
+      "period_end": "2026-07-14",
+      "period_role": "billing_cycle",
+      "evidence_quote": "Billing cycle 06/15/2026 - 07/14/2026",
+      "page": 1,
+      "selected": true,
+      "reason": "Billing cycle sits inside the asked dates.",
+      "flags": []
+    },
+    {
+      "document_id": "doc-synthetic-0203",
+      "file_name": "example-brokerage-2026-sep.pdf",
+      "kind": "brokerage_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-09-01",
+      "period_end": "2026-09-30",
+      "period_role": "statement_period",
+      "evidence_quote": "Account statement for September 1 - 30, 2026",
+      "page": 2,
+      "selected": true,
+      "reason": "period_proven_by_quote",
+      "flags": []
+    },
+    {
+      "document_id": "doc-synthetic-0105",
+      "file_name": "example-bank-2026-05 (1).pdf",
+      "kind": "bank_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-05-01",
+      "period_end": "2026-05-31",
+      "period_role": "statement_period",
+      "evidence_quote": "Statement period: May 1, 2026 to May 31, 2026",
+      "page": 1,
+      "selected": false,
+      "reason": "duplicate",
+      "flags": [
+        "duplicate_of_doc_synthetic_0101"
+      ]
+    },
+    {
+      "document_id": "doc-synthetic-0201",
+      "file_name": "example-brokerage-2026-q1.pdf",
+      "kind": "brokerage_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2026-01-01",
+      "period_end": "2026-03-31",
+      "period_role": "statement_period",
+      "evidence_quote": "Account statement for January 1 - March 31, 2026",
+      "page": 1,
+      "selected": false,
+      "reason": "period_outside_request",
+      "flags": []
+    },
+    {
+      "document_id": "doc-synthetic-0202",
+      "file_name": "example-brokerage-account-history.pdf",
+      "kind": "brokerage_statement",
+      "indexed_state": "indexed",
+      "extraction_state": "complete",
+      "facts_state": "complete",
+      "period_start": "2014-01-01",
+      "period_end": "2016-12-31",
+      "period_role": "drive_modified_time",
+      "evidence_quote": "Account history January 2014 through December 2016",
+      "page": 1,
+      "selected": true,
+      "reason": "modified_in_requested_period",
+      "flags": [
+        "selected_by_modified_time"
+      ]
+    },
+    {
+      "document_id": "doc-synthetic-0106",
+      "file_name": "example-bank-2026-08.pdf",
+      "kind": "bank_statement",
+      "indexed_state": "not_indexed",
+      "extraction_state": "pending",
+      "facts_state": "waiting",
+      "period_start": null,
+      "period_end": null,
+      "period_role": null,
+      "evidence_quote": null,
+      "page": null,
+      "selected": false,
+      "reason": "Found in Drive; not read yet.",
+      "flags": []
+    },
+    {
+      "document_id": null,
+      "file_name": "statement-scan-sep.jpg",
+      "kind": null,
+      "indexed_state": "not_indexed",
+      "extraction_state": "pending",
+      "facts_state": "waiting",
+      "period_start": null,
+      "period_end": null,
+      "period_role": null,
+      "evidence_quote": null,
+      "page": null,
+      "selected": false,
+      "reason": "not_indexed",
+      "flags": []
+    }
+  ],
+  "owner_review": {
+    "files": [
+      {
+        "file_name": "example-bank-2026-05.pdf",
+        "period_start": "2026-05-01",
+        "period_end": "2026-05-31"
+      },
+      {
+        "file_name": "example-bank-2026-06.pdf",
+        "period_start": "2026-06-01",
+        "period_end": "2026-06-30"
+      },
+      {
+        "file_name": "example-card-2026-07.pdf",
+        "period_start": "2026-06-15",
+        "period_end": "2026-07-14"
+      },
+      {
+        "file_name": "example-brokerage-2026-sep.pdf",
+        "period_start": "2026-09-01",
+        "period_end": "2026-09-30"
+      },
+      {
+        "file_name": "example-brokerage-account-history.pdf",
+        "period_start": "2014-01-01",
+        "period_end": "2016-12-31"
+      }
+    ],
+    "coverage_text": "Bank May to Jun 2026, card Jun 15 to Jul 14, brokerage Sep 2026. Not every month is covered.",
+    "price_cents": 400,
+    "would_allow_now": false,
+    "why_not": [
+      "2 files are still being read."
+    ]
+  },
+  "buyer_checks": [
+    {
+      "name": "requester_google_account",
+      "status": "skipped_in_dry_run",
+      "note": "Chris is simulated, so there is no Google account to check."
+    },
+    {
+      "name": "already_has_access",
+      "status": "skipped_in_dry_run",
+      "note": "No real buyer, so no access to check."
+    },
+    {
+      "name": "payment",
+      "status": "skipped_in_dry_run",
+      "note": "Nothing is charged in a dry run."
+    }
+  ],
+  "matching_packets": [
+    {
+      "packet_id": "pkt-synthetic-0001",
+      "title": "Example Bank statements, Apr - Sep 2026",
+      "status": "ready",
+      "period_label": "Apr - Sep 2026",
+      "member_count": 3,
+      "listed": true,
+      "price_cents": 1200,
+      "why_matched": "Bank statements inside the asked dates."
+    }
+  ],
+  "counts": {
+    "drive_rows": 17,
+    "candidates": 9,
+    "indexed": 7,
+    "period_proven": 5,
+    "selected": 5,
+    "not_indexed": 2
+  },
+  "rejected_by_reason": {
+    "period_outside_request": 2,
+    "duplicate": 1,
+    "not_a_statement": 1,
+    "template_not_a_statement": 1,
+    "not_a_document": 1,
+    "filename_rule": 5
+  },
+  "logs": [
+    {
+      "t": "2026-10-16T19:40:01.120Z",
+      "level": "INFO",
+      "logger": "synthetic.engine",
+      "msg": "plan: 3 kinds, 2026-04-16 to 2026-10-15"
+    },
+    {
+      "t": "2026-10-16T19:40:01.540Z",
+      "level": "INFO",
+      "logger": "synthetic.drive",
+      "msg": "search 1 of 3: 8 rows in 412 ms"
+    },
+    {
+      "t": "2026-10-16T19:40:01.830Z",
+      "level": "INFO",
+      "logger": "synthetic.drive",
+      "msg": "search 2 of 3: 3 rows in 288 ms"
+    },
+    {
+      "t": "2026-10-16T19:40:01.970Z",
+      "level": "INFO",
+      "logger": "synthetic.drive",
+      "msg": "search 3 of 3: 1 row in 140 ms"
+    },
+    {
+      "t": "2026-10-16T19:40:02.010Z",
+      "level": "WARNING",
+      "logger": "synthetic.select",
+      "msg": "2 candidates are not indexed yet"
+    },
+    {
+      "t": "2026-10-16T19:40:02.270Z",
+      "level": "INFO",
+      "logger": "synthetic.select",
+      "msg": "selected 4 of 5 with proven dates"
+    }
+  ],
+  "timings_ms": {
+    "plan": 1320,
+    "drive": 840,
+    "filter": 40,
+    "select": 260,
+    "total": 2460
+  },
+  "model_calls": 1,
+  "est_cost_usd": 0.0021
+}

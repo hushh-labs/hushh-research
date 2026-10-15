@@ -1,0 +1,18 @@
+{
+  "as_of": "2026-10-16T19:05:00Z",
+  "files_found": 1240,
+  "extracted": 1012,
+  "facts_complete": 845,
+  "facts_waiting": 140,
+  "failed_by_reason": {
+    "ocr_failed": 27,
+    "password_protected": 12,
+    "too_large": 3
+  },
+  "extracted_last_hour": 36,
+  "facts_last_hour": 22,
+  "packets_by_status": {
+    "ready": 3,
+    "blocked": 1
+  }
+}
