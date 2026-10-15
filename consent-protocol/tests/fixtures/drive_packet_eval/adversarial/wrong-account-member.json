@@ -163,7 +163,7 @@
     }
   ],
   "id": "wrong-account-member",
-  "known_gap": "Runtime relies on the model checker for account consistency",
+  "known_gap": null,
   "proposal": {
     "assessment_score": 90,
     "coverage_summary": "September 2026.",

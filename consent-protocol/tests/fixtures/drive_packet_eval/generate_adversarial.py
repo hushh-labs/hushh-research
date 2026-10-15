@@ -346,7 +346,6 @@ def build():
                 periods=september(sep) + [dict(wrong["facts"]["periods"][0])],
                 pricing=pricing(scope="multi_period"),
             ),
-            known_gap="Runtime relies on the model checker for account consistency",
         )
     )
     cases.append(
