@@ -216,7 +216,9 @@ async def artwork_lookup(body: ArtworkLookupBody, owner: str = Depends(owner_ide
     from hushh_mcp.services.wallet_card_validation import classify_card_network
 
     try:
-        network = classify_card_network(body.iin_prefix[:6], body.pan_length, body.selected_network)["network"]
+        network = classify_card_network(
+            body.iin_prefix[:6], body.pan_length, body.selected_network
+        )["network"]
         return await run_in_threadpool(resolve_artwork, body.iin_prefix, body.pan_length, network)
     except ValueError:
         raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
@@ -232,7 +234,9 @@ async def artwork_asset(digest: str, owner: str = Depends(owner_identity)):
         raise HTTPException(404, {"code": "WALLET_ARTWORK_UNAVAILABLE"})
     try:
         data, mime = await run_in_threadpool(read_asset, digest)
-        return Response(data, media_type=mime, headers={**HEADERS, "X-Content-Type-Options": "nosniff"})
+        return Response(
+            data, media_type=mime, headers={**HEADERS, "X-Content-Type-Options": "nosniff"}
+        )
     except (FileNotFoundError, ValueError):
         raise HTTPException(404, {"code": "WALLET_ARTWORK_UNAVAILABLE"}) from None
 
@@ -241,7 +245,11 @@ async def artwork_asset(digest: str, owner: str = Depends(owner_identity)):
 async def artwork_validation(body: ArtworkValidationBody, owner: str = Depends(owner_identity)):
     from hushh_mcp.services.wallet_artwork_catalog import validate_artwork_selections
 
-    return {"selections": await run_in_threadpool(validate_artwork_selections, [selection.model_dump() for selection in body.selections])}
+    return {
+        "selections": await run_in_threadpool(
+            validate_artwork_selections, [selection.model_dump() for selection in body.selections]
+        )
+    }
 
 
 @router.get("/connections")

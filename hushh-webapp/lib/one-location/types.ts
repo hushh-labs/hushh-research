@@ -209,6 +209,11 @@ export type OneLocationGrant = {
    * coordinate-free and bounded by the backend; shown verbatim to the recipient.
    */
   shareMessage?: string | null;
+  /**
+   * When the recipient cleared this ended share from their Feed, on any
+   * device. Present only on received grants; the owner never sees it.
+   */
+  recipientClearedAt?: string | null;
 };
 
 export type OneLocationAccessRequest = {
