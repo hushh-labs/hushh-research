@@ -261,6 +261,9 @@ class AccountService:
             "wallet_card_access_audit": text(
                 "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
             ),
+            "wallet_card_requests": text(
+                "DELETE FROM wallet_card_requests WHERE requester_user_id = :user_id OR target_user_id = :user_id"
+            ),
             "wallet_card_access_grants": text(
                 "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
             ),
@@ -1544,6 +1547,7 @@ class AccountService:
                 "agent_chat_conversations",
                 "wallet_card_access_audit",
                 "wallet_profile_access_grants",
+                "wallet_card_requests",
                 "wallet_card_access_grants",
                 "wallet_profile_share_requests",
                 "wallet_card_share_requests",
@@ -2088,6 +2092,7 @@ class AccountService:
                         "agent_chat_conversations",
                         "wallet_card_access_audit",
                         "wallet_profile_access_grants",
+                        "wallet_card_requests",
                         "wallet_card_access_grants",
                         "wallet_profile_share_requests",
                         "wallet_card_share_requests",

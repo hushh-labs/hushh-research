@@ -30,6 +30,8 @@ import Image from "next/image";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { WalletCardRequestReview } from "./wallet-card-request-review";
+import { isCardRequestId } from "@/lib/wallet/card-request";
 
 import {
   AppPageContentRegion,
@@ -235,6 +237,13 @@ export function WalletWorkspace() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const requestQuery = searchParams?.get("card_request") || "";
+  const cardRequestId = isCardRequestId(requestQuery) ? requestQuery : null;
+  const closeCardRequest = () => {
+    const next = new URLSearchParams(searchParams?.toString() || "");
+    next.delete("card_request");
+    router.replace(next.size ? `${pathname}?${next}` : pathname, { scroll: false });
+  };
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
   const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
@@ -1068,6 +1077,7 @@ export function WalletWorkspace() {
           </AlertDialogContent>
         </AlertDialog>
 
+        {ready && !introductionOpen && vaultKey && vaultOwnerToken && cardRequestId ? <WalletCardRequestReview key={`${renderedOwnerId}:${cardRequestId}`} requestId={cardRequestId} cards={cards} getContext={getHistoryContext} onClose={closeCardRequest} /> : null}
         {user && unlockOpen ? (
           <VaultUnlockDialog
             user={user}

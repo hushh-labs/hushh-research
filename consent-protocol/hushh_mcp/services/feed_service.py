@@ -291,6 +291,9 @@ def _direct_message_preview(value: object) -> str | None:
     if cleaned.startswith("[wallet-access:") and cleaned.endswith("]"):
         if _direct_message_source_id(cleaned[len("[wallet-access:") : -1]):
             return "Shared payment card"
+    if cleaned.startswith("[wallet-request:") and cleaned.endswith("]"):
+        if _direct_message_source_id(cleaned[len("[wallet-request:") : -1]):
+            return "Card request"
     if len(cleaned) <= _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH:
         return cleaned
     return f"{cleaned[: _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH - 1].rstrip()}…"
@@ -480,6 +483,7 @@ class FeedService:
         rows = self._with_counterpart_photos(user_id, rows)
         rows = self._with_direct_message_previews(user_id, rows)
         rows = self._with_wallet_card_grants(user_id, rows)
+        rows = self._with_wallet_card_requests(user_id, rows)
         rows = self._with_drive_payment_status(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
@@ -878,6 +882,14 @@ class FeedService:
         )
         if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
             cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
+        if self._wallet_card_requests_installed():
+            cte = cte.replace(
+                "    WHEN f.source_domain = 'connections'",
+                "    WHEN wr.id IS NOT NULL THEN 'wallet-request:' || wr.id::text\n    WHEN f.source_domain = 'connections'",
+            ).replace(
+                "  WHERE f.user_id = :user_id",
+                "  LEFT JOIN wallet_card_requests wr ON wr.message_id=m.id AND wr.target_user_id=:user_id AND wr.requester_user_id=m.sender_user_id AND c.id IS NOT NULL\n  WHERE f.user_id = :user_id",
+            )
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
 
     def _universal_wallet_installed(self):
@@ -894,6 +906,60 @@ class FeedService:
             return bool(rows and rows[0].get("available") is True)
         except Exception:
             return False
+
+    def _wallet_card_requests_installed(self):
+        try:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    "SELECT to_regclass('public.wallet_card_requests') IS NOT NULL AS available", {}
+                )
+                .data
+                or []
+            )
+            return bool(rows and rows[0].get("available") is True)
+        except Exception:
+            return False
+
+    def _with_wallet_card_requests(self, user_id, rows):
+        ids = [
+            str(row["source_row_id"])
+            for row in rows
+            if row.get("event_type") == "direct_message_received"
+            and _direct_message_source_id(row.get("source_row_id"))
+        ]
+        if not ids or not self._wallet_card_requests_installed():
+            return rows
+        try:
+            links = (
+                self._get_db()
+                .execute_raw(
+                    """
+SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
+ CASE WHEN r.status='pending' AND r.expires_at<=clock_timestamp() THEN 'expired' ELSE r.status END AS status
+ FROM wallet_card_requests r JOIN messages m ON m.id=r.message_id
+ JOIN conversations c ON c.id=m.conversation_id
+ WHERE r.target_user_id=:viewer AND r.requester_user_id=m.sender_user_id
+ AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL
+ AND m.id=ANY(CAST(:ids AS uuid[]))
+ AND ((c.participant_a_user_id=r.requester_user_id AND c.participant_b_user_id=:viewer)
+ OR (c.participant_b_user_id=r.requester_user_id AND c.participant_a_user_id=:viewer))
+""",
+                    {"viewer": user_id, "ids": ids},
+                )
+                .data
+                or []
+            )
+        except Exception as exc:
+            logger.warning(
+                "feed.wallet_card_request_lookup_unavailable error=%s", type(exc).__name__
+            )
+            return rows
+        by_id = {str(link["source_row_id"]): link for link in links}
+        return [
+            {**row, "_wallet_card_request": by_id.get(str(row.get("source_row_id", "")))}
+            for row in rows
+        ]
 
     def _with_wallet_card_grants(self, user_id, rows):
         ids = [
@@ -1428,12 +1494,27 @@ class FeedService:
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
         metadata.pop("wallet_card_grant_id", None)
+        metadata.pop("wallet_card_request_id", None)
+        metadata.pop("wallet_card_request_status", None)
         if str(row.get("thread_key", "")).startswith(("circle:", "direct:")):
             # Computed from authenticated source rows, never persisted metadata.
             metadata["chat_thread_key"] = str(row["thread_key"])
             metadata["chat_message_count"] = min(9999, int(row.get("thread_message_count") or 0))
             metadata["chat_unread_count"] = min(9999, int(row.get("thread_unread_count") or 0))
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
+            card_request = row.get("_wallet_card_request")
+            if isinstance(card_request, dict) and _direct_message_source_id(
+                card_request.get("request_id")
+            ):
+                metadata["wallet_card_request_id"] = card_request["request_id"]
+                if card_request.get("status") in {
+                    "pending",
+                    "fulfilled",
+                    "declined",
+                    "cancelled",
+                    "expired",
+                }:
+                    metadata["wallet_card_request_status"] = card_request["status"]
             # These fields originate only from `_with_direct_message_previews`.
             # Do not admit a message preview or conversation id from persisted
             # Feed metadata: that table is intentionally plaintext-free.

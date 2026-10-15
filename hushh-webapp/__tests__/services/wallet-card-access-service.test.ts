@@ -6,6 +6,18 @@ import { WalletCardAccessService, cardAccessReference } from "@/lib/services/wal
 const context = { userId: "owner", vaultKey: "never-send-key", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => true };
 beforeEach(() => { mocks.fetch.mockReset(); mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ grants: [] }))); });
 describe("temporary manual card access boundary", () => {
+  it("keeps requests metadata-only and responses bound to their request with dual owner auth", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ id, status: "pending", role: "requester", requesterPersonRef: id, requesterName: "One", ownerName: "Two", createdAt: "2026-10-16T00:00:00Z", expiresAt: "2026-10-23T00:00:00Z" })));
+    await WalletCardAccessService.createRequest(context, id, id);
+    const [path, options] = mocks.fetch.mock.calls[0];
+    expect(path).toBe("/api/one/wallet/card-access/requests");
+    expect(JSON.parse(options.body)).toEqual({ personRef: id, requestId: id });
+    expect(options.headers).toMatchObject({ Authorization: "Bearer identity", "X-Hushh-Consent": "consent" });
+    expect(JSON.stringify(options)).not.toContain(context.vaultKey);
+    await WalletCardAccessService.share(context, "card", [id], 15, id, { [id]: "encrypted" }, id);
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body).cardRequestId).toBe(id);
+  });
   it("sends references, duration and replay key with dual owner auth only", async () => {
     await WalletCardAccessService.share(context, "card_1", ["person_1", "person_2"], 10, "request_1");
     const [path, options] = mocks.fetch.mock.calls[0];

@@ -381,7 +381,15 @@ class WalletCardAccessService:
         ]
 
     def create_grants(
-        self, owner, card_id, request_id, person_refs, duration_minutes, *, encrypted_cards=None
+        self,
+        owner,
+        card_id,
+        request_id,
+        person_refs,
+        duration_minutes,
+        *,
+        encrypted_cards=None,
+        card_request_id=None,
     ):
         source = source_for_card(card_id)
         refs = sorted({str(uuid.UUID(str(ref))) for ref in person_refs})
@@ -398,7 +406,8 @@ class WalletCardAccessService:
         fingerprint = hashlib.sha256(
             json.dumps(
                 [card_id, refs, duration_minutes]
-                + (["recipient-encrypted-v1"] if encrypted_cards is not None else []),
+                + (["recipient-encrypted-v1"] if encrypted_cards is not None else [])
+                + (["card-request-v1", card_request_id] if card_request_id else []),
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
@@ -440,6 +449,12 @@ class WalletCardAccessService:
                 raise WalletCardAccessError("WALLET_CARD_RECIPIENT_INVALID")
             recipients.sort(key=lambda r: r["user_id"])
             lock_connection_graph_users(conn, user_ids=[owner, *[r["user_id"] for r in recipients]])
+            if card_request_id:
+                from hushh_mcp.services.wallet_card_request_service import lock_card_request
+
+                if len(recipients) != 1:
+                    raise WalletCardAccessError("WALLET_CARD_SHARE_INVALID", 422)
+                lock_card_request(conn, owner, card_request_id, recipients[0]["user_id"])
             card = self._source_card(conn, owner, card_id, source, lock=True)
             dm = DirectMessagesService(db=self.db, connection=conn, defer_notifications=True)
             policies = []
@@ -534,6 +549,18 @@ class WalletCardAccessService:
                 # Delivered means accepted by transactional Messages/Feed/outbox, not a push receipt.
                 if universal:
                     self._audit(conn, grant_id, owner, "delivered", source)
+            if card_request_id:
+                from hushh_mcp.services.wallet_card_request_service import resolve_request_feed
+
+                column = "payment_grant_id" if source == PAYMENT else "profile_grant_id"
+                conn.execute(
+                    # Fixed grant-source column; the request and grant identities are bound.
+                    text(
+                        f"UPDATE wallet_card_requests SET status='fulfilled',resolved_at=clock_timestamp(),{column}=CAST(:grant AS uuid) WHERE id=CAST(:id AS uuid)"
+                    ),  # nosec B608
+                    {"id": card_request_id, "grant": grant_id},
+                )
+                resolve_request_feed(conn, card_request_id)
             return {"grants": self._request_grants(conn, owner, request_id, source)}
 
     def view_grant(self, recipient, grant_id, *, verified_auth_time=None):

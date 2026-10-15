@@ -31,6 +31,7 @@ type Scenario = {
   artworkGallery?: boolean;
   sharingHistory?: boolean;
   revokeFailure?: boolean;
+  cardRequest?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -151,6 +152,7 @@ export const prepareTemporaryCardShares = async (
   _cardId: string,
   _personRefs: string[],
 ): Promise<Record<string, string>> => {
+  if (scenario().cardRequest) { record("prepare-request-response"); return { "11111111-1111-4111-8111-111111111111": "synthetic-encrypted-response" }; }
   throw new Error("No delivery from the layout fixture.");
 };
 export const prepareSavedCardFile = async (context: CardShareContext, cardId: string, password: string) => {
@@ -174,19 +176,23 @@ export class SecretsVaultService {
 }
 
 // next/navigation: search and page live in memory for the fixture.
-const params = new URLSearchParams();
+const params = new URLSearchParams(scenario().cardRequest ? "card_request=33333333-3333-4333-8333-333333333333" : "");
+let queryRevision = 0;
+const queryListeners = new Set<() => void>();
 const router = {
   replace: (href: string) => {
+    record(`navigate:${href}`);
     const query = href.split("?")[1] ?? "";
     for (const key of [...params.keys()]) params.delete(key);
     new URLSearchParams(query).forEach((value, key) => params.set(key, value));
+    queryRevision += 1; queryListeners.forEach(listener => listener());
   },
   push: () => undefined,
   prefetch: () => undefined,
 };
 export const useRouter = () => router;
 export const usePathname = () => "/one/wallet";
-export const useSearchParams = () => params;
+export const useSearchParams = () => { React.useSyncExternalStore(callback => { queryListeners.add(callback); return () => { queryListeners.delete(callback); }; }, () => queryRevision); return params; };
 
 // Auth and vault.
 const user = { uid: "fixture-owner", displayName: "Alex Rivera", metadata: { creationTime: "2026-01-01T00:00:00Z" }, getIdToken: async () => "fixture-token" };
@@ -241,7 +247,11 @@ let referralQrRotated = false;
 // card state.
 export const ApiService = {
   getDirectBackendUrl: () => "",
-  apiFetch: async (requestPath: string, options?: { method?: string }) => {
+  apiFetch: async (requestPath: string, options?: { method?: string; body?: string }) => {
+    if (scenario().cardRequest && requestPath.startsWith("/api/one/wallet/card-access/requests/")) {
+      return new Response(JSON.stringify({ id: "33333333-3333-4333-8333-333333333333", status: "pending", role: "owner", requesterPersonRef: "11111111-1111-4111-8111-111111111111", requesterName: "Test Recipient", ownerName: "Alex Rivera", createdAt: "2026-10-16T00:00:00Z", expiresAt: "2026-10-23T00:00:00Z" }), { headers: { "content-type": "application/json" } });
+    }
+    if (scenario().cardRequest && options?.method === "POST" && requestPath.endsWith("/grants")) record(`request-response:${options.body}`);
     if (options?.method === "POST" && (requestPath === "/api/one/wallet-card/rotate" || requestPath === "/api/one/referrals/rotate")) {
       record(`qr-revoke:${requestPath.includes("referrals") ? "referral" : "profile"}`);
       if (scenario().revokeFailure) return new Response(JSON.stringify({ detail: { code: "FIXTURE_REVOKE_FAILED" } }), { status: 500, headers: { "content-type": "application/json" } });
@@ -313,3 +323,5 @@ export class ConsentCenterService {
 }
 
 export const useConsentActions = () => ({ handleApprove: async () => record("approve"), handleDeny: async () => record("deny"), handleRevoke: async () => record("revoke") });
+
+export class CacheSyncService { static onFeedChanged(userId: string) { record(`feed-changed:${userId}`); } }
