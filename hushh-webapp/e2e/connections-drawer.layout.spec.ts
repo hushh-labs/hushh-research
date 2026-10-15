@@ -381,13 +381,16 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     const reference = await profileFrame(page);
     await expect.poll(async () => (await chats.boundingBox())!.x).toBeCloseTo(reference.x, 0);
     const closeBox = (await close.boundingBox())!;
-    // Keep the physical target check while allowing WebKit matrix rounding.
-    expect(closeBox.width + 0.0001).toBeGreaterThanOrEqual(44);
-    expect(closeBox.height + 0.0001).toBeGreaterThanOrEqual(44);
+    const target = await close.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { width: parseFloat(style.width), height: parseFloat(style.height) };
+    });
+    expect(target.width).toBeGreaterThanOrEqual(44);
+    expect(target.height).toBeGreaterThanOrEqual(44);
+    // Preserve rendered hitbox coverage without treating matrix roundoff as shrinkage.
+    expect(closeBox.width).toBeCloseTo(target.width, 4);
+    expect(closeBox.height).toBeCloseTo(target.height, 4);
     expect(closeBox.x - (await chats.boundingBox())!.x).toBeCloseTo((width < 640 ? 16 : width < 1024 ? 20 : 24) + 1, 0);
-    // Layout width, not WebKit's fractional translated DOMRect rounding.
-    expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
-    expect(await close.evaluate(element => (element as HTMLElement).offsetHeight)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
     const title = chats.getByText("A weekend idea", { exact: true });
     const age = chats.locator("time");
@@ -427,9 +430,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   const motion = await sampleHistoryMotion(page, "open");
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
   expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
-  const firstInterpolation = motion.frames.find(frame => frame.x > -motion.width + 1 && frame.x < -1)!;
-  // Bound observed state response plus authored interpolation; physical presentation is separate.
-  expect(motion.responseLatencyMs + firstInterpolation.animationTime).toBeLessThan(100);
+  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x - motion.restingX)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
   await expect(dialog).toBeVisible();

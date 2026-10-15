@@ -12,78 +12,83 @@ export async function expectPaneMotionReleased(pane: Locator) {
   });
 }
 
-/** Inspect the authored transition clock, then verify its natural completion.
- * Controlled interpolation points are not presented-frame or FPS measurements.
- */
+type HistoryMotion = {
+  frames: { elapsed: number; x: number; source: "raf" | "timer" }[];
+  transitions: { type: string; property: string; elapsed: number }[];
+  width: number;
+  restingX: number;
+  before: number[];
+  after: number[];
+  shadowClearance: number;
+  rendering: { visibility: string; state: string | undefined; translate: string; delay: string };
+};
+
+type MotionWindow = Window & { historyMotion?: { result: Promise<HistoryMotion>; stop: () => void } };
+
+/** Collect real CSS geometry while Playwright delivers native input outside evaluation. */
 export async function sampleHistoryMotion(page: Page, action: "open" | "close") {
-  return page.evaluate(async action => {
+  await page.evaluate(action => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
     const main = document.querySelector("main")!;
     const nav = document.querySelector("[data-fixture-bottom-bar]")!;
     const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
     const width = panel.offsetWidth;
-    const frames: { animationTime: number; x: number }[] = [];
-    const start = performance.now();
-    let timeout = 0;
-    let captured: Animation | undefined;
-    let stateObserver: MutationObserver;
-    const transition = new Promise<{ animation: Animation; responseLatencyMs: number }>((resolve, reject) => {
-      timeout = window.setTimeout(() => reject(new Error("No finite panel translation transition")), 2_000);
-      stateObserver = new MutationObserver(() => {
-        if (panel.dataset.state !== (action === "open" ? "open" : "closed") || captured) return;
-        const responseLatencyMs = performance.now() - start;
-        const animation = panel.getAnimations().find(candidate =>
-          candidate instanceof CSSTransition && ["translate", "transform"].includes(candidate.transitionProperty) &&
-          candidate.effect instanceof KeyframeEffect && candidate.effect.target === panel,
-        );
-        if (!animation) { reject(new Error("No finite panel translation at state commit")); return; }
-        captured = animation;
-        animation.pause();
-        clearTimeout(timeout);
-        resolve({ animation, responseLatencyMs });
-      });
-    });
-    // The Promise executor installs this synchronously before the action.
-    stateObserver!.observe(panel, { attributes: true, attributeFilter: ["data-state"] });
-    try {
-      if (action === "open") {
-        Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-          .find(button => button.textContent === "Open drawer")!.click();
-      } else {
-        panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      }
-      const { animation, responseLatencyMs } = await transition;
-      await animation.ready;
-      const timing = animation.effect!.getTiming();
-      const duration = Number(timing.duration);
-      if (!Number.isFinite(duration) || duration <= 0 || duration > 1_000 || timing.iterations !== 1)
-        throw new Error("Panel translation must have one finite positive duration");
-      const delay = Math.max(0, timing.delay);
-      for (const checkpoint of [Math.min(20, duration / 4), duration / 4, duration / 2]) {
-        animation.currentTime = delay + checkpoint;
-        frames.push({ animationTime: delay + checkpoint, x: panel.getBoundingClientRect().x });
-      }
-      animation.currentTime = 0;
-      animation.play();
-      let completionTimeout = 0;
-      try {
-        await Promise.race([
-          animation.finished,
-          new Promise<never>((_, reject) => {
-            completionTimeout = window.setTimeout(() => reject(new Error("Panel translation did not complete")), 3_000);
-          }),
-        ]);
-      } finally { clearTimeout(completionTimeout); }
-      frames.push({ animationTime: delay + duration, x: panel.getBoundingClientRect().x });
-      return { frames, responseLatencyMs, width, restingX: panel.offsetLeft, before,
-        after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
-        shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
-    } finally {
-      clearTimeout(timeout);
-      stateObserver!.disconnect();
-      if (captured?.playState === "paused") captured.play();
-    }
+    const frames: HistoryMotion["frames"] = [];
+    const transitions: HistoryMotion["transitions"] = [];
+    let start: number | undefined;
+    let frameId = 0;
+    let timerId = 0;
+    let finishId = 0;
+    let resolve!: (result: HistoryMotion) => void;
+    const result = new Promise<HistoryMotion>(done => { resolve = done; });
+    const observeTransition = (event: TransitionEvent) => {
+      if (start !== undefined && event.target === panel && ["translate", "transform", "visibility"].includes(event.propertyName))
+        transitions.push({ type: event.type, property: event.propertyName, elapsed: performance.now() - start });
+    };
+    const sample = (source: "raf" | "timer") => {
+      if (start !== undefined) frames.push({ elapsed: performance.now() - start, x: panel.getBoundingClientRect().x, source });
+    };
+    const onFrame = () => { sample("raf"); frameId = requestAnimationFrame(onFrame); };
+    const stop = () => {
+      cancelAnimationFrame(frameId);
+      clearInterval(timerId);
+      clearTimeout(finishId);
+      document.removeEventListener("click", onInput, true);
+      document.removeEventListener("keydown", onInput, true);
+      panel.removeEventListener("transitionrun", observeTransition);
+      panel.removeEventListener("transitionstart", observeTransition);
+    };
+    const onInput = (event: Event) => {
+      if (start !== undefined || !event.isTrusted) return;
+      if (action === "open" ? !(event.target as Element).closest("button")?.textContent?.includes("Open drawer")
+        : !(event instanceof KeyboardEvent && event.key === "Escape")) return;
+      start = performance.now();
+      sample("timer");
+      finishId = window.setTimeout(() => {
+        sample("timer");
+        const style = getComputedStyle(panel);
+        resolve({ frames, transitions, width, restingX: panel.offsetLeft, before,
+          after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
+          shadowClearance: Number.parseFloat(style.getPropertyValue("--agent-history-shadow-clearance")) || 0,
+          rendering: { visibility: document.visibilityState, state: panel.dataset.state, translate: style.translate, delay: style.transitionDelay } });
+        stop();
+      }, action === "open" ? 360 : 260);
+    };
+    document.addEventListener("click", onInput, true);
+    document.addEventListener("keydown", onInput, true);
+    panel.addEventListener("transitionrun", observeTransition);
+    panel.addEventListener("transitionstart", observeTransition);
+    frameId = requestAnimationFrame(onFrame);
+    timerId = window.setInterval(() => sample("timer"), 8);
+    (window as MotionWindow).historyMotion = { result, stop };
   }, action);
+  try {
+    if (action === "open") await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+    else await page.keyboard.press("Escape");
+    return await page.evaluate(() => (window as MotionWindow).historyMotion!.result);
+  } finally {
+    await page.evaluate(() => { (window as MotionWindow).historyMotion?.stop(); delete (window as MotionWindow).historyMotion; });
+  }
 }
 
 export async function expectPaneRestingAtFrame(page: Page, pane: Locator, leftSafeInset = 0) {

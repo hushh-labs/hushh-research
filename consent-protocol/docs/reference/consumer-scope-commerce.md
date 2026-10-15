@@ -44,14 +44,15 @@ was pushed to the original infrastructure branch with normal hooks. Its
 [full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38678860603)
 is terminal: protocol, all Vitest shards, web-core, integration, MCP, iOS and
 Android passed; the WebKit History motion sampler alone blocked promotion.
-The corrected sampler checks actual CSS interpolation and natural completion.
-A bounded drawer correction defers eager layout-dependent autofocus while
-preserving early Tab, Shift+Tab and Escape admission and modal ownership.
-The affected motion case passes Chromium and WebKit, and six drawer keyboard/
-layering unit cases pass. All eight controls reject instant motion, a 150 ms CSS
-delay, stepped interpolation and a delayed handler across both engines. Controlled
-interpolation is not presented-frame or FPS proof; physical latency remains
-separate evidence.
+The bounded drawer correction defers eager layout-dependent autofocus while
+preserving early Tab, Shift+Tab and Escape admission and modal ownership; six
+keyboard/layering unit cases pass. A controlled-interpolation diagnostic passed
+both engines and eight broken-motion controls, but was superseded during normal
+composition with the developer's concurrent browser fix. The retained collector
+uses trusted Playwright input and real RAF/timer geometry; its caller preserves
+the original sub-100 ms onset and settled geometry assertions. Focused verification
+of that final composition is tracked separately; neither collector proves physical
+presented-frame latency or FPS.
 
 Normal merges `b1ddad85be8d` and `de4f5aa20056` incorporate main through
 `ef703daa8981` in the existing verification checkout, including its three-file
@@ -73,6 +74,9 @@ three hosting-aware descriptions; all eight predecessor refs and prior retiremen
 remain. The unused Tavily runtime getter/map was removed to preserve main's native
 research provider path. Optional Tavily deployment wiring remains unused compatibility
 debt owned by repository operations; no active backend caller was found.
+The subsequent normal merge also preserves root `a2b1e87d6e89` and its three
+browser-test corrections without replacing the broader main integration.
+UI-contract verification and the architecture ratchet pass on the composed source.
 No database mutation or Dev promotion follows from this local composition.
 Shared Dev still serves `5c2d1483aa06`; final merged core, hosted CI, deployment
 and reviewer financial acceptance remain open.
