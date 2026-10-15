@@ -668,7 +668,7 @@ def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
 
 @pytest.mark.parametrize(
     "environment,project",
-    [("uat", "hushh-vertex-personal54"), ("production", "hushh-vertex-personal54")],
+    [("uat", "project-af9bfbd3-d6ea-4043-aea"), ("production", "project-af9bfbd3-d6ea-4043-aea")],
 )
 def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
     monkeypatch, environment, project

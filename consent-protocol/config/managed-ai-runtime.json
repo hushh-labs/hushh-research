@@ -15,7 +15,7 @@
       "embedding_model": "gemini-embedding-001"
     },
     "dev": {
-      "project": "hushh-pda-uat",
+      "project": "project-af9bfbd3-d6ea-4043-aea",
       "auth_mode": "vertex_adc",
       "text_model": "gemini-3.6-flash",
       "text_locations": [
@@ -28,7 +28,7 @@
       "embedding_model": "gemini-embedding-001"
     },
     "uat": {
-      "project": "hushh-vertex-personal54",
+      "project": "project-af9bfbd3-d6ea-4043-aea",
       "auth_mode": "vertex_adc",
       "text_model": "gemini-3.6-flash",
       "text_locations": [
@@ -41,7 +41,7 @@
       "embedding_model": "gemini-embedding-001"
     },
     "production": {
-      "project": "hushh-vertex-personal54",
+      "project": "project-af9bfbd3-d6ea-4043-aea",
       "auth_mode": "vertex_adc",
       "text_model": "gemini-3.6-flash",
       "text_locations": [

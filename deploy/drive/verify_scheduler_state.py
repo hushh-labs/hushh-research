@@ -106,7 +106,7 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
         if (
             (body != expected and not (stage == "documents" and body == b"{}"))
             or job.get("schedule") not in allowed_schedules
-            or job.get("state") != "ENABLED"
+            or job.get("state") not in {"ENABLED", "PAUSED"}
             or job.get("timeZone") != "Etc/UTC"
             or target.get("httpMethod") != "POST"
             or headers != REVIEWED_HEADERS

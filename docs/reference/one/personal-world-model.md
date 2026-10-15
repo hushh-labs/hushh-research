@@ -61,11 +61,12 @@ All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-r
 
 | Environment | Vertex project | Text/PWM | Live | Embeddings |
 | --- | --- | --- | --- | --- |
-| Local/dev | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
-| UAT | `hushh-vertex-personal54` (shared with production since 2026-10-15) | same | same | same |
-| Production | `hushh-vertex-personal54` | same | same | same |
+| Local | `hushh-pda-uat` | `gemini-3.6-flash` | `gemini-live-2.5-flash-native-audio` | `gemini-embedding-001` |
+| Dev / UAT / Production | `project-af9bfbd3-d6ea-4043-aea` | same | same | same |
 
-UAT sharing production's project is a stopgap while `hussh-511311` is suspended for billing: UAT traffic draws on production's Vertex quota, so move UAT back to its own project once that billing is restored.
+The hosted profiles share the managed Vertex project while retaining separate workload identities and infrastructure projects. This table describes the release configuration; serving state requires revision and runtime-probe evidence.
+
+The release configuration disables automatic world-model research with `ONE_PROFILE_RESEARCH_ENABLED=false`; UAT deployments default the corresponding repository variable to false. This stops new research and resumes without deleting encrypted drafts or changing ordinary chat. The notification scheduler alone does not stop generation. Drive background processing is separately paused with `DRIVE_WORK_DRAIN_UAT_ENABLED=false`: both API and worker drains remain disabled and the three retained Drive jobs remain paused during release; stored files and queued work are preserved.
 
 Text locations are `global`, `us`, `eu`; Live is regional `us-central1`. Cloud Run, SQL, Firebase, and application-secret infrastructure projects are separate from the managed Vertex project. BYOK remains a separate explicitly selected runtime.
 

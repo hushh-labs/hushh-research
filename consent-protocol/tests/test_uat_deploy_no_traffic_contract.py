@@ -791,9 +791,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "hushh-pda-uat",
-        "uat": "hushh-vertex-personal54",
-        "production": "hushh-vertex-personal54",
+        "dev": "project-af9bfbd3-d6ea-4043-aea",
+        "uat": "project-af9bfbd3-d6ea-4043-aea",
+        "production": "project-af9bfbd3-d6ea-4043-aea",
     }
     for env in ("dev", "uat", "production"):
         assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
@@ -826,9 +826,13 @@ def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     for env in ("dev", "uat", "production"):
-        assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in _read(
-            f".github/workflows/deploy-{env}.yml"
-        )
+        workflow = _read(f".github/workflows/deploy-{env}.yml")
+        assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in workflow
+        if env == "uat":
+            assert "verify_managed_vertex_runtime=true" in workflow
+            assert "_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in workflow
+        else:
+            assert "_VERIFY_MANAGED_VERTEX_RUNTIME=true" in workflow
     assert 'EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}"' in backend_build
     assert 'EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}"' in backend_build
     assert 'EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}"' in backend_build
