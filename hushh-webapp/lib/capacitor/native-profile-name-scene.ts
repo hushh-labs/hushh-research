@@ -1,6 +1,7 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import { sameNativeDrawer, type NativeDrawerIdentity } from "./native-drawers";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import { NativeProfileSceneFence } from "./native-profile-scene-fence";
 
 /** Private NativeDrawers v1 extension. Name replicas never enter Chrome, Dock,
  * persistent storage, diagnostics or a provider transport. */
@@ -74,53 +75,16 @@ export function validNativeProfileNameProjection(value: NativeProfileNameProject
 
 /** Edit ordering and one-shot actions are separate from authoritative Save.
  * The feature still validates the name and uses its existing service writer. */
-export class NativeProfileNameFence {
-  private state: NativeProfileNameProjection | null = null;
-  private editRevision = 0;
-  private consumedAction = 0;
-  private retired = false;
-
-  constructor(private readonly identity: NativeProfileNameIdentity) {}
-
-  update(state: NativeProfileNameProjection): boolean {
-    if (this.retired || !validNativeProfileNameProjection(state) || !sameScene(state, this.identity) ||
-        this.state && (state.updateSequence <= this.state.updateSequence || state.privacyGeneration !== this.state.privacyGeneration) ||
-        state.acknowledgedEditRevision !== this.editRevision) return false;
-    this.state = { ...state };
-    return true;
+export class NativeProfileNameFence extends NativeProfileSceneFence<NativeProfileNameProjection, NativeProfileNameEdit, NativeProfileNameAction> {
+  constructor(identity: NativeProfileNameIdentity) {
+    super(identity, {
+      state: validNativeProfileNameProjection,
+      edit: edit => !!edit && sameScene(edit, identity) &&
+        closed(edit, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "text", "composing"]) &&
+        typeof edit.text === "string" && edit.text.length <= 4096 && typeof edit.composing === "boolean",
+      action: action => !!action && sameScene(action, identity) &&
+        closed(action, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]) &&
+        ["save", "cancel"].includes(action.action),
+    });
   }
-
-  consumeEdit(edit: NativeProfileNameEdit): boolean {
-    const state = this.state;
-    if (this.retired || !state || !edit || !sameScene(edit, this.identity) ||
-        !closed(edit, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "text", "composing"]) ||
-        edit.privacyGeneration !== state.privacyGeneration || !count(edit.updateSequence, 1) || edit.updateSequence > state.updateSequence ||
-        !count(edit.editRevision, 1) || edit.editRevision <= this.editRevision ||
-        typeof edit.text !== "string" || edit.text.length > 4096 || typeof edit.composing !== "boolean" || state.busy) return false;
-    this.editRevision = edit.editRevision;
-    return true;
-  }
-
-  allows(action: NativeProfileNameAction): boolean {
-    const state = this.state;
-    return !this.retired && !!state && !!action && sameScene(action, this.identity) &&
-      closed(action, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]) &&
-      action.privacyGeneration === state.privacyGeneration && count(action.updateSequence, 1) &&
-      (action.action === "cancel" ? action.updateSequence <= state.updateSequence : action.updateSequence === state.updateSequence) &&
-      count(action.sequence, 1) && count(action.editRevision) && action.sequence > this.consumedAction && !state.busy &&
-      (action.action === "cancel" || action.action === "save" && state.canSave &&
-        action.editRevision === this.editRevision && state.acknowledgedEditRevision === this.editRevision);
-  }
-
-  async consumeAction(action: NativeProfileNameAction, confirm: () => Promise<{ valid: boolean }>, ownerIsCurrent: () => boolean): Promise<boolean> {
-    if (!this.allows(action) || !ownerIsCurrent()) return false;
-    // Consume before awaiting: duplicate events cannot race the same callback.
-    this.consumedAction = action.sequence;
-    const state = this.state;
-    const accepted = await confirm();
-    return accepted.valid && !this.retired && ownerIsCurrent() &&
-      (action.action === "cancel" ? this.state !== null && !this.state.busy : this.state === state && action.editRevision === this.editRevision);
-  }
-
-  retire(): void { this.retired = true; this.state = null; }
 }
