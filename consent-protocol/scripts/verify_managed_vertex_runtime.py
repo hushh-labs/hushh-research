@@ -17,7 +17,9 @@ PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
 
+from google.adk.models.base_llm import BaseLlm  # noqa: E402
 from google.adk.models.llm_request import LlmRequest  # noqa: E402
+from google.adk.models.llm_response import LlmResponse  # noqa: E402
 from google.genai import types  # noqa: E402
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
@@ -44,6 +46,59 @@ RESULT_PREFIX = "managed_vertex_probe_result"
 #: EX_TEMPFAIL. Distinguishes "the provider is down" from a hard failure, so the
 #: caller can continue the release while still reporting the outage.
 EXIT_PROVIDER_UNAVAILABLE = 75
+
+#: A valid "unsupported" Location assessment, answered in-process by the rehearsal.
+_REHEARSAL_ASSESSMENT = json.dumps(
+    {
+        "steps": [],
+        "clarification": None,
+        "unsupported": True,
+        "intent_summary": "Offline readiness rehearsal.",
+    }
+)
+
+
+class _OfflineCommandModel(BaseLlm):
+    """Answers Location's command flow in-process; it never reaches a provider."""
+
+    async def generate_content_async(self, llm_request: LlmRequest, stream: bool = False):
+        del llm_request, stream
+        yield LlmResponse(
+            content=types.Content(
+                role="model", parts=[types.Part.from_text(text=_REHEARSAL_ASSESSMENT)]
+            ),
+            usage_metadata=types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=0, candidates_token_count=0, total_token_count=0
+            ),
+        )
+
+
+async def _rehearse_command_flow() -> object | None:
+    """Pay the command flow's one-time setup before any provider deadline is armed.
+
+    Location's first ADK run imports the runner, workflow and every optional model
+    integration ADK checks for (about 2,400 modules, mostly the Anthropic and OpenAI
+    SDKs). The import is synchronous on the event loop every probe shares. On UAT's
+    1-vCPU candidate job (2026-10-15) it outlasted the deadlines already armed for
+    the text, ADK, One chat and audio probes, so all of them timed out while Vertex
+    served their requests in under 5 s, and the gate blamed the provider.
+
+    The rehearsal runs that same flow against an in-process model, so no provider
+    is called and no deadline changes. Its outcome is deliberately ignored: the
+    timed ``location_command:semantics`` probe runs this flow against the provider
+    and reports any defect with its own classification.
+    """
+    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
+    from hushh_mcp.operons.location.capabilities import compile_location_capabilities
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    try:
+        _, catalog = compile_location_capabilities(list_action_gateway_actions())
+        return await LocationCommandBrain(
+            adk_model=_OfflineCommandModel(model="offline-readiness-rehearsal")
+        ).assess(query="Open the Location screen.", context={}, catalog=catalog)
+    except Exception:  # noqa: BLE001 - the timed semantics probe reports real defects
+        return None
 
 
 def _managed_manifest_models() -> tuple[str, ...]:
@@ -347,6 +402,9 @@ async def main() -> dict[str, object]:
             )
         )
 
+    # Arm no provider deadline until the command flow's one-time setup is paid;
+    # otherwise its synchronous import burst is charged to every other probe.
+    await _rehearse_command_flow()
     outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
 
     probes: list[dict[str, object]] = []
