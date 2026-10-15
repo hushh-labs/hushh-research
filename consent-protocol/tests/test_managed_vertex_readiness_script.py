@@ -207,7 +207,7 @@ async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
         "from_environment",
         classmethod(
             lambda cls, *, vertex_project=None: cls(
-                project=vertex_project or "hushh-vertex-personal54",
+                project=vertex_project or "unscoped-default-project",
                 locations=("global",),
                 auth_mode="vertex_adc",
             )

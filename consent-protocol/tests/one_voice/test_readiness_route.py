@@ -237,7 +237,7 @@ def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "stale-ambient-project")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_env)
     seen = []
     manifest = ManifestLoader.load_from_dict(
