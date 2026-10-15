@@ -6,7 +6,6 @@ import {
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
-import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
 
 declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
@@ -267,11 +266,11 @@ function Fixture() {
       </button>
       {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
         <div data-agent-chat-header-region="identity"><div data-agent-chat-brand-tile>
-          <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
+          <button type="button" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
             aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
             onClick={() => setOneProfileOpen(true)}>
-            <OnePresenceAvatar state={onePresenceState} />
-          </ShellActionSurface>
+            <OnePresenceAvatar state={onePresenceState} className="size-full shrink-0" />
+          </button>
         </div></div>
       </div> : null}
       <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />

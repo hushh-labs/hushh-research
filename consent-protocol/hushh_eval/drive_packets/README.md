@@ -51,7 +51,7 @@ Cases with `known_gap` are tracked runtime work and run as strict expected failu
    token is used while fresh; otherwise it is refreshed in memory and never written.
 4. Model calls use the UAT GenAI project with your own ADC (`unset
    GOOGLE_APPLICATION_CREDENTIALS` if it points to a key without Vertex access),
-   `ENVIRONMENT=local`, `GENAI_GOOGLE_CLOUD_PROJECT=hussh-511311`,
+   `ENVIRONMENT=local`, `GENAI_GOOGLE_CLOUD_PROJECT=hushh-vertex-personal54`,
    `GOOGLE_CLOUD_LOCATION=global`, `HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash`.
    Concurrency is at most 8 for Vertex and 4 for Drive; a 429 rate above 2%
    pauses the batch; `--max-cost-usd` is a hard cap.

@@ -1,4 +1,5 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 
@@ -55,6 +56,20 @@ async function loadVisibleAvatar(view: ReturnType<typeof render>) {
 }
 
 describe("OnePresenceAvatar playback lifecycle", () => {
+  it("retains one live instance across StrictMode preflight and size changes", async () => {
+    const view = render(<StrictMode><OnePresenceAvatar state="connected" className="size-13" /></StrictMode>);
+    expect(viewportCallbacks.size).toBe(1);
+    const instance = await loadVisibleAvatar(view);
+    const canvas = view.container.querySelector("canvas");
+    view.rerender(<StrictMode><OnePresenceAvatar state="connected" className="size-22" /></StrictMode>);
+    expect(view.container.querySelector("canvas")).toBe(canvas);
+    expect(runtime.instances).toHaveLength(1);
+    expect(instance.cleanup).not.toHaveBeenCalled();
+    view.unmount();
+    expect(instance.cleanup).toHaveBeenCalledOnce();
+    expect(lifecycle.listeners.size).toBe(0);
+  });
+
   it("waits for the SDK load callback to return before resizing or starting playback", async () => {
     // At DPR1 the compact canvas must resize, which can synchronously draw.
     // Rive prepares its paused state machine after invoking the load callback.
