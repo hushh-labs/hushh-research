@@ -1,6 +1,7 @@
 """Meeting association, live authority and privacy regression boundaries."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -345,3 +346,47 @@ def test_library_paginates_verified_candidates_without_title_matching(monkeypatc
     assert second["next_page"] is None
     assert len({m["id"] for m in first["meetings"] + second["meetings"]}) == 7
     assert all(m["artifact_kinds"] == ["notes"] for m in first["meetings"])
+
+
+@pytest.mark.parametrize(
+    "subject,expires,state",
+    [
+        ("google-subject", "3600", None),
+        ("other", "3600", "permission_required"),
+        ("google-subject", "0", "permission_required"),
+    ],
+)
+def test_actual_token_scope_inspection_uses_fixed_https_origin(
+    monkeypatch, subject, expires, state
+):
+    calls = []
+
+    class Connection:
+        def __init__(self, host, timeout):
+            assert host == "oauth2.googleapis.com" and timeout == 8
+
+        def request(self, method, path):
+            calls.append((method, path))
+
+        def getresponse(self):
+            return SimpleNamespace(
+                status=200,
+                read=lambda limit: json.dumps(
+                    {"sub": subject, "expires_in": expires, "scope": "calendar.readonly drive.file"}
+                ).encode(),
+            )
+
+        def close(self):
+            calls.append("closed")
+
+    monkeypatch.setattr(module, "HTTPSConnection", Connection)
+    if state:
+        with pytest.raises(module.ArtifactUnavailable) as error:
+            asyncio.run(module.inspect_token("synthetic&token", "google-subject"))
+        assert error.value.state == state
+    else:
+        assert asyncio.run(module.inspect_token("synthetic&token", "google-subject")) == {
+            "calendar.readonly",
+            "drive.file",
+        }
+    assert calls == [("GET", "/tokeninfo?access_token=synthetic%26token"), "closed"]

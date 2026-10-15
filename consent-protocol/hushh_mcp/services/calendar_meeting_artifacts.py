@@ -6,8 +6,8 @@ import asyncio
 import json
 import re
 from datetime import datetime
+from http.client import HTTPSConnection
 from urllib.parse import urlencode, urlparse
-from urllib.request import urlopen
 
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
@@ -54,17 +54,24 @@ def source_url(value):
 
 
 async def inspect_token(token, subject):
-    # urllib emits no request-URL telemetry; bearer query parameters must not be logged.
+    # Fixed HTTPS origin, no redirects or request-URL telemetry. The bearer query
+    # is never handed to a general URL opener or a logging HTTP client.
     def read():
-        with suppress_instrumentation():
-            with urlopen(
-                "https://oauth2.googleapis.com/tokeninfo?" + urlencode({"access_token": token}),
-                timeout=8,
-            ) as response:
+        connection = HTTPSConnection("oauth2.googleapis.com", timeout=8)
+        try:
+            with suppress_instrumentation():
+                connection.request("GET", "/tokeninfo?" + urlencode({"access_token": token}))
+                response = connection.getresponse()
+                if response.status in (400, 401, 403):
+                    raise ArtifactUnavailable("permission_required")
+                if response.status != 200:
+                    raise ValueError()
                 raw = response.read(65537)
                 if len(raw) > 65536:
                     raise ValueError()
                 return json.loads(raw)
+        finally:
+            connection.close()
 
     try:
         info = await asyncio.to_thread(read)

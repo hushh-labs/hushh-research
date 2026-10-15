@@ -8,7 +8,7 @@ import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { CHART_TOOLTIP_TRIGGER, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -131,7 +131,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
         {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only the events loaded.</p> : null}</> : <p className={styles.muted}>Live calendar information is needed for this snapshot.</p>}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : <p className={styles.muted}>Weekly chart unavailable until Calendar is checked.</p>}
+        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : <p className={styles.muted}>Weekly chart unavailable until Calendar is checked.</p>}
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? `${overview.overlaps} overlapping pairs · ${overview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
       <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>{overview ? "No recurring commitments in the loaded events." : "Recurring commitments have not been checked."}</p>}</SectionCard>
