@@ -306,7 +306,9 @@ $$;
 -- Shared transport receipt contract; neither setup nor cleanup invents its own.
 CREATE OR REPLACE FUNCTION public.valid_azure_arm_acknowledgement(receipt jsonb,target text)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
- SELECT receipt ?& ARRAY['status','operationUrl','operationUrlSha256']
+ SELECT (NOT receipt ? 'operationKind' OR receipt->'operationKind'='null'::jsonb
+       OR receipt->>'operationKind' IN ('azure-asyncoperation','location'))
+    AND receipt ?& ARRAY['status','operationUrl','operationUrlSha256']
     AND jsonb_typeof(receipt->'status')='number' AND (receipt->>'status' ~ '^[2-5][0-9]{2}$') IS TRUE
     AND (receipt->'operationUrlSha256'='null'::jsonb OR (
       jsonb_typeof(receipt->'operationUrlSha256')='string'
@@ -316,6 +318,7 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
       AND starts_with(receipt->>'operationUrl','https://management.azure.com/subscriptions/'||
         split_part(target,'/',3)||'/')
       AND receipt->>'operationUrl' ~ '^https://management\.azure\.com/[A-Za-z0-9_./():-]+(\?(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true)(&(api-version=\d{4}-\d{2}-\d{2}(-preview)?|monitor=true))?)?$'
+      AND NOT (receipt->>'operationUrl' ~ '/\.{1,2}(/|\?|$)')
       AND receipt->>'operationUrlSha256'=encode(sha256(convert_to(receipt->>'operationUrl','UTF8')),'hex')));
 $$;
 
@@ -398,7 +401,7 @@ BEGIN
  WHERE x->>'stage'='azure_provider_ack' AND x->>'requestId'=request_id;
  IF kind='azure_provider_ack' THEN
    RETURN acknowledgement IS NULL
-    AND event-ARRAY['stage','jobId','executionId','requestId','status','operationUrl','operationUrlSha256']='{}'::jsonb
+    AND event-ARRAY['stage','jobId','executionId','requestId','status','operationUrl','operationUrlSha256','operationKind']='{}'::jsonb
     AND public.valid_azure_arm_acknowledgement(event,target) IS TRUE;
  END IF;
  IF kind='azure_provider_terminal' THEN

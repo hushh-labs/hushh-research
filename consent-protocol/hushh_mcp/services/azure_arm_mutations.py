@@ -31,6 +31,7 @@ class ArmMutationAcknowledgement:
     status: int
     operation_url: str | None
     operation_url_sha256: str | None
+    operation_kind: Literal["azure-asyncoperation", "location"] | None = None
 
 
 class ArmMutationJournal(Protocol):
@@ -63,7 +64,14 @@ class ArmMutationRecorder:
             self._refuse("MutationAdmissionUnconfirmed")
         return request_id
 
-    def acknowledge(self, request_id: str, status: int, operation_url: str | None) -> None:
+    def acknowledge(
+        self,
+        request_id: str,
+        status: int,
+        operation_url: str | None,
+        *,
+        operation_kind: Literal["azure-asyncoperation", "location"] | None = None,
+    ) -> None:
         if not request_id:
             return
         digest = hashlib.sha256(operation_url.encode()).hexdigest() if operation_url else None
@@ -78,7 +86,7 @@ class ArmMutationRecorder:
             )
             if not safe or len({key for key, _ in pairs}) != len(pairs):
                 operation_url = None
-        receipt = ArmMutationAcknowledgement(status, operation_url, digest)
+        receipt = ArmMutationAcknowledgement(status, operation_url, digest, operation_kind)
         if self._journal is None or self._journal.acknowledge(request_id, receipt) is not True:
             self._refuse("MutationAcknowledgementUnconfirmed")
 

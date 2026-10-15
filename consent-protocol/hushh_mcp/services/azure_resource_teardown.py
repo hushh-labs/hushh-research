@@ -95,9 +95,9 @@ def _erase_one(
         and not observed_absence_is_terminal(state)
         and not can_retry(state)
     ):
-        # A404 is not evidence that an uncertain asynchronous operation cannot
-        # still complete. Reconciliation must retain terminal provider evidence.
-        raise AzureTeardownRefused("AZURE_CLEANUP_OUTCOME_UNCERTAIN")
+        from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
+
+        state = reconcile_delete(arm, resource, journal)
     body = arm.get_or_none(resource.path, api_version=resource.api_version, op="cleanup_readback")
     if body is None:
         _retain(

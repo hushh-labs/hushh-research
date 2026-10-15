@@ -69,6 +69,14 @@ ordinary progress writes cannot spend it. A lost write response remains
 unresolved and cannot be automatically replayed. Late results for admitted
 writes remain retainable after erasure has fenced new work.
 
+Interrupted cleanup may poll the original acknowledged operation using its
+retained header kind, immutable URL/hash and request ID. Reconciliation requires
+current owner/worker approval and never sends another DELETE. Reject changed
+subscriptions and normalized path escapes before requesting the operation.
+Legacy asynchronous receipts without a known header kind remain unresolved;
+resource404 alone does not settle them. Independent absence still follows a
+terminal provider receipt. Provider-retained copies need separate disclosure.
+
 If replacement polling fails, only the existing exact incarnation/revision/image
 verdict may settle that original request. Timeout remains unresolved. The explicit
 `RoleAssignmentExists` denial is a terminal refusal, not an uncertain write.

@@ -301,15 +301,19 @@ def test_durable_absence_cannot_settle_an_uncertain_provider_request(cleanup_sta
     assert retain(state) is True
 
 
-async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_session(cleanup_state):
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_session(
+    cleanup_state, interrupted
+):
     from contextlib import asynccontextmanager
 
     import asyncpg
 
-    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
     from hushh_mcp.services.azure_teardown_authority import azure_teardown_authority
     from hushh_mcp.services.azure_teardown_inventory import TeardownResource
     from hushh_mcp.services.azure_teardown_receipts import TeardownMutationJournal
+    from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
     from tests.test_azure_arm_client import _Response, _Session
 
     pg, owner, reservation, plan, state, retain = cleanup_state
@@ -317,6 +321,12 @@ async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_ses
     assert _approve_cleanup(pg, owner, reservation, plan)
     path = next(iter(plan["resources"]))
     resource = TeardownResource(path, "2021-04-01", "resource", {})
+    poll = f"https://management.azure.com/subscriptions/{path.split('/')[2]}/operations/cleanup?api-version=2021-04-01"
+    session = (
+        _Session(_Response(202, {}, {"Azure-AsyncOperation": poll}), _Response(503, {}))
+        if interrupted
+        else _Session(_Response(200))
+    )
 
     @asynccontextmanager
     async def connection():
@@ -335,13 +345,29 @@ async def test_actual_arm_transport_retains_cleanup_receipts_on_its_live_sql_ses
         def delete():
             authority.assert_parent_approved(resource)
             assert authority.retain(resource, "intent", {"identity": {"id": path}})
-            arm = ArmClient("synthetic-token", session=_Session(_Response(200)))
+            arm = ArmClient("synthetic-token", session=session, sleep=lambda _: None)
             arm = arm.with_write_guard(authority.assert_admitted).with_mutations(
                 TeardownMutationJournal(authority, resource)
             )
             arm.delete(path, api_version=resource.api_version)
             return authority.state(resource)
 
-        receipts = await asyncio.to_thread(delete)
+        if interrupted:
+            with pytest.raises(ArmError):
+                await asyncio.to_thread(delete)
+            assert "provider_terminal" not in authority.state(resource)
+        else:
+            receipts = await asyncio.to_thread(delete)
+    if interrupted:
+        # A new real SQL worker observes the original dispatch after restart.
+        # It never invents a new request ID or repeats the provider DELETE.
+        resumed = _Session(_Response(200, {"status": "Succeeded"}))
+        async with azure_teardown_authority(
+            owner=owner, attempt=reservation["attemptId"], connection_factory=connection
+        ) as authority:
+            client = ArmClient("synthetic-token", session=resumed, sleep=lambda _: None)
+            receipts = await asyncio.to_thread(reconcile_delete, client, resource, authority)
+        assert [call["method"] for call in session.sent] == ["DELETE", "GET"]
+        assert [call["method"] for call in resumed.sent] == ["GET"]
     assert receipts["provider_terminal"]["outcome"] == "succeeded"
     assert receipts["provider_ack"]["requestId"] == receipts["provider_request"]["requestId"]

@@ -290,3 +290,106 @@ def test_definitely_undispatched_or_refused_request_can_resume_once(arm, interru
     assert journal.state(target)["absence"]["status"] == "active_resource_absent"
     if interruption in {"not_dispatched", "refused"}:
         assert len(journal.state(target)["providerHistory"]) == 1
+
+
+@pytest.mark.parametrize("kind", ["azure-asyncoperation", "location"])
+def test_interrupted_delete_polls_original_typed_operation_without_redispatch(arm, kind):
+    import hashlib
+
+    from hushh_mcp.services.azure_arm_client import ArmClient
+    from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
+    from tests.test_azure_arm_client import _Response, _Session
+
+    _, _, resources, journal = _prepared(arm)
+    target = next(r for r in resources if not r.covered_by)
+    request_id = str(uuid.uuid4())
+    subscription = target.path.split("/")[2]
+    url = f"https://management.azure.com/subscriptions/{subscription}/operations/one?api-version=2025-01-01"
+    journal.retain(
+        target,
+        "provider_request",
+        {
+            "requestId": request_id,
+            "method": "DELETE",
+            "path": target.path,
+            "apiVersion": target.api_version,
+        },
+    )
+    journal.retain(
+        target,
+        "provider_ack",
+        {
+            "requestId": request_id,
+            "status": 202,
+            "operationUrl": url,
+            "operationUrlSha256": hashlib.sha256(url.encode()).hexdigest(),
+            "operationKind": kind,
+        },
+    )
+    body = {"status": "Succeeded"} if kind == "azure-asyncoperation" else {}
+    session = _Session(_Response(200, body))
+    client = ArmClient("synthetic-token", session=session, sleep=lambda _: None)
+    settled = reconcile_delete(client, target, journal)
+    assert settled["provider_terminal"] == {"requestId": request_id, "outcome": "succeeded"}
+    assert settled["acknowledgement"]["status"] == "provider_completed"
+    assert [call["method"] for call in session.sent] == ["GET"]
+    assert session.sent[0]["url"] == url
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "legacy_kind",
+        "tampered",
+        "foreign",
+        "unacknowledged",
+        "failed_read",
+        "dot_segment",
+        "encoded_dot_segment",
+    ],
+)
+def test_unqualified_delete_observation_stays_unresolved_without_replay(arm, change):
+    import hashlib
+
+    from hushh_mcp.services.azure_arm_client import ArmClient, ArmError
+    from hushh_mcp.services.azure_teardown_reconciliation import reconcile_delete
+    from tests.test_azure_arm_client import _Response, _Session
+
+    _, _, resources, journal = _prepared(arm)
+    target = next(r for r in resources if not r.covered_by)
+    request_id = str(uuid.uuid4())
+    subscription = target.path.split("/")[2] if change != "foreign" else "another-subscription"
+    url = f"https://management.azure.com/subscriptions/{subscription}/operations/one?api-version=2025-01-01"
+    if change == "dot_segment":
+        url = url.replace("/operations/", "/../another-subscription/operations/")
+    elif change == "encoded_dot_segment":
+        url = url.replace("/operations/", "/%2e%2e/another-subscription/operations/")
+    journal.retain(
+        target,
+        "provider_request",
+        {
+            "requestId": request_id,
+            "method": "DELETE",
+            "path": target.path,
+            "apiVersion": target.api_version,
+        },
+    )
+    ack = {
+        "requestId": request_id,
+        "status": 202,
+        "operationUrl": url,
+        "operationUrlSha256": hashlib.sha256(url.encode()).hexdigest(),
+        "operationKind": "azure-asyncoperation",
+    }
+    if change == "legacy_kind":
+        ack.pop("operationKind")
+    if change == "tampered":
+        ack["operationUrlSha256"] = "0" * 64
+    if change != "unacknowledged":
+        journal.retain(target, "provider_ack", ack)
+    session = _Session(_Response(503, {}))
+    client = ArmClient("synthetic-token", session=session, sleep=lambda _: None)
+    with pytest.raises((AzureTeardownRefused, ArmError)):
+        reconcile_delete(client, target, journal)
+    assert "provider_terminal" not in journal.state(target)
+    assert [call["method"] for call in session.sent] == (["GET"] if change == "failed_read" else [])

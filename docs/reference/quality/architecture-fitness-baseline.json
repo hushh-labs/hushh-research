@@ -27337,7 +27337,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": "ArmClient",
-      "value": 271
+      "value": 278
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27364,7 +27364,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": null,
-      "value": 525
+      "value": 532
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -52523,6 +52523,25 @@
         ],
         "reviewed": 516,
         "source_sha256": "36408eda871e45b2a0e1424205f7821248475631b4485db3ce64d1b18927374c"
+      }
+    ]
+  },
+  "azure_delete_reconciliation_review_20261015": {
+    "source_parent": "d077cc4e69be297e7afb052790b24dbf7b797f06",
+    "reviewer": "adk_authority_review, read-only independent security and architecture review",
+    "rationale": "Two exact spans only: preserve original ARM operation header kind with acknowledgement so interrupted cleanup can observe without replay. Reconciliation is a separate bounded module. Unknown legacy receipts and URL path escapes refuse. Other entries and500/250/80 budgets unchanged; no live cloud acceptance.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+        "previous": 271,
+        "reviewed": 278,
+        "source_sha256": "b32a8a135e512536bd7f270b712e1776c46d7e142cd0cd536c7892dd71c31da2"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+        "previous": 525,
+        "reviewed": 532,
+        "source_sha256": "b32a8a135e512536bd7f270b712e1776c46d7e142cd0cd536c7892dd71c31da2"
       }
     ]
   }

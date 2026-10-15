@@ -340,6 +340,13 @@ class ArmClient:
                     response.status,
                     response.headers.get("azure-asyncoperation")
                     or response.headers.get("location"),
+                    operation_kind=(
+                        "azure-asyncoperation"
+                        if response.headers.get("azure-asyncoperation")
+                        else "location"
+                        if response.headers.get("location")
+                        else None
+                    ),
                 )
                 response = replace(response, mutation_id=mutation_id)
             if (

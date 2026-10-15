@@ -218,7 +218,7 @@ BEGIN
      AND receipt->'apiVersion'=definition->'apiVersion' AND octet_length(next_state::text)<900000;
    ELSIF stage='provider_ack' THEN
     RETURN old_resource ? 'provider_request'
-     AND receipt-ARRAY['requestId','status','operationUrl','operationUrlSha256']='{}'::jsonb
+     AND receipt-ARRAY['requestId','status','operationUrl','operationUrlSha256','operationKind']='{}'::jsonb
      AND receipt->'requestId'=old_resource->'provider_request'->'requestId'
      AND public.valid_azure_arm_acknowledgement(receipt, '/subscriptions/'||
        (next_state->'plan'->'context'->>'subscriptionId')||'/resourceGroups/'||

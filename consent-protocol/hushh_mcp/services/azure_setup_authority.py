@@ -78,6 +78,7 @@ class AzureSetupAuthority:
             status=receipt.status,
             operationUrl=receipt.operation_url,
             operationUrlSha256=receipt.operation_url_sha256,
+            **({"operationKind": receipt.operation_kind} if receipt.operation_kind else {}),
         )
 
     def terminal(self, request_id: str, outcome: ArmMutationOutcome) -> bool:

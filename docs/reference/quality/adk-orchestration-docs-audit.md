@@ -57,6 +57,11 @@ credentials until provider revocation succeeds; version-4 tombstones cover
 cleared/superseded grants. Legacy repair requires the original key, exact fenced
 inventory and conditional metadata replacement. Broken-code controls fail.
 
+Deletion recovery additionally passes **126 affected checks**: a new real SQL
+worker polls the original typed provider operation without another DELETE.
+Changed subscriptions, path escapes and unknown legacy operation kinds refuse;
+absence cannot replace settlement. These checks do not prove live full cleanup.
+
 Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
 JIT deletion/finalization and operator-project mail-topic
 cleanup before release freeze. Account deletion stays refused while obligations
