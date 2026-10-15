@@ -912,6 +912,24 @@ async def test_packet_release_rejects_untrusted_failure_code(reusable):
         )
 
 
+async def test_owner_name_on_file_is_read_for_the_wrong_person_fence(reusable):
+    # An isolated schema has no identity cache: the listing is empty, not a stall.
+    assert await reusable.packets.owner_identity(user_id="owner") == {"names": []}
+    with reusable.facts.db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE actor_identity_cache (user_id TEXT PRIMARY KEY, display_name TEXT)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO actor_identity_cache VALUES ('owner', ' Synthetic Owner '), ('blank', ' ')"
+        )
+    assert await reusable.packets.owner_identity(user_id="owner") == {"names": ["Synthetic Owner"]}
+    assert await reusable.packets.owner_identity(user_id="blank") == {"names": []}
+    assert await reusable.packets.owner_identity(user_id="nobody") == {"names": []}
+    # Every packet job reads the name and the build still finishes; these
+    # synthetic facts name nobody, so the fence leaves the Ready verdict alone.
+    assert (await ready_packet(reusable))["packetId"]
+
+
 async def test_last_member_removal_retires_work_and_preserves_frozen_history(reusable, sharing):
     from hushh_mcp.services.drive_packet_contract import DocumentFacts
 

@@ -4159,3 +4159,24 @@ checks. Keys and decrypted information stayed in browser memory. This is API
 fixture setup under uninterrupted isolated-session continuity; it does not
 prove model-assisted Memory preparation or actual auth/vault epoch identity.
 No purchase or payout is inferred from those saves. Shared Chrome was untouched.
+
+### Current integration and acceptance boundary, 2026-10-15
+
+Candidate `a8d323af234da7252904e7bdf9d741f74918ef41` passed the canonical
+local core bundle in 768 seconds and was pushed on the existing branch. Main's
+subsequent phone/Drive integration preserves phone Back behavior, private-placement
+checks and owner comparison context in the existing authored assessments. It does
+not reinstate heuristic name/date classifiers or rewrite successful model answers.
+The nearest owner tests retain 15 core cases for prompt binding, schema refusal,
+owner-only reads and worker recovery; removed cohorts mirrored the retired fuzzy
+name algorithm. Focused owner/intelligence tests passed 87 cases and phone tests
+passed 42; these do not establish live model accuracy.
+
+Both reviewers accepted a scope-free social connection. Discovery exposes the
+synthetic role as a nonwildcard leaf; no paid purchase is yet proven. Intermittent
+frontend PKM proxy failures were observed while the same authenticated backend
+read returned 200; later isolated unlock attempts also failed. These are failed
+acceptance attempts, not successful lifecycle receipts. The existing commerce
+rehearsal still targets a retired JSON grant card; current sharing renders an
+on-device semantic card. Exact visible rendering and full payload verification
+must remain distinct when correcting that helper. Shared Chrome remains untouched.

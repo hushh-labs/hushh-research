@@ -37,7 +37,7 @@ def test_facts_policy_changes_with_extraction_profile(monkeypatch):
 # bumps in one release, and name the bump and its re-queued count in the PR.
 FACTS_POLICY_INPUTS = {
     "hushh_mcp/agents/documents/agent.yaml": (
-        "9cca6a5e780814523a9d470a760c2a00a6457d848da1afd6ec929806a2aef700"
+        "28bc3f6f4818a0ccfdb33fb20c113a6dab07dc6a6da520d4de0e0e94fba164e6"
     ),
     "hushh_mcp/services/drive_packet_contract.py": (
         "ef981abc2f54055e79ba52b8560b404b6624295183c164085ca4cdcbb84491b8"

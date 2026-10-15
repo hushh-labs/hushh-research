@@ -389,6 +389,7 @@ async def construct_packet(
     complete,
     previous=None,
     owner_preferences=None,
+    owner=None,
     interpret=_interpret,
 ):
     allowed = {item["document_id"] for item in documents}
@@ -462,6 +463,7 @@ async def construct_packet(
             "previous_packet": previous,
             "all_members_observed": complete,
             "owner_pricing_preferences": owner_preferences,
+            "owner_identity": owner,
         },
         PacketProposal,
         user_id=user_id,
@@ -471,7 +473,7 @@ async def construct_packet(
 
 
 async def verify_packet(
-    *, user_id, packet, documents, complete, batch_scope=None, interpret=_interpret
+    *, user_id, packet, documents, complete, batch_scope=None, owner=None, interpret=_interpret
 ):
     scope_mode = batch_scope.get("mode") if isinstance(batch_scope, dict) else batch_scope
 
@@ -554,6 +556,7 @@ async def verify_packet(
             "document_facts": documents,
             "all_evidence_current_and_complete": complete,
             "batch_scope": batch_scope,
+            "owner_identity": owner,
         },
         PacketVerificationProposal,
         user_id=user_id,

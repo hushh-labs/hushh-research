@@ -21523,7 +21523,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/auth/phone-verification-flow.tsx",
       "symbol": null,
-      "value": 1407
+      "value": 1439
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25106,7 +25106,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "DrivePacketStore",
-      "value": 942
+      "value": 967
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25259,7 +25259,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_packet_one",
-      "value": 141
+      "value": 150
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25448,7 +25448,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": null,
-      "value": 1004
+      "value": 1029
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25475,7 +25475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1831
+      "value": 1849
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25867,7 +25867,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 358
+      "value": 368
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26281,7 +26281,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
       "symbol": null,
-      "value": 579
+      "value": 582
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26587,7 +26587,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
       "symbol": null,
-      "value": 837
+      "value": 844
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26812,7 +26812,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
       "symbol": "verify_packet",
-      "value": 90
+      "value": 91
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -43565,6 +43565,73 @@
     "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
     "review": "Independent read-only authority review admits one fixed POD_DIRECT_NOT_READY code/message entry. Existing capability preflight refuses before hub grants or effects. No budget, authorization or error-body disclosure changed.",
     "source_sha256": "1c58a0d5d861a1f3cf5c1e8bb5ae29344ba57ff8f21d3cca99c845e7e3be5c16"
+  },
+  "scope_commerce_b302_integration_review_20261015": {
+    "entries": [
+      {
+        "after": 967,
+        "before": 942,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "2e23083d36a87d5cefbea5cea64ad4c420698d865d6770788264234f04442711"
+      },
+      {
+        "after": 1029,
+        "before": 1004,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "2e23083d36a87d5cefbea5cea64ad4c420698d865d6770788264234f04442711"
+      },
+      {
+        "after": 150,
+        "before": 141,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "d4676d8beefd7f2b4cf629b38f8bd5faa207c6679829f54c60b0ef0b9fad487e"
+      },
+      {
+        "after": 368,
+        "before": 358,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "d4676d8beefd7f2b4cf629b38f8bd5faa207c6679829f54c60b0ef0b9fad487e"
+      },
+      {
+        "after": 1849,
+        "before": 1831,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "655c17955af19f7fae3a619a1d210dd13285c9b58510cd240ea4ac6cd9fe679d"
+      },
+      {
+        "after": 91,
+        "before": 90,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py|verify_packet|function exceeds the advisory gene budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "4341768417de2f0f5a457d590d2f5afb10ce791cab7ca0ad65ef28367a2e8688"
+      },
+      {
+        "after": 582,
+        "before": 579,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "4341768417de2f0f5a457d590d2f5afb10ce791cab7ca0ad65ef28367a2e8688"
+      },
+      {
+        "after": 1439,
+        "before": 1407,
+        "key": "module_size|hushh-webapp/components/auth/phone-verification-flow.tsx||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "6b76313af264685bcc442487686ec6263111d07aaf72c7f7d22ceccee2570321"
+      },
+      {
+        "after": 844,
+        "before": 837,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review static qualification of b302 integration: existing owner-bound store, worker placement fences, authored semantic context and phone Back contract retained. Exact singleton observation only; budgets and scanner unchanged. Runtime acceptance remains separate.",
+        "source_sha256": "e9a4ad8cd0dbafbab183210ee05d0acc30b909445e07dda769868131684b409d"
+      }
+    ]
   },
   "scope_commerce_calendar_wallet_current_main_20261015": {
     "boundary": "Exactly27 occurrence-rank-zero size qualifications:23 measured replacements and4 additions. Preserve all previous findings, multiplicities, history, scanner, exclusions and500/250/80 budgets. These remain visible maintenance debt; future growth is rejected.",

@@ -34,6 +34,10 @@ exact typed membership, period and citation validation. Scripted refusal cases
 pass; paired faulty Ready answers for account, date and execution claims still
 produce independent defects and a failing deploy gate. These synthetic cases do
 not establish live model accuracy or a universal deterministic semantic guard.
+The production worker supplies the owner’s name on file as comparison context
+to both authored assessments. The offline replay has no owner listing and does
+not measure that assessment.
+
 
 ## Operator runbook (real Drive, read-only)
 

@@ -268,7 +268,7 @@ class DrivePacketWorker:
             )
             return "facts_unavailable"
 
-    async def _check(self, job, *, packet, documents, complete, scope):
+    async def _check(self, job, *, packet, documents, complete, scope, owner):
         await self._packet_current(job)
         self._policy_current(job["policy_version"])
         result = await self.checker(
@@ -277,6 +277,7 @@ class DrivePacketWorker:
             documents=documents,
             complete=complete,
             batch_scope={**scope, "canonical_key": job["key"]},
+            owner=owner,
         )
         await self._packet_current(job)
         self._policy_current(job["policy_version"])
@@ -303,6 +304,12 @@ class DrivePacketWorker:
                 if build and build.get("policy_version") != job["policy_version"]:
                     raise DriveReadError("packet_policy_changed")
                 build["policy_version"] = job["policy_version"]
+                # Read server-owned comparison context once per job. Unreadable
+                # context retries; the authored builder/checker assess names.
+                # Recheck placement and consent after the awaited read.
+                stage = "load_owner_identity"
+                owner = await self.packet_store.owner_identity(user_id=job["user_id"])
+                await self._packet_current(job)
                 if job["build_phase"] in {"construct", "verify"}:
                     stage = "load_member_evidence"
                     await self._packet_current(job)
@@ -321,6 +328,7 @@ class DrivePacketWorker:
                             documents=documents,
                             complete=bool(last and all(item["complete"] for item in documents)),
                             previous=build.get("assessment"),
+                            owner=owner,
                         )
                         self._policy_current(job["policy_version"])
                         build["assessment"] = _payload(answer)
@@ -343,6 +351,7 @@ class DrivePacketWorker:
                                 "batch_document_ids": [item["document_id"] for item in documents],
                                 "previously_checked": build.get("checked_count", 0),
                             },
+                            owner=owner,
                         )
                         build["checked_count"] = build.get("checked_count", 0) + len(documents)
                         build["batch_checks_passed"] = (
@@ -395,6 +404,7 @@ class DrivePacketWorker:
                         "batch_checks_passed": build.get("batch_checks_passed", False),
                         "batch_issues": build.get("batch_issues", []),
                     },
+                    owner=owner,
                 )
                 if not build.get("batch_checks_passed") and checked["state"] == "ready":
                     checked["state"] = "incomplete"
