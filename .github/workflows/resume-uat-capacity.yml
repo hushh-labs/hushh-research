@@ -16,6 +16,8 @@ permissions:
 jobs:
   inspect:
     name: Verify maintenance, original target, and fresh capacity
+    # Repository/org-level kill switch; disabled means no cloud authentication.
+    if: vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 7
     environment:

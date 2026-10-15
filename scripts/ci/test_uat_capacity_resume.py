@@ -378,6 +378,7 @@ class WorkflowTests(unittest.TestCase):
         source = (ROOT / ".github/workflows/resume-uat-capacity.yml").read_text()
         inspect, retry = source.split("  resume:\n", 1)
         self.assertNotIn("actions: write", inspect)
+        self.assertIn("if: vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'", inspect)
         self.assertIn("actions: write", retry)
         self.assertIn("vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'", retry)
         self.assertIn("post-verified-resume", retry)
