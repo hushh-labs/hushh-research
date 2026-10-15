@@ -3238,7 +3238,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2668,
+  "finding_count": 2674,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3634,7 +3634,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "DriveIngestionStore",
-      "value": 546
+      "value": 548
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3868,7 +3868,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 1042
+      "value": 1101
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4183,7 +4183,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10320
+      "value": 10357
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4768,7 +4768,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 560
+      "value": 616
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5947,7 +5947,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/agent_chat.py",
       "symbol": "_extract_state",
-      "value": 235
+      "value": 239
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10402,7 +10402,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "list_state",
-      "value": 433
+      "value": 435
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16900,7 +16900,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/agent_chat.py",
       "symbol": null,
-      "value": 1153
+      "value": 1156
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17206,7 +17206,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": null,
-      "value": 2884
+      "value": 2927
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17908,7 +17908,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1391
+      "value": 1500
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18196,7 +18196,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": null,
-      "value": 11457
+      "value": 11496
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19348,7 +19348,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_ingestion.py",
       "symbol": null,
-      "value": 1580
+      "value": 1695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19519,7 +19519,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_feed_service.py",
       "symbol": null,
-      "value": 1039
+      "value": 1418
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19708,7 +19708,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9200
+      "value": 9228
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20446,7 +20446,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6332
+      "value": 6468
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21319,7 +21319,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/feed-page-clear.test.tsx",
       "symbol": null,
-      "value": 695
+      "value": 788
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21661,7 +21661,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts",
       "symbol": null,
-      "value": 588
+      "value": 617
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21796,7 +21796,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1715
+      "value": 1785
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22516,7 +22516,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/feed/feed-page.tsx",
       "symbol": null,
-      "value": 1247
+      "value": 1272
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23407,7 +23407,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2195
+      "value": 2196
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23515,7 +23515,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
       "symbol": null,
-      "value": 1099
+      "value": 1124
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23668,7 +23668,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
       "symbol": null,
-      "value": 2335
+      "value": 2411
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24001,7 +24001,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/types.ts",
       "symbol": null,
-      "value": 951
+      "value": 956
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25937,7 +25937,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": "DriveDocumentFactsStore",
-      "value": 626
+      "value": 656
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26081,7 +26081,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
       "symbol": "run",
-      "value": 143
+      "value": 154
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26279,7 +26279,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
       "symbol": null,
-      "value": 691
+      "value": 737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26288,7 +26288,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1412
+      "value": 1748
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26297,7 +26297,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_document_processor.py",
       "symbol": null,
-      "value": 583
+      "value": 652
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26626,7 +26626,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
       "symbol": null,
-      "value": 858
+      "value": 1237
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26635,7 +26635,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
       "symbol": null,
-      "value": 890
+      "value": 1164
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26680,7 +26680,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 297
+      "value": 346
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26752,7 +26752,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "claim",
-      "value": 121
+      "value": 123
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26761,7 +26761,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": "operation",
-      "value": 110
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26788,7 +26788,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_facts_one",
-      "value": 82
+      "value": 93
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27022,7 +27022,7 @@
       "limit": 80,
       "path": "scripts/ci/live-memory-source-gate.py",
       "symbol": "self_test",
-      "value": 98
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27085,7 +27085,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
       "symbol": null,
-      "value": 608
+      "value": 613
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27121,7 +27121,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
       "symbol": null,
-      "value": 1011
+      "value": 1041
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27166,7 +27166,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
       "symbol": null,
-      "value": 510
+      "value": 595
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27257,6 +27257,60 @@
       "path": "hushh-webapp/lib/services/wallet-service.ts",
       "symbol": null,
       "value": 578
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 319,
+      "limit": 250,
+      "symbol": "TestGmailEmailDraftDirective",
+      "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_ingestion_service.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 94,
+      "limit": 80,
+      "symbol": "_process",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|_process|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 82,
+      "limit": 80,
+      "symbol": "test_source_change_builds_next_version_and_listing_needs_a_new_allow",
+      "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_source_change_builds_next_version_and_listing_needs_a_new_allow|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 673,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|hushh-webapp/lib/pkm/live-mirror-projection.ts||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "scripts/ci/live-memory-source-gate.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 598,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|scripts/ci/live-memory-source-gate.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 504,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget"
     }
   ],
   "inspected_files": 6625,
@@ -51132,5 +51186,1069 @@
     "reviewer": "adk_backend_conflicts",
     "test_extraction": "Upload receipt and custody controls moved from the nearest lifecycle suite to a focused module reusing its real SQL fixture; no cases removed."
   },
-  "status": "advisory"
+  "status": "advisory",
+  "byoc_main6baa_live_mirror_review_20261015": {
+    "candidate_parent": "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd",
+    "incoming_main": "6baa14e0c1c951ba21df42117e886b8b4daa55a1",
+    "packet_sha256": "cdb1ca6d117f1324cd291abb4ed0ab10d7f1f8725ebcbeb4fe03172647cdc208",
+    "boundaries": "Budgets500/250/80, scanners, exclusions and unrelated ceilings unchanged. Source-sized debt acceptance only; no deployed acceptance.",
+    "reviewers": {
+      "onboarding_merge_review": "28backend+2CI exact entries",
+      "peer_fixture_review": "13frontend exact entries"
+    },
+    "verification": "587 initial focused backend passes and 73 explicit skips; all three fixture/inventory failures repaired in13focusedpasses.110UI pass plus missingrouterfixture parity1pass; typecheckPASS. Drive queue/fold broken-code negativecontrols retained.",
+    "entries": [
+      {
+        "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|OneLocationAgentService|class exceeds the advisory operon budget",
+        "before_values": [
+          10320
+        ],
+        "after": 10357,
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "8f691f89a6a4530d420b294d8a7ad395c19aa16a1561b8b5f8fc0ee5e75ca68c",
+            "byte_identical": false,
+            "values": [
+              10317
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "1a1d7d56813beee45431b67b3b777f23af80fd53b748b86baa5f94701e271610",
+            "byte_identical": false,
+            "values": [
+              10378
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "before_values": [
+          1042
+        ],
+        "after": 1101,
+        "source_sha256": "9f83121e6b5719715b58fafa42f1edb0ea80b3f0d4d39a127c96acdb089dfa51",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "9af6456c362edd1859f5a3ea995adb75d58351deb5cdddbe0860ba5b30113100",
+            "byte_identical": false,
+            "values": [
+              1042
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "9405d58aa000e696f29dd16340a5cbb3fbcfdb38f5b4bd648b4fe26d3f818c2c",
+            "byte_identical": false,
+            "values": [
+              1101
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py|DriveDocumentFactsStore|class exceeds the advisory operon budget",
+        "before_values": [
+          626
+        ],
+        "after": 656,
+        "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "c78b48c9143d5c7ec9c8aa179b45514d163b67b970a1922eb8fb678ab3a26884",
+            "byte_identical": false,
+            "values": [
+              626
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e",
+            "byte_identical": true,
+            "values": [
+              656
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestAgentTreeShape|class exceeds the advisory operon budget",
+        "before_values": [
+          560
+        ],
+        "after": 616,
+        "source_sha256": "38909b550eb6722ed395664bebed33916d685b11b8a1d4f7dba169a9416da4e9",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "ec740d03c1db04f05044659280772386f06867831446b829beb4a1287a24927d",
+            "byte_identical": false,
+            "values": [
+              560
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "ed5ec3e67ce6507de4badbceaa784b18403c5afb60fe18095d410f16ba5d1cb9",
+            "byte_identical": false,
+            "values": [
+              616
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|DriveIngestionStore|class exceeds the advisory operon budget",
+        "before_values": [
+          546
+        ],
+        "after": 548,
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5",
+            "byte_identical": false,
+            "values": [
+              546
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+            "byte_identical": true,
+            "values": [
+              548
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "before_values": [
+          297
+        ],
+        "after": 346,
+        "source_sha256": "6b01f406ffcdee915dc4911c3c88aca4219920a814bdeaefa1e663d86e55c971",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "122b8311c16758d1f7d80533be42e527143e8feac6ad4c04e3af689e93e1edaf",
+            "byte_identical": false,
+            "values": [
+              297
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "dd79da20714059c588352c520c1acdfc1caeef1f3dd2f35032e6b3a22b29e49c",
+            "byte_identical": false,
+            "values": [
+              331
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+        "before_values": [],
+        "after": 319,
+        "source_sha256": "38909b550eb6722ed395664bebed33916d685b11b8a1d4f7dba169a9416da4e9",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "ec740d03c1db04f05044659280772386f06867831446b829beb4a1287a24927d",
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "ed5ec3e67ce6507de4badbceaa784b18403c5afb60fe18095d410f16ba5d1cb9",
+            "byte_identical": false,
+            "values": [
+              314
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|list_state|function exceeds the advisory gene budget",
+        "before_values": [
+          433
+        ],
+        "after": 435,
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "8f691f89a6a4530d420b294d8a7ad395c19aa16a1561b8b5f8fc0ee5e75ca68c",
+            "byte_identical": false,
+            "values": [
+              433
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "1a1d7d56813beee45431b67b3b777f23af80fd53b748b86baa5f94701e271610",
+            "byte_identical": false,
+            "values": [
+              425
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/api/routes/one/agent_chat.py",
+        "key": "function_size|consent-protocol/api/routes/one/agent_chat.py|_extract_state|function exceeds the advisory gene budget",
+        "before_values": [
+          235
+        ],
+        "after": 239,
+        "source_sha256": "df460f10110208fe40d7c656706a389f051a23cf9119a1e3b005bc3fbdf76252",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "e75c8fc2d175a7b8ac23e771d53693c5933b07a6d7ccf3d03e4cd99a43b32b49",
+            "byte_identical": false,
+            "values": [
+              235
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "06807ddaa2e675519ef654f4333823e89ef1068d854d018cef7d3afdedd0883f",
+            "byte_identical": false,
+            "values": [
+              235
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_document_worker.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_worker.py|run|function exceeds the advisory gene budget",
+        "before_values": [
+          143
+        ],
+        "after": 154,
+        "source_sha256": "faf824bcdfc81aecee67587ed32f2dd905e47f6a303584b9505c1a406223bea6",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "5938f5f4a1d8fcf4cc9efd41bfb8436b417b5c35db9a4852267d65664a9ab737",
+            "byte_identical": false,
+            "values": [
+              143
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "1e4f407b9f31b1d95db65604f4cd5078e1051025e186ae32c6b1798bc03024f8",
+            "byte_identical": false,
+            "values": [
+              153
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|claim|function exceeds the advisory gene budget",
+        "before_values": [
+          121
+        ],
+        "after": 123,
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5",
+            "byte_identical": false,
+            "values": [
+              121
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+            "byte_identical": true,
+            "values": [
+              123
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py|operation|function exceeds the advisory gene budget",
+        "before_values": [
+          110
+        ],
+        "after": 112,
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5",
+            "byte_identical": false,
+            "values": [
+              110
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+            "byte_identical": true,
+            "values": [
+              112
+            ]
+          }
+        }
+      },
+      {
+        "path": "scripts/ci/live-memory-source-gate.py",
+        "key": "function_size|scripts/ci/live-memory-source-gate.py|self_test|function exceeds the advisory gene budget",
+        "before_values": [
+          98
+        ],
+        "after": 100,
+        "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "00ce3bae910a3f2df820216c249c59d6e28555f82e65cdea43ae5386d9cf37d4",
+            "byte_identical": false,
+            "values": [
+              98
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8",
+            "byte_identical": true,
+            "values": [
+              100
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_ingestion_service.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_ingestion_service.py|_process|function exceeds the advisory gene budget",
+        "before_values": [],
+        "after": 94,
+        "source_sha256": "57ef9d3934fa4b55a58e2e39a48686a3e2a38cd26b0e387a5aaa13ecee7f6c7e",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "c8f07ffe85b116b5b9b6f5bef524d2d1523d687b57ad90d684e07f90d5c78ab4",
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "c7c022f3027a8d2efbbd8dbb7e7b23f1f92bedc1e9d9f455c2961236c3dde6bd",
+            "byte_identical": false,
+            "values": [
+              92
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "before_values": [
+          82
+        ],
+        "after": 93,
+        "source_sha256": "6b01f406ffcdee915dc4911c3c88aca4219920a814bdeaefa1e663d86e55c971",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "122b8311c16758d1f7d80533be42e527143e8feac6ad4c04e3af689e93e1edaf",
+            "byte_identical": false,
+            "values": [
+              82
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "dd79da20714059c588352c520c1acdfc1caeef1f3dd2f35032e6b3a22b29e49c",
+            "byte_identical": false,
+            "values": [
+              89
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+        "key": "function_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py|test_source_change_builds_next_version_and_listing_needs_a_new_allow|function exceeds the advisory gene budget",
+        "before_values": [],
+        "after": 82,
+        "source_sha256": "3d0502283569e5d099e3d6b718fd03e9bdcd19b09951728db7fa9d05858af393",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "32108b0d690ad09d47290ad946470bab651ff00c41a6abfb67f772f4e0c0092d",
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "8c4f10711760d30a5411efe5ad60f23f71f0769a806baf6c3e9b6f8d4bf6072d",
+            "byte_identical": false,
+            "values": [
+              82
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py||module exceeds the advisory operon budget",
+        "before_values": [
+          11457
+        ],
+        "after": 11496,
+        "source_sha256": "dedeb4f56ed0b0de0159b54a1b044e095765cf6a03779ae3203c33a75a0e5882",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "8f691f89a6a4530d420b294d8a7ad395c19aa16a1561b8b5f8fc0ee5e75ca68c",
+            "byte_identical": false,
+            "values": [
+              11456
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "1a1d7d56813beee45431b67b3b777f23af80fd53b748b86baa5f94701e271610",
+            "byte_identical": false,
+            "values": [
+              11573
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
+        "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+        "before_values": [
+          9200
+        ],
+        "after": 9228,
+        "source_sha256": "c823b1cb3efb04b761a3351599cbf5c6c99f57e20fa8e5dbd28d5ea5546348e7",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "f731571d8051c2597554aed5909f02060853b478fd85a445a455f63fae96742e",
+            "byte_identical": false,
+            "values": [
+              9200
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "c823b1cb3efb04b761a3351599cbf5c6c99f57e20fa8e5dbd28d5ea5546348e7",
+            "byte_identical": true,
+            "values": [
+              9228
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "before_values": [
+          6332
+        ],
+        "after": 6468,
+        "source_sha256": "38909b550eb6722ed395664bebed33916d685b11b8a1d4f7dba169a9416da4e9",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "ec740d03c1db04f05044659280772386f06867831446b829beb4a1287a24927d",
+            "byte_identical": false,
+            "values": [
+              6328
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "ed5ec3e67ce6507de4badbceaa784b18403c5afb60fe18095d410f16ba5d1cb9",
+            "byte_identical": false,
+            "values": [
+              6457
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+        "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
+        "before_values": [
+          2884
+        ],
+        "after": 2927,
+        "source_sha256": "95d007f2cd114701adf7ba9be160f03961113aa8f2948c02b50503a15adc8837",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "50c4506abadf1aeda8f8c4aa349f5e40bf9cf87b2ded3a33d9754763e076cee3",
+            "byte_identical": false,
+            "values": [
+              2880
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "fb75d30df26521a6851552be52c6929f6cfd85cb1bae4d76259163cc8e3d7673",
+            "byte_identical": false,
+            "values": [
+              2859
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          2335
+        ],
+        "after": 2411,
+        "source_sha256": "0f5a60ef752d063a35ee151ba487d9dc298e6efd3200822d04de7ab327afbff7",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "8e61688a47660fc8e089c93c05c4212b36dd65a57998c4ce05761cfff7aa2701",
+            "byte_identical": false,
+            "values": [
+              2335
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "67a84e22f29d04753917f8bb0393dd8ab0cb1b47d4577c8e3dd07d2e3d4980f1",
+            "byte_identical": false,
+            "values": [
+              2414
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          2195
+        ],
+        "after": 2196,
+        "source_sha256": "f24ed6d25227c3c535e40d3c1cf07b156f435f5dc8b9577be7912a8374e6e52b",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "176b7e638a1c3a48bc178a0bcf40ee1a7378aa953eaf2a30e489e4d5b7f97a55",
+            "byte_identical": false,
+            "values": [
+              2195
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "71380639633869642aa56aa99235d4782622d437e2a60354b6eb4ec957e8f1f1",
+            "byte_identical": false,
+            "values": [
+              2156
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
+        "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          1715
+        ],
+        "after": 1785,
+        "source_sha256": "e82a8ab6a8e05d92303cadfcd53598642b6848d19a9980c77837faef7fa4f08f",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "5932ccbb3ce63cd6eff3a710c7c210e644c08d2bb7095ecfc7e51e535464c687",
+            "byte_identical": false,
+            "values": [
+              1715
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "09447056476572f3b84e1a79ff9d6ce5c6ffc00dbe8f4c6601f78368295dd65a",
+            "byte_identical": false,
+            "values": [
+              1760
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1412
+        ],
+        "after": 1748,
+        "source_sha256": "3d0502283569e5d099e3d6b718fd03e9bdcd19b09951728db7fa9d05858af393",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "32108b0d690ad09d47290ad946470bab651ff00c41a6abfb67f772f4e0c0092d",
+            "byte_identical": false,
+            "values": [
+              1412
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "8c4f10711760d30a5411efe5ad60f23f71f0769a806baf6c3e9b6f8d4bf6072d",
+            "byte_identical": false,
+            "values": [
+              1813
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_drive_ingestion.py",
+        "key": "module_size|consent-protocol/tests/services/test_drive_ingestion.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1580
+        ],
+        "after": 1695,
+        "source_sha256": "1f47260d06059558447b711c397439bb2592b242c4f957d70a358fe6f0a6d28e",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "539c68d216017f1d61c7d5d18f16de860a9cb901e11142583e489500e3a02966",
+            "byte_identical": false,
+            "values": [
+              1580
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "a86837eeed8f4f97b85f622e31204f569972fdcb67b5963b7bc00f3098646e10",
+            "byte_identical": false,
+            "values": [
+              1695
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1391
+        ],
+        "after": 1500,
+        "source_sha256": "9f83121e6b5719715b58fafa42f1edb0ea80b3f0d4d39a127c96acdb089dfa51",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "9af6456c362edd1859f5a3ea995adb75d58351deb5cdddbe0860ba5b30113100",
+            "byte_identical": false,
+            "values": [
+              1391
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "9405d58aa000e696f29dd16340a5cbb3fbcfdb38f5b4bd648b4fe26d3f818c2c",
+            "byte_identical": false,
+            "values": [
+              1497
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_feed_service.py",
+        "key": "module_size|consent-protocol/tests/services/test_feed_service.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1039
+        ],
+        "after": 1418,
+        "source_sha256": "8855a413d42c29b6f72602c90c6786dca6c4451e3f28ba49b24f2489796bcad0",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "f2ad180f280eba8777e12813735a8a2b410a493a890f1b2b624fcdf5cb2f7fbf",
+            "byte_identical": false,
+            "values": [
+              1039
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "05f4fdfef22ef656cb846bdc4cc91c43fe87f56c925b2e412db21a6ff0391d30",
+            "byte_identical": false,
+            "values": [
+              1394
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/components/feed/feed-page.tsx",
+        "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+        "before_values": [
+          1247
+        ],
+        "after": 1272,
+        "source_sha256": "bca5b5e64b40b397614fec9c3f816bfa0194030680ed6e2b057833cfe54e3cca",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "242bf5ecab15b3b6aca9cd8d9a856e1677ce21d97c4a0f19937b6aaee1e80354",
+            "byte_identical": false,
+            "values": [
+              1247
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "bca5b5e64b40b397614fec9c3f816bfa0194030680ed6e2b057833cfe54e3cca",
+            "byte_identical": true,
+            "values": [
+              1272
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          858
+        ],
+        "after": 1237,
+        "source_sha256": "8dfbfe3f9388058f27c0673cdb4347411371ef49703666ccd859ef74b2acd4c6",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "c315b1f2e4f518ac27a00831687807afd84767a7c6d3bda318bea7bdec4c5453",
+            "byte_identical": false,
+            "values": [
+              858
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "8dfbfe3f9388058f27c0673cdb4347411371ef49703666ccd859ef74b2acd4c6",
+            "byte_identical": true,
+            "values": [
+              1237
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+        "key": "module_size|hushh-webapp/lib/pkm/living-source-sync.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          890
+        ],
+        "after": 1164,
+        "source_sha256": "92b489fb6cbd8df1595513116480eecec7a49996e2d02aeaa6b381502d199a18",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "eb481994b49cc9d4979869a136580652c8a4087f911d5f8ec9692914327d5e34",
+            "byte_identical": false,
+            "values": [
+              890
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "92b489fb6cbd8df1595513116480eecec7a49996e2d02aeaa6b381502d199a18",
+            "byte_identical": true,
+            "values": [
+              1164
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/api/routes/one/agent_chat.py",
+        "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1153
+        ],
+        "after": 1156,
+        "source_sha256": "df460f10110208fe40d7c656706a389f051a23cf9119a1e3b005bc3fbdf76252",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "e75c8fc2d175a7b8ac23e771d53693c5933b07a6d7ccf3d03e4cd99a43b32b49",
+            "byte_identical": false,
+            "values": [
+              1152
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "06807ddaa2e675519ef654f4333823e89ef1068d854d018cef7d3afdedd0883f",
+            "byte_identical": false,
+            "values": [
+              2265
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+        "key": "module_size|hushh-webapp/lib/agent/agent-pkm-memory.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          1099
+        ],
+        "after": 1124,
+        "source_sha256": "6ddb022c2f701476d94c487d99b3cec251a5eba05b42e900ad6139d3de808fe1",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "91e403000b7e4cd3e85d07535cce0ebc75d16044e522861ada47ec6081b2d13f",
+            "byte_identical": false,
+            "values": [
+              1085
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "50ad2db9b43201b3fd975149764563b8e6508d37bf60cb4e893c9017de917e66",
+            "byte_identical": false,
+            "values": [
+              1186
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
+        "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "before_values": [
+          1011
+        ],
+        "after": 1041,
+        "source_sha256": "1fbce269a41cced46b0a2804ed8f3e8dabc24cdf94e249bf71bf63ee4a8c036e",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "bf96e70ffaad9e0436b5adf7e18ec6cf50a7bdababb7b955b2e8327716af2915",
+            "byte_identical": false,
+            "values": [
+              1011
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "2e53ccc83bdfb4af8172bfe61d1f49cd90ecd1bd9a034255e21b156e6de126ab",
+            "byte_identical": false,
+            "values": [
+              1085
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/lib/one-location/types.ts",
+        "key": "module_size|hushh-webapp/lib/one-location/types.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          951
+        ],
+        "after": 956,
+        "source_sha256": "3c4c94bd7e0d00a5a69354da6229a6ecb3162cda8a2767cfa1dc32ac34bc5f20",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "c3239f47b52a6cba9e4c4a1a7c0192e6d114282a387657eb2ea7663650317d76",
+            "byte_identical": false,
+            "values": [
+              951
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "3c4c94bd7e0d00a5a69354da6229a6ecb3162cda8a2767cfa1dc32ac34bc5f20",
+            "byte_identical": true,
+            "values": [
+              956
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/components/feed-page-clear.test.tsx",
+        "key": "module_size|hushh-webapp/__tests__/components/feed-page-clear.test.tsx||module exceeds the advisory operon budget",
+        "before_values": [
+          695
+        ],
+        "after": 788,
+        "source_sha256": "f010475cf07f0e663d7d08974d02faf47a064e2c49af88d206fff376703cbfed",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "017788620fdc1e5a6005a17ed492ace4f7b842ebf288f694a6b7dbcf9ec90218",
+            "byte_identical": false,
+            "values": [
+              695
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "f010475cf07f0e663d7d08974d02faf47a064e2c49af88d206fff376703cbfed",
+            "byte_identical": true,
+            "values": [
+              788
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_document_facts_store.py",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_document_facts_store.py||module exceeds the advisory operon budget",
+        "before_values": [
+          691
+        ],
+        "after": 737,
+        "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "c78b48c9143d5c7ec9c8aa179b45514d163b67b970a1922eb8fb678ab3a26884",
+            "byte_identical": false,
+            "values": [
+              691
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "89d57c7134cd6e6606ffa59a597cf98e7a158e086e5ad7dfd59fc617621a8d6e",
+            "byte_identical": true,
+            "values": [
+              737
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
+        "key": "module_size|hushh-webapp/lib/pkm/live-mirror-projection.ts||module exceeds the advisory operon budget",
+        "before_values": [],
+        "after": 673,
+        "source_sha256": "596688273dc928e11c07b18d780c680f7f3f1aef0171f82a10cff8073372d4ee",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": null,
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "596688273dc928e11c07b18d780c680f7f3f1aef0171f82a10cff8073372d4ee",
+            "byte_identical": true,
+            "values": [
+              673
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/tests/services/test_drive_document_processor.py",
+        "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+        "before_values": [
+          583
+        ],
+        "after": 652,
+        "source_sha256": "2c21bb8fa6ba0af4d735c15e60b7e3d854a14e225aebe588ac21e9fe4f687bcd",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "92cfc403c7dc887f995aa8a4e1094bea16132beaebb29be171d889a763f96096",
+            "byte_identical": false,
+            "values": [
+              583
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "2c21bb8fa6ba0af4d735c15e60b7e3d854a14e225aebe588ac21e9fe4f687bcd",
+            "byte_identical": true,
+            "values": [
+              652
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts",
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          588
+        ],
+        "after": 617,
+        "source_sha256": "8ad446a253351f750e7f18ce7ab7f8755b107588b92a3026fe22bdd6bda7dd56",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "bf52c4c2e8971d0285932c87c8c943c730d94f6847920b59fc356a012b134295",
+            "byte_identical": false,
+            "values": [
+              588
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "8ad446a253351f750e7f18ce7ab7f8755b107588b92a3026fe22bdd6bda7dd56",
+            "byte_identical": true,
+            "values": [
+              617
+            ]
+          }
+        }
+      },
+      {
+        "path": "consent-protocol/hushh_mcp/services/drive_ingestion_store.py",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_ingestion_store.py||module exceeds the advisory operon budget",
+        "before_values": [
+          608
+        ],
+        "after": 613,
+        "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "419e4e802cd2768cd64720f5cd53ef608fe11483aa15709a2ef850b4ce1434b5",
+            "byte_identical": false,
+            "values": [
+              608
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "3b1aa9842fc60b71be2d0f8bc8558f0923d99482ca0df0953048a2693e42c041",
+            "byte_identical": true,
+            "values": [
+              613
+            ]
+          }
+        }
+      },
+      {
+        "path": "scripts/ci/live-memory-source-gate.py",
+        "key": "module_size|scripts/ci/live-memory-source-gate.py||module exceeds the advisory operon budget",
+        "before_values": [],
+        "after": 598,
+        "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "00ce3bae910a3f2df820216c249c59d6e28555f82e65cdea43ae5386d9cf37d4",
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "58f8913e4cb330315126642a4eb68c8c8d55d98df39934324c4c59c815e476e8",
+            "byte_identical": true,
+            "values": [
+              598
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
+        "key": "module_size|hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts||module exceeds the advisory operon budget",
+        "before_values": [
+          510
+        ],
+        "after": 595,
+        "source_sha256": "6f938acd44a2b779884ec25eb56ed0def95d948727a94be1476f91611b1999f2",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "7df414d66b5f5887a0b0f32a9c64344c6fa715d0c5dcc5fbdc3665f51f530635",
+            "byte_identical": false,
+            "values": [
+              510
+            ]
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "fb359c16f55e56345ca9f640c6f86a10ead250ba4fb9f41033ca29e7a94be2ed",
+            "byte_identical": false,
+            "values": [
+              568
+            ]
+          }
+        }
+      },
+      {
+        "path": "hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx",
+        "key": "module_size|hushh-webapp/__tests__/lib/feed/use-feed-actionables-sos-address.test.tsx||module exceeds the advisory operon budget",
+        "before_values": [],
+        "after": 504,
+        "source_sha256": "2cfb7342aa8024ce772f72bf7a7f5b4c35eda86d631960096ee5444ecd424d90",
+        "parents": {
+          "a14a4b4c0aaddb89247dd1f9d2e76c413f4994fd": {
+            "source_sha256": "f8e15b00d7a01d4866e7802b6497571959ecff223c85ff6b47dd02f97bd62f87",
+            "byte_identical": false,
+            "values": []
+          },
+          "6baa14e0c1c951ba21df42117e886b8b4daa55a1": {
+            "source_sha256": "2cfb7342aa8024ce772f72bf7a7f5b4c35eda86d631960096ee5444ecd424d90",
+            "byte_identical": true,
+            "values": [
+              504
+            ]
+          }
+        }
+      }
+    ]
+  }
 }

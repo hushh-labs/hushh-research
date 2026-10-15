@@ -2298,7 +2298,8 @@
       "revoked_at",
       "source_circle_id",
       "status",
-      "updated_at"
+      "updated_at",
+      "recipient_cleared_at"
     ],
     "one_location_sms_contacts": [
       "contact_user_id",

@@ -386,6 +386,75 @@ async def test_real_isolated_parser_and_redacted_failure():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("slots", [1, 2])
+async def test_page_extraction_children_are_bounded_per_process(monkeypatch, slots):
+    import asyncio
+
+    from hushh_mcp.services import drive_document_processor
+
+    monkeypatch.setenv("DRIVE_PAGE_EXTRACTION_SLOTS", str(slots))
+    in_flight = peak = 0
+
+    async def child(*args, **kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.02)
+        in_flight -= 1
+        return {"error": "no_extractable_text"}
+
+    monkeypatch.setattr(drive_document_processor, "_private_process", child)
+    processor = LocalDocumentProcessor(
+        scanner=SimpleNamespace(scan=AsyncMock()), parser=SimpleNamespace(), embedder=None
+    )
+    results = await asyncio.gather(
+        *(processor.extract_pages(content=b"private", mime_type="text/plain") for _ in range(4)),
+        return_exceptions=True,
+    )
+    assert [str(result) for result in results] == ["no_extractable_text"] * 4
+    # Concurrent owner jobs overlap downloads; CPU children stay one per slot.
+    assert peak == slots
+
+
+@pytest.mark.asyncio
+async def test_embedding_children_share_the_page_slots_so_children_stay_per_vcpu(monkeypatch):
+    """A selected-file embedding never runs beside two OCR children (memory bound)."""
+    import asyncio
+
+    from hushh_mcp.services import drive_document_processor
+
+    monkeypatch.setenv("DRIVE_PAGE_EXTRACTION_SLOTS", "2")
+    in_flight = peak = 0
+
+    async def child(*args, **kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.02)
+        in_flight -= 1
+        return {"error": "no_extractable_text"}
+
+    async def embedding(*args, **kwargs):
+        await child()
+        return "prepared"
+
+    monkeypatch.setattr(drive_document_processor, "_private_process", child)
+    processor = LocalDocumentProcessor(
+        scanner=SimpleNamespace(scan=AsyncMock()),
+        parser=SimpleNamespace(parse=AsyncMock(return_value="parsed")),
+        embedder=SimpleNamespace(prepare=AsyncMock(side_effect=embedding)),
+    )
+    results = await asyncio.gather(
+        processor.extract_pages(content=b"private", mime_type="text/plain"),
+        processor.extract_pages(content=b"private", mime_type="text/plain"),
+        processor.prepare(content=b"private", mime_type="text/plain"),
+        return_exceptions=True,
+    )
+    assert results[2] == "prepared"
+    assert peak == 2
+
+
+@pytest.mark.asyncio
 async def test_scanner_failure_prevents_parse_and_embedding():
     scanner = SimpleNamespace(scan=AsyncMock(side_effect=DriveReadError("unsafe_document")))
     parser = SimpleNamespace(parse=AsyncMock())

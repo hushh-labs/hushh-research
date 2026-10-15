@@ -133,3 +133,8 @@ export const CacheSyncService = {
     throw new Error("Feed mutations are not admitted in the read-only Connections layout fixture");
   },
 };
+
+// The fixture vault is locked, so the shared Live Mirror shows only its status.
+export function useLiveMirrorView() {
+  return { status: "locked", view: null } as const;
+}

@@ -155,6 +155,26 @@ describe("UserLocalStateService", () => {
     expect(mocks.forgetLocationMemory).toHaveBeenCalledTimes(2);
   });
 
+  it("removes the deleted account's Feed keys only, and keeps them on sign-out", async () => {
+    const feedKeys = (uid: string) => [
+      `hushh:feed-sms-dismissed:${uid}`,
+      `hushh:feed-cleared-through-id:${uid}`,
+      `hushh:feed-cleared-at:${uid}`,
+      `hushh:feed-sound-enabled:${uid}`,
+    ];
+    for (const key of [...feedKeys("uid-a"), ...feedKeys("uid-b")]) {
+      window.localStorage.setItem(key, "1");
+    }
+
+    // Sign-out keeps the sound choice and device-only clears not yet on the server.
+    await UserLocalStateService.clearForUser("uid-a");
+    for (const key of feedKeys("uid-a")) expect(window.localStorage.getItem(key)).toBe("1");
+
+    await UserLocalStateService.clearForUser("uid-a", { deleteDurableReceipts: true });
+    for (const key of feedKeys("uid-a")) expect(window.localStorage.getItem(key)).toBeNull();
+    for (const key of feedKeys("uid-b")) expect(window.localStorage.getItem(key)).toBe("1");
+  });
+
   it("removes device key material for a deleted account, even if one store fails", async () => {
     mocks.forgetLocationRecipientKey.mockRejectedValue(new Error("idb blocked"));
     mocks.clearDeviceVaultSecrets.mockResolvedValue(undefined);

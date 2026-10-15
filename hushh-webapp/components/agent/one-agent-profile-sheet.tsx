@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "firebase/auth";
 
@@ -18,9 +17,9 @@ import {
   SettingsPresentationProvider,
 } from "@/components/app-ui/settings-ui";
 import { FeedRow } from "@/components/feed/feed-row";
+import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import {
   Fingerprint,
-  Heart,
   X,
   Newspaper,
   ArrowUpRight,
@@ -130,45 +129,6 @@ function OneFeedPreview({
   );
 }
 
-function ProfileCards({ close }: { close: () => void }) {
-  return (
-    <div className={styles.profile}>
-      <div className={styles.cards}>
-        <article
-          className={`${styles.fileCard} ${styles.soul}`}
-          aria-label="soul.md preview"
-        >
-          <div>
-            <Heart className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>soul.md</h4>
-            <p>Voice, values, and personality.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Soul preview</span>
-            <Heart className="size-5" fill="currentColor" aria-hidden />
-          </div>
-        </article>
-        <Link
-          href={ROUTES.PKM}
-          onClick={close}
-          className={`${styles.fileCard} ${styles.memory}`}
-          aria-label="Open memory.md in Memory"
-        >
-          <div>
-            <Fingerprint className="size-5" aria-hidden />
-            <h4 data-app-pane-row-title>memory.md</h4>
-            <p>What you’ve chosen to remember.</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>Open Memory</span>
-            <ArrowUpRight className="size-5" aria-hidden />
-          </div>
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 type OneAgentProfileProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -207,7 +167,7 @@ function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady =
     onReady={() => setPrepared(context)} onBack={() => { setSection(null); setPrepared(null); }} onClose={close}>
     <div className={styles.scroll}>
       {section === "feed" && user ? <OneFeedPreview user={user} onNavigate={navigate} /> :
-        <>{modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}<ProfileCards close={close} /></>}
+        <>{modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}<div className={styles.profile}><LiveMirrorPreview onNavigate={close} /></div></>}
     </div>
   </NativeFeaturePage> : null;
 }
@@ -290,7 +250,9 @@ function WebOneAgentProfile({
           <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
             <TabsContent value="feed">{feed}</TabsContent>
             <TabsContent value="profile">
-              <ProfileCards close={() => onOpenChange(false)} />
+              <div className={styles.profile}>
+                <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />
+              </div>
             </TabsContent>
           </div>
         </Tabs>

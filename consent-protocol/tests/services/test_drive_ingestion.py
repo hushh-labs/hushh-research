@@ -1107,7 +1107,13 @@ async def test_default_worker_adoption_is_bounded_and_does_not_need_a_settings_v
         assert conn.execute(text("SELECT count(*) FROM drive_collection_sync")).scalar_one() == 26
 
 
-async def test_live_ingestion_resumes_pages_and_reuses_finalized_evidence(collection, ingestion):
+async def test_live_ingestion_resumes_pages_and_reuses_finalized_evidence(
+    collection, ingestion, caplog
+):
+    import logging
+    import re
+
+    caplog.set_level(logging.INFO, logger="hushh_mcp.services.drive_ingestion_service")
     await seed_collection(collection)
     oauth = SimpleNamespace(
         lifecycle=ingestion,
@@ -1137,6 +1143,24 @@ async def test_live_ingestion_resumes_pages_and_reuses_finalized_evidence(collec
     assert adapter.read_live_bytes.await_count == 2
     assert processor.extract_pages.await_count == 2
     assert (await collection.status(user_id="owner"))["lastDocumentExtractionDurationMs"] >= 0
+    # Stage timing for throughput measurement carries counts and durations only.
+    timings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("drive_extraction_job")
+    ]
+    assert [line.split()[1] for line in timings] == [
+        "status=queued",
+        "status=ready",
+        "status=unchanged",
+    ]
+    assert all(
+        re.fullmatch(
+            r"drive_extraction_job status=\w+ pages=\d+ fetch_ms=\d+ extract_ms=\d+ total_ms=\d+",
+            line,
+        )
+        for line in timings
+    )
 
 
 async def test_live_ingestion_pause_during_metadata_prevents_download(collection, ingestion):
@@ -1342,7 +1366,98 @@ async def test_request_candidates_preserve_discovery_lease_cursor_and_existing_e
     assert await ingestion.claim(user_id="owner", generation=1, document_ids=[ids[1]]) is None
 
 
-async def test_targeted_ingestion_keeps_owner_lease_and_default_fifo(collection, ingestion):
+@pytest.mark.parametrize(
+    "files,cap,claims,leased",
+    [(12, 4, 5, 4), (12, 1, 5, 1), (2, 6, 6, 2)],
+)
+async def test_live_owner_claims_up_to_lease_cap_on_distinct_documents(
+    collection, ingestion, monkeypatch, files, cap, claims, leased
+):
+    monkeypatch.setenv("DRIVE_LIVE_EXTRACTION_OWNER_LEASES", str(cap))
+    await seed_collection(collection, files=[source(f"parallel-{n}") for n in range(files)])
+
+    jobs = await asyncio.gather(
+        *(ingestion.claim(user_id="owner", generation=1) for _ in range(claims))
+    )
+
+    won = [job for job in jobs if job is not None]
+    assert len(won) == leased
+    assert len({job["document_id"] for job in won}) == leased
+    assert len({job["lease_id"] for job in won}) == leased
+    with ingestion.db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM connected_documents WHERE lease_id IS NOT NULL")
+            ).scalar_one()
+            == leased
+        )
+    # Finishing one job frees one slot, never more than the cap.
+    finished = won[0]
+    metadata = next(
+        source(f"parallel-{n}")
+        for n in range(files)
+        if ingestion.cipher.fingerprint("owner", f"parallel-{n}") == finished["source_fingerprint"]
+    )
+    await ingestion.publish_pages(finished, metadata=metadata, batch=collection_pages())
+    following = await ingestion.claim(user_id="owner", generation=1)
+    assert (following is not None) is (files > leased)
+    if following is not None:
+        assert following["document_id"] not in {job["document_id"] for job in won}
+        assert await ingestion.claim(user_id="owner", generation=1) is None
+
+
+async def test_worker_gives_profile_upgrades_half_the_first_owner_claims(
+    collection, ingestion, monkeypatch
+):
+    from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_EXTRACTION_OWNER_SLOTS", "4")
+    monkeypatch.setenv("DRIVE_LIVE_EXTRACTION_OWNER_LEASES", "4")
+    files = [source(f"retired-{n}") for n in range(3)] + [source(f"new-{n}") for n in range(20)]
+    await seed_collection(collection, files=files)
+    retired = set()
+    with ingestion.db.engine.connect() as conn:
+        rows = list(conn.execute(text("SELECT * FROM connected_documents")).mappings())
+    for row in rows:
+        metadata = source(ingestion.cipher.open(dict(row))["file_id"])
+        if not metadata.file_id.startswith("retired-"):
+            continue
+        job = await ingestion.claim(
+            user_id="owner", generation=1, document_ids=[str(row["document_id"])]
+        )
+        await ingestion.publish_pages(job, metadata=metadata, batch=collection_pages())
+        retire_active_extraction(ingestion, job["document_id"])
+        retired.add(str(job["document_id"]))
+    claimed, together = [], asyncio.Event()
+
+    async def run_one(*, user_id, prefer_profile_upgrade):
+        job = await ingestion.claim(
+            user_id=user_id, generation=1, prefer_profile_upgrade=prefer_profile_upgrade
+        )
+        claimed.append(str(job["document_id"]))
+        if len(claimed) == 4:
+            together.set()
+        # Hold every lease until all four slots have claimed concurrently.
+        await asyncio.wait_for(together.wait(), timeout=5)
+        return {"status": "queued"}
+
+    worker = DriveDocumentWorker(SimpleNamespace(store=ingestion, run_one=run_one))
+    result = await worker.run(max_jobs=4)
+
+    assert result["outcomes"] == {"queued": 4}
+    assert len(set(claimed)) == 4
+    # Closest-to-done first: at least half of K re-extract retired-profile files
+    # while that backlog exists; the ordinary queue still gets the rest.
+    assert len(retired & set(claimed)) >= 2
+    assert set(claimed) - retired
+
+
+async def test_targeted_ingestion_keeps_owner_lease_and_default_fifo(
+    collection, ingestion, monkeypatch
+):
+    # The single-lease configuration keeps the original one-job-per-owner fence.
+    monkeypatch.setenv("DRIVE_LIVE_EXTRACTION_OWNER_LEASES", "1")
     await seed_collection(collection, files=[source("older-background"), source("priority-source")])
     with collection.db.engine.connect() as conn:
         records = list(

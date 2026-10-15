@@ -26,7 +26,23 @@ from hushh_mcp.services.drive_packet_contract import (
     DocumentPageFacts,
     validate_page_citations,
 )
+from hushh_mcp.services.drive_worker_limits import facts_owner_leases
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+# Claims of one batch before a rejected model answer becomes terminal.
+FACTS_MAX_ATTEMPTS = 3
+# Model answers rejected by host validation. Sampling varies between calls, so
+# these are retried with backoff, but only up to FACTS_MAX_ATTEMPTS claims.
+MODEL_FACTS_CODES = frozenset(
+    {
+        "model_schema_invalid",
+        "model_period_invalid",
+        "model_citation_invalid",
+        "model_pages_unaccounted",
+        "model_readiness_invalid",
+        "model_membership_invalid",
+    }
+)
 
 
 def seal_evidence(cipher, identity: list, payload: dict) -> str:
@@ -329,7 +345,25 @@ class DriveDocumentFactsStore(DriveCollectionStore):
         targets = document_targets(document_ids)
 
         def operation(connection):
+            # _authority locks the owner's connection row, so concurrent claims
+            # for one owner serialize: the running count cannot overshoot.
             active, collection, preference = self._authority(connection, user_id=user_id)
+            running = connection.execute(
+                text("""SELECT count(*) FROM drive_document_facts
+                WHERE user_id=:user AND connection_generation=:generation
+                  AND facts_profile=:policy AND status='running'
+                  AND lease_expires_at>clock_timestamp()"""),
+                {
+                    "user": user_id,
+                    "generation": active["connection_generation"],
+                    "policy": policy_version,
+                },
+            ).scalar_one()
+            if running >= facts_owner_leases():
+                return None
+            # One running current-policy job per document, including one still
+            # folding an older source version: batches fold in page order. A
+            # late retired-policy writer is reconciled from current facts.
             row = self._row(
                 connection,
                 """
@@ -338,7 +372,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
               WHERE f.user_id=:user AND f.connection_generation=:generation AND f.facts_profile=:policy
                 AND (:all_documents OR f.document_id=ANY(CAST(:document_ids AS uuid[])))
                 AND NOT EXISTS(SELECT 1 FROM drive_document_facts busy
-                  WHERE busy.user_id=:user AND busy.connection_generation=:generation
+                  WHERE busy.document_id=f.document_id AND busy.user_id=:user
                     AND busy.facts_profile=:policy AND busy.status='running'
                     AND busy.lease_expires_at>clock_timestamp())
                 AND f.status IN ('pending','running') AND f.next_at<=clock_timestamp()
@@ -482,17 +516,29 @@ class DriveDocumentFactsStore(DriveCollectionStore):
             else "facts_unavailable"
         )
 
+        # A rejected model answer is retried with doubling backoff until the
+        # batch has been claimed FACTS_MAX_ATTEMPTS times (claims count
+        # attempts; a committed batch resets them). Other retryable failures
+        # keep the one-minute retry; non-retryable failures are terminal.
+        bounded = safe in MODEL_FACTS_CODES
+
         def operation(connection):
             connection.execute(
                 text("""UPDATE drive_document_facts SET lease_id=NULL,lease_expires_at=NULL,
-              status=:status,error_code=:code,next_at=clock_timestamp()+interval '60 seconds',updated_at=clock_timestamp()
+              status=CASE WHEN :retryable AND (NOT :bounded OR attempts<:attempts)
+                THEN 'pending' ELSE 'failed' END,
+              error_code=:code,updated_at=clock_timestamp(),
+              next_at=clock_timestamp()+make_interval(secs=>CASE WHEN :bounded
+                THEN LEAST(3600,60*power(2,GREATEST(attempts-1,0))) ELSE 60 END)
               WHERE document_id=:id AND user_id=:user AND facts_version=:version AND lease_id=:lease"""),
                 {
                     "id": job["document_id"],
                     "user": job["user_id"],
                     "version": job["facts_version"],
                     "lease": job["lease_id"],
-                    "status": "pending" if retryable else "failed",
+                    "retryable": bool(retryable),
+                    "bounded": bounded,
+                    "attempts": FACTS_MAX_ATTEMPTS,
                     "code": safe,
                 },
             )

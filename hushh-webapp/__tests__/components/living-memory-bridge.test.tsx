@@ -10,9 +10,15 @@ const m = vi.hoisted(() => ({
   getMetadata: vi.fn(),
   refreshMemoryDocument: vi.fn(),
   syncLivingSources: vi.fn(),
+  markPending: vi.fn(),
   domainChangeListener: null as ((detail: { userId: string; domain: string; operation: string }) => void) | null,
   connectionChangeListener: null as ((detail: { userId: string }) => void) | null,
   payoutChangeListener: null as ((detail: { kinds: string[] }) => void) | null,
+  LivingSourcesIncompleteError: class extends Error {
+    constructor(readonly failedKinds: string[], readonly recordsChanged = false) {
+      super("Source inventory incomplete; retry required");
+    }
+  },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -50,7 +56,7 @@ vi.mock("@/lib/pkm/memory-refresh", () => ({
   refreshMemoryDocument: (...args: unknown[]) => m.refreshMemoryDocument(...args),
   watchMemoryFreshness: () => () => undefined,
   clearMemoryDocument: vi.fn(),
-  markMemoryRefreshPending: vi.fn(),
+  markMemoryRefreshPending: (...args: unknown[]) => m.markPending(...args),
 }));
 vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
   subscribeToPkmDomainChanges: (listener: (detail: { userId: string; domain: string; operation: string }) => void) => {
@@ -80,6 +86,7 @@ vi.mock("@/lib/agent/agent-chat-history-events", () => ({
 }));
 vi.mock("@/lib/pkm/living-source-sync", () => ({
   LIVING_SOURCE_DOMAIN: "one_living_sources",
+  LivingSourcesIncompleteError: m.LivingSourcesIncompleteError,
   syncLivingSources: (...args: unknown[]) => m.syncLivingSources(...args),
 }));
 vi.mock("@/lib/testing/native-test", () => ({
@@ -87,6 +94,14 @@ vi.mock("@/lib/testing/native-test", () => ({
 }));
 
 import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
+import {
+  getLivingSourceSessionVerification,
+  recordLivingSourceSessionVerification,
+} from "@/lib/pkm/living-source-session-verification";
+
+const flush = () => act(async () => {
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+});
 
 /**
  * The bridge forced a full, network-bound refresh on every trigger --
@@ -136,6 +151,39 @@ describe("LivingMemoryBridge", () => {
     });
     expect(m.refreshMemoryDocument).toHaveBeenCalledTimes(1);
     expect(m.refreshMemoryDocument.mock.calls[0]![0]).toMatchObject({ force: false });
+  });
+
+  it("rebuilds quietly after a verification-only store and shows Updating for a found change", async () => {
+    m.syncLivingSources.mockResolvedValue({ stored: true, recordsChanged: false });
+    render(<LivingMemoryBridge />);
+    await flush();
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: true });
+    expect(m.markPending).not.toHaveBeenCalled();
+
+    // A routine wake whose sync stored nothing lets the freshness check decide.
+    m.refreshMemoryDocument.mockClear();
+    m.syncLivingSources.mockResolvedValue({ stored: false, recordsChanged: false });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: false });
+    expect(m.markPending).not.toHaveBeenCalled();
+
+    // A routine wake whose sync found a changed record marks the mirror
+    // pending before the forced rebuild, so its old values never read current.
+    m.refreshMemoryDocument.mockClear();
+    m.syncLivingSources.mockResolvedValue({ stored: true, recordsChanged: true });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
+    expect(m.refreshMemoryDocument.mock.calls.at(-1)![0]).toMatchObject({ force: true });
+    expect(m.markPending.mock.invocationCallOrder[0])
+      .toBeLessThan(m.refreshMemoryDocument.mock.invocationCallOrder.at(-1)!);
+
+    // So does a committed owner change.
+    m.markPending.mockClear();
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } })));
+    await flush();
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
   });
 
   it("still refreshes when a relevant domain actually changed", async () => {
@@ -276,8 +324,84 @@ describe("LivingMemoryBridge", () => {
     m.syncLivingSources.mockRejectedValueOnce(new Error("incomplete"));
     render(<LivingMemoryBridge />);
     await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
+    // An untyped failure (storage, session change) refreshes nothing.
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
     act(() => window.dispatchEvent(new Event("focus")));
     await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
     expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("still refreshes the mirror after a sync that stored only the checked sources", async () => {
+    m.syncLivingSources.mockRejectedValueOnce(new m.LivingSourcesIncompleteError(["consent"]));
+    render(<LivingMemoryBridge />);
+    await flush();
+    expect(m.refreshMemoryDocument).toHaveBeenCalledTimes(1);
+    expect(m.markPending).not.toHaveBeenCalled();
+    // A record change stored beside the failed source still shows Updating.
+    m.syncLivingSources.mockRejectedValueOnce(new m.LivingSourcesIncompleteError(["consent"], true));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(m.syncLivingSources).toHaveBeenCalledTimes(2);
+    expect(m.markPending).toHaveBeenCalledWith("owner-a");
+  });
+
+  it("wakes when the app becomes visible, never when it is hidden", async () => {
+    let visibility: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    try {
+      render(<LivingMemoryBridge />);
+      await flush();
+      m.syncLivingSources.mockClear();
+      visibility = "hidden";
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush();
+      expect(m.syncLivingSources).not.toHaveBeenCalled();
+      visibility = "visible";
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush();
+      expect(m.syncLivingSources).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+    }
+  });
+
+  const wakeEverything = async () => {
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { userId: "owner-a" } }));
+      m.domainChangeListener?.({ userId: "owner-a", domain: "identity", operation: "stored" });
+    });
+    await flush();
+  };
+
+  it.each([
+    ["the vault is locked", { unlocked: false }],
+    ["the vault key is missing", { vaultKey: "" }],
+  ])("never reads or writes sources while %s", async (_label, state) => {
+    Object.assign(m, state);
+    vi.useFakeTimers();
+    render(<LivingMemoryBridge />);
+    await flush();
+    await wakeEverything();
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
+  });
+
+  it("stops reading and forgets this session's verification when the vault locks", async () => {
+    vi.useFakeTimers();
+    recordLivingSourceSessionVerification("owner-a", 0, ["profile"], "2026-10-15T00:00:00.000Z");
+    const view = render(<LivingMemoryBridge />);
+    await flush();
+    // Positive control: the unlocked bridge reads sources.
+    expect(m.syncLivingSources).toHaveBeenCalled();
+    m.unlocked = false;
+    view.rerender(<LivingMemoryBridge />);
+    expect(getLivingSourceSessionVerification("owner-a", 0)).toEqual({});
+    m.syncLivingSources.mockClear();
+    m.refreshMemoryDocument.mockClear();
+    await wakeEverything();
+    expect(m.syncLivingSources).not.toHaveBeenCalled();
+    expect(m.refreshMemoryDocument).not.toHaveBeenCalled();
   });
 });

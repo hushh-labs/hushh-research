@@ -178,6 +178,7 @@ POST /api/one/world-model/claims
 POST /api/connectors/google_drive/collection/processing
 POST /api/connectors/google_drive/sharing/packets/{packet_id}/listing
 POST /api/one/feed/clear
+POST /api/one/feed/sos-cards/clear
 POST /api/one/feed/{item_id}/dismiss
 POST /api/one/feed/{item_id}/restore
 POST /api/one/business/suggestion/complete
@@ -271,6 +272,9 @@ POST /api/one/runtime/gemini/validate
 [SUPPORT]
 GET /api/one/wallet/card-access/networks
 POST /api/one/wallet/card-access/networks/resolve
+POST /api/one/wallet/card-access/artwork/resolve
+POST /api/one/wallet/card-access/artwork/validate
+GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/kai/decision/store
 DELETE,GET /api/kai/decision/{decision_id}
 GET /api/kai/health
