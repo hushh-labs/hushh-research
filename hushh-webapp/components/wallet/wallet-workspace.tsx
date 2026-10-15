@@ -961,11 +961,6 @@ export function WalletWorkspace() {
               <SecureCardAddForm
                 showIntroduction={false}
                 getNetworkContext={vaultContext}
-                suggestBankDesign={async (pan, variants, signal) => {
-                  const context = vaultContext();
-                  if (!context) throw new Error("Unlock your vault to choose a design.");
-                  return WalletService.suggestBankArtwork({ ...context, pan, variants, signal });
-                }}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}

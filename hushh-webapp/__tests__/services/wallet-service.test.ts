@@ -20,7 +20,7 @@ import { WalletService } from "@/lib/services/wallet-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { luhnValid } from "@/lib/wallet/card-validation";
-import { approveWalletCatalogArtwork } from "@/lib/wallet/card-artwork";
+import { MAX_WALLET_ARTWORK_CHARACTERS, approveWalletCatalogArtwork } from "@/lib/wallet/card-artwork";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { encodeCardPng } from "@/lib/wallet/card-scan-raster";
 import { Blob as NodeBlob } from "node:buffer";
@@ -140,7 +140,7 @@ describe("WalletService", () => {
     await expect(WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add", reserveCardId })).rejects.toThrow("uncertain");
     const saved = await WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add", reserveCardId });
     expect(saved.cardId).toBe(`card_${draftId.toLowerCase()}`); expect(reserveCardId).toHaveBeenCalledOnce();
-    const ids = mockStoreWalletDomain.mock.calls.map(([call]) => Object.keys(call.applyMutation({}).summary));
+    const ids = await Promise.all(mockStoreWalletDomain.mock.calls.map(async ([call]) => Object.keys((await call.applyMutation({})).summary)));
     expect(ids).toEqual([[saved.cardId], [saved.cardId]]);
     await expect(WalletService.addCard({ ...CONTEXT, card: { ...card, draftId: "-".repeat(36) }, surface: "web", source: "one_wallet_add" })).rejects.toThrow("Invalid card draft");
   });
@@ -149,7 +149,7 @@ describe("WalletService", () => {
     networkApi.fetch.mockImplementation(async (url) => url.endsWith("/artwork/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: false, allowOverlay: false }] })) : new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
     const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030, artwork }, surface: "web", source: "one_wallet_add" });
     expect(saved.artwork).toEqual({ source: "neutral", version: 1 });
-    const result = mockStoreWalletDomain.mock.calls[0]![0].applyMutation({}); expect(result.artwork[saved.cardId]).toEqual(saved.artwork);
+    const result = await mockStoreWalletDomain.mock.calls[0]![0].applyMutation({}); expect(result.artwork[saved.cardId]).toEqual(saved.artwork);
     await expect(WalletService.updateCardArtwork({ ...CONTEXT, cardId: saved.cardId, artwork })).rejects.toThrow("approval changed");
   });
   it("prepares an existing owner's card unchanged and refuses stale or missing cards", async () => {
@@ -279,7 +279,7 @@ describe("WalletService", () => {
     const call = mockStoreWalletDomain.mock.calls[0][0];
     expect(call.scopePath).toBe("summary");
     expect(call.confirmation).toMatchObject({ confirmedByUser: true, surface: "chat" });
-    const mutated = call.applyMutation({});
+    const mutated = await call.applyMutation({});
     expect(mutated.secrets[saved.cardId]).toMatchObject({
       pan: "378282246310005",
     });
@@ -306,7 +306,7 @@ describe("WalletService", () => {
     });
     const call = mockStoreWalletDomain.mock.calls[0][0];
     const original = structuredClone(DOMAIN_DATA);
-    const mutated = call.applyMutation(original);
+    const mutated = await call.applyMutation(original);
     expect(saved.summary).toMatchObject({ brand: "jcb", issuingRegion: "", nickname: "" });
     expect(mutated.secrets[saved.cardId]).not.toHaveProperty("pin");
     expect(mutated.secrets[saved.cardId]).not.toHaveProperty("cvv");
@@ -336,7 +336,7 @@ describe("WalletService", () => {
       source: "test",
     });
     const call = mockStoreWalletDomain.mock.calls[0][0];
-    const mutated = call.applyMutation(structuredClone(DOMAIN_DATA));
+    const mutated = await call.applyMutation(structuredClone(DOMAIN_DATA));
     expect(mutated.summary).not.toHaveProperty(CARD_ID);
     expect(mutated.secrets).not.toHaveProperty(CARD_ID);
   });
@@ -374,7 +374,7 @@ it("preserves newly supported backend networks in options, resolution, storage a
  networkApi.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ network: "future_network", source: "owner_selected", candidates: [] })));
  const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", brand: "future_network", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
  expect(saved.summary.brand).toBe("future_network");
- mockLoadDomainData.mockResolvedValueOnce(mockStoreWalletDomain.mock.calls[0][0].applyMutation({}));
+ mockLoadDomainData.mockResolvedValueOnce(await mockStoreWalletDomain.mock.calls[0][0].applyMutation({}));
  expect((await WalletService.listCardSummaries(CONTEXT))[0].brand).toBe("future_network");
 });
 it("rejects malformed backend catalogue entries instead of silently hiding options", async () => {
@@ -395,7 +395,7 @@ it("uses a neutral brand when backend identification fails", async () => {
  networkApi.fetch.mockResolvedValueOnce(new Response("private diagnostic", { status: 503 }));
  const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Test Owner", cvv: "123", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "test" });
  expect(saved.summary.brand).toBe("other");
- expect(JSON.stringify(mockStoreWalletDomain.mock.calls[0][0].applyMutation({}))).not.toContain("iinPrefix");
+ expect(JSON.stringify(await mockStoreWalletDomain.mock.calls[0][0].applyMutation({}))).not.toContain("iinPrefix");
 });
 it("normalizes existing stored casing without modifying a saved record", async () => {
  mockLoadDomainData.mockResolvedValueOnce({ ...DOMAIN_DATA, summary: { [CARD_ID]: { ...DOMAIN_DATA.summary[CARD_ID], brand: " Visa " } } });
@@ -442,7 +442,85 @@ it("fences the eventual vault publication and binds native identity to the owner
   advanceVaultSessionEpoch();
   expect(networkApi.fetch.mock.calls[0][1].isEffectCurrent()).toBe(false);
   expect(params.mayPublish()).toBe(false);
-  expect(() => params.applyMutation({})).toThrow("Wallet changed.");
+  await expect(params.applyMutation({})).rejects.toThrow("Wallet changed.");
 });
 
+});
+
+
+describe("automatic network artwork saves", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); });
+
+  it("allocates across issuers against the fresh mutation snapshot and retains images on retry and reload", async () => {
+    vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto);
+    const designs = await Promise.all(["alpha-bank", "beta-bank"].map(async (issuerId, index) => {
+      const blob = await encodeCardPng({ width: 4, height: 4, data: new Uint8ClampedArray(64).fill(120 + index) });
+      const bytes = await blob.arrayBuffer();
+      const digest = Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex");
+      return { bytes, variant: { assetId: issuerId, issuerId, productId: issuerId, variantId: "v1", label: issuerId, digest, image: `/api/one/wallet/card-access/artwork/assets/${digest}`, allowOverlay: false } };
+    }));
+    networkApi.fetch.mockImplementation(async (url, options) => {
+      if (url.endsWith("/networks/resolve")) return new Response(JSON.stringify({ network: "visa", source: "owner_selected", candidates: [] }));
+      if (url.endsWith("/artwork/banks")) return new Response(JSON.stringify({ catalogVersion: "atlas-test", network: "visa", selectionBasis: "network_illustration", requiresConfirmation: false, banks: [], bankKey: null, variants: designs.map(row => row.variant), nextOffset: null }));
+      if (url.endsWith("/validate")) return new Response(JSON.stringify({ selections: JSON.parse(options.body).selections.map((row: { assetId: string }) => ({ assetId: row.assetId, approved: true, allowOverlay: false })) }));
+      return new Response(designs.find(row => url.endsWith(row.variant.digest))!.bytes, { headers: { "Content-Type": "image/png" } });
+    });
+    let base: Record<string, any> = {};
+    const attempted: string[] = [];
+    mockStoreWalletDomain.mockImplementation(async params => {
+      // Two clients first see the same unused design. A genuine CAS conflict
+      // adds the first client's committed card before rebuilding this mutation.
+      const first = await params.applyMutation(base);
+      const id = Object.keys(first.summary)[0]!;
+      attempted.push(first.artwork[id].digest);
+      if (!Object.keys(base).length) {
+        base = { summary: { concurrent: { ...first.summary[id] } }, secrets: { concurrent: { pan: "4242424242424242", cardholder_name: "Other card" } }, artwork: { concurrent: first.artwork[id] } };
+      }
+      base = await params.applyMutation(base);
+      return { success: true };
+    });
+    const params = { ...CONTEXT, card: { draftId: "323e4567-e89b-12d3-a456-426614174000", pan: "4111111111111111", brand: "visa" as const, cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099 }, surface: "web" as const, source: "one_wallet_add" };
+    const first = await WalletService.addCard(params);
+    expect(attempted[0]).toBe(designs[0]!.variant.digest);
+    expect(first.artwork).toMatchObject({ digest: designs[1]!.variant.digest, evidence: "network_assigned" });
+    expect(base.artwork.concurrent.digest).toBe(designs[0]!.variant.digest);
+    const download = networkApi.fetch.getMockImplementation()!;
+    networkApi.fetch.mockImplementation(async (url, options) => url.includes("/assets/") ? new Response("Temporary outage", { status: 503 }) : download(url, options));
+    const retried = await WalletService.addCard(params);
+    expect(retried.cardId).toBe(first.cardId); expect(retried.artwork).toEqual(first.artwork);
+    mockLoadDomainData.mockResolvedValue(base);
+    const restored = await WalletService.listCardPresentations(CONTEXT);
+    expect(restored.find(row => row.summary.cardId === first.cardId)?.artwork).toEqual(first.artwork);
+    const requests = networkApi.fetch.mock.calls.filter(([url]) => url.endsWith("/artwork/banks"));
+    expect(requests).toHaveLength(2);
+    for (const [, options] of requests) expect(JSON.parse(options.body)).toEqual({ network: "visa", automatic: true, offset: 0 });
+    expect(networkApi.fetch.mock.calls.map(([, options]) => options?.body ?? "").join(" ")).not.toContain(params.card.pan);
+  });
+
+  it("omits optional artwork when the existing encrypted collection cannot fit another entry", async () => {
+    const artwork = { existing: "x".repeat(MAX_WALLET_ARTWORK_CHARACTERS - 16) };
+    const original = JSON.stringify(artwork);
+    vi.spyOn(WalletService, "networkArtwork").mockResolvedValue({ catalogVersion: "empty", variants: [] });
+    networkApi.fetch.mockResolvedValue(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
+    let saved: Record<string, any> = {};
+    mockStoreWalletDomain.mockImplementation(async params => { saved = await params.applyMutation({ artwork }); return { success: true }; });
+    const result = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099 }, surface: "web", source: "one_wallet_add" });
+    expect(saved.summary[result.cardId]).toBeTruthy();
+    expect(result.artwork).toBeUndefined();
+    expect(JSON.stringify(saved.artwork)).toBe(original);
+  });
+
+  it("saves neutral on an artwork outage, but refuses a stale owner's save during artwork loading", async () => {
+    mockStoreWalletDomain.mockImplementation(async params => { await params.applyMutation({}); return { success: true }; });
+    const card = { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099 };
+    networkApi.fetch.mockImplementation(async url => url.endsWith("/networks/resolve") ? new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })) : new Response("Unavailable", { status: 503 }));
+    await expect(WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add" })).resolves.toMatchObject({ summary: { brand: "visa" } });
+    mockStoreWalletDomain.mockClear();
+    networkApi.fetch.mockImplementation(async url => {
+      if (url.endsWith("/networks/resolve")) return new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] }));
+      advanceVaultSessionEpoch(); return new Response("Unavailable", { status: 503 });
+    });
+    await expect(WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add" })).rejects.toThrow("Wallet changed");
+    expect(mockStoreWalletDomain).not.toHaveBeenCalled();
+  });
 });
