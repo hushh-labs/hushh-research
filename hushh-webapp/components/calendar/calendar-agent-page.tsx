@@ -489,6 +489,8 @@ export function CalendarAgentPage({
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );
       setBusy(false);
+    } finally {
+      if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     }
   };
 
@@ -645,6 +647,7 @@ export function CalendarAgentPage({
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
+      {transitionDialog}
     </>;
   }
 

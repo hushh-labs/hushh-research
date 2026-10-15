@@ -80,7 +80,6 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
     "hussh_shared_files_bucket": "HUSSH_SHARED_FILES_BUCKET",
-    "pwm_tavily_api_key": "PWM_TAVILY_API_KEY",
     "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
     "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
     "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
@@ -1299,11 +1298,6 @@ def personal_agent_substrate_teardown_enabled() -> bool:
     the executor still requires an explicit dry_run=False -- two independent guards
     before a single resource is destroyed."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED"), default=False)
-
-
-def pwm_tavily_api_key() -> str:
-    hydrate_runtime_environment()
-    return str(os.getenv("PWM_TAVILY_API_KEY", "")).strip()
 
 
 @dataclass(frozen=True)

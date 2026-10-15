@@ -14701,7 +14701,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_hosted_backend_bounds_database_connection_fanout",
-      "value": 97
+      "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20020,7 +20020,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 1241
+      "value": 1242
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20173,7 +20173,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 719
+      "value": 748
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21307,7 +21307,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 833
+      "value": 836
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23846,7 +23846,7 @@
       "limit": 250,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": "RuntimeCapacityBudgetTest",
-      "value": 555
+      "value": 558
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25430,7 +25430,7 @@
       "limit": 500,
       "path": "scripts/ci/test_runtime_capacity_budget.py",
       "symbol": null,
-      "value": 620
+      "value": 623
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -45249,6 +45249,57 @@
     "source_revision": "6a77d6929097df3dabf9dbc89db85938e8e3db4a",
     "source_sha256": "260781682c70782f4d53baf6a4bf4fab4e70c446e79cecb1124335bc0cbdf584",
     "verification": "67 focused cases read back from their actual log. Focused mypy and owning runtime-configuration gate pass are parent-reported tool results. Exact committed-candidate core and deployed acceptance remain required."
+  },
+  "scope_commerce_final_integration_review_20261015": {
+    "entries": [
+      {
+        "after": 558,
+        "before": 555,
+        "key": "class_size|scripts/ci/test_runtime_capacity_budget.py|RuntimeCapacityBudgetTest|class exceeds the advisory operon budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "610df0fe8858d9a903f0934a1841de43fab77a063b7d80eea240739d78915466"
+      },
+      {
+        "after": 98,
+        "before": 97,
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_hosted_backend_bounds_database_connection_fanout|function exceeds the advisory gene budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "4c89a0cc55ff6052cf797b59ce2ea82ac30ddb8e069cb19d23dd8e1236582dd2"
+      },
+      {
+        "after": 1242,
+        "before": 1241,
+        "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "4c89a0cc55ff6052cf797b59ce2ea82ac30ddb8e069cb19d23dd8e1236582dd2"
+      },
+      {
+        "after": 836,
+        "before": 833,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "2f10d840f6c995222fa648d9576363b6e7c9a761be710a6cddd5c0190e2971a8"
+      },
+      {
+        "after": 748,
+        "before": 719,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "6d26cb8a9256ba060dfe791f4c8724a8c6d72d8b879f85457730db80a0ae0a85"
+      },
+      {
+        "after": 623,
+        "before": 620,
+        "key": "module_size|scripts/ci/test_runtime_capacity_budget.py||module exceeds the advisory operon budget",
+        "review": "Exact-size independent review: ci_voice_contract_review for unchanged capacity test semantics; main_frontend_reconciliation for Calendar owner-fenced consent review and busy-release regression. Preserve all prior limits and multiplicities.",
+        "source_sha256": "610df0fe8858d9a903f0934a1841de43fab77a063b7d80eea240739d78915466"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "reviewers": [
+      "ci_voice_contract_review",
+      "main_frontend_reconciliation"
+    ]
   },
   "scope_commerce_gmail_main_merge_20261012": {
     "after": 91,

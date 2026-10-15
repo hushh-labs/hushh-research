@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   navigateToAgentChat: vi.fn(),
   trackEvent: vi.fn(),
   connectCalendar: vi.fn(),
+  privateConnect: vi.fn(),
   ownerId: "calendar-user" as string | null,
   native: false,
   authLoading: false,
@@ -23,7 +24,7 @@ const mocks = vi.hoisted(() => ({
 // Connection/OAuth owner tests use the workspace composition seam; its real
 // event, keyboard and attendance behavior is covered in the connected suite.
 vi.mock("@/components/calendar/calendar-connected-workspace", () => ({
-  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
+  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect, onConnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void; onConnect: (access: "read" | "manage", includeList: boolean) => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button><button disabled={busy} onClick={() => onConnect("manage", true)}>Review Calendar scheduling</button></main>,
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -71,7 +72,12 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultKey: null, vaultOwnerToken: null }),
+  useVault: () => ({ vaultKey: mocks.vaultOwnerToken ? "synthetic-vault-key" : null, vaultOwnerToken: mocks.vaultOwnerToken }),
+}));
+
+vi.mock("@/lib/one/google-native-connect", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/one/google-native-connect")>(),
+  connectGoogleConnector: mocks.privateConnect,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), promise: vi.fn() } }));
@@ -171,6 +177,29 @@ describe("CalendarAgentPage", () => {
 
     fireEvent.click(chat);
     expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();
+  });
+
+  it("lets a connected private owner review and cancel replacing legacy Google access", async () => {
+    mocks.vaultOwnerToken = "synthetic-owner-capability";
+    mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "byoc" });
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "read" });
+    const reviewed = vi.fn();
+    mocks.privateConnect.mockImplementation(async (_service, options) => {
+      const approved = await options.confirmLegacyTransition({ services: ["calendar"], scope: "all_google_project_grants" });
+      reviewed(approved);
+      return { ok: false, code: "SIGN_IN_CANCELLED" };
+    });
+    render(<CalendarAgentPage />);
+    const upgrade = await screen.findByRole("button", { name: "Review Calendar scheduling" });
+    fireEvent.click(upgrade);
+    await screen.findByRole("dialog", { name: "Replace Google access?" });
+    expect(reviewed).not.toHaveBeenCalled();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(reviewed).toHaveBeenCalledExactlyOnceWith(false));
+    await waitFor(() => expect(upgrade).not.toBeDisabled());
+    expect(screen.queryByRole("dialog", { name: "Replace Google access?" })).toBeNull();
+    expect(mocks.privateConnect).toHaveBeenCalledOnce();
   });
 
   it("opens One chat for a connected read-only Calendar", async () => {

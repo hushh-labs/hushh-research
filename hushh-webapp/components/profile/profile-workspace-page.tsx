@@ -185,6 +185,7 @@ import {
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   popProfilePaneLocation,
   pushProfilePaneLocation,
@@ -2850,7 +2851,9 @@ function ProfilePageContent({
 
   const popProfileStack = () => {
     if (isPanePresentation) {
-      popProfilePaneLocation(pathname, searchParams);
+      if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
+        popProfilePaneLocation(pathname, searchParams);
+      }
       return;
     }
     if (activeDetail) {
@@ -4903,7 +4906,7 @@ function ProfilePageContent({
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}
       onClose={() => onNativeMenuClose?.()}
-      onBack={() => popProfilePaneLocation(pathname, searchParams)}>{page}</NativeFeaturePage>
+      onBack={popProfileStack}>{page}</NativeFeaturePage>
   </>;
 }
 

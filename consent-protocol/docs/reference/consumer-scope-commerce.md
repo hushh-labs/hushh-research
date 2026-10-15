@@ -29,7 +29,7 @@ or payout.
 
 ### Current Dev evidence — 2026-10-15 UTC
 
-At `2026-10-15T03:49:23Z`, fresh signed-provider reads confirm both reviewers'
+At `2026-10-15T04:54:04Z`, fresh authenticated Stripe reads confirm both reviewers'
 information-access Connect accounts have completed details, enabled payouts,
 active transfers, manual schedules and an eligible USD bank destination, with
 no remaining due fields. Funding remains $10.50 per reviewer and cumulative
@@ -53,16 +53,26 @@ delay, stepped interpolation and a delayed handler across both engines. Controll
 interpolation is not presented-frame or FPS proof; physical latency remains
 separate evidence.
 
-Normal integration of main `c8faf48dd668` is being reconciled in the existing
-verification checkout. Fresh main `ef703daa8981` adds the reviewed three-file
-UAT connection-budget update; it is the next normal merge target. The root
-branch and ten independently hash-verified unrelated edits remain preserved.
-Focused integrated checks pass 478 backend/CI cases, 47 corrected frontend
-cases, 34 setup-admission cases, 462 Back cases and 40 UAT deployment contracts.
+Normal merges `b1ddad85be8d` and `de4f5aa20056` incorporate main through
+`ef703daa8981` in the existing verification checkout, including its three-file
+UAT connection-budget update. The root branch and ten independently hash-verified
+unrelated edits remain preserved. Focused integrated checks pass 478 backend/CI
+cases, 47 corrected frontend cases, 34 setup-admission cases, 462 Back cases and
+40 UAT deployment contracts. The fresh capacity pack passes 13 cases. Final
+preservation review identified a missing Calendar access-review dialog and its
+private cancellation busy-state release; the nearest Calendar/Profile pack now
+passes 52 cases. Runtime/settings/capability revision controls pass 59 cases.
+Native Profile Back now uses the existing pane-scoped review authority; physical
+native behavior remains a separate handoff.
 The integration archives and relocates only the unapplied private migration
 tail to 349–355, retaining main's owners and exact SQL/rollback bodies.
 Independent review qualifies exact size-only integration debt under unchanged
 500/250/80 architecture budgets; it does not establish deployed correctness.
+Setup semantic retirements name only incoming revision `5dd05b725c815199` for
+three hosting-aware descriptions; all eight predecessor refs and prior retirements
+remain. The unused Tavily runtime getter/map was removed to preserve main's native
+research provider path. Optional Tavily deployment wiring remains unused compatibility
+debt owned by repository operations; no active backend caller was found.
 No database mutation or Dev promotion follows from this local composition.
 Shared Dev still serves `5c2d1483aa06`; final merged core, hosted CI, deployment
 and reviewer financial acceptance remain open.
