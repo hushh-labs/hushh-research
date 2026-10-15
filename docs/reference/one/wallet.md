@@ -533,7 +533,13 @@ fonts, compact 44+ px controls, Back behavior and reduced motion.
 Browser proof does not establish Samsung Internet or physical mobile camera
 compatibility. iOS compile/device proof requires a Mac. Android production build
 and authenticated device rehearsal require the approved local Firebase config;
-any isolated compilation performed without that config is explicitly limited.
+the owned Android rehearsal compiled Kotlin, assembled and installed a debug
+APK using an external local Gradle init script that warned on missing Google
+Services configuration. Its static web build covered the root and Wallet routes,
+not the complete native release export. App startup stopped at the existing
+Firebase initialization requirement, so this proves compilation and packaging,
+not camera permissions, capture, gallery, file cleanup or authenticated runtime
+behavior. No replacement Firebase configuration was fabricated or committed.
 Licensed product coverage, historical credential retention and native/device
 rehearsals must be approved before this draft feature is released. No deploy or
 merge is part of this task.
