@@ -1,0 +1,34 @@
+name: UAT Job Rerun Canary Wake Observer
+
+on:
+  workflow_run:
+    workflows: [UAT Dependent Job Rerun Output Canary]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report whether the canary completion produced a workflow wake
+    if: >-
+      github.event.workflow_run.path == '.github/workflows/uat-dependent-job-rerun-canary.yml' &&
+      github.event.workflow_run.repository.full_name == 'hushh-labs/hushh-research' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record source attempt and triggering actor
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          SOURCE_TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
+        run: |
+          {
+            echo "Canary run: $SOURCE_RUN_ID"
+            echo "Attempt: $SOURCE_ATTEMPT"
+            echo "Conclusion: $SOURCE_CONCLUSION"
+            echo "Original actor: $SOURCE_ACTOR"
+            echo "Triggering actor: $SOURCE_TRIGGERING_ACTOR"
+          } >> "$GITHUB_STEP_SUMMARY"

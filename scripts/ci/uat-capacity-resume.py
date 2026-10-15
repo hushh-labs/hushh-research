@@ -31,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "hushh-labs/hushh-research"
 DEPLOY_WORKFLOW = ".github/workflows/deploy-uat.yml"
 MAINTENANCE_WORKFLOW = ".github/workflows/capacity-maintenance.yml"
+CANARY_WORKFLOW = ".github/workflows/uat-dependent-job-rerun-canary.yml"
+CANARY_CONTROL_WORKFLOW = ".github/workflows/uat-rerun-canary-control.yml"
 TARGET_ARTIFACT = "uat-capacity-target-a1"
 DEFERRED_ARTIFACT = "uat-capacity-deferred-a1"
 CHECKPOINT_ARTIFACT = "uat-retention-state"
@@ -649,6 +651,59 @@ def post_verified_resume(run_id: int, target_run_id: int, proof_unix: int) -> st
     return f"RESUMED: run {target_run_id} wait-capacity job {wait_job['id']}"
 
 
+def rerun_platform_canary(run_id: int) -> str:
+    require(positive_int(run_id), "canary run ID is invalid")
+    require(os.environ.get("GITHUB_REPOSITORY") == REPOSITORY, "canary controller repository changed")
+    require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "canary controller is not manual")
+    require(os.environ.get("GITHUB_REF_NAME") == "main", "canary controller was not dispatched on main")
+    require(
+        os.environ.get("GITHUB_WORKFLOW_REF")
+        == f"{REPOSITORY}/{CANARY_CONTROL_WORKFLOW}@refs/heads/main",
+        "canary controller workflow changed",
+    )
+    require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "canary controller was rerun")
+    actor = os.environ.get("GITHUB_ACTOR", "")
+    command(sys.executable, str(ROOT / "scripts/ci/assert-governed-actor.py"),
+            "--surface", "uat", "--actor", actor)
+    source = api(f"runs/{run_id}")
+    validate_run(source, CANARY_WORKFLOW)
+    require(
+        source.get("event") == "workflow_dispatch"
+        and source.get("status") == "completed"
+        and source.get("conclusion") == "failure"
+        and source.get("run_attempt") == 1
+        and (source.get("actor") or {}).get("login") == actor,
+        "canary source is not the caller's first-attempt manual failure",
+    )
+    jobs = jobs_for(source)
+    require(
+        set(jobs) == {
+            "Record original upstream outputs",
+            "Fail once, then require preserved upstream outputs",
+            "Confirm the dependent job inherits the same original outputs",
+        },
+        "canary source jobs are incomplete",
+    )
+    selected = jobs["Record original upstream outputs"]
+    waiting = jobs["Fail once, then require preserved upstream outputs"]
+    dependent = jobs["Confirm the dependent job inherits the same original outputs"]
+    require(
+        selected.get("conclusion") == "success"
+        and waiting.get("conclusion") == "failure"
+        and dependent.get("conclusion") == "skipped"
+        and step_success(selected, "Bind the original SHA and attempt")
+        and positive_int(waiting.get("id")),
+        "canary did not fail at the intended dependent-job boundary",
+    )
+    steps = waiting.get("steps")
+    require(isinstance(steps, list), "canary wait steps are unavailable")
+    failures = [step.get("name") for step in steps if step.get("conclusion") == "failure"]
+    require(failures == ["Exercise a job-specific rerun"], "canary failed for another reason")
+    command("gh", "api", "-X", "POST",
+            f"repos/{REPOSITORY}/actions/jobs/{waiting['id']}/rerun")
+    return f"CANARY_RERUN: run {run_id} wait job {waiting['id']}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -675,6 +730,8 @@ def main() -> int:
     writer.add_argument("--maintenance-run-id", type=int, required=True)
     writer.add_argument("--target-run-id", type=int, required=True)
     writer.add_argument("--proof-unix", type=int, required=True)
+    canary = sub.add_parser("rerun-canary")
+    canary.add_argument("--run-id", type=int, required=True)
     args = parser.parse_args()
     try:
         if args.command == "emit-target":
@@ -699,6 +756,8 @@ def main() -> int:
             print(post_verified_resume(
                 args.maintenance_run_id, args.target_run_id, args.proof_unix
             ))
+        elif args.command == "rerun-canary":
+            print(rerun_platform_canary(args.run_id))
         else:
             require(args.maintenance_run_id > 0, "maintenance ID is invalid")
             print(resume_after_maintenance(

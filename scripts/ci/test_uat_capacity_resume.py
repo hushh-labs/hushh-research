@@ -372,6 +372,54 @@ class AuthorityTests(unittest.TestCase):
                 with self.assertRaisesRegex(resume.UnsafeResume, "did not complete"):
                     resume.verify_maintenance(77)
 
+    def test_token_canary_posts_only_exact_failed_wait_job(self) -> None:
+        original = workflow_run()
+        original["path"] = resume.CANARY_WORKFLOW
+        waiting = job("Fail once, then require preserved upstream outputs", "failure", [
+            ("Exercise a job-specific rerun", "failure"),
+        ])
+        jobs = {
+            "Record original upstream outputs": job(
+                "Record original upstream outputs", "success", [
+                    ("Bind the original SHA and attempt", "success")
+                ],
+            ),
+            waiting["name"]: waiting,
+            "Confirm the dependent job inherits the same original outputs": job(
+                "Confirm the dependent job inherits the same original outputs", "skipped", []
+            ),
+        }
+        variables = {
+            "GITHUB_REPOSITORY": resume.REPOSITORY,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REF_NAME": "main",
+            "GITHUB_WORKFLOW_REF": (
+                f"{resume.REPOSITORY}/{resume.CANARY_CONTROL_WORKFLOW}@refs/heads/main"
+            ),
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_ACTOR": "ankitkumarsingh1702",
+        }
+        with patch.dict(os.environ, variables), patch.object(
+            resume, "api", return_value=original
+        ), patch.object(resume, "jobs_for", return_value=jobs), patch.object(
+            resume, "command"
+        ) as command:
+            self.assertIn("CANARY_RERUN", resume.rerun_platform_canary(original["id"]))
+            self.assertEqual(command.call_count, 2)
+            command.assert_any_call(
+                "gh", "api", "-X", "POST",
+                f"repos/{resume.REPOSITORY}/actions/jobs/{waiting['id']}/rerun",
+            )
+            original["run_attempt"] = 2
+            with self.assertRaisesRegex(resume.UnsafeResume, "first-attempt"):
+                resume.rerun_platform_canary(original["id"])
+            self.assertEqual(command.call_count, 3)  # Governed actor check only.
+            original["run_attempt"] = 1
+            waiting["steps"] = [{"name": "Different failure", "conclusion": "failure"}]
+            with self.assertRaisesRegex(resume.UnsafeResume, "another reason"):
+                resume.rerun_platform_canary(original["id"])
+            self.assertEqual(command.call_count, 4)
+
 
 class WorkflowTests(unittest.TestCase):
     def test_actions_write_is_confined_to_flagged_resume_job(self) -> None:
