@@ -217,6 +217,29 @@ describe("owner packets as a history list", () => {
     expect(state.listing).toHaveBeenCalledOnce();
   });
 
+  it("keeps the rows from Load more when the list refreshes, as Payouts history does", async () => {
+    let pageTwo!: (value: unknown) => void;
+    state.packets.mockReset()
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [listed], nextCursor: "page-2" }; })
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [ready], nextCursor: null }; })
+      // The periodic refresh brings back both pages, the second one later.
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [listed], nextCursor: "page-2" }; })
+      .mockImplementationOnce(() => new Promise(done => { pageTwo = done; }));
+    const view = render(<DrivePacketCatalog />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await screen.findByRole("button", { name: /^Example Bank statements/ });
+    view.rerender(<DrivePacketCatalog refreshKey={1} />);
+    await waitFor(() => expect(state.packets).toHaveBeenCalledTimes(4));
+    expect(state.packets).toHaveBeenNthCalledWith(3, "private-token", expect.any(Function), undefined, undefined);
+    expect(state.packets).toHaveBeenLastCalledWith("private-token", expect.any(Function), undefined, "page-2");
+    // Until the whole refresh is in, the rows on screen stay.
+    expect(row("Example Bank statements")).toHaveTextContent("Ready to list");
+    await act(async () => pageTwo({ packets: [{ ...ready, listingEnabled: true, listingRevision: 1 }], nextCursor: null }));
+    await waitFor(() => expect(row("Example Bank statements")).toHaveTextContent("Listed"));
+    expect(row("Example Utility bills")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
   it("explains a changed packet and reloads it", async () => {
     state.listing.mockRejectedValueOnce(Object.assign(new Error("changed"), { code: "listing_changed" }));
     render(<DrivePacketCatalog />);

@@ -67,16 +67,26 @@ function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, prepa
   // The open packet is the version last seen in the list.
   const [opened, setOpened] = useState<DrivePacket | null>(null);
   const serial = useRef(0);
+  // Pages on screen. A reload (the owner's periodic refresh, or after an action) brings back as
+  // many and swaps them in at once, so rows from Load more survive it, as in Payouts history.
+  const pages = useRef(1);
   const load = useCallback(async (next?: string | null) => {
     const attempt = ++serial.current;
     setBusy(true); setError(false);
     const current = () => { guard(); if (attempt !== serial.current) throw new Error("superseded"); };
     try {
-      const result = await DrivePacketService.packets(token, current, ownerPersonRef, next);
-      current();
-      setPackets(previous => next ? [...previous.filter(packet => !result.packets.some(p => p.packetId === packet.packetId)), ...result.packets] : result.packets);
-      setOpened(previous => previous && (result.packets.find(packet => packet.packetId === previous.packetId) ?? previous));
-      setCursor(result.nextCursor); setLoaded(true);
+      const wanted = next ? 1 : pages.current;
+      let fetched: DrivePacket[] = [], after = next ?? undefined, nextCursor: string | null = null, count = 0;
+      do {
+        const result = await DrivePacketService.packets(token, current, ownerPersonRef, after);
+        current();
+        fetched = [...fetched.filter(packet => !result.packets.some(p => p.packetId === packet.packetId)), ...result.packets];
+        nextCursor = result.nextCursor; after = nextCursor ?? undefined; count += 1;
+      } while (nextCursor && count < wanted);
+      setPackets(previous => next ? [...previous.filter(packet => !fetched.some(p => p.packetId === packet.packetId)), ...fetched] : fetched);
+      setOpened(previous => previous && (fetched.find(packet => packet.packetId === previous.packetId) ?? previous));
+      setCursor(nextCursor); setLoaded(true);
+      pages.current = next ? pages.current + 1 : count;
     } catch { try { current(); setError(true); } catch { /* Superseded private view. */ } }
     finally { try { current(); setBusy(false); } catch { /* Superseded private view. */ } }
   }, [guard, ownerPersonRef, token]);
@@ -86,8 +96,7 @@ function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, prepa
   const close = () => { setOpened(null); opener.restore(); };
   const live = opened ? packets.find(packet => packet.packetId === opened.packetId) ?? null : null;
   const requests = useBuyerPacketRequests();
-  // A reload (after an action, or the owner's periodic refresh) starts from the first page. An open
-  // packet may sit further on: load on until it is found or the list ends.
+  // An open packet may have moved past the pages on screen: load on until it is found or the list ends.
   useEffect(() => {
     if (opened && !live && cursor && !busy && !error) void load(cursor);
   }, [busy, cursor, error, live, load, opened]);
