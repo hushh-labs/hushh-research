@@ -71,6 +71,8 @@ _NAMED_MONTH_YEAR = re.compile(
 )
 _DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{4}})\b", re.I)
 _MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
+ACCOUNT_MISMATCH = "Documents name different accounts"
+HOLDER_MISMATCH = "Documents name different account holders"
 
 
 class EvidenceValidationError(ValueError):
@@ -517,6 +519,62 @@ def _check_requested_event_claims(packet, selected_facts):
         raise ValueError("requested packet wording mismatch")
 
 
+def _fact_value(facts, key):
+    """Read one extracted fact from full facts or the checker's compact evidence."""
+    value = facts.get(key) if isinstance(facts, dict) else None
+    if isinstance(value, dict):
+        value = value.get("value")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _account_identifier(value):
+    """The last four digits of a full or masked account number, else nothing."""
+    digits = re.findall(r"\d", value or "")
+    return "".join(digits[-4:]) if len(digits) >= 4 else None
+
+
+def _holder_name(value):
+    return " ".join(re.sub(r"[\W_]+", " ", value or "").casefold().split()) or None
+
+
+def _account_mismatch(selected_facts):
+    """Read the extracted account facts deterministically; never guess which is right.
+
+    Members with no account fact are left to the model checker. The facts
+    contract carries no owner identity, joint holders or aliases, so a holder
+    name that differs across account records is reported, not reconciled.
+    """
+    accounts = [facts for facts in selected_facts if _fact_value(facts, "account")]
+    identifiers = {
+        identifier
+        for facts in accounts
+        if (identifier := _account_identifier(_fact_value(facts, "account")))
+    }
+    if len(identifiers) > 1:
+        return ACCOUNT_MISMATCH
+    holders = {
+        holder
+        for facts in (selected_facts if accounts else [])
+        if (holder := _holder_name(_fact_value(facts, "subject")))
+    }
+    if len(holders) > 1:
+        return HOLDER_MISMATCH
+    return None
+
+
+def _close_account_mismatch(packet, selected_facts):
+    """Ready cannot rest on the model checker when the sources disagree about the account.
+
+    The packet closes as Incomplete with the reason visible; the host does not
+    pick a member and the model is not asked to guess again.
+    """
+    reason = _account_mismatch(selected_facts)
+    if reason is None:
+        return
+    packet.state = "incomplete"
+    packet.gaps = [*packet.gaps, reason]
+
+
 async def consolidate_facts(
     *, user_id, previous, page_facts, complete, canonical_context=None, interpret=_interpret
 ):
@@ -636,8 +694,9 @@ async def construct_packet(
         if result.state == "ready":
             _require_distinct_member_content(documents, selected)
             _require_dated_periods([period.model_dump() for period in result.periods])
-        if result.state == "ready" and not complete:
-            raise ValueError("unfinished assembly cannot be ready")
+            if not complete:
+                raise ValueError("unfinished assembly cannot be ready")
+            _close_account_mismatch(result, selected_facts)
 
     return await _ask(
         "canonical_packet",
@@ -684,12 +743,12 @@ async def verify_packet(
             proposal = PacketProposal.model_validate(
                 {key: value for key, value in packet.items() if key != "document_request"}
             )
+            selected_facts = [
+                item.get("facts") if isinstance(item.get("facts"), dict) else item
+                for item in documents
+                if item["document_id"] in set(selected)
+            ]
             if scope_mode in {"complete_compact_summary", "complete_current_request_packet"}:
-                selected_facts = [
-                    item.get("facts") if isinstance(item.get("facts"), dict) else item
-                    for item in documents
-                    if item["document_id"] in set(selected)
-                ]
                 _require_source_periods(
                     [period.model_dump() for period in proposal.periods],
                     [
@@ -715,6 +774,13 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
+            reason = _account_mismatch(selected_facts)
+            if reason is not None:
+                # A batch or final checker that certifies members naming different
+                # accounts is overruled by the extracted facts, with the reason kept.
+                result.state = "incomplete"
+                result.correct_subject_and_account = False
+                result.issues = [*result.issues, reason][:64]
         if (
             result.state != "ready"
             and "selected_document_ids" in packet
