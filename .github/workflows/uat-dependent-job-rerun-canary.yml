@@ -1,0 +1,55 @@
+name: UAT Dependent Job Rerun Output Canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    name: Record original upstream outputs
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.bind.outputs.sha }}
+      attempt: ${{ steps.bind.outputs.attempt }}
+    steps:
+      - name: Bind the original SHA and attempt
+        id: bind
+        run: |
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  wait:
+    name: Fail once, then require preserved upstream outputs
+    needs: select
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exercise a job-specific rerun
+        env:
+          SELECTED_SHA: ${{ needs.select.outputs.sha }}
+          SELECTED_ATTEMPT: ${{ needs.select.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
+            echo "Expected first-attempt failure. Rerun this job, not the whole workflow."
+            exit 1
+          fi
+          test "$SELECTED_ATTEMPT" = 1
+          test "$SELECTED_SHA" = "$GITHUB_SHA"
+
+  dependent:
+    name: Confirm the dependent job inherits the same original outputs
+    needs: [select, wait]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert exact original upstream outputs
+        env:
+          SELECTED_SHA: ${{ needs.select.outputs.sha }}
+          SELECTED_ATTEMPT: ${{ needs.select.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" -gt 1
+          test "$SELECTED_ATTEMPT" = 1
+          test "$SELECTED_SHA" = "$GITHUB_SHA"
+          echo "Job-specific rerun preserved select outputs and ran its dependent." >> "$GITHUB_STEP_SUMMARY"

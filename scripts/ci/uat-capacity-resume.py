@@ -5,8 +5,8 @@
 
 Only the completed maintenance workflow can wake this controller. It never
 deletes a Cloud Run revision or dispatches a new deployment. The ordinary
-wait-capacity and deploy jobs still repeat their own admission under the
-existing UAT mutation lock.
+wait-capacity job observes capacity outside the lock; deploy rechecks under
+the existing UAT mutation lock.
 """
 
 from __future__ import annotations
@@ -296,6 +296,62 @@ def read_receipt(run_id: int, name: str, filename: str) -> dict[str, Any] | None
     return value
 
 
+def read_uat_checkpoint(run_id: int) -> dict[str, Any]:
+    item = artifact(run_id, CHECKPOINT_ARTIFACT)
+    require(item is not None, "maintenance checkpoint is missing")
+    archive = command(
+        "gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{item['id']}/zip", binary=True
+    )
+    require(isinstance(archive, bytes), "checkpoint download was not binary")
+    require(
+        len(archive) == item["size_in_bytes"]
+        and hashlib.sha256(archive).hexdigest() == item["digest"].removeprefix("sha256:"),
+        "maintenance checkpoint digest changed",
+    )
+    allowed = {
+        "README.txt", "completed.json", "consent-protocol.json", "hushh-webapp.json",
+        "consent-protocol-drive-worker.json",
+    }
+    try:
+        with ZipFile(BytesIO(archive)) as bundle:
+            entries = bundle.infolist()
+            names = [entry.filename for entry in entries]
+            require(
+                len(entries) <= len(allowed) and len(names) == len(set(names))
+                and "completed.json" in names
+                and all(
+                    entry.filename in allowed and not entry.is_dir() and entry.file_size <= 65536
+                    for entry in entries
+                ),
+                "maintenance checkpoint archive is malformed",
+            )
+            value = json.loads(bundle.read("completed.json"))
+    except (OSError, ValueError, UnicodeError, BadZipFile) as exc:
+        raise UnsafeResume("maintenance checkpoint could not be decoded") from exc
+    require(isinstance(value, dict), "maintenance checkpoint is not an object")
+    return value
+
+
+def checkpoint_complete(value: dict[str, Any]) -> bool:
+    require(
+        type(value.get("schema_version")) is int and value["schema_version"] == 1
+        and type(value.get("checkpoint_version")) is int and value["checkpoint_version"] == 2
+        and value.get("environment") == "uat"
+        and value.get("project") == "hushh-pda-uat"
+        and positive_int(value.get("release_run_id"))
+        and positive_int(value.get("observed_run_id"))
+        and value.get("pass_status") in {"complete", "in_progress", "deferred", "unresolved"}
+        and isinstance(value.get("pending_services"), list)
+        and all(isinstance(service, str) for service in value["pending_services"])
+        and len(value["pending_services"]) == len(set(value["pending_services"]))
+        and set(value["pending_services"]).issubset({
+            "consent-protocol", "hushh-webapp", "consent-protocol-drive-worker"
+        }),
+        "maintenance checkpoint authority is invalid",
+    )
+    return value["pass_status"] == "complete" and value["pending_services"] == []
+
+
 def receipt_for(run: dict[str, Any], kind: str) -> dict[str, Any] | None:
     name, filename = (
         (TARGET_ARTIFACT, "uat-capacity-target.json") if kind == "target"
@@ -399,7 +455,9 @@ def no_superseding_run(run: dict[str, Any], selected_sha: str) -> None:
         other_sha = target["selected_sha"]
         if ancestor(selected_sha, other_sha):
             raise UnsafeResume("newer UAT selected target supersedes capacity retry")
-        require(ancestor(other_sha, selected_sha), "UAT targets lack a main ancestry order")
+        if ancestor(other_sha, selected_sha):
+            raise UnsafeResume("newer UAT rollback request supersedes capacity retry")
+        raise UnsafeResume("newer UAT target lacks a main ancestry order")
 
 
 def checked_capacity_receipt(
@@ -458,7 +516,8 @@ def verify_maintenance(run_id: int) -> bool:
     source = api(f"runs/{run_id}")
     validate_run(source, MAINTENANCE_WORKFLOW)
     require(
-        source.get("status") == "completed" and source.get("conclusion") == "success"
+        source.get("status") == "completed"
+        and source.get("conclusion") in {"success", "failure"}
         and source.get("run_attempt") == payload.get("run_attempt")
         and source.get("head_sha") == payload.get("head_sha")
         and path_of(payload) == MAINTENANCE_WORKFLOW,
@@ -481,8 +540,7 @@ def verify_maintenance(run_id: int) -> bool:
         and step_success(cleanup, "Report cleanup independently of release health"),
         "maintenance did not complete an authenticated UAT cleanup",
     )
-    require(artifact(run_id, CHECKPOINT_ARTIFACT) is not None, "maintenance checkpoint is missing")
-    return True
+    return checkpoint_complete(read_uat_checkpoint(run_id))
 
 
 def check_live_capacity(receipt: dict[str, Any]) -> None:
@@ -545,9 +603,9 @@ def verify_original_on_rerun(selected_sha: str, requested_scope: str, check_supe
         no_superseding_run(run, selected_sha)
 
 
-def resume_after_maintenance(run_id: int, *, apply: bool) -> str:
+def resume_after_maintenance(run_id: int, *, github_output: Path | None = None) -> str:
     if not verify_maintenance(run_id):
-        return "NO_OP: maintenance found no due UAT cleanup"
+        return "NO_OP: maintenance did not complete UAT cleanup"
     since = datetime.now(timezone.utc) - timedelta(days=7)
     runs = recent_runs(DEPLOY_WORKFLOW, newest_since=since)
     for original in runs:
@@ -566,14 +624,29 @@ def resume_after_maintenance(run_id: int, *, apply: bool) -> str:
         current = api(f"runs/{original['id']}")
         verify_deferred_failure(current)
         no_superseding_run(current, receipt["selected_sha"])
-        if not apply:
-            return f"READY: run {original['id']} job is eligible for one exact-target rerun"
-        wait_job = jobs_for(current)["Wait for UAT capacity outside the mutation lock"]
-        require(positive_int(wait_job.get("id")), "capacity wait job ID is invalid")
-        command("gh", "api", "-X", "POST",
-                f"repos/{REPOSITORY}/actions/jobs/{wait_job['id']}/rerun")
-        return f"RESUMED: run {original['id']} wait-capacity job {wait_job['id']}"
+        if github_output is not None:
+            with github_output.open("a", encoding="utf-8") as output:
+                output.write("ready=true\n")
+                output.write(f"target_run_id={original['id']}\n")
+                output.write(f"proof_unix={int(datetime.now(timezone.utc).timestamp())}\n")
+        return f"READY: run {original['id']} job is eligible for one exact-target rerun"
     return "NO_OP: no first-attempt capacity deferral with a verified receipt"
+
+
+def post_verified_resume(run_id: int, target_run_id: int, proof_unix: int) -> str:
+    now = int(datetime.now(timezone.utc).timestamp())
+    require(positive_int(proof_unix) and 0 <= now - proof_unix <= 300,
+            "fresh capacity proof is missing or older than five minutes")
+    require(positive_int(target_run_id), "proved UAT run ID is invalid")
+    require(verify_maintenance(run_id), "maintenance no longer proves completed UAT cleanup")
+    original = api(f"runs/{target_run_id}")
+    receipt = verify_deferred_failure(original)
+    no_superseding_run(original, receipt["selected_sha"])
+    wait_job = jobs_for(original)["Wait for UAT capacity outside the mutation lock"]
+    require(positive_int(wait_job.get("id")), "capacity wait job ID is invalid")
+    command("gh", "api", "-X", "POST",
+            f"repos/{REPOSITORY}/actions/jobs/{wait_job['id']}/rerun")
+    return f"RESUMED: run {target_run_id} wait-capacity job {wait_job['id']}"
 
 
 def main() -> int:
@@ -597,7 +670,11 @@ def main() -> int:
     source.add_argument("--maintenance-run-id", type=int, required=True)
     resume = sub.add_parser("resume-after-maintenance")
     resume.add_argument("--maintenance-run-id", type=int, required=True)
-    resume.add_argument("--apply", action="store_true")
+    resume.add_argument("--github-output", type=Path)
+    writer = sub.add_parser("post-verified-resume")
+    writer.add_argument("--maintenance-run-id", type=int, required=True)
+    writer.add_argument("--target-run-id", type=int, required=True)
+    writer.add_argument("--proof-unix", type=int, required=True)
     args = parser.parse_args()
     try:
         if args.command == "emit-target":
@@ -617,9 +694,16 @@ def main() -> int:
         elif args.command == "verify-maintenance":
             require(args.maintenance_run_id > 0, "maintenance ID is invalid")
             print("READY" if verify_maintenance(args.maintenance_run_id) else "NO_OP")
+        elif args.command == "post-verified-resume":
+            require(args.maintenance_run_id > 0, "maintenance ID is invalid")
+            print(post_verified_resume(
+                args.maintenance_run_id, args.target_run_id, args.proof_unix
+            ))
         else:
             require(args.maintenance_run_id > 0, "maintenance ID is invalid")
-            print(resume_after_maintenance(args.maintenance_run_id, apply=args.apply))
+            print(resume_after_maintenance(
+                args.maintenance_run_id, github_output=args.github_output
+            ))
     except (UnsafeResume, subprocess.TimeoutExpired) as exc:
         print(f"UAT capacity resume refused: {exc}", file=sys.stderr)
         return 1

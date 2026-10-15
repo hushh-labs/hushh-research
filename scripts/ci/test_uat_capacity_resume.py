@@ -180,6 +180,16 @@ class AuthorityTests(unittest.TestCase):
             with self.assertRaisesRegex(resume.UnsafeResume, "target is unknown"):
                 resume.no_superseding_run(original, TARGET)
 
+    def test_newer_rollback_request_suppresses_older_automatic_resume(self) -> None:
+        original = workflow_run()
+        newer = workflow_run(124)
+        newer["created_at"] = "2026-10-15T01:01:00Z"
+        with patch.object(resume, "recent_runs", side_effect=[[original, newer], []]), patch.object(
+            resume, "receipt_for", return_value=receipt("target", run_id=124, selected_sha=TARGET)
+        ), patch.object(resume, "ancestor", side_effect=[False, True]):
+            with self.assertRaisesRegex(resume.UnsafeResume, "rollback request supersedes"):
+                resume.no_superseding_run(original, NEWER)
+
     def test_rerun_guard_rejects_a_changed_target_before_cloud_auth(self) -> None:
         run = workflow_run(attempt=2)
         first_attempt = {
@@ -251,28 +261,116 @@ class AuthorityTests(unittest.TestCase):
         ), patch.object(resume, "no_superseding_run"), patch.object(
             resume, "check_live_capacity", side_effect=resume.CapacityUnavailable("still blocked")
         ), patch.object(resume, "command") as post:
-            self.assertIn("still over", resume.resume_after_maintenance(77, apply=True))
+            self.assertIn("still over", resume.resume_after_maintenance(77))
             post.assert_not_called()
 
-    def test_controller_posts_only_wait_job_after_revalidation(self) -> None:
+    def test_inventory_job_outputs_bounded_proof_for_exact_run(self) -> None:
+        original = workflow_run()
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            resume, "verify_maintenance", return_value=True
+        ), patch.object(resume, "recent_runs", return_value=[original]), patch.object(
+            resume, "artifact", return_value={"id": 8}
+        ), patch.object(resume, "verify_deferred_failure", return_value=receipt("deferred")), patch.object(
+            resume, "no_superseding_run"
+        ), patch.object(resume, "check_live_capacity"), patch.object(
+            resume, "api", return_value=original
+        ):
+            output = Path(temporary) / "github-output"
+            self.assertIn("READY", resume.resume_after_maintenance(77, github_output=output))
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["ready"], "true")
+            self.assertEqual(values["target_run_id"], str(original["id"]))
+            age = int(resume.datetime.now(resume.timezone.utc).timestamp()) - int(values["proof_unix"])
+            self.assertLessEqual(age, 1)
+
+    def test_github_only_writer_posts_only_wait_job_after_revalidation(self) -> None:
         original = workflow_run()
         waiting = job("Wait for UAT capacity outside the mutation lock", "failure", [])
         with patch.object(resume, "verify_maintenance", return_value=True), patch.object(
-            resume, "recent_runs", return_value=[original]
-        ), patch.object(resume, "artifact", return_value={"id": 8}), patch.object(
             resume, "verify_deferred_failure", return_value=receipt("deferred")
         ) as verified, patch.object(resume, "no_superseding_run"), patch.object(
             resume, "check_live_capacity"
-        ), patch.object(resume, "api", return_value=original), patch.object(
+        ) as cloud, patch.object(resume, "api", return_value=original), patch.object(
             resume, "jobs_for", return_value={waiting["name"]: waiting}
         ), patch.object(resume, "command") as post:
-            result = resume.resume_after_maintenance(77, apply=True)
+            proof = int(resume.datetime.now(resume.timezone.utc).timestamp())
+            result = resume.post_verified_resume(77, original["id"], proof)
             self.assertIn("RESUMED", result)
-            self.assertEqual(verified.call_count, 2)
+            verified.assert_called_once_with(original)
+            cloud.assert_not_called()
             post.assert_called_once_with(
                 "gh", "api", "-X", "POST",
                 f"repos/{resume.REPOSITORY}/actions/jobs/{waiting['id']}/rerun",
             )
+
+    def test_github_writer_rejects_stale_capacity_proof_before_post(self) -> None:
+        proof = int(resume.datetime.now(resume.timezone.utc).timestamp()) - 301
+        with patch.object(resume, "verify_maintenance") as maintenance, patch.object(
+            resume, "command"
+        ) as post:
+            with self.assertRaisesRegex(resume.UnsafeResume, "older than five minutes"):
+                resume.post_verified_resume(77, 123, proof)
+            maintenance.assert_not_called()
+            post.assert_not_called()
+
+    def test_uat_checkpoint_must_complete_even_when_production_fails(self) -> None:
+        maintenance = workflow_run(77)
+        maintenance.update(
+            path=resume.MAINTENANCE_WORKFLOW,
+            event="schedule",
+            conclusion="failure",  # Unrelated production failure must not suppress UAT.
+        )
+        cleanup = job("UAT bounded revision cleanup", "success", [
+            ("Recheck due source under the deployment lock", "success"),
+            ("Prepare or finish eligible uat revision cleanup", "success"),
+            ("Save uat cleanup checkpoint", "success"),
+            ("Report cleanup independently of release health", "success"),
+        ])
+        jobs = {
+            "Verify due cleanup without cloud credentials": job(
+                "Verify due cleanup without cloud credentials", "success", []
+            ),
+            cleanup["name"]: cleanup,
+            "Production bounded revision cleanup": job(
+                "Production bounded revision cleanup", "failure", []
+            ),
+        }
+        complete = {
+            "schema_version": 1, "checkpoint_version": 2,
+            "environment": "uat", "project": "hushh-pda-uat",
+            "release_run_id": 23, "observed_run_id": 24,
+            "pass_status": "complete", "pending_services": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            event = Path(temporary) / "event.json"
+            event.write_text(json.dumps({"workflow_run": {
+                "id": 77, "path": resume.MAINTENANCE_WORKFLOW,
+                "run_attempt": 1, "head_sha": DISPATCH,
+            }}))
+            with patch.dict(os.environ, {
+                "GITHUB_EVENT_PATH": str(event),
+                "GITHUB_REPOSITORY": resume.REPOSITORY,
+                "GITHUB_EVENT_NAME": "workflow_run",
+            }), patch.object(resume, "api", return_value=maintenance), patch.object(
+                resume, "jobs_for", return_value=jobs
+            ), patch.object(resume, "read_uat_checkpoint", return_value=complete) as checkpoint:
+                self.assertTrue(resume.verify_maintenance(77))
+                maintenance["event"] = "workflow_run"
+                maintenance["conclusion"] = "success"
+                jobs["Production bounded revision cleanup"]["conclusion"] = "skipped"
+                self.assertTrue(resume.verify_maintenance(77))
+                maintenance["conclusion"] = "cancelled"
+                with self.assertRaisesRegex(resume.UnsafeResume, "not authenticated"):
+                    resume.verify_maintenance(77)
+                maintenance["conclusion"] = "success"
+                checkpoint.return_value = {
+                    **complete, "pass_status": "deferred",
+                    "pending_services": ["consent-protocol"],
+                }
+                self.assertFalse(resume.verify_maintenance(77))
+                cleanup["conclusion"] = "failure"
+                with self.assertRaisesRegex(resume.UnsafeResume, "did not complete"):
+                    resume.verify_maintenance(77)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -282,11 +380,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("actions: write", inspect)
         self.assertIn("actions: write", retry)
         self.assertIn("vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'", retry)
-        self.assertIn("--apply", retry)
+        self.assertIn("post-verified-resume", retry)
+        self.assertNotIn("google-github-actions/auth@v2", retry)
+        self.assertNotIn("id-token: write", retry)
         self.assertNotIn("gcloud run revisions delete", source)
-        for job in (inspect, retry):
-            self.assertLess(job.index("verify-maintenance"), job.index("google-github-actions/auth@v2"))
-            self.assertIn("if: steps.authority.outputs.ready == 'true'", job)
+        self.assertLess(inspect.index("verify-maintenance"), inspect.index("google-github-actions/auth@v2"))
+        self.assertIn("if: steps.authority.outputs.ready == 'true'", inspect)
 
 
 if __name__ == "__main__":
