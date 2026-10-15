@@ -29,7 +29,7 @@
 
 import { projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
 import { ageFromDateOfBirth, readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
-import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { isPrivateWalletArtworkBranch, reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { collectDomainRows, type DomainRows } from "@/lib/pkm/memory-complete-rows";
 import {
   shouldSkipPkmAgentContextKey,
@@ -189,16 +189,17 @@ function excludeForAudience(
   // One chat's canonical Markdown document is already a projection. Never
   // recursively render it into this legacy structured-domain export.
   if (key === "one_memory") return true;
-  if (reservedEntryFor(key, branch)?.sendToModel === "never") return true;
+  if (isPrivateWalletArtworkBranch(key, branch)) return true;
   if (audience !== "agent") return shouldSkipPkmMemoryKey(key);
   return shouldSkipPkmAgentContextKey(key) || restrictedByReservedRegistry(key, branch);
 }
 
 /** The card's path below its domain, as the reserved registry expects it. */
 function cardBranch(card: PkmMemoryCard): string {
-  const segments = card.pathSegments || [];
-  // pathSegments start at the domain; the registry matches what follows it.
-  return segments.slice(1).map((segment) => String(segment)).join(".");
+  const segments = card.pathSegments?.length ? card.pathSegments : card.path.split(".");
+  // Current snapshots use relative paths; older snapshots may prefix the domain.
+  const start = String(segments[0] ?? "").trim().toLowerCase() === card.domain.trim().toLowerCase() ? 1 : 0;
+  return segments.slice(start).map(String).join(".");
 }
 
 function compareCards(a: PkmMemoryCard, b: PkmMemoryCard): number {
@@ -290,7 +291,9 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   const excludedDomains = new Set<string>();
 
   for (const card of snapshot.cards || []) {
-    if (excludeForAudience(audience, card.domain, cardBranch(card))) {
+    const branch = cardBranch(card);
+    if (isPrivateWalletArtworkBranch(card.domain, branch)) continue;
+    if (excludeForAudience(audience, card.domain, branch)) {
       excludedDomains.add(card.domain);
       continue;
     }
@@ -425,7 +428,9 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     const overriddenPaths = superseded.get(domain);
     const rowIsCurrent = (path: string) => !overriddenPaths?.has(path.startsWith(`${domain}.`) ? path.slice(domain.length + 1) : path);
     const cards = (cardsByDomain.get(domain) || []).filter(card => rowIsCurrent(card.path));
-    const insight = insightByDomain.get(domain);
+    // Cached Wallet insights have no field provenance. Rebuild this section
+    // from permitted rows rather than trusting an old private-image summary.
+    const insight = domain.trim().toLowerCase() === "wallet" ? undefined : insightByDomain.get(domain);
     const title = titleByDomain.get(domain) || insight?.title || domain;
     const unavailableReason = String(source?.unavailableReason || "").trim();
 

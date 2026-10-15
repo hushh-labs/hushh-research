@@ -516,7 +516,8 @@ This is storage validation, not payment authorization or issuer verification.
 Only owned synthetic cards and test keys are used. `npm run test:wallet-scanning`
 exercises real bundled Tesseract in Chromium/WebKit: 13/14/15/16/19 digits, Visa,
 Mastercard, AmEx, RuPay, Discover and Diners layouts; dim/low contrast/shadow,
-rotations, skew correction, partial fields, competing PANs, worker cancellation
+dark and embossed-style synthetic print, rotations, skew correction, partial
+fields, competing PANs, worker cancellation
 and language-asset failure. A production-component transport fixture proves
 capture → crop → local OCR → explicit photo approval → backend-shaped metadata
 → **real PKM segmentation and AES encryption** → Cards → reload → lock at

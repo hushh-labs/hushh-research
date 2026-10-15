@@ -18,6 +18,8 @@ test.beforeAll(async () => {
   photos.set("dim", await sharp(syntheticCard).linear(.12, 5).png().toBuffer());
   photos.set("low-contrast", await sharp(syntheticCard).linear(.04, 30).png().toBuffer());
   photos.set("shadow", await sharp(syntheticCard).composite([{ input: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><defs><linearGradient id="s"><stop stop-color="black" stop-opacity=".94"/><stop offset="1" stop-color="black" stop-opacity=".2"/></linearGradient></defs><rect width="1200" height="750" fill="url(#s)"/></svg>'), blend: "over" }]).png().toBuffer());
+  photos.set("dark", await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><rect width="1200" height="750" fill="#111827"/><g font-family="Arial" font-size="56" fill="#fafafa"><text x="80" y="140">SYNTHETIC CARD</text><text x="80" y="350">4242 4242 4242 4242</text><text x="80" y="480">VALID THRU 12/30</text><text x="80" y="620">ALEX SAMPLE</text></g></svg>')).png().toBuffer());
+  photos.set("embossed-style", await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750"><defs><linearGradient id="metal"><stop stop-color="#e4d5a5"/><stop offset=".5" stop-color="#b8ad83"/><stop offset="1" stop-color="#e6d7a6"/></linearGradient><filter id="raised"><feDropShadow dx="-1" dy="-1" stdDeviation=".3" flood-color="white" flood-opacity=".9"/><feDropShadow dx="2" dy="2" stdDeviation=".6" flood-color="black" flood-opacity=".6"/></filter></defs><rect width="1200" height="750" fill="url(#metal)"/><g font-family="Arial" font-size="56" fill="#41423e" filter="url(#raised)"><text x="80" y="140">SYNTHETIC CARD</text><text x="80" y="350">4242 4242 4242 4242</text><text x="80" y="480">VALID THRU 12/30</text><text x="80" y="620">ALEX SAMPLE</text></g></svg>')).png().toBuffer());
   photos.set("blank", await sharp({ create: { width:1200,height:750,channels:3,background:"#080808" } }).png().toBuffer());
   for (const [name, pan] of Object.entries(numbers)) photos.set(name, await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="756"><rect width="1200" height="756" fill="white"/><g font-family="Arial" font-size="50" fill="black"><text x="80" y="140">SYNTHETIC CARD</text><text x="80" y="350">${pan.match(/.{1,4}/g)!.join(" ")}</text><text x="80" y="480">VALID THRU 12/30</text><text x="80" y="630">ALEX SAMPLE</text></g></svg>`)).png().toBuffer());
   for (const angle of [90, 180, 270]) photos.set(`rotated${angle}`, await sharp(syntheticCard).rotate(angle).png().toBuffer());
@@ -60,7 +62,7 @@ test("reads a synthetic card with bundled OCR and no off-device requests", async
   expect(unexpected.map(({ url, method, body }) => ({ url: url.slice(0, 100), method, hasBody: body !== null }))).toEqual([]);
 });
 
-for (const condition of ["dim", "low-contrast", "shadow", "rotated90", "rotated180", "rotated270", "glare"]) {
+for (const condition of ["dim", "low-contrast", "shadow", "dark", "embossed-style", "rotated90", "rotated180", "rotated270", "glare"]) {
   test(`reads a ${condition} card photo`, async ({ page }) => {
     test.setTimeout(120000);
     await page.goto(origin);
