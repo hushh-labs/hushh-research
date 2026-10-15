@@ -1,4 +1,4 @@
-"""No Cloud Build step arg may exceed 10,000 characters.
+"""Cloud Build step arguments and environment lists must fit API limits.
 
 This is the regression guard for a real, repeated outage. Cloud Build caps a single
 build-step arg at 10,000 characters. The `deploy-backend` step's inline bash body is
@@ -45,6 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Cloud Build's hard cap on a single build-step arg.
 CLOUD_BUILD_MAX_ARG = 10_000
+CLOUD_BUILD_MAX_ENVS = 100
 
 # Refuse to land a change that leaves less than this much room. Without a margin the
 # suite goes green at 9,999 and the very next secret ref breaks all three deploy lanes.
@@ -134,6 +135,35 @@ def test_no_raw_cloud_build_step_arg_exceeds_the_limit(config_path: str) -> None
                 f"Move comments above the step, or move the body into a script the "
                 f"step invokes."
             )
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    sorted(
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "deploy").glob("*.cloudbuild.yaml")
+    ),
+)
+def test_no_cloud_build_step_exceeds_the_env_limit(config_path: str) -> None:
+    """Cloud Build rejects the whole submission when one step has too many envs."""
+    config = _load(config_path)
+    assert config is not None
+
+    for index, step in enumerate(config.get("steps") or []):
+        count = len(step.get("env") or [])
+        # Keep one entry of headroom in the large backend deploy step so the
+        # next binding cannot land silently at the API limit.
+        maximum = (
+            CLOUD_BUILD_MAX_ENVS - 1
+            if config_path == "deploy/backend.cloudbuild.yaml"
+            and step.get("id") == "deploy-backend"
+            else CLOUD_BUILD_MAX_ENVS
+        )
+        assert count <= maximum, (
+            f"{config_path} step {index} ({step.get('id')}) has {count} env entries; "
+            f"Cloud Build permits at most {CLOUD_BUILD_MAX_ENVS} and this step's "
+            f"guard permits {maximum}."
+        )
 
 
 @pytest.mark.parametrize("workflow_path", BACKEND_DEPLOY_WORKFLOWS)
