@@ -916,7 +916,6 @@ append_optional_env "OWNER_FEED_SIGNING_ALG" "${owner_feed_signing_alg}"
 append_optional_env "OWNER_FEED_ED25519_KID" "${owner_feed_ed25519_kid}"
 append_optional_secret "${dev_owner_feed_private_secret}" "OWNER_FEED_ED25519_PRIVATE_KEY"
 append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
-append_optional_secret "${_PWM_TAVILY_API_KEY_SECRET:-}" "PWM_TAVILY_API_KEY"
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do

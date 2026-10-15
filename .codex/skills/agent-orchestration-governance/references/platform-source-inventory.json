@@ -53,7 +53,7 @@
     },
     ".claude/skills/kg-feature-delivery/SKILL.md": {
       "classification": "legacy_behavior_pending_review",
-      "sha256": "b007d2a9f056602ed2fcb9237701aaca105d17fe5030913391a877ea76512593"
+      "sha256": "b8179b40645d42cd82e19c10a10c754e8ceb7fc3cf59a5e59a159c9c5e9d354f"
     },
     ".claude/skills/location-header-system/SKILL.md": {
       "classification": "owner_alias",

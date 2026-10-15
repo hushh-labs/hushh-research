@@ -50,8 +50,7 @@ keyboard/layering unit cases pass. A controlled-interpolation diagnostic passed
 both engines and eight broken-motion controls, but was superseded during normal
 composition with the developer's concurrent browser fix. The retained collector
 uses trusted Playwright input and real RAF/timer geometry; its caller preserves
-the original sub-100 ms onset and settled geometry assertions. The final trusted-input motion case passes Chromium and WebKit. Neither collector
-proves physical presented-frame latency or FPS.
+the original sub-100 ms onset and settled geometry assertions. Local Chromium and WebKit results do not establish hosted performance acceptance: the retained `a2b1e87d6e` run failed Linux History timing. The fixed budgets now belong to the mandatory macOS performance lane; Linux retains geometry and gesture cancellation. Neither collector proves physical presented-frame latency or FPS.
 
 Normal merges `b1ddad85be8d` and `de4f5aa20056` incorporate main through
 `ef703daa8981` in the existing verification checkout, including its three-file
