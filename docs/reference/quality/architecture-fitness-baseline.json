@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2663,
+  "finding_count": 2667,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3136,7 +3136,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "GoogleCalendarService",
-      "value": 1257
+      "value": 1457
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5530,7 +5530,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": "_propose",
-      "value": 122
+      "value": 129
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8869,7 +8869,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "_request_with_authority",
-      "value": 178
+      "value": 190
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8878,7 +8878,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "execute",
-      "value": 129
+      "value": 135
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16294,7 +16294,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/agents/calendar/tools.py",
       "symbol": null,
-      "value": 945
+      "value": 961
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17194,7 +17194,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": null,
-      "value": 1436
+      "value": 1638
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18130,7 +18130,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/agents/test_calendar_agent_tools.py",
       "symbol": null,
-      "value": 686
+      "value": 690
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18787,7 +18787,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
-      "value": 1570
+      "value": 1728
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20731,7 +20731,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 705
+      "value": 706
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21100,7 +21100,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
       "symbol": null,
-      "value": 1449
+      "value": 1486
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21343,7 +21343,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11081
+      "value": 11106
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21406,7 +21406,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/drive-background-search.tsx",
       "symbol": null,
-      "value": 676
+      "value": 689
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22540,7 +22540,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1141
+      "value": 1149
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22594,7 +22594,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1829
+      "value": 2156
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22675,7 +22675,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1293
+      "value": 1298
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23242,7 +23242,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
       "symbol": null,
-      "value": 871
+      "value": 872
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23278,7 +23278,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/pkm-memory-cards.ts",
       "symbol": null,
-      "value": 756
+      "value": 758
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23584,7 +23584,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4875
+      "value": 4884
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24800,7 +24800,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/pkm/memory-document.ts",
       "symbol": null,
-      "value": 545
+      "value": 551
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25858,7 +25858,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": "CalendarScheduleService",
-      "value": 709
+      "value": 795
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -26263,7 +26263,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/calendar_schedule_service.py",
       "symbol": null,
-      "value": 832
+      "value": 959
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26299,7 +26299,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_calendar_schedule_service.py",
       "symbol": null,
-      "value": 871
+      "value": 913
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26344,7 +26344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
       "symbol": null,
-      "value": 805
+      "value": 1153
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26399,6 +26399,42 @@
       "path": "hushh-webapp/components/profile/personal-world-model-page.tsx",
       "symbol": null,
       "value": 740
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py|resolve_artwork|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py",
+      "symbol": "resolve_artwork",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_merged_busy_intervals|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
+      "symbol": "_merged_busy_intervals",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_boundaries.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_calendar_schedule_boundaries.py",
+      "symbol": null,
+      "value": 738
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/wallet-service.ts",
+      "symbol": null,
+      "value": 578
     }
   ],
   "inspected_files": 6625,
@@ -43142,6 +43178,294 @@
     "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
     "review": "Independent read-only authority review admits one fixed POD_DIRECT_NOT_READY code/message entry. Existing capability preflight refuses before hub grants or effects. No budget, authorization or error-body disclosure changed.",
     "source_sha256": "1c58a0d5d861a1f3cf5c1e8bb5ae29344ba57ff8f21d3cca99c845e7e3be5c16"
+  },
+  "scope_commerce_calendar_wallet_current_main_20261015": {
+    "boundary": "Exactly27 occurrence-rank-zero size qualifications:23 measured replacements and4 additions. Preserve all previous findings, multiplicities, history, scanner, exclusions and500/250/80 budgets. These remain visible maintenance debt; future growth is rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 1457,
+        "classification": "reviewed_parent_composition",
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|GoogleCalendarService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1257,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "6b163e3ca3b9997c45db8db36e769cd7657c3c8e",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e"
+      },
+      {
+        "accepted_ceiling": 795,
+        "classification": "byte_identical_incoming_main",
+        "key": "class_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py|CalendarScheduleService|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 709,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "867f27534cf0a0adf9d9972945a27b3c9d47ee63",
+        "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526"
+      },
+      {
+        "accepted_ceiling": 190,
+        "classification": "reviewed_parent_composition",
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_request_with_authority|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 178,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "6b163e3ca3b9997c45db8db36e769cd7657c3c8e",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e"
+      },
+      {
+        "accepted_ceiling": 135,
+        "classification": "reviewed_parent_composition",
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|execute|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 129,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "6b163e3ca3b9997c45db8db36e769cd7657c3c8e",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e"
+      },
+      {
+        "accepted_ceiling": 129,
+        "classification": "reviewed_parent_composition",
+        "key": "function_size|consent-protocol/hushh_mcp/agents/calendar/tools.py|_propose|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 122,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "defaa98ff03d5bc24106b17c1cd6351d6b4ea6ac",
+        "source_sha256": "e75dfbf48d7ac8674ff02e9a98e25b24e2a14be204886a96dcc8502948eb4a8f"
+      },
+      {
+        "accepted_ceiling": 89,
+        "classification": "byte_identical_incoming_main",
+        "key": "function_size|consent-protocol/hushh_mcp/services/wallet_artwork_catalog.py|resolve_artwork|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "24a65ce644ae94ca96389710236ab3f14b425cfb",
+        "source_sha256": "4e6061397c1fd5b1daa183ee24c57b7f638feeeaa7c0b75adf1956d7eb405316"
+      },
+      {
+        "accepted_ceiling": 81,
+        "classification": "reviewed_parent_composition",
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|_merged_busy_intervals|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "6b163e3ca3b9997c45db8db36e769cd7657c3c8e",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e"
+      },
+      {
+        "accepted_ceiling": 11106,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 11081,
+        "review": "Retain existing lifecycle/Back/native ownership alongside incoming presence, timezone and shared-sheet behavior; no second routing or consent authority.",
+        "source_git_blob": "f5da0c01498f3cc0bc44ecfa6cc36f8712b2cb7e",
+        "source_sha256": "aa79700397e2336d41ae1fd7961e172d9d17c2113d0a9c041177544fc42385a9"
+      },
+      {
+        "accepted_ceiling": 4884,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 4875,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "84338cbc61f25affa4f256d4ded9540dd080b9f0",
+        "source_sha256": "e3e4059b2dd02f95b4d988da4d86f38f8c09f937525577f2df4432a001d30cb4"
+      },
+      {
+        "accepted_ceiling": 2156,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1829,
+        "review": "Retain real encryption/private artwork/security-code removal, owner/vault retirement and Back/browser geometry controls.",
+        "source_git_blob": "4792bed14280baa9c238086dd2fa5edddd37f8cd",
+        "source_sha256": "1b4ad59bcc4346f4d9e5aceaf9d208762a14853ed00c77638a026921e9c0c23c"
+      },
+      {
+        "accepted_ceiling": 1728,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1570,
+        "review": "Retain tested failed-provider/selection/civil-day boundaries and existing public-entrypoint controls.",
+        "source_git_blob": "46a1c8beaac79f2e4b79cde42f39dae8cdbaa077",
+        "source_sha256": "fe315cb6507506be64cf613ff15d1acb0c5eae4f95e14d3a7ef1329b4c8caed7"
+      },
+      {
+        "accepted_ceiling": 1638,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_calendar_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1436,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "6b163e3ca3b9997c45db8db36e769cd7657c3c8e",
+        "source_sha256": "900df62623d205f0dcf77ebe4613576acf7485c4001121953e26c71e9244fb0e"
+      },
+      {
+        "accepted_ceiling": 1486,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1449,
+        "review": "Retain real encryption/private artwork/security-code removal, owner/vault retirement and Back/browser geometry controls.",
+        "source_git_blob": "097be39b8b62f7609f5ee60fbc2bcafe02dfcb6c",
+        "source_sha256": "dc6c7209e08455875f1409ac18972d9298bea8ebac67b9ef22dbfd2f90d3ce29"
+      },
+      {
+        "accepted_ceiling": 1298,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1293,
+        "review": "Retain real encryption/private artwork/security-code removal, owner/vault retirement and Back/browser geometry controls.",
+        "source_git_blob": "1f8b9d5ab4f6e13e2250684c854e0a1d50d7468e",
+        "source_sha256": "d2218d09ea98669d0a9f94611a8c98686e8a3c7e8f5dffb34b929e25a6519dd0"
+      },
+      {
+        "accepted_ceiling": 1153,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 805,
+        "review": "Retain tested failed-provider/selection/civil-day boundaries and existing public-entrypoint controls.",
+        "source_git_blob": "085f4dba4bb46906d0fe3d52b036b44ab9a07521",
+        "source_sha256": "4fe7370a927f8f3d35c28a47f12238fc5695d6bd40e1613b6e425688241fb622"
+      },
+      {
+        "accepted_ceiling": 1149,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1141,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "b304148883cd3156ab7594668d719896931e2fef",
+        "source_sha256": "99c3cdfbcc07d1d4afe601e5cda4be6574809e46bb5161584c2a14184fcf906d"
+      },
+      {
+        "accepted_ceiling": 961,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|consent-protocol/hushh_mcp/agents/calendar/tools.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 945,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "defaa98ff03d5bc24106b17c1cd6351d6b4ea6ac",
+        "source_sha256": "e75dfbf48d7ac8674ff02e9a98e25b24e2a14be204886a96dcc8502948eb4a8f"
+      },
+      {
+        "accepted_ceiling": 959,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|consent-protocol/hushh_mcp/services/calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 832,
+        "review": "Retain fail-closed provider validation, sanitized diagnostics, selected calendars, injectable proposal-store and private-placement guards.",
+        "source_git_blob": "867f27534cf0a0adf9d9972945a27b3c9d47ee63",
+        "source_sha256": "a902d7e8c23365d88715405388d41f36903831169139aa47b87e46e5563ee526"
+      },
+      {
+        "accepted_ceiling": 913,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_service.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 871,
+        "review": "Retain tested failed-provider/selection/civil-day boundaries and existing public-entrypoint controls.",
+        "source_git_blob": "33ff50450a7ec13fc66dce54ff167d379a789e28",
+        "source_sha256": "c968e57ff476f37f92312a6fbd9b2c8046c48558a4e126127716d0ed9b005d94"
+      },
+      {
+        "accepted_ceiling": 872,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/lib/personal-knowledge-model/manifest.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 871,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "3a27e42b80e149ede3b8c6d76ba795a95a7460bb",
+        "source_sha256": "e11753849403a1ce223e3a2793783760aa81875282aff62103b58560098c8d96"
+      },
+      {
+        "accepted_ceiling": 758,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|hushh-webapp/lib/pkm/pkm-memory-cards.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 756,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "ab610cc9eb05b6cc2ee9172f07e0d2930b820ec8",
+        "source_sha256": "9d0bad6078eb910e0eab7f2a26d558ed3903b26cf16eeeb782ce53a80fef69b5"
+      },
+      {
+        "accepted_ceiling": 738,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|consent-protocol/tests/services/test_calendar_schedule_boundaries.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Retain tested failed-provider/selection/civil-day boundaries and existing public-entrypoint controls.",
+        "source_git_blob": "556ca2d2143a6f33bee966bd94f80854b46878e5",
+        "source_sha256": "33c954659ebd522b372ec4dcfba008146e99c74d20f09c90a3e8bfa80b601583"
+      },
+      {
+        "accepted_ceiling": 706,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 705,
+        "review": "Retain real encryption/private artwork/security-code removal, owner/vault retirement and Back/browser geometry controls.",
+        "source_git_blob": "05084b2785f973621f456cb5857af757eb33ea24",
+        "source_sha256": "62caba3dd1e582226e66353a9d60d022a2ff6ddd23d12eb93cba576ac1cdbb45"
+      },
+      {
+        "accepted_ceiling": 690,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|consent-protocol/tests/agents/test_calendar_agent_tools.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 686,
+        "review": "Retain tested failed-provider/selection/civil-day boundaries and existing public-entrypoint controls.",
+        "source_git_blob": "88525658657f519ddc3008c68ae144023bdf00bb",
+        "source_sha256": "c130dcd611f30284455d4ec4e737db666d81c69e02b6d61dc6a28259348aa513"
+      },
+      {
+        "accepted_ceiling": 689,
+        "classification": "reviewed_parent_composition",
+        "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 676,
+        "review": "Retain existing lifecycle/Back/native ownership alongside incoming presence, timezone and shared-sheet behavior; no second routing or consent authority.",
+        "source_git_blob": "7db1941d34c03d3ae518c96be1d3ee3f9def6fcc",
+        "source_sha256": "e346ae0ceb4989e782227f1c8228c81153098ba9723e3819f0efaf9182c85020"
+      },
+      {
+        "accepted_ceiling": 578,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|hushh-webapp/lib/services/wallet-service.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "f6c559c7e0d11459bc34a9eee240da27ac7b5a2e",
+        "source_sha256": "c90f65f4af87d738618a9cba5171254eae59cd0ab1e70e087444a1b9644d34a3"
+      },
+      {
+        "accepted_ceiling": 551,
+        "classification": "byte_identical_incoming_main",
+        "key": "module_size|hushh-webapp/lib/pkm/memory-document.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 545,
+        "review": "Retain source-bound artwork transport/validation, private information projection and existing owner/vault/publication fences; no additional authority.",
+        "source_git_blob": "f1a558e5b375ed3bb3ea3dd243d79b4c1c290302",
+        "source_sha256": "1dc00b04cb8c63e6ec1797c235c93af8e00c2e4c98847e87c1351d9734920c95"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "edcff65ed5f31f81fc90ff2fe9fff23e06cd44a8",
+    "prior_baseline_sha256": "1f40c468574e5f0dc4f5d79f6fe19fcd5060dd95bf2bc34148f6dc45f06d00e6",
+    "retained_parent": "d46a9327e60f9c3cc42207d355e5618ea87d86b7",
+    "reviewed_report_sha256": "7aa78a91f89dc0700814315bb43284df413fcb9ce43fc86d495a9bbe877ea15c",
+    "reviewers": [
+      "backend_context",
+      "main_frontend_reconciliation",
+      "ci_registry_review",
+      "architecture_review"
+    ],
+    "source_revision": "04af3620175a26da493dcd1cbf8b7f32bf9d5332",
+    "verification": "Independent static source review.95 nearest frontend cases,52 Memory cases,103 Location cases and63 reviewer preparation cases pass. Full merged core, hosted CI and runtime financial acceptance remain required."
   },
   "scope_commerce_capacity_onboarding_main_merge_20261014": {
     "changes": [

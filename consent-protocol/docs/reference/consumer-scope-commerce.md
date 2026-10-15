@@ -3859,3 +3859,13 @@ found no authority broadening. This is rehearsal transport support, not an OAuth
 completion receipt. The same Chrome transport and ordinary unlocked owner lease
 remain current. No ChatGPT host plugin or application SDK credential substitutes
 for the private agent's owner OAuth.
+
+
+The merged candidate's first core run stopped at 27 architecture size findings.
+Independent backend, frontend, test and architecture reviews qualified exactly
+23 existing occurrence values and four incoming-source occurrences. This records
+reviewed inherited or composed source debt; incoming main has no prior accepted
+ratchet baseline. All 2,663 previous occurrences remain represented, alongside
+unchanged detector behavior, exclusions, history and 500/250/80 size budgets.
+The resulting candidate must rerun canonical core and hosted CI before deployment.
+No new scope purchase or provider OAuth completion is established by this review.
