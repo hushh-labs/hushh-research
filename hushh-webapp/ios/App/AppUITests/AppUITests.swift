@@ -2024,50 +2024,41 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process-only, never an artifact.
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let webFrame = web.frame
-        perfTapNav(app, label: "One")
-        if app.buttons["native-test-status"].exists && !waitForNativeRoute(app, route: "/one", timeout: 15) {
-            XCTFail("NATIVE_BOTTOM_SCROLL_ONE_ROUTE_NOT_ADMITTED"); return
+        // The compact launcher may correctly have no overflow. Qualify the
+        // actual Feed page without changing roster preferences or adding rows.
+        perfTapNav(app, label: "Feed")
+        if app.buttons["native-test-status"].exists && !waitForNativeRoute(app, route: "/one/feed", timeout: 15) {
+            XCTFail("NATIVE_BOTTOM_SCROLL_FEED_ROUTE_NOT_ADMITTED"); return
         }
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         // Observe the rendered dock child, not an optional AX container.
         let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
-        // WebKit can expose aria-pressed buttons as toggles rather than the
-        // button element type. Keep the authored names, not an AX-type guess.
-        let grid = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label BEGINSWITH %@", "Show agent grid view")).firstMatch
-        let list = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label BEGINSWITH %@", "Show agent list view")).firstMatch
-        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock),
-              waitForAdmittedControl(grid), waitForAdmittedControl(list) else {
+        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
             reportNativeDockAdmission(app)
-            for (name, control) in [("grid", grid), ("list", list), ("dock", dock)] {
-                let present = control.exists
-                print("NATIVE_ROSTER_ADMISSION name=\(name) present=\(present) hittable=\(present && control.isHittable) enabled=\(present && control.isEnabled)")
-            }
-            XCTFail("NATIVE_BOTTOM_SCROLL_HOME_NOT_ADMITTED"); return
+            XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
         }
-        func selected(_ element: XCUIElement) -> Bool {
-            element.isSelected || ["1", "true"].contains(element.value as? String ?? "")
-        }
-        let restoreGrid = selected(grid)
-        guard restoreGrid || selected(list) else { XCTFail("NATIVE_BOTTOM_SCROLL_VIEW_STATE_UNKNOWN"); return }
-        // The compact grid may legitimately fit without vertical overflow.
-        // Use the authored list preference and restore it before returning.
-        if restoreGrid { list.tap() }
         var returnedToChat = false
         defer {
-            if !returnedToChat {
-                for _ in 0..<3 where !grid.isHittable { web.swipeDown() }
-                if restoreGrid && grid.exists && grid.isHittable { grid.tap() }
-                perfTapNav(app, label: "Chat")
+            if !returnedToChat { perfTapNav(app, label: "Chat") }
+        }
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        if layout.exists {
+            let overflow = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let raw = layout.value as? String, let data = raw.data(using: .utf8),
+                      let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] else { return false }
+                return (packet["appScrollRange"]?.doubleValue ?? 0) >= 100
+            }, object: app)
+            guard XCTWaiter.wait(for: [overflow], timeout: 10) == .completed else {
+                reportNativeDockAdmission(app)
+                XCTFail("NATIVE_BOTTOM_SCROLL_REQUIRES_ACTUAL_FEED_OVERFLOW"); return
             }
         }
         let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
         for cycle in 0..<10 {
             // Pan in the shared page gutter, never through an actionable tile.
             let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.65))
-            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: cycle == 0 ? 0.60 : 0.25))
-            start.press(forDuration: 0.05, thenDragTo: end)
+            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: cycle == 0 ? 0.57 : 0.25))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
             let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
             guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
                 reportNativeDockAdmission(app)
@@ -2078,7 +2069,7 @@ final class AppUITests: XCTestCase {
                 "NATIVE_BOTTOM_SCROLL_PAIR_DIVERGED")
             XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
             if cycle == 0 {
-                let sameTab = bar.buttons["One"].firstMatch
+                let sameTab = bar.buttons["Feed"].firstMatch
                 guard sameTab.exists && sameTab.isHittable else { XCTFail("NATIVE_BOTTOM_SCROLL_DISPLACED_PRESS_UNAVAILABLE"); return }
                 sameTab.press(forDuration: 0.3)
                 XCTAssertTrue(sameTab.isSelected, "NATIVE_BOTTOM_SCROLL_PRESS_LOST_TARGET")
@@ -2090,7 +2081,6 @@ final class AppUITests: XCTestCase {
             }
             XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)
         }
-        if restoreGrid { grid.tap() }
         perfTapNav(app, label: "Chat")
         guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_RESTORED"); return }
         XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_CHANGED_DRAFT")
