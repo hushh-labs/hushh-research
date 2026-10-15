@@ -767,7 +767,7 @@ describe("DirectMessagesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
     expect(screen.getByLabelText("Emoji picker")).toBeVisible();
-    expect(within(screen.getByRole("tablist", { name: "Emoji categories" })).getAllByRole("tab")).toHaveLength(8);
+    expect(within(screen.getByRole("tablist", { name: "Emoji categories" })).getAllByRole("tab")).toHaveLength(9);
     expect(
       screen.getByRole("tab", { name: "Animals and nature" }),
     ).toBeInTheDocument();

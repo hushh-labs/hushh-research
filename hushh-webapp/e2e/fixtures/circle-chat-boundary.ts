@@ -19,6 +19,8 @@ if (new URLSearchParams(location.search).has("workspace")) {
   );
 }
 let failed = false;
+type Reaction = { emoji: string; count: number; reactedByViewer: boolean };
+const reactions = new Map<string, Reaction[]>();
 const fixture = window as unknown as { chatFixture: { failNext: boolean; sends: unknown[]; read: number[]; loseAccess: boolean; prepareDelayMs: number; sendDelayMs: number; imageMessageIds: string[] } };
 fixture.chatFixture = { failNext: false, sends: [], read: [], loseAccess: false, prepareDelayMs: 0, sendDelayMs: 0, imageMessageIds: [] };
 Object.assign(fixture.chatFixture, { incoming: () => {
@@ -33,7 +35,7 @@ export const CircleChatService = {
     if (fixture.chatFixture.loseAccess) throw new ApiError("Circle unavailable", 404, { detail: { code: "CIRCLE_CHAT_UNAVAILABLE" } });
     const rows = history.filter((m) => (!cursor.before || m.sequence < cursor.before) && (!cursor.after || m.sequence > cursor.after));
     return { items: (cursor.after ? rows.slice(0, 40) : rows.slice(-40)).map((row) => ({ ...row,
-      senderPhotoUrl: row.senderUserId === "alice" ? "/fixture-person-0.webp" : "/fixture-person-1.webp" })), hasMore: rows.length > 40,
+      reactions: reactions.get(row.id) ?? [], senderPhotoUrl: row.senderUserId === "alice" ? "/fixture-person-0.webp" : "/fixture-person-1.webp" })), hasMore: rows.length > 40,
       receipts: history.filter((row) => row.senderUserId === "alice").map((row) => ({ id: row.id, recipientCount: 5, readCount: 5 })) };
   },
   open: async (_session: unknown, message: typeof history[number]) => ({ text: message.text,
@@ -51,6 +53,12 @@ export const CircleChatService = {
     return message;
   },
   read: async (_session: unknown, sequence: number) => { fixture.chatFixture.read.push(sequence); },
+  react: async (_session: unknown, message: { id: string }, emoji: string, active: boolean) => {
+    const current = (reactions.get(message.id) ?? []).filter((item) => item.emoji !== emoji);
+    if (active) current.push({ emoji, count: 1, reactedByViewer: true });
+    reactions.set(message.id, current);
+    return { messageId: message.id, reactions: current };
+  },
   mute: async (_session: unknown, muted: boolean) => ({ muted }),
   image: async (_session: unknown, message: { id: string }) => { fixture.chatFixture.imageMessageIds.push(message.id); return new Blob([Uint8Array.from(atob(__CIRCLE_CHAT_FIXTURE_MEDIA__), (c) => c.charCodeAt(0))], { type: "image/webp" }); },
 };

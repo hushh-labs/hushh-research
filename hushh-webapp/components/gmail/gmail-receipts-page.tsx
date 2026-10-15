@@ -1716,9 +1716,6 @@ export default function GmailReceiptsPage({
     : connectorState === "needs_reauthentication" || gmail.status?.revoked
       ? "Reconnect Mail"
       : "Connect Mail";
-  const connectGmailHelper = Capacitor.isNativePlatform()
-    ? "A secure Google account sheet opens next. Approve Mail access and return here automatically."
-    : null;
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const receiptsWorkspaceForVoice =
       journeyVariant === "onboarding" ||
@@ -2033,7 +2030,6 @@ export default function GmailReceiptsPage({
           ? () => void refreshGmailStatus({ force: true, reconcile: false })
           : undefined
       }
-      connectGmailHelper={connectGmailHelper}
       connectActionId={journeyVariant === "onboarding" ? "setup.connect_gmail" : undefined}
     />
   );
