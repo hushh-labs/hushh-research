@@ -13,6 +13,33 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### First ordinary native Profile form — 2026-10-14
+
+Product source `88623a6d6c` is installed and normally launched on the physical
+iPhone: UAT-backed Debug 1.4.0 (69), native-shell qualification enabled.
+The executable SHA-256 is
+`6c875e2c6d5f2091b89b88f9330806c6222f53978f1d71c84f69f623022478ae`;
+the sealed-resource manifest SHA-256 is
+`e400a9d44a94657a9a7b4acea235e2e4364b60e34fe8fd223d77e65eab9a021d`.
+Canonical UAT preparation, full typecheck, 154-page export, pinned native
+build, strict app/runner signatures and built product/backend checks pass.
+
+Three physical native tests pass for edit acknowledgment, one-shot Save,
+private-replica clearing, restored gesture dismissal after settlement, and
+joined UIKit dismissal completion. The actual Profile → Your account →
+Display name → Edit journey also passes ten warm Cancel/reopen cycles,
+including two unsaved synthetic keyboard edits. It verifies modal isolation,
+touch recovery, no interactive DOM editor, one WebView and the unchanged Chat
+draft. Normal reviewer passphrase unlock passed; no account name was changed.
+
+This is functional qualification of the account-name scene, not completion of
+the other Profile scenes or visual/accessibility/Release-performance acceptance.
+Native bodies and editor identity survive compatible updates; superseded React
+edit echoes do not retire a valid editor. A confirmed web fallback stays the
+renderer for that editor lifetime rather than retrying native on privacy resume.
+Back/Search review receipts remain stale, the broader behavioral gate is not
+green, and no core/CI/push/deployment acceptance is claimed at this head.
+
 ### Current physical Profile gate — 2026-10-14
 
 Product source `cd09a3779d` is installed on the iPhone as UAT-backed Debug
@@ -42,7 +69,7 @@ operation authority.
 | --- | --- | --- |
 | Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
 | Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
-| Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Source implementation and signed native compile pass; fresh integrated device qualification pending. Web/Android/older wrappers retain the existing form |
+| Account name | Shared React controller; qualification-only complete native sheet through NativeDrawers v1 | Physical native lifecycle3/3 and actual ten-cycle edit/cancel journey pass at `88623a6d6c`; live Save, visual/accessibility/Release-performance acceptance remain unverified. Web/Android/older wrappers retain the existing form |
 | Communication | `CommunicationPreferencesSection`; existing encrypted `saveOwnerStyleSettings` writer | Native ordinary settings scene not implemented; retain unlocked load, proposed-versus-saved state and explicit Save |
 | Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
 | Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
@@ -58,7 +85,8 @@ metadata carries neither names nor feedback. Listener admission must finish
 before a scene can be applied, and fallback requires confirmed retirement.
 Profile retirement joins the sheet's actual dismissal, including an already
 retiring sheet. Presentation-time owner revocation withdraws that exact scene.
-The native scene is not installed on the device above. Protected forms, rich
+The native scene is installed at `88623a6d6c`, as recorded above; the earlier
+`cd09a3779d` receipts establish only their stated preceding gates. Protected forms, rich
 content, complex multiselects and other-platform fallbacks remain unchanged.
 No merge, deploy, distribution or new family qualification follows from these
 functional receipts. Transition frames, accessibility and physical Release
