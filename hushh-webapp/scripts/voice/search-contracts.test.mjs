@@ -270,6 +270,10 @@ test('PR merge refs review against their tested first parent, not a stale event 
     // HEAD^1 is trusted only when HEAD^2 is the event's head. Otherwise the stale fork
     // point applies: missing at depth 2, and with full history it counts main's change.
     for (const root of [cssOnly, fullHistory]) await check(root, heads['ui-input'], /stale/);
+    // An unreadable event only skips the merge-ref rule; a pinned ancestor base still decides.
+    process.env.GITHUB_EVENT_PATH = path.join(fixture, 'missing-event.json');
+    process.env.UI_CONTRACT_BASE_SHA = git(fullHistory, 'rev-parse', 'HEAD^1');
+    for (const kind of ['back', 'search']) await syncReviewReceipt(fullHistory, kind, revision, {}, true, inputs);
     await assert.rejects(fs.access(path.join(cssOnly, 'contracts/ui-review')));
   } finally {
     for (const [key, value] of Object.entries(previous)) {
