@@ -2,6 +2,7 @@
 
 # ruff: noqa: F401,F811 -- shared isolated PostgreSQL fixtures
 import asyncio
+import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -61,6 +62,17 @@ async def catalog(reusable, sharing, monkeypatch):
 
 def recipient():
     return VerifiedGoogleRecipient("recipient", "1234567", "b@example.invalid", datetime.now(UTC))
+
+
+async def test_catalog_shows_the_owner_their_files_and_a_buyer_none(catalog):
+    service, _ = catalog
+    owner = (await service.list_packets(user_id="owner"))["packets"][0]
+    assert [item["name"] for item in owner["contents"]["documents"]] == [
+        "Private synthetic filename"
+    ]
+    buyer = await service.list_packets(user_id="recipient", owner_user_id="owner")
+    assert buyer["packets"] and all("contents" not in item for item in buyer["packets"])
+    assert "Private synthetic filename" not in json.dumps(buyer)
 
 
 async def test_repeated_packet_requests_reuse_one_bound_request(catalog, sharing):

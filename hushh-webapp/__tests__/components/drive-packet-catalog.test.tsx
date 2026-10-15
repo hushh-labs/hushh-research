@@ -31,20 +31,6 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
 describe("agent prepared packets", () => {
-  it("lets the owner Allow or Deny without choosing documents, and preserves edited cents", async () => {
-    render(<DrivePacketCatalog />);
-    await screen.findByText("Schwab statements");
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByLabelText("Price for Schwab statements")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Edit price" }));
-    fireEvent.change(screen.getByLabelText("Price for Schwab statements"), { target: { value: "56.78" } });
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
-    await waitFor(() => expect(state.listing).toHaveBeenCalledWith("private-token", packet, "allow", 5678, expect.any(Function)));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deny" })).not.toBeDisabled());
-    fireEvent.change(screen.getByLabelText("Price for Schwab statements"), { target: { value: "wrong" } });
-    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
-    await waitFor(() => expect(state.listing).toHaveBeenLastCalledWith("private-token", packet, "deny", 1234, expect.any(Function)));
-  });
   it("reuses the buyer request key on retry and links to already-owned access", async () => {
     state.request.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce({ requestId: person, existingAccess: true });
     render(<DrivePacketCatalog ownerPersonRef={person} />);

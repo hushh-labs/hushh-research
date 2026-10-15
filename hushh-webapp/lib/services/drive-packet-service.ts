@@ -21,7 +21,15 @@ export type DrivePacket = {
   documentCount: number; verifiedAt: string | null; freshness: "current" | "stale" | "paused";
   assessmentScore: number; importance: number; suggestedPriceCents: number; priceCents: number;
   listingEnabled: boolean; canRequest: boolean; canList: boolean;
+  /** Owner view only: what is inside. A buyer view never carries it. */
+  contents?: DrivePacketContents;
 };
+/** Calendar dates, "YYYY-MM-DD". */
+export type DrivePacketPeriod = { start: string; end: string };
+/** One of the owner's own files in a packet. Never shown to buyers. */
+export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null };
+/** The dates a packet covers and its first files (a packet lists at most 120). */
+export type DrivePacketContents = { period: DrivePacketPeriod | null; documents: DrivePacketDocument[] };
 export class DrivePacketError extends Error {
   constructor(readonly code: string) { super("Document packets are unavailable."); }
 }
@@ -62,7 +70,32 @@ function packetVersion(value: unknown): number {
   if (result < 1) throw new DrivePacketError("invalid_response");
   return result;
 }
-export function parseDrivePacket(value: unknown): DrivePacket {
+function day(value: unknown): string {
+  const result = label(value, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result) || !Number.isFinite(Date.parse(result))) throw new DrivePacketError("invalid_response");
+  return result;
+}
+function period(value: unknown): DrivePacketPeriod | null {
+  if (value === null) return null;
+  const item = record(value), result = { start: day(item.start), end: day(item.end) };
+  if (result.start > result.end) throw new DrivePacketError("invalid_response");
+  return result;
+}
+function contents(value: unknown): DrivePacketContents {
+  const item = record(value);
+  if (!Array.isArray(item.documents) || item.documents.length > 120) throw new DrivePacketError("invalid_response");
+  return {
+    period: period(item.period),
+    documents: item.documents.map(entry => {
+      const document = record(entry);
+      const pages = document.pages === null ? null : count(document.pages);
+      if (pages === 0) throw new DrivePacketError("invalid_response");
+      return { name: label(document.name, 255), type: document.type === null ? null : label(document.type, 255), pages, period: period(document.period) };
+    }),
+  };
+}
+/** A buyer view drops `contents` even if a response carried it: file names stay with their owner. */
+export function parseDrivePacket(value: unknown, view: "owner" | "buyer" = "buyer"): DrivePacket {
   const item = record(value);
   if (!["ready", "incomplete", "unable_to_verify"].includes(String(item.state)) ||
       !["current", "stale", "paused"].includes(String(item.freshness)) ||
@@ -77,6 +110,7 @@ export function parseDrivePacket(value: unknown): DrivePacket {
     assessmentScore: count(item.assessmentScore), importance: count(item.importance),
     suggestedPriceCents: price(item.suggestedPriceCents), priceCents: price(item.priceCents),
     listingEnabled: flag(item.listingEnabled), canRequest: flag(item.canRequest), canList: flag(item.canList),
+    ...(view === "owner" && item.contents !== undefined ? { contents: contents(item.contents) } : {}),
   };
   if ((result.canRequest || result.canList) && (result.state !== "ready" || result.freshness !== "current") ||
       result.state === "ready" && result.freshness === "current" && result.gaps.length > 0) throw new DrivePacketError("invalid_response");
@@ -148,7 +182,7 @@ export class DrivePacketService {
     if (cursor) query.set("cursor", label(cursor, 2048));
     const value = await this.send(token, guard, `/sharing/packets${query.size ? `?${query}` : ""}`);
     if (!Array.isArray(value.packets) || value.packets.length > 50) throw new DrivePacketError("invalid_response");
-    const packets = value.packets.map(parseDrivePacket);
+    const packets = value.packets.map(packet => parseDrivePacket(packet, ownerPersonRef ? "buyer" : "owner"));
     if (new Set(packets.map(packet => packet.packetId)).size !== packets.length) throw new DrivePacketError("invalid_response");
     return { packets, nextCursor: value.nextCursor === null ? null : label(value.nextCursor, 2048) };
   }
