@@ -2031,8 +2031,12 @@ final class AppUITests: XCTestCase {
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         // Observe the rendered dock child, not an optional AX container.
         let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
-        let grid = web.buttons["Show agent grid view"].firstMatch
-        let list = web.buttons["Show agent list view"].firstMatch
+        // WebKit can expose aria-pressed buttons as toggles rather than the
+        // button element type. Keep the authored names, not an AX-type guess.
+        let grid = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Show agent grid view")).firstMatch
+        let list = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Show agent list view")).firstMatch
         guard waitForAdmittedControl(bar), waitForAdmittedControl(dock),
               waitForAdmittedControl(grid), waitForAdmittedControl(list) else {
             reportNativeDockAdmission(app)
