@@ -213,6 +213,9 @@ final class AppUITests: XCTestCase {
                let path = Int(fields["drawerPathDepth"] ?? ""), (0...1).contains(path),
                let pending = fields["drawerChoicePending"], ["true", "false"].contains(pending) {
                 print("PROFILE_STACK_BOUNDARY projected=\(projected) path=\(path) pending=\(pending)")
+                if let appeared = fields["drawerAccountAppeared"], ["true", "false"].contains(appeared) {
+                    print("PROFILE_ACCOUNT_APPEARED value=\(appeared)")
+                }
             }
             let bits = ["hLayout", "hPending", "hEnabled", "hDocument", "hPrivacy", "hViewport", "hAdmitted", "hAllowed", "hIsolated", "hPane", "hHidden", "hTouchBlocked", "hAXHidden"]
             if fields["hActive"] == "1", fields["hAvailable"] == "1",

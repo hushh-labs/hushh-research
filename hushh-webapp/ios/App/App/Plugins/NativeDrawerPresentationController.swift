@@ -35,6 +35,9 @@ final class NativeDrawerModel: ObservableObject {
     @Published private var backPending = false
     var allowsPageInteraction: Bool { !backPending }
     private var navigationPages = [String: NativeProfilePage]()
+    #if DEBUG
+    var profileAccountAppeared = false
+    #endif
     func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
     var navigationBinding: Binding<[String]> {
         // This is a native presentation binding, not an external action token.
@@ -187,7 +190,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         }
     }
     var closeDiagnostic: String {
-        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission);drawerProjectedDepth=\(model.projection.profileStack?.count ?? -1);drawerPathDepth=\(model.navigationPath.count);drawerChoicePending=\(model.choicePending)"
+        "drawerCloseStage=\(observedCloseStage);drawerOpen=\(model.projection.open);drawerInteractive=\(model.interactionEnabled);drawerAwaiting=\(awaitingReadmission);drawerProjectedDepth=\(model.projection.profileStack?.count ?? -1);drawerPathDepth=\(model.navigationPath.count);drawerChoicePending=\(model.choicePending);drawerAccountAppeared=\(model.profileAccountAppeared)"
     }
     #endif
     var leadingHeaderFrame: (() -> CGRect?)?
@@ -581,6 +584,16 @@ struct NativeDrawerContent: View {
                             .navigationTitle(page.title)
                             .navigationBarTitleDisplayMode(.inline)
                             .toolbar { profileClose }
+                            .onAppear {
+                                #if DEBUG
+                                model.profileAccountAppeared = true
+                                #endif
+                            }
+                            .onDisappear {
+                                #if DEBUG
+                                model.profileAccountAppeared = false
+                                #endif
+                            }
                     }
                 }
         }

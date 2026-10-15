@@ -847,7 +847,9 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(account.allows(action: "row", row: "edit-name"))
         XCTAssertFalse(account.allows(action: "row", row: "row-handle"))
         XCTAssertFalse(account.allows(action: "row", row: "read-only-mail"))
-        let controller = NativeDrawerPresentationController(root)
+        var closedRoot = root
+        closedRoot.open = false; closedRoot.surfaceOpen = false
+        let controller = NativeDrawerPresentationController(closedRoot)
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         var closeFrame = CGRect.zero
         var rowFrames = [String: CGRect]()
@@ -867,6 +869,7 @@ final class NativeSupportTests: XCTestCase {
             previousKeyWindow?.makeKeyAndVisible()
         }
         controller.activateInitialPresentation()
+        controller.update(root)
         let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: controller)
         await fulfillment(of: [admitted], timeout: 2)
         func requireClose() async {
@@ -888,7 +891,10 @@ final class NativeSupportTests: XCTestCase {
         await requireRow("row-handle")
         let host = controller.host
         let retainedBinding = controller.model.navigationBinding
+        controller.model.choose = { [weak controller] _, _, _ in controller?.model.pendingSequence = 10; return true }
+        XCTAssertTrue(controller.model.choice("row", row: "row-handle"))
         controller.update(account)
+        controller.model.settle(sequence: 10, success: true)
         await requireClose()
         await requireRow("edit-name")
         XCTAssertTrue(controller.host === host)
