@@ -139,7 +139,7 @@ def setup_nonce(arm: ArmClient, *, subscription_id: str, spec: PodSpec, adopt: b
 def plan_factory(
     spec: PodSpec, *, source_registry: str, source_repository: str, incarnation: str
 ) -> Callable[[PlanInputs], SetupPlan]:
-    """Build (and rebuild, without a model) the plan for one agent."""
+    """Build one agent's plan from its explicit model inputs."""
 
     def _plan(inputs: PlanInputs) -> SetupPlan:
         names = resource_names(inputs)

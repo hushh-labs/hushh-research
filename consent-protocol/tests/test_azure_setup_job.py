@@ -110,6 +110,14 @@ async def test_a_typed_refusal_is_recorded_in_its_own_words():
         (ArmError("throttled", status=429, code="", message="", op="x"), "AZURE_BUSY"),
         (ArmError("server", status=500, code="InternalServerError", message="", op="x"),
          "AZURE_REFUSED"),
+        (ArmError("failed", status=200, code="InsufficientQuota", message="private provider body",
+                  op="creating_model"), "AZURE_OPENAI_QUOTA_REFUSED"),
+        (ArmError("failed", status=200, code="InsufficientQuota", message="", op="creating_storage"),
+         "AZURE_REFUSED"),
+        (ArmError("unauthorized", status=401, code="InsufficientQuota", message="", op="creating_model"),
+         "AZURE_SIGN_IN_EXPIRED"),
+        (ArmError("throttled", status=429, code="InsufficientQuota", message="", op="creating_model"),
+         "AZURE_BUSY"),
     ],
 )  # fmt: skip
 async def test_azure_refusals_become_typed_codes(error, code):
@@ -118,9 +126,13 @@ async def test_azure_refusals_become_typed_codes(error, code):
     def setup(**_):
         raise error
 
-    await _run_setup(repo, setup)
+    published = await _run_setup(repo, setup)
+    assert published == [] and repo.finished["status"] == "failed"
     assert repo.finished["code"] == code
     assert error.code in repo.finished["message"] or error.kind in repo.finished["message"]
+    assert "private provider body" not in repo.finished["message"]
+    if code == "AZURE_OPENAI_QUOTA_REFUSED":
+        assert "Resolve model quota or subscription eligibility" in repo.finished["message"]
 
 
 async def test_a_superseded_job_stops_writing():

@@ -323,10 +323,8 @@ def _model_steps(
         },
     }
     return [
-        _resource("creating_model", scopes.openai, "cognitive_services", account, optional=True),
-        _resource(
-            "creating_model", scopes.deployment, "cognitive_services", deployment, optional=True
-        ),
+        _resource("creating_model", scopes.openai, "cognitive_services", account),
+        _resource("creating_model", scopes.deployment, "cognitive_services", deployment),
     ]
 
 
@@ -464,7 +462,7 @@ def build_setup_plan(
 
 
 def without_model(inputs: PlanInputs) -> PlanInputs:
-    """The same plan for a subscription whose model step was refused."""
+    """Remove the model only for an explicitly optional plan's typed refusal."""
     return replace(inputs, model=None)
 
 

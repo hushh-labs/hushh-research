@@ -137,26 +137,33 @@ def test_a_group_bound_to_another_agent_is_refused():
         _run(arm)
 
 
-def test_a_refused_model_is_a_typed_outcome_and_the_agent_serves_the_owners_key():
+def test_default_model_refusal_stops_setup_and_retry_preserves_custody():
     arm = FakeArm()
     arm.fail(
         "PUT",
         "/deployments/one-chat",
         ArmError("failed", status=200, code="InsufficientQuota", message="", op="x"),
     )
-    result = _run(arm)
-    assert (result.model_outcome, result.model_credential_mode) == (
-        "quota_refused",
-        "byok_per_turn",
-    )
+    http, stages = _Http(), []
+    with pytest.raises(ArmError) as exc:
+        _run(arm, http=http, stages=stages)
+    assert exc.value.code == "InsufficientQuota"
+    assert stages[-1] == "creating_model"
+    assert http.urls == []
     assert not any(
         "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd" in json.dumps(b) for _, _, b in arm.calls if b
     )
-    app = next(
-        b for m, p, b in arm.calls if m == "PUT" and p.endswith("/containerApps/ca-hussh-one-pod")
+    assert not any("/containerApps/" in p for _, p, _ in arm.calls)
+    nonce = arm.resources[_group()]["tags"][NONCE_TAG]
+    retry_start = len(arm.calls)
+    result = _run(arm)
+    assert result.model_credential_mode == "user_azure_mi"
+    assert result.nonce == nonce
+    assert not any(
+        p.endswith("/keys/pod-log-key") or p.endswith("/secrets/pod-signing-key")
+        for method, p, _ in arm.calls[retry_start:]
+        if method == "PUT"
     )
-    names = {e["name"] for e in app["properties"]["template"]["containers"][0]["env"]}
-    assert "AZURE_OPENAI_ENDPOINT" not in names
 
 
 def test_an_existing_assignment_is_success_and_a_new_principal_is_waited_for():

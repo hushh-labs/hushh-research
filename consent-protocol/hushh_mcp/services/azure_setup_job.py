@@ -54,6 +54,18 @@ def arm_refusal(exc: ArmError) -> tuple[str, str]:
     code, message = _ARM_REFUSALS.get(exc.kind, _ARM_DEFAULT)
     if exc.code == "RequestDisallowedByPolicy":
         code, message = "AZURE_POLICY_REFUSED", "An Azure policy on this subscription refused it."
+    elif (
+        exc.kind in ("bad_request", "failed")
+        and exc.op == "creating_model"
+        and exc.code == "InsufficientQuota"
+    ):
+        code, message = (
+            "AZURE_OPENAI_QUOTA_REFUSED",
+            (
+                "Azure OpenAI quota is unavailable for this setup. Resolve model quota or "
+                "subscription eligibility in Azure, then retry. Existing resources are kept."
+            ),
+        )
     return code, f"{message} ({exc.code or exc.kind})"
 
 

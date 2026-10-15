@@ -9,8 +9,8 @@ The plan says WHAT; this module says how each step is safely repeated:
   retry ``PrincipalNotFound`` while a just-created identity replicates;
 * provider registration admits ``Registered`` or ``Registering``; resource-level
   ARM calls remain authoritative for regional availability and authorization;
-* an ``optional`` (model) refusal is a typed outcome: the remaining stages are
-  rebuilt without the model and the agent serves the owner's own key instead;
+* required OpenAI account/deployment refusals stop default setup before pod deployment;
+  explicitly model-free plans remain representable, without an automatic fallback;
 * a step that still carries a ``${placeholder}`` is never sent;
 * in ``adopt`` mode (the rebuild after Azure removed the hosting space) the custody
   resources (identity, vault, key, secret, storage account, container) are read and
@@ -128,7 +128,7 @@ class SetupApplier:
         plan_for: Callable[[PlanInputs], SetupPlan],
         until: str = "proving",
     ) -> ApplyResult:
-        """Run every stage before ``until``. ``plan_for`` rebuilds after a model refusal."""
+        """Run stages before ``until``; rebuild only explicitly optional plans."""
         result = ApplyResult(values=dict(values), plan=plan)
         result.values.setdefault("signingSecretValue", secrets.token_urlsafe(48))
         for stage in AZURE_JOB_STAGES[: AZURE_JOB_STAGES.index(until)]:
