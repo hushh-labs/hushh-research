@@ -664,7 +664,7 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "project-af9bfbd3-d6ea-4043-aea",
+        "dev": "hushh-gemini-bridge",
         "uat": "hussh-511311",
         "production": "hushh-vertex-personal54",
     }
