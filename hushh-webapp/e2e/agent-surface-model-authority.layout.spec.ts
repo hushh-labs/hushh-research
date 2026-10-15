@@ -860,6 +860,10 @@ test.describe("One compact header: phone regression", () => {
         expect(longName.x + longName.width).toBeLessThanOrEqual(width);
         expect(longName.y).toBe(name.y);
         expect(longName.height).toBe(name.height);
+        expect(longName.x).toBeGreaterThanOrEqual(avatar.x + avatar.width);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(identity.x + identity.width);
+        expect(longName.y + longName.height).toBeLessThanOrEqual(header.y + header.height - 8);
+        await expect(page.getByTestId("agent-name")).toHaveCSS("text-overflow", "ellipsis");
       }
     }
   });

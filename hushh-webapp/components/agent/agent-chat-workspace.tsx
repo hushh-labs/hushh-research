@@ -9548,18 +9548,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  <button
-                    type="button"
+                  <ShellActionSurface
+                    variant="icon" ripple={false}
                     data-agent-chat-one-profile-trigger
                     aria-label="Open One profile"
                     aria-haspopup="dialog"
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="inline-flex size-11 shrink-0 items-center justify-center border-0 bg-transparent p-0 shadow-none"
+                    className="!size-11 !rounded-none !border-transparent !bg-transparent !shadow-none hover:!bg-transparent"
                   >
                     <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-                  </button>
+                  </ShellActionSurface>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about

@@ -845,7 +845,7 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByText("Loading shared cards...")).toHaveCount(0);
     await page.getByRole("tab", { name: "Cards", exact: true }).click();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("history-loaded:")).length)).toBe(2);
     const received = sharing.getByRole("region", { name: "Received card history", exact: true });
     await expect(received.getByText("Example Sender", { exact: true })).toBeVisible();

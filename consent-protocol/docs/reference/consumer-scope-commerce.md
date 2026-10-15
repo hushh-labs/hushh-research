@@ -4188,6 +4188,14 @@ tools to both owned copies. Source qualification also preserves main's closed-se
 Live Memory telemetry through the existing single validator; 111 focused checks
 and typechecking pass. The final core and hosted CI remain required.
 
+The subsequent exact candidate `7058898726b4` passed the complete local core:
+20,407 protocol and 1,287 PostgreSQL cases plus web-core, MCP and integration.
+Hosted CI found stale integration fixtures and a real animated-artwork ripple
+regression. The follow-up restores the existing no-halo and keyboard-focus
+contracts, corrects the contradictory inline-name assertion and narrows Wallet's
+recipient locator without dropping history or revocation checks. Its final core,
+hosted CI and Dev acceptance remain required; no paid delivery is inferred.
+
 At `2026-10-15T21:47:46Z`, fresh read-only Sandbox and ledger checks again confirm
 $10.50 funded per reviewer, $15 cumulative capital, balanced liabilities, settled
 backing and conserved fees. A separate headless private-interface check confirms
