@@ -29,25 +29,47 @@ or payout.
 
 ### Current Dev evidence — 2026-10-15 UTC
 
-Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and is
+Candidate `69d1f729fbd5` passed the canonical core in 2,894 seconds and was
 pushed on the existing branch. Its
 [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/38660426398)
-is running; Dev promotion has not occurred.
+failed on Gemini settings race fixtures and WebKit History motion sampling;
+protocol, MCP, web-core, integration, iOS and Android passed. No Dev promotion
+occurred. The corrected fixtures wait for actual provider dispatch and reset
+queued mocks. History observes real geometry through RAF and a bounded timer,
+retaining latency, intermediate-motion and unchanged-Chat checks. Chromium and
+WebKit reject a forced zero-duration transition. This is geometry continuity
+proof, not compositor FPS. A repeat local positive run under shared-host load
+failed the unchanged latency/motion assertions; no passing final replay is
+claimed. A new exact-source core and full CI remain required.
 
-The existing Chrome debugger remains connected. A task-owned background page
-proved the primary's ordinary Firebase owner, visible cold vault challenge,
-unlock and same-session Saved/Add and information-payout navigation, without
-reloading the shared original tab or persisting vault keys. The primary's
-information-access setup button is visible and enabled; readiness is still false.
+The existing Chrome process and shared tabs are preserved. Before an interrupted
+turn, a task-owned background page proved the primary's ordinary Firebase owner,
+visible cold vault challenge, unlock and same-session Saved/Add and information-
+payout navigation. The primary's information-access setup button was visible and
+enabled; readiness remained false. Task-client reconnection is checked separately
+from browser and vault continuity; earlier receipts do not prove a current lease.
 
-The reviewer guard now supports narrowly admitted private Memory preparation
-against the current authenticated, canonically verified signed pod endpoint.
-Endpoint, route, callback and asynchronous owner-retirement controls pass
-77 focused frontend and 19 Node cases. The actual private request passed the
-guard but returned HTTP 400 at the pod's model-access boundary. No encrypted
-fixture was saved and no paid purchase was submitted. Existing owner AI selection
-must be verified through the normal private-pod connection contract; a browser
-vault backup alone does not prove a usable pod selection.
+The reviewer guard supports narrowly admitted private Memory preparation against
+the current authenticated, canonically verified signed pod endpoint. Endpoint,
+route, callback and asynchronous owner-retirement controls passed 77 focused
+frontend and 19 Node cases. The actual private request passed the guard but returned
+HTTP 400 at model admission. No encrypted fixture or paid purchase was submitted.
+
+Registry-bound Azure inspection at `2026-10-15T00:57:08Z` found the primary's
+provisioned pod had no OpenAI deployment, model environment or account-scoped
+OpenAI User role. Its selected subscription ending `052f9` is Free Trial, and the
+inspected default-model quota is zero. The counterpart's `one-chat` deployment,
+matching environment and role work and remain unchanged. Azure uses paired
+OpenAI by default; GCP uses paired Gemini. A vault backup is not model admission.
+
+The setup correction makes default Azure OpenAI account/deployment steps required:
+a quota refusal stops before pod deployment or publication, preserves custody for
+retry and records actionable quota guidance. Explicit model-free plan rendering
+and existing owner BYOK overrides remain separate contracts. This correction does
+not repair an existing provisioned pod. The primary needs usable owner-subscription
+quota, then a bounded model/role/environment recovery under the existing owner
+JIT and handoff authority. No billing upgrade, quota request, cross-owner model
+substitution or destructive setup replay has been performed.
 
 At `2026-10-14T23:23:44Z`, source-bound database and provider reads confirmed
 both reviewers' document/answer payout accounts have submitted details, an

@@ -7,8 +7,8 @@ that already existed). "Azure refused a setup step" gave the person nothing to a
 on. This names the limit and the resources occupying it, read with the person's own
 delegated token, so they can free the slot or upgrade, and says nothing was removed.
 
-Only the environment limit is fatal: the model is an optional step, and an agent
-without its own model falls back to a per-turn key by design.
+Environment and default OpenAI account/deployment refusals stop setup. This module
+explains environment occupancy; the job maps model-quota refusals separately.
 """
 
 from __future__ import annotations

@@ -417,7 +417,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   await expectPaneMotionReleased(dialog);
   const motion = await sampleHistoryMotion(page, "open");
   // An instantaneous endpoint jump passes a settled screenshot but fails here.
-  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1)).toBe(true);
+  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1), JSON.stringify(motion)).toBe(true);
   expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
   expect(Math.abs(motion.frames.at(-1)!.x - motion.restingX)).toBeLessThanOrEqual(1);
   expect(motion.after).toEqual(motion.before);
@@ -448,7 +448,7 @@ test("History tap motion and interrupted pulls move the entire panel without shi
   await expectPaneRestingAtFrame(page, dialog);
   await expectPaneMotionReleased(dialog);
   const exit = await sampleHistoryMotion(page, "close");
-  expect(exit.frames.some(frame => frame.x < -1 && frame.x > -exit.width + 1)).toBe(true);
+  expect(exit.frames.some(frame => frame.x < -1 && frame.x > -exit.width + 1), JSON.stringify(exit)).toBe(true);
   expect(exit.frames.at(-1)!.x).toBeCloseTo(-exit.width - exit.shadowClearance, 0);
 });
 
