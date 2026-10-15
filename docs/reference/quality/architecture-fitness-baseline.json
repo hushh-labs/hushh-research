@@ -3238,7 +3238,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2675,
+  "finding_count": 2676,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -27320,6 +27320,15 @@
       "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_setup.py|run_agent_setup|function exceeds the advisory gene budget",
       "limit": 80,
       "value": 89
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/byoc_setup_job_service.py",
+      "symbol": "ByocSetupJobRepo",
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py|ByocSetupJobRepo|class exceeds the advisory operon budget",
+      "limit": 250,
+      "value": 252
     }
   ],
   "inspected_files": 6625,
@@ -52329,12 +52338,19 @@
   },
   "azure_setup_retry_history_review_20261015": {
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate.",
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication.",
     "entries": [
       {
         "key": "module_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py||module exceeds the advisory operon budget",
         "before": 574,
         "after": 578,
+        "reviewer": "owner_lifecycle_cleanup_review",
+        "source_sha256": "d5a2fba0950289bcb0389275608f504e0ad980a3210d3a664cf6fab333eeed38"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/byoc_setup_job_service.py|ByocSetupJobRepo|class exceeds the advisory operon budget",
+        "before": 248,
+        "after": 252,
         "reviewer": "owner_lifecycle_cleanup_review",
         "source_sha256": "d5a2fba0950289bcb0389275608f504e0ad980a3210d3a664cf6fab333eeed38"
       }
