@@ -71,19 +71,6 @@ _NAMED_MONTH_YEAR = re.compile(
 )
 _DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{4}})\b", re.I)
 _MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
-# Member keys that identify a row or its extraction, not the document's content.
-MEMBER_IDENTITY_KEYS = frozenset(
-    {
-        "document_id",
-        "source_version",
-        "facts_version",
-        "facts_profile",
-        "extraction_profile",
-        "extraction_version",
-        "complete",
-        "content_digest",
-    }
-)
 
 
 class EvidenceValidationError(ValueError):
@@ -411,25 +398,34 @@ def _require_dated_periods(periods):
         raise EvidenceValidationError("model_period_invalid", issues=issues[:8])
 
 
-def _member_evidence(document):
-    facts = document.get("facts")
-    if isinstance(facts, dict):
-        return facts
-    return {key: value for key, value in document.items() if key not in MEMBER_IDENTITY_KEYS}
+def _member_content_keys(item):
+    """What identifies a member's content: the provider's checksum of the
+    original bytes, and a digest of its full extracted facts (carried as
+    facts_digest when only compact evidence is supplied). Identical facts
+    count only when they identify a record (an account, a period or dated
+    evidence); a shared header alone cannot tell two originals apart, and
+    compact summaries are never compared because sparse extractions compact
+    alike. The model checker's own duplicate review still applies."""
+    keys = []
+    if item.get("content_digest"):
+        keys.append(("content", item["content_digest"]))
+    facts = item.get("facts")
+    evidence = facts if isinstance(facts, dict) else item
+    digest = evidence_digest(facts) if isinstance(facts, dict) else item.get("facts_digest")
+    if digest and any(evidence.get(key) for key in ("account", "periods", "date_evidence")):
+        keys.append(("facts", digest))
+    return keys
 
 
 def _require_distinct_member_content(documents, selected):
-    """Selected members with one content digest, or identical evidence, are one
-    source. The feedback names them; the model keeps one and excludes the
-    others as its duplicates."""
+    """Selected members with one content digest, or one set of extracted
+    facts, are one source. The feedback names them; the model keeps one and
+    excludes the others as its duplicates."""
     groups = {}
     for item in documents:
         if item["document_id"] not in selected:
             continue
-        keys = [("evidence", evidence_digest(_member_evidence(item)))]
-        if item.get("content_digest"):
-            keys.append(("content", item["content_digest"]))
-        for key in keys:
+        for key in _member_content_keys(item):
             groups.setdefault(key, []).append(item["document_id"])
     duplicates = sorted({member for ids in groups.values() if len(ids) > 1 for member in ids})
     if duplicates:

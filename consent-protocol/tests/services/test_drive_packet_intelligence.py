@@ -1237,13 +1237,79 @@ async def test_final_checker_cannot_verify_the_same_content_twice_as_ready():
     )
     assert checked.state == "ready"
 
-    # Without a provider digest, identical compact evidence is still one source.
+    # Without a provider digest, identical extracted facts are still one source.
     for item in documents:
         item.pop("content_digest")
     with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
         await verify_packet(
             **arguments, packet=both, interpret=AsyncMock(return_value=ready_verdict())
         )
+
+
+async def test_members_sharing_only_boilerplate_facts_remain_ready_together():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    # Two originals whose extraction captured the same header only (a type and
+    # one fact; no account, period or dated evidence) cannot be told apart by
+    # their facts. Both stay members; duplicate review stays with the checker.
+    facts = page_facts()
+    facts.pop("pages")
+    facts.update(
+        document_type={
+            "value": "Meeting notes",
+            "citations": [{"page": 1, "quote": "Meeting notes"}],
+        },
+        facts=[
+            {"value": "Agenda circulated", "citations": [{"page": 1, "quote": "Agenda circulated"}]}
+        ],
+    )
+    members = [
+        statement_member("first", facts),
+        statement_member("second", json.loads(json.dumps(facts))),
+    ]
+    result = packet([], ["first", "second"])
+    answer = await construct_packet(
+        user_id="owner",
+        key="notes",
+        complete=True,
+        documents=members,
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.selected_document_ids == ["first", "second"]
+    checked = await verify_packet(
+        user_id="owner",
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        packet=result,
+        documents=[compact_evidence(item) for item in members],
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"
+
+
+async def test_final_checker_keeps_two_sparse_extractions_that_compact_alike_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    # Two originals whose facts compact to the same summary (the same header
+    # facts, quoted from different pages) are two sources, not one copy. The
+    # final checker compares the digest of the full facts the worker carries.
+    first, second = statement_member("first"), statement_member("second")
+    second["facts"]["facts"][0]["citations"] = [{"page": 2, "quote": "Ending balance $1,000.00"}]
+    documents = [compact_evidence(first), compact_evidence(second)]
+    summaries = [
+        {key: value for key, value in item.items() if key not in {"document_id", "facts_digest"}}
+        for item in documents
+    ]
+    assert summaries[0] == summaries[1]
+    checked = await verify_packet(
+        user_id="owner",
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        packet=statement_packet(["first", "second"], [statement_facts()["periods"][0]]),
+        documents=documents,
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"
 
 
 @pytest.mark.parametrize(

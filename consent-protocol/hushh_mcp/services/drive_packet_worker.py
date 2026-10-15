@@ -15,7 +15,7 @@ from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_document_targets import document_targets
-from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
+from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal, evidence_digest
 from hushh_mcp.services.drive_packet_intelligence import (
     EvidenceValidationError,
     consolidate_facts,
@@ -105,8 +105,11 @@ def compact_evidence(document):
         "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
-        # The provider's content digest lets the final checker refuse one
-        # original selected twice, even when the two extractions differ.
+        # A digest of the full facts lets the final checker tell one original
+        # selected twice from two sparse extractions that compact alike.
+        "facts_digest": evidence_digest(facts),
+        # The provider's content digest refuses one original selected twice
+        # even when its two extractions differ.
         **(
             {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
         ),
