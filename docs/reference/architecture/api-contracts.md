@@ -1707,8 +1707,18 @@ are Coming soon. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
-are calculated server-side. Time zone resolves from the browser; the account
-menu edits time zone and availability hours for the current owner session.
+are calculated server-side. Time zone resolves from the connected primary calendar,
+with device fallback; advanced options remain in the account menu. Free time
+checks the full selected local day. A selected window hands its date, exact
+start/end, duration, zone and account context to the existing One conversation.
+One asks who should join; the reply carries this memory-only context through
+normal chat text attachments. The existing proposal requires confirmation.
+The selected window/duration are checked before confirmation and execution.
+Change time offers fitting starts in the resolved zone and requests a fresh
+proposal with the reviewed attendees/title. A changed connected account blocks
+execution. A conflict offers a fresh availability check inside chat. Only successful
+execution publishes an owner-scoped refresh for Today and Free time. Slot taps,
+cancellation and authorization never execute an event.
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,

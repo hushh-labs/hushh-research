@@ -6,6 +6,7 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -570,9 +571,9 @@ export function CalendarAgentPage({
     </div>
   ) : null;
 
-  const openChat = (prompt?: string) => {
+  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff) => {
     trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-    if (!prompt) {
+    if (!prompt && !calendarSlot) {
       navigateToAgentChat();
       return;
     }
@@ -581,6 +582,7 @@ export function CalendarAgentPage({
       id: `calendar-prompt-${createdAtMs}`,
       reason: "user_requested",
       transcript: prompt,
+      calendarSlot,
       createdAtMs,
     });
     navigateToAgentChat();
@@ -643,7 +645,7 @@ export function CalendarAgentPage({
     return <>
       <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onChat={prompt => openChat(prompt?.trim() || "Summarize my calendar events and help me plan meetings")}
+        onChat={(prompt, slot) => openChat(slot ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}

@@ -282,10 +282,14 @@ for (const width of [320, 390, 1440]) {
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-free-time-${width}.png`) });
     await assertActionsClearChrome(page, width, "free");
     const add = page.getByRole("button", { name: /^Ask One about/ }).last();
-    await add.click(); await expect(page.getByTestId("calendar-action")).toContainText("15-minute meeting");
+    const rowBox = (await add.boundingBox())!;
+    expect(rowBox.height).toBeGreaterThanOrEqual(44);
+    expect(rowBox.width).toBeGreaterThan(width < 500 ? 250 : 500);
+    await add.focus();
+    await page.keyboard.press("Enter"); await expect(page.getByTestId("calendar-action")).toContainText('"durationMinutes":15');
     await expect(page.getByTestId("calendar-action")).toContainText("2026-10-14");
     await page.getByRole("button", { name: /Need a different time/ }).click();
-    await expect(page.getByTestId("calendar-action")).toContainText("availability hours are 09:00 to 17:00");
+    await expect(page.getByTestId("calendar-action")).toContainText("Check the full selected local day");
     await page.getByRole("tab", { name: "30 min", exact: true }).click();
     await expect(page.getByRole("heading", { name: "6 available slots today", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Next day", exact: true }).click();
@@ -383,5 +387,33 @@ if (process.env.CALENDAR_PROVIDER_REPLAY_PATH) {
     await expect(page.getByText(/Midnight \(next day\)/)).toBeVisible();
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `explorer-local-today-${width}.png`) });
     expect(today.errors).toEqual([]); expect(today.unexpectedRequests).toEqual([]);
+  });
+}
+
+
+for (const width of [320, 390, 1440]) {
+  test(`slot chat proposal and Change time remain accessible at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByTestId("calendar-fixture-proposal").evaluate((element: HTMLButtonElement) => element.click());
+    const card = page.getByTestId("agent-calendar-proposal-card");
+    const confirm = page.getByRole("button", { name: "Schedule meeting" });
+    await confirm.scrollIntoViewIfNeeded();
+    const bounds = (await confirm.boundingBox())!;
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual((await page.getByTestId("reserved-bottom-chrome").boundingBox())!.y);
+    expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: path.join(screenshotDirectory, `calendar-chat-proposal-${width}.png`) });
+    await page.getByRole("button", { name: "Change time" }).click();
+    await expect(confirm).toBeDisabled();
+    await page.getByRole("combobox", { name: "Choose a start inside your free window" }).click();
+    await page.getByRole("option").nth(1).click();
+    await expect(page.getByTestId("calendar-action")).toHaveText("change-time:2030-01-17T08:45:00Z");
+    await expect(card).toContainText("long-calendar-attendee-for-responsive-verification@example.test");
+    await page.getByRole("button", { name: "Not now" }).click();
+    await expect(page.getByTestId("calendar-action")).toHaveText("cancelled-without-event");
+    await confirm.click();
+    await expect(page.getByTestId("agent-calendar-proposal-confirm")).toBeDisabled();
+    await expect(page.getByTestId("agent-calendar-proposal-confirm")).toHaveText("Working…");
+    await expect(page.getByRole("button", { name: "Change time" })).toBeDisabled();
   });
 }

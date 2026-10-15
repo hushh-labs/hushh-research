@@ -4136,3 +4136,26 @@ independent evidence lanes reviewed exactly 11 size observations, retaining
 all 2,707 historical findings and adding two measured slots. Scanner, budgets
 and the second store-operation occurrence remain unchanged. The next release
 requires canonical core and hosted CI; these results do not prove a purchase.
+
+
+### Dev acceptance progress, 2026-10-15
+
+The complete local core passed on `c4bc67e88e32`: 20,301 protocol cases,
+1,266 PostgreSQL cases, frontend lint/typecheck/build, packaged MCP and
+integration. The batch was pushed once. Concurrent Calendar work on main
+then required an additive three-file composition; owner/session retirement,
+message-bound confirmation and private connector authority remain intact.
+Calendar stream fixtures now supply the current owner-aware request facade
+while retaining real stream handling. Six exact size findings were independently
+reviewed without changing scanner budgets or historical evidence. The composed
+release still requires its own core and hosted CI gates.
+
+Both canonical reviewers now have a clearly labelled synthetic Professional
+fixture created through the ordinary owner-authorized encrypted PKM API. A
+source-bound browser bundle reused the serving release's crypto, manifest and
+confirmation helpers. Each save used revision-zero CAS after authoritative
+absence checks, then passed exact segmented readback and unchanged-sibling
+checks. Keys and decrypted information stayed in browser memory. This is API
+fixture setup under uninterrupted isolated-session continuity; it does not
+prove model-assisted Memory preparation or actual auth/vault epoch identity.
+No purchase or payout is inferred from those saves. Shared Chrome was untouched.

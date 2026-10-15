@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2709,
+  "finding_count": 2710,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12658,7 +12658,7 @@
       "limit": 80,
       "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
       "symbol": "main",
-      "value": 206
+      "value": 209
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20398,7 +20398,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 748
+      "value": 760
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21343,7 +21343,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 11262
+      "value": 11362
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21532,7 +21532,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-agent-page.tsx",
       "symbol": null,
-      "value": 836
+      "value": 838
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26344,7 +26344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
       "symbol": null,
-      "value": 1153
+      "value": 1181
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26813,6 +26813,15 @@
       "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
       "symbol": "verify_packet",
       "value": 90
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_command_flow_first_use_cost_is_paid_before_provider_deadlines|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+      "symbol": "test_command_flow_first_use_cost_is_paid_before_provider_deadlines",
+      "value": 101
     }
   ],
   "inspected_files": 6625,
@@ -48443,6 +48452,78 @@
       "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
       "consent-protocol/scripts/workos_sso_local.py"
     ]
+  },
+  "scope_commerce_main213_composition_20261015": {
+    "boundary": "Exactly6 independently reviewed rank-zero size observations; all2709 historical entries and metadata preserved. Scanner, exclusions and500/250/80budgets unchanged; new growth remains rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 209,
+        "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 206,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "7e8f41881784bf3b7a4df5b252a61ccab0927f6a",
+        "source_sha256": "c32522195f456e523c05e6f09120212cfbee8e0ff9ba5bccf006319f6ca876ca"
+      },
+      {
+        "accepted_ceiling": 101,
+        "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_command_flow_first_use_cost_is_paid_before_provider_deadlines|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "bb42c0f9fd5534fd30e1bb1bb6d1a8064b9f51b6",
+        "source_sha256": "90cad7e4f5a860cce58fad54abed4ac6b08bfaca37f1689b316c6013a8caff78"
+      },
+      {
+        "accepted_ceiling": 11362,
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 11262,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "client_context",
+        "source_git_blob": "22c16952e0c5880595b9592c8e5755a89172893b",
+        "source_sha256": "730a27606f4e10e59de1249259c79f353bf9344c0f188eb4308c7ab88e29ed8e"
+      },
+      {
+        "accepted_ceiling": 1181,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1153,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "client_context",
+        "source_git_blob": "ba077bc6213f014fec6f86cfac82c17d3cd7a6c5",
+        "source_sha256": "61f4a34705a4763aa3c4378b0ec3d5456da30a94ef63ce5708a1afb91fce1ad1"
+      },
+      {
+        "accepted_ceiling": 838,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-agent-page.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 836,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "client_context",
+        "source_git_blob": "712ec3b86d022570328e6e0ef627cfc205da712e",
+        "source_sha256": "a2a4287050cd0452afca03ae88a31000dffedd1f8402fc1de0a53de9562827e3"
+      },
+      {
+        "accepted_ceiling": 760,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 748,
+        "review": "Exact reviewed concurrent-main composition. Calendar slot context adds no event authority; source-message binding, owner retirement and private connector boundaries remain. Vertex cold import is paid before real provider deadlines; actual readiness checks remain unchanged.",
+        "reviewer": "client_context",
+        "source_git_blob": "da21843f1220659f29071a1256fcb5db32b73867",
+        "source_sha256": "e66f74809faa1ccce870b997734252504b1e93436ca89d6e77cdf77852531e46"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "21359dae22e0eeed6eef9e681151cc314ef636d6",
+    "prior_baseline_sha256": "1035d983e36ce11d9f30d37a474a534788bc9f7dbd1daa1de12193af294fe2f0",
+    "retained_parent_revision": "c4bc67e88e32839df91583003dcb571ff4f41772",
+    "reviewed_report_sha256": "d0776147c77cdc300383e5362efc4c884cc6e67c9ef8f23db31d9c059ee2dccd",
+    "reviewed_source_revision": "db46da93cb",
+    "verification": "Source review plus focused Calendar behavioral checks; canonical core/CI and deployment remain separate gates. No financial acceptance inferred."
   },
   "scope_commerce_main28e_composition_20261015": {
     "boundary": "Exactly reviewed rank-zero size measurements. Prior findings and all historical qualifications preserved; detector, exclusions and500/250/80budgets unchanged. New growth still rejected.",

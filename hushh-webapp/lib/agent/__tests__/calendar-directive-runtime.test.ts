@@ -1,3 +1,5 @@
+import { CacheService } from "@/lib/services/cache-service";
+import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/google-calendar-service", () => ({
@@ -27,6 +29,7 @@ const directive = {
 describe("runCalendarDirective", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    CacheService.getInstance().clear();
   });
 
   it("executes only the proposal id from an explicit calendar confirmation", async () => {
@@ -42,6 +45,7 @@ describe("runCalendarDirective", () => {
       userId: "user-1",
       proposalId: "gcal_example",
     });
+    expect(CacheService.getInstance().get(calendarRefreshKey("user-1"))).toEqual(expect.any(Number));
     expect(createTodo).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       delegate_agent_id: "agent_calendar",
@@ -121,6 +125,12 @@ describe("runCalendarDirective", () => {
     expect(result.detail).toBe(
       "Scheduled Planning with a Google Meet link. It is ready in the Calendar invite.",
     );
+  });
+
+  it("does not publish a refresh or success when execution fails", async () => {
+    vi.mocked(GoogleCalendarService.executeProposal).mockRejectedValueOnce(new Error("conflict"));
+    await expect(runCalendarDirective(directive, "HCT:test", "user-1")).rejects.toThrow("conflict");
+    expect(CacheService.getInstance().get(calendarRefreshKey("user-1"))).toBeNull();
   });
 
   it("rejects directives that are not a server-persisted calendar proposal", async () => {
