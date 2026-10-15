@@ -29,21 +29,16 @@
 :global([data-circle-chat-lane]) .outgoing .meta { color: var(--chat-outgoing-meta, rgba(255,255,255,.75)); }
 .meta span { display: inline-flex; }
 :global([data-circle-chat-lane]) .outgoing .seen { color: var(--chat-accent, #fff); }
-.reactionControl { position: absolute; right: -16px; top: -13px; z-index: 5; }
-.addReaction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--card)); color: var(--chat-muted, var(--muted-foreground)); box-shadow: 0 2px 9px rgba(0,0,0,.1); font-size: 20px; line-height: 1; opacity: 0; transition: opacity 150ms ease; }
-.bubbleWrap:hover .addReaction, .bubbleWrap:focus-within .addReaction { opacity: 1; }
-.addReaction:active { opacity: .8; }
-.picker { position: absolute; bottom: 34px; right: 0; display: flex; gap: 1px; padding: 5px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-glass, var(--card)); box-shadow: 0 8px 22px rgba(0,0,0,.13); backdrop-filter: blur(22px) saturate(180%); animation: pickerIn 150ms ease both; }
-.picker button { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; font-size: 19px; }
-.picker button:hover, .picker button:focus-visible { background: var(--chat-incoming, var(--muted)); }
-.pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.pill { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 1px 7px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-surface, var(--card)); color: var(--chat-text, var(--foreground)); font-size: 11px; }
-.mine { border-color: var(--chat-accent, var(--app-accent)); box-shadow: 0 0 0 1px var(--chat-accent, var(--app-accent)); }
+.pills { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: -6px; }
+.addReaction { width: 44px; min-width: 44px; height: 44px; opacity: 0; transition: opacity 150ms ease-out; }
+.stack:hover .addReaction, .stack:focus-within .addReaction, .addReaction[aria-expanded="true"] { opacity: 1; }
+.pill { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; background: transparent; }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-surface, var(--card)); color: var(--chat-text, var(--foreground)); font-size: 12px; }
+.mine .badge { border-color: var(--chat-accent, var(--app-accent)); }
+.pill:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; border-radius: 999px; }
 .reactionError { margin-top: 3px; font-size: 11px; color: var(--destructive); }
 @media (hover: none) { .addReaction { opacity: 1; } }
 @media (max-width: 959px) { .stack { max-width: min(84%, 36rem); } }
-@media (prefers-reduced-motion: reduce) { .addReaction, .picker { animation: none; transition: none; } }
-@keyframes pickerIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
+@media (prefers-reduced-motion: reduce) { .addReaction { transition: none; } }
 :global([data-direct-message-page][data-theme="light"]) .outgoing:active { background: var(--chat-outgoing-pressed); }
 :global([data-direct-message-page][data-theme="light"]) .outgoing:active .meta { color: var(--chat-text); }

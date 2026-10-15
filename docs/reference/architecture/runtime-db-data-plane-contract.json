@@ -1827,7 +1827,7 @@
       "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members.",
       "retention_policy": "Reaction choices remain while their message and reacting member exist. Membership events remain while their Circle exists and are shown only from the viewer's current membership generation.",
       "deletion_behavior": "Message, Circle and account deletion cascade reaction rows; leaving or removal clears that member's reactions. Circle deletion erases event history, and actor deletion nulls event actor and subject identifiers.",
-      "trust_boundary": "Only active Circle members can react or read event history. Plaintext contains allowlisted emoji, event kind, opaque actor and subject identifiers, and timestamps; encrypted message content and keys never enter these tables or notifications.",
+      "trust_boundary": "Only active Circle members can react or read event history. Plaintext contains exact sequences from the Unicode Emoji 17.0 reaction catalogue (maximum 16 code points), event kind, opaque actor and subject identifiers, and timestamps; encrypted message content and keys never enter these tables or notifications.",
       "plaintext_posture": "member_scoped_interaction_metadata_only",
       "expected_row_growth": "high_per_message_reaction_and_membership_change"
     },

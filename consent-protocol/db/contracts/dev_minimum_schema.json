@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 356,
+  "expected_migration_version": 406,
   "migration_version_policy": "minimum",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -3105,5 +3105,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 356
+  "expected_schema_head": 406
 }

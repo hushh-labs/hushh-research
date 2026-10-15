@@ -79,6 +79,9 @@ def chat_db():
                 cursor.execute(
                     (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
                 )
+                cursor.execute(
+                    (ROOT / "db/migrations/350_circle_chat_full_emoji_reactions.sql").read_text()
+                )
         raw.close()
 
         def execute_raw(sql, params):
@@ -186,7 +189,7 @@ def test_reactions_and_membership_events_follow_current_message_access(chat_db):
     ]
 
     with pytest.raises(CircleChatError) as bad_emoji:
-        service.react("bob", circle, message_id, "💛", True)
+        service.react("bob", circle, message_id, "not an emoji", True)
     assert bad_emoji.value.status == 422
     with pytest.raises(CircleChatError):
         service.react("outsider", circle, message_id, "❤️", True)
@@ -217,6 +220,76 @@ def test_reactions_and_membership_events_follow_current_message_access(chat_db):
     )
     with pytest.raises(CircleChatError):
         service.react("alice", circle, message_id, "❤️", True)
+
+
+@pytest.mark.parametrize("emoji", ["💛", "👍🏽", "👩🏽‍💻", "🇮🇳", "1️⃣", "👨‍👩‍👧‍👦"])
+def test_full_emoji_reactions_persist_and_keep_message_authority(chat_db, emoji):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("alice", circle, _payload(service, circle))
+    saved = service.react("bob", circle, sent["id"], emoji, True)
+    assert saved["reactions"] == [{"emoji": emoji, "count": 1, "reactedByViewer": True}]
+    assert service.messages("alice", circle)["items"][0]["reactions"] == [
+        {"emoji": emoji, "count": 1, "reactedByViewer": False}
+    ]
+    with pytest.raises(CircleChatError):
+        service.react("outsider", circle, sent["id"], emoji, True)
+    assert service.react("bob", circle, sent["id"], emoji, True) == saved
+    assert service.react("bob", circle, sent["id"], emoji, False)["reactions"] == []
+
+
+@pytest.mark.parametrize("value", ["hello", "👍👍", "🏽", "", "🇮", "👩\u200dhello", "x" * 100])
+def test_reactions_reject_non_emoji_without_storage_access(value):
+    with pytest.raises(CircleChatError) as error:
+        CircleChatService(SimpleNamespace()).react(
+            "alice", str(uuid.uuid4()), str(uuid.uuid4()), value, True
+        )
+    assert error.value.status == 422
+
+
+def test_full_emoji_migration_preserves_rows_and_refuses_lossy_rollback(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("alice", circle, _payload(service, circle))
+    service.react("bob", circle, sent["id"], "❤️", True)
+    up = (ROOT / "db/migrations/350_circle_chat_full_emoji_reactions.sql").read_text()
+    down = (
+        ROOT / "db/migrations/rollback/350_circle_chat_full_emoji_reactions.rollback.sql"
+    ).read_text()
+    raw = chat_db.engine.raw_connection()
+    raw.autocommit = True
+    try:
+        with raw.cursor() as cursor:
+            cursor.execute(down)
+            with pytest.raises(Exception, match="circle_chat_reactions_emoji_check"):
+                cursor.execute(
+                    "INSERT INTO circle_chat_reactions(message_id,user_id,emoji) VALUES (%s,'bob','💛')",
+                    (sent["id"],),
+                )
+            cursor.execute(up)
+            cursor.execute(up)
+            cursor.execute("SELECT emoji FROM circle_chat_reactions")
+            assert cursor.fetchall() == [("❤️",)]
+            service.react("bob", circle, sent["id"], "💛", True)
+            with pytest.raises(Exception, match="retain expanded storage"):
+                cursor.execute(down)
+            cursor.execute("ROLLBACK")
+            cursor.execute("SELECT emoji FROM circle_chat_reactions ORDER BY emoji")
+            assert {row[0] for row in cursor.fetchall()} == {"❤️", "💛"}
+            service.react("bob", circle, sent["id"], "💛", False)
+            cursor.execute(down)
+            cursor.execute(up)
+            cursor.execute(
+                "ALTER TABLE circle_chat_reactions DROP CONSTRAINT circle_chat_reactions_emoji_length"
+            )
+            cursor.execute(
+                "ALTER TABLE circle_chat_reactions ADD CONSTRAINT circle_chat_reactions_emoji_length CHECK (char_length(emoji) >= 1)"
+            )
+            with pytest.raises(Exception, match="unexpected emoji length constraint"):
+                cursor.execute(up)
+            cursor.execute("ROLLBACK")
+    finally:
+        raw.close()
 
 
 def test_membership_history_images_retries_read_and_erasure(chat_db):
@@ -422,7 +495,7 @@ def test_reaction_route_rejects_unsupported_emoji_before_database_access():
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "alice"}
     client = TestClient(app)
     endpoint = (
-        f"/api/one/circles/{uuid.uuid4()}/chat/messages/{uuid.uuid4()}/reactions/%F0%9F%92%9B"
+        f"/api/one/circles/{uuid.uuid4()}/chat/messages/{uuid.uuid4()}/reactions/not-an-emoji"
     )
     response = client.put(endpoint)
     assert response.status_code == 422

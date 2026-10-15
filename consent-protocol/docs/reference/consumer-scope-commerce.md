@@ -1236,7 +1236,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/351_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/401_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -4192,7 +4192,7 @@ continuation adapter and owner identifier-processing opt-in remain implementatio
 work. Recipient use stays tied to the granted information; it does not silently
 create a permanent recipient PKM copy. Rehearsals use synthetic identifiers only.
 
-Latest main integration (`812974bf4875`) preserves its published referral migrations
+The prior main integration (`812974bf4875`) preserves its published referral migrations
 348/349. The unpublished branch tail was relocated byte-for-byte from 349–355
 to 350–356 with its prior manifest, SQL and rollback bodies archived in
 `db/legacy/scope-commerce-infrastructure-ffd69db5/`. Read-only checks on
@@ -4206,3 +4206,15 @@ slots and the 500/250/80 budgets. Main has no accepted fitness baseline; these
 are explicit retained source-size debt, not prior ratchet approval. The core
 run initially stopped at stale topology, then these observations, before runtime
 tests; both failures remain in the local evidence.
+
+The subsequent `60a73734ac79` main integration retains published migration 350.
+The seven still-unpublished task migrations were allocated once to 400–406,
+which the existing sorted, unique three-digit contract permits. The exact prior
+manifest and fourteen SQL/rollback bodies are preserved in
+`db/legacy/scope-commerce-infrastructure-866c001a/`; prior archives and receipts
+remain unchanged. Fresh read-only checks at 2026-10-15 19:50 UTC found no accepted
+entries in either affected range or covering baselines on Dev/UAT/production.
+This is not a permanent range reservation. Later insertions below an established
+406 baseline must retain the existing checksum refusal and require fresh
+qualification. No database mutation or deployment is established by this source
+relocation.

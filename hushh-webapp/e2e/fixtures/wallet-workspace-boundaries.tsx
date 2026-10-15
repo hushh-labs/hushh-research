@@ -282,7 +282,7 @@ export const ApiService = {
       : (requestPath.startsWith("/api/one/referrals/summary") || requestPath === "/api/one/referrals/rotate") ? {
       slug: referralQrRotated ? "fixture-referral-new" : "fixture-referral", link: `https://example.test/r/fixture-referral${referralQrRotated ? "-new" : ""}`,
       link_open_count: referralQrRotated ? 0 : 7, last_opened_at: referralQrRotated ? null : "2026-09-01T10:00:00Z",
-      qualified_count: 2, in_progress_count: 1, under_review_count: 0,
+      joined_count: 3, qualified_count: 2, in_progress_count: 1, under_review_count: 0,
       required_active_minutes: 15, new_users_only: true, referrals: [],
     } : requestPath.startsWith("/api/one/wallet-card/preview") ? {
       status: "active", card: { full_name: "Alex Rivera", email: "alex@example.com", phone: "+12025550123", summary: "A shared visitor profile." },

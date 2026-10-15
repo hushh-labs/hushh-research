@@ -95,7 +95,7 @@ async def test_postgres_balanced_append_only_with_negative_controls(commerce_db)
 async def test_migration_replay_and_unused_rollback_are_independent(commerce_db):
     _, pool = commerce_db
     async with pool.acquire() as c:
-        await c.execute((MIGRATIONS / "351_consumer_scope_commerce.sql").read_text())
+        await c.execute((MIGRATIONS / "401_consumer_scope_commerce.sql").read_text())
         await c.execute(
             (MIGRATIONS / "rollback" / "351_consumer_scope_commerce.rollback.sql").read_text()
         )

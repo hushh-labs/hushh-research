@@ -6899,7 +6899,7 @@
     "action_gateway": "a88976c43b736a46785bd9a6b41043d705fe6dadd47eca38370c8045cd4a8df4",
     "agent_registry": "e0d26dac895944fd19681b9e30418182cf5b8d10cf7ef1948c6b2f0fefc35590",
     "cache_manifest": "be354e7b5102d313f74743c591d4fe7cffd8f4790a9f44c2d7c563088472a554",
-    "data_plane": "126fd84bf1674c4565960707a90fa07b157b125b3efd54c3ef2a949f920330e4",
+    "data_plane": "afcc1ae04000ceb12ecaf50016caa4a50a40c44c2e7b7c0d20725bdfeebf7c6e",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "4a05e7ca27307ade5dbd66a2571d0e57f19b4af08c58ea87031f5e4b77a82736",
     "route_index": "20ad713f9837a519765e0ce8b4c4a8c360fc86b51c4320bbdcd7262d8a820848",

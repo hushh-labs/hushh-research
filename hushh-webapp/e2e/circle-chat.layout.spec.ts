@@ -97,6 +97,50 @@ for (const width of [320, 1440]) {
   }
 }
 
+for (const width of [320, 393, 1440]) {
+  test(`full Circle reactions fit the viewport and attach to the selected message at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 844 });
+    await mount(page, false, true);
+    for (const id of ["hello", "reply"]) {
+      const message = page.locator(`[data-chat-message="${id}"]`);
+      const trigger = message.getByRole("button", { name: "React to message" });
+      await trigger.click();
+      const picker = page.getByRole("dialog", { name: "Emoji picker" });
+      await expect(picker).toBeVisible();
+      await picker.getByRole("tab", { name: "Flags", exact: true }).click();
+      await picker.getByPlaceholder("Search emoji").fill("India");
+      const choice = picker.getByRole("button", { name: "Use 🇮🇳", exact: true });
+      await expect(choice).toBeVisible();
+      const box = await picker.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(845);
+      const target = await choice.boundingBox();
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+      await choice.click();
+      await expect(picker).not.toBeVisible();
+      const badge = message.getByRole("button", { name: "🇮🇳, 1 reactions, you reacted" });
+      await expect(badge).toBeVisible();
+      if (id === "reply") await page.screenshot({ path: test.info().outputPath(`circle-reactions-${width}.png`) });
+      await badge.click();
+      await expect(badge).toHaveCount(0);
+      await trigger.click();
+      await page.keyboard.press("Escape");
+      await expect(picker).not.toBeVisible();
+      await trigger.click();
+      await expect(picker).toBeVisible();
+      await page.getByRole("textbox", { name: "Message", exact: true }).click();
+      await expect(picker).not.toBeVisible();
+    }
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width + 1);
+  });
+}
+
 for (const width of [320, 393, 430, 768, 1440]) {
   test(`fits long messages and a bounded keyboard composer at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
