@@ -4,11 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import http.client
+import io
 import json
 import os
 import re
-from collections.abc import Iterable, Iterator
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,14 +51,22 @@ LIVE_MEMORY_MODEL_MODULE = re.compile(r"(?:(?:use-)?(?:living-source|live-mirror
 MODULE_SPECIFIER = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"'\n]+)["']""")
 START = "<!-- live-memory-source-contract:v1 -->"
 END = "<!-- /live-memory-source-contract:v1 -->"
+PR_TEMPLATE = Path(".github/pull_request_template.md")
 PR_IMPACT_START = "- Live Memory source impact (every feature):"
+# The section ends at the next column-0 field or heading, whatever its name, or
+# at the template's next field wherever it sits. A choice or evidence line
+# written at column 0 still belongs to the section.
 PR_IMPACT_END = "- Mobile parity impacts:"
+PR_IMPACT_ITEM = re.compile(r"-\s*(?:\[[ xX]\]|Live Memory evidence \()")
 PR_IMPACT_CHOICES = (
     "No durable owner data is created, changed, or deleted",
     "Existing admitted source covers the data",
     "New source is declared",
     "Data should remain outside Live Memory",
 )
+PR_EVIDENCE_LABEL = "Live Memory evidence (source kind and test, or no-impact reason):"
+PR_EVIDENCE = rf"^\s*-\s*{re.escape(PR_EVIDENCE_LABEL)}"
+PR_BODY_HINT = "Edit the PR body, then use Re-run failed jobs; a new push is not needed."
 REQUIRED_TEXT = (
     "authority",
     "owner_isolation",
@@ -116,21 +133,34 @@ def parse_contract(markdown: str) -> list[dict]:
     return sources
 
 
+def pr_impact_section(text: str) -> str | None:
+    if PR_IMPACT_START not in text:
+        return None
+    first, *rest = (line.rstrip("\r") for line in text.split(PR_IMPACT_START, 1)[1].split("\n"))
+    section = [first]
+    for line in rest:
+        if PR_IMPACT_END in line or (line.startswith(("- ", "#")) and not PR_IMPACT_ITEM.match(line)):
+            break
+        section.append(line)
+    return "\n".join(section)
+
+
 def validate_pr_impact(body: str, admitted_kinds: set[str] | None = None) -> None:
-    if PR_IMPACT_START not in body or PR_IMPACT_END not in body:
-        raise ValueError("PR body needs the Live Memory source impact section")
-    section = body.split(PR_IMPACT_START, 1)[1].split(PR_IMPACT_END, 1)[0]
+    section = pr_impact_section(body)
+    if section is None:
+        raise ValueError(f"PR body needs the Live Memory source impact section header: {PR_IMPACT_START}")
     checked = re.findall(r"^\s*-\s*\[[xX]\]\s*(.+)$", section, re.MULTILINE)
     choices = [item for item in checked if any(item.startswith(choice) for choice in PR_IMPACT_CHOICES)]
     if len(choices) != 1 or len(checked) != 1:
-        raise ValueError("PR body must check exactly one Live Memory impact choice")
-    evidence = re.search(
-        r"^\s*-\s*Live Memory evidence \(source kind and test, or no-impact reason\):\s*(\S.*)$",
-        section,
-        re.MULTILINE,
-    )
+        raise ValueError(
+            "PR body must check exactly one Live Memory impact choice with [x]; "
+            f"found {len(checked)} checked, {len(choices)} of them template choices"
+        )
+    evidence = re.search(PR_EVIDENCE + r"\s*(\S.*)$", section, re.MULTILINE)
     if not evidence:
-        raise ValueError("PR body needs concrete Live Memory impact evidence")
+        if re.search(PR_EVIDENCE, section, re.MULTILINE):
+            raise ValueError("PR body has an empty Live Memory evidence line; write the evidence after its label")
+        raise ValueError(f"PR body needs the exact Live Memory evidence line: - {PR_EVIDENCE_LABEL} <evidence>")
     detail = evidence.group(1).strip()
     choice = choices[0]
     if choice.startswith(("Existing admitted source", "New source")):
@@ -154,17 +184,72 @@ def validate_pr_impact(body: str, admitted_kinds: set[str] | None = None) -> Non
         raise ValueError("Live Memory exclusion or no-impact reason must be concrete")
 
 
-def validate_pr_event(admitted_kinds: set[str]) -> None:
-    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+def pr_template_block() -> str:
+    try:
+        section = pr_impact_section((ROOT / PR_TEMPLATE).read_text(encoding="utf-8"))
+    except OSError:
+        section = None
+    return f"{PR_IMPACT_START}{section}".rstrip() if section is not None else f"(missing from {PR_TEMPLATE})"
+
+
+def validate_pr_body(body: str, admitted_kinds: set[str]) -> None:
+    try:
+        validate_pr_impact(body, admitted_kinds)
+    except ValueError as error:
+        raise ValueError(
+            f"{error}\nThe PR body needs this block from {PR_TEMPLATE}, with exactly one [x] and the "
+            f"evidence line filled in:\n\n{pr_template_block()}\n\n{PR_BODY_HINT}"
+        ) from None
+
+
+def pr_event_body(pull_request: dict, environ: Mapping[str, str], urlopen: Callable[..., Any]) -> tuple[str, str]:
+    # Re-running failed jobs replays the trigger-time payload, so an edited body
+    # is visible only through the API. The payload is the fallback.
+    number = pull_request.get("number")
+    repository = environ.get("GITHUB_REPOSITORY")
+    token = environ.get("GH_TOKEN") or environ.get("GITHUB_TOKEN")
+    if not token or not repository or not isinstance(number, int):
+        reason = "no token, repository or pull request number"
+    else:
+        api = (environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+        request = urllib.request.Request(
+            f"{api}/repos/{repository}/pulls/{number}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                live = json.loads(response.read().decode("utf-8"))
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            reason = f"live read failed: {error}"
+        else:
+            if isinstance(live, dict) and "body" in live and (live["body"] is None or isinstance(live["body"], str)):
+                return live["body"] or "", f"live pull request #{number}"
+            reason = "live read returned no body"
+    body = pull_request.get("body")
+    return body if isinstance(body, str) else "", f"trigger-time event payload ({reason})"
+
+
+def validate_pr_event(
+    admitted_kinds: set[str],
+    environ: Mapping[str, str] = os.environ,
+    urlopen: Callable[..., Any] = urllib.request.urlopen,
+) -> None:
+    if environ.get("GITHUB_EVENT_NAME") != "pull_request":
         return
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    event_path = environ.get("GITHUB_EVENT_PATH")
     if not event_path:
         raise ValueError("pull_request event path is unavailable")
     event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-    body = event.get("pull_request", {}).get("body")
-    if not isinstance(body, str):
-        raise ValueError("pull_request body is unavailable")
-    validate_pr_impact(body, admitted_kinds)
+    pull_request = event.get("pull_request")
+    if not isinstance(pull_request, dict):
+        raise ValueError("pull_request payload is unavailable")
+    body, source = pr_event_body(pull_request, environ, urlopen)
+    print(f"Live Memory PR body source: {source}", flush=True)
+    validate_pr_body(body, admitted_kinds)
 
 
 def registered_kinds(records_code: str, sync_code: str) -> tuple[set[str], set[str]]:
@@ -480,6 +565,90 @@ def self_test(root: Path, sources: list[dict], records_code: str, sync_code: str
         raise AssertionError("new owner projection write under existing source kind passed")
     self_test_journal_kinds(root, sources, code)
     self_test_paid_retrieval_imports(code)
+    self_test_pr_body({source["kind"] for source in sources})
+
+
+def self_test_pr_body(kinds: set[str]) -> None:
+    # Every failure quotes the template block, so it must stay one this gate reads.
+    block = pr_template_block()
+    if not re.search(PR_EVIDENCE, block, re.MULTILINE) or not all(f"[ ] {choice}" in block for choice in PR_IMPACT_CHOICES):
+        raise AssertionError(f"{PR_TEMPLATE} Live Memory block no longer matches this gate")
+    reason = "This PR only changes static copy and has no owner data writes."
+    valid = "\n".join((PR_IMPACT_START,
+        "  - [x] No durable owner data is created, changed, or deleted; reason listed below",
+        "  - [ ] Data should remain outside Live Memory; reason and owner-facing behavior listed below",
+        f"  - {PR_EVIDENCE_LABEL} {reason}"))
+    # Any next column-0 field or heading ends the section, so its boxes stay out.
+    for after in ("- Mobile parity:\n  - [x] None", "## Testing\n\n- [x] Tested on Web", f"{PR_IMPACT_END} none"):
+        validate_pr_impact(f"{valid}\n{after}", kinds)
+        validate_pr_impact(f"Intro\n\n{valid}\n\n{after}\n".replace("\n", "\r\n"), kinds)
+    validate_pr_impact("\n".join(line.lstrip() for line in f"{valid}\n- Mobile parity:\n  - [x] None".split("\n")), kinds)
+    for invalid, problem in (
+        (valid.replace(PR_IMPACT_START, "- Live Memory impact:"), "source impact section header"),
+        (valid.replace("[ ] Data should", "[x] Data should"), "found 2 checked"),
+        (valid.replace("[x] No durable", "[ ] No durable"), "found 0 checked"),
+        (valid.replace(PR_EVIDENCE_LABEL, "Live Memory evidence:"), "exact Live Memory evidence line"),
+        (valid.replace(f" {reason}", ""), "empty Live Memory evidence line"),
+    ):
+        try:
+            validate_pr_body(f"{invalid}\n- Mobile parity:\n  - [x] None", kinds)
+        except ValueError as error:
+            assert problem in str(error) and block in str(error) and PR_BODY_HINT in str(error), str(error)
+        else:
+            raise AssertionError(f"incomplete PR Live Memory impact passed: {problem}")
+    stale = "Trigger-time body without the Live Memory block."
+    fixed = f"{valid}\n- Mobile parity:\n  - [x] None"
+    requests: list[urllib.request.Request] = []
+
+    def serve(body: str) -> Callable[..., Any]:
+        def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+            requests.append(request)
+            return io.BytesIO(json.dumps({"number": 8020, "body": body}).encode("utf-8"))
+        return urlopen
+
+    def unreachable(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        raise urllib.error.URLError("self-test outage")
+
+    def unused(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        raise AssertionError("PR body was read live without a token")
+
+    with tempfile.TemporaryDirectory() as scratch:
+        event = Path(scratch) / "event.json"
+        environ = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event),
+                   "GITHUB_REPOSITORY": "hushh-labs/hushh-research", "GH_TOKEN": "self-test-token"}
+
+        def check_event(payload: str, urlopen: Callable[..., Any], env: dict[str, str] = environ) -> str:
+            event.write_text(json.dumps({"pull_request": {"number": 8020, "body": payload}}), encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                validate_pr_event(kinds, env, urlopen)
+            return output.getvalue()
+
+        # Re-run failed jobs replays the stale payload; the edited live body wins.
+        assert "source: live pull request #8020" in check_event(stale, serve(fixed))
+        assert requests[-1].full_url == "https://api.github.com/repos/hushh-labs/hushh-research/pulls/8020"
+        assert requests[-1].get_header("Authorization") == "Bearer self-test-token"
+        assert requests[-1].get_header("Accept") == "application/vnd.github+json"
+        check_event(stale, serve(fixed), {**environ, "GITHUB_API_URL": "https://ghe.example/api/v3"})
+        assert requests[-1].full_url == "https://ghe.example/api/v3/repos/hushh-labs/hushh-research/pulls/8020"
+        for payload, urlopen in ((fixed, serve(stale)), (stale, unreachable)):
+            try:
+                check_event(payload, urlopen)
+            except ValueError as error:
+                assert "source impact section header" in str(error)
+            else:
+                raise AssertionError("PR body passed without a current Live Memory block")
+        assert "source: trigger-time event payload (live read failed" in check_event(fixed, unreachable)
+        tokenless = {name: value for name, value in environ.items() if name != "GH_TOKEN"}
+        assert "source: trigger-time event payload (no token" in check_event(fixed, unused, tokenless)
+        assert check_event(stale, unused, {**environ, "GITHUB_EVENT_NAME": "merge_group"}) == ""
+        body_file = Path(scratch) / "body.md"
+        for body, status in ((fixed, 0), (stale, 1)):
+            body_file.write_text(body, encoding="utf-8")
+            result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--pr-body-file", str(body_file)],
+                                    capture_output=True, text=True, check=False)
+            if result.returncode != status or (status and (block not in result.stderr or PR_BODY_HINT not in result.stderr)):
+                raise AssertionError(f"--pr-body-file exited {result.returncode} for a body expecting {status}: {result.stderr}")
 
 
 def self_test_journal_kinds(root: Path, sources: list[dict], code: dict[str, str]) -> None:
@@ -574,8 +743,17 @@ def self_test_paid_retrieval_imports(code: dict[str, str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--pr-body-file", type=Path, help="check a PR body file before gh pr create or gh pr edit")
     args = parser.parse_args()
     sources = parse_contract((ROOT / CONTRACT).read_text(encoding="utf-8"))
+    if args.pr_body_file:
+        try:
+            body = args.pr_body_file.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ValueError(f"cannot read PR body file: {error}") from error
+        validate_pr_body(body, {source["kind"] for source in sources})
+        print(f"Live Memory PR body check passed: {args.pr_body_file}")
+        return
     records_code = (ROOT / RECORDS).read_text(encoding="utf-8")
     sync_code = (ROOT / SYNC).read_text(encoding="utf-8")
     code = runtime_sources(ROOT)

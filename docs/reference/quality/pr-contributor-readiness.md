@@ -36,6 +36,8 @@ Do this first:
    A new durable owner-data source needs the
    [source admission contract](../architecture/live-memory-source-contract.md)
    and its CI gate; an existing source needs its kind, change signal and test.
+   Check the body before `gh pr create` or `gh pr edit` with
+   `python3 scripts/ci/live-memory-source-gate.py --pr-body-file <body.md>`.
 
 ## Review-Ready Standard
 

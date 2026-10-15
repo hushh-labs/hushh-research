@@ -176,6 +176,14 @@ Core CI and deploy surfaces are sealed separately from blanket owner-review poli
 - Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
 - This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
 
+### PR body gates
+
+The governance lane also checks the pull request body. [scripts/ci/live-memory-source-gate.py](../../../scripts/ci/live-memory-source-gate.py) requires the Live Memory source impact block from the [PR template](../../../.github/pull_request_template.md): its exact header line, exactly one checked choice, and the exact evidence label followed by text. An existing or new source also needs its kind, post-commit signal and focused test. The section ends at the next column-0 field or heading. A failure names the problem and prints the template block to copy.
+
+- The gate reads the live body from the GitHub API, not the trigger-time event payload, and logs which one it used. It falls back to the payload only when that read fails or no token is set.
+- Check a body before `gh pr create` or `gh pr edit` with `python3 scripts/ci/live-memory-source-gate.py --pr-body-file <body.md>`.
+- Editing the body does not start a run. After editing it, use **Re-run failed jobs**; a new push is not needed.
+
 ### PKM rollout blocker
 
 Production rollout is blocked unless PKM compatibility stays green for supported stored-version paths. The blocking CI manifests now explicitly include:
