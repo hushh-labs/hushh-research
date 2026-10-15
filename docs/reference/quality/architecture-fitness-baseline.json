@@ -2211,7 +2211,7 @@
         "after": 1078,
         "before": 1066,
         "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
-        "source_sha256": "44601b922b07d25571e5ac350e948b9176837a8a64306d7afc09df2cc06b730c"
+        "source_sha256": "04a88ecadb1255e5544d3d1f7fc3043a4a6a0a1cde1045bf01af41ab5f06fce2"
       }
     ],
     "evidence_revisions": [
@@ -2219,7 +2219,7 @@
       "9b45e61b289e1b7e57e22011cc27d45f03b3171a",
       "cfec8a49"
     ],
-    "review": "Bounded backport of existing readiness fixes: main adds one prewarm await plus two explanatory lines in its inherited orchestrator; nearest existing deployment-contract module adds one 12-line resource regression. New cold-first-use fake adapters were extracted into a small helper; no new oversized function accepted. Exact measured ceilings only; 500/250/80 budgets and all behavior, provider deadlines, identity and provenance checks remain unchanged.",
+    "review": "Bounded backport of existing readiness fixes: main adds one prewarm await plus two explanatory lines in its inherited orchestrator; nearest existing deployment-contract module adds one 12-line resource regression. New cold-first-use fake adapters were extracted into a small helper; no new oversized function accepted. Exact measured ceilings only; 500/250/80 budgets and all behavior, provider deadlines, identity and provenance checks remain unchanged. Subsequent bounded 3.8/global default change independently reviewed; exact 1078-line module ceiling retained and source hash refreshed.",
     "reviewer": "shared_vertex_release_path"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
