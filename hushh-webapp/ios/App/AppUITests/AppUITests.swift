@@ -2063,7 +2063,9 @@ final class AppUITests: XCTestCase {
                                                dy: webFrame.minY + webFrame.height * 0.65))
         let end = origin.withOffset(CGVector(dx: webFrame.minX + webFrame.width * 0.97,
                                              dy: webFrame.minY + webFrame.height * 0.25))
-        for cycle in 0..<10 {
+        // Three cycles protect reversal/repetition; endurance and frame pacing
+        // belong to the separate Release qualification, not this core smoke.
+        for _ in 0..<3 {
             // Pan in the shared page gutter, never through an actionable tile.
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
             let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
@@ -2077,7 +2079,7 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
             // Touch-tracking freeze has native unit coverage. Do not combine
             // a selection (which deliberately snaps the chrome) with reversal.
-            end.press(forDuration: 0.05, thenDragTo: start, withVelocity: XCUIGestureVelocity(rawValue: 400), thenHoldForDuration: 0)
+            web.swipeDown(velocity: XCUIGestureVelocity(rawValue: 400))
             let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in abs(bar.frame.minY - baseline) <= 1 }, object: app)
             guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else {
                 reportNativeDockAdmission(app)
@@ -2096,7 +2098,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertFalse(web.buttons["Unlock"].exists)
         returnedToChat = true
-        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=10 pair=true keyboard=true draft=true single_host=true")
+        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=3 pair=true keyboard=true draft=true single_host=true")
     }
 
     func testLocalSessionNativeBackRetiresUnderProfileAndReturnsToOne() throws {
