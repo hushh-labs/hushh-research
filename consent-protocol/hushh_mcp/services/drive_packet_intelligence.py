@@ -75,6 +75,9 @@ def _validation_code(error):
         "invented packet match": "model_membership_invalid",
         "unsupported content period": "model_period_invalid",
         "unsupported snapshot scope": "model_period_invalid",
+        "requested event is not a snapshot": "model_period_invalid",
+        "mixed requested packet evidence": "model_readiness_invalid",
+        "requested packet wording mismatch": "model_readiness_invalid",
     }.get(str(error))
 
 
@@ -295,6 +298,77 @@ def _require_source_periods(periods, source_periods, *, citations=True):
                 raise ValueError("unsupported content period")
 
 
+def _requested_packet_copy(selected_facts):
+    types = []
+    for facts in selected_facts:
+        if not isinstance(facts, dict):
+            continue
+        value = facts.get("document_type")
+        if isinstance(value, dict):
+            value = value.get("value")
+        if isinstance(value, str):
+            types.append(value.casefold())
+    if types and all("wire" in value and "transfer" in value for value in types):
+        title = "Wire transfer requests"
+        description = "Documents requesting a wire transfer; execution is unverified."
+    elif types and all("transfer" in value for value in types):
+        title = "Transfer requests"
+        description = "Documents requesting a transfer; execution is unverified."
+    else:
+        title = "Request documents"
+        description = "Documents recording requests; completion is unverified."
+    return {
+        "title": title,
+        "description": description,
+        "coverage_summary": "Request records only; no completed action or reporting period verified.",
+        "pricing_rationale": "Estimate for request documents only; completion is unverified.",
+        "utility_rationale": "Request documents are useful as records; completion is unverified.",
+    }
+
+
+def _requested_packet_statuses(selected_facts):
+    return [
+        (facts.get("record_status") or {}).get("status")
+        for facts in selected_facts
+        if isinstance(facts, dict) and isinstance(facts.get("record_status"), dict)
+    ]
+
+
+def _normalize_requested_packet_copy(packet, selected_facts):
+    if not any(
+        status in {"requested", "pending"} for status in _requested_packet_statuses(selected_facts)
+    ):
+        return
+    copy = _requested_packet_copy(selected_facts)
+    packet.title = copy["title"]
+    packet.description = copy["description"]
+    packet.coverage_summary = copy["coverage_summary"]
+    packet.pricing.rationale = copy["pricing_rationale"]
+    packet.utility_rationale = copy["utility_rationale"]
+
+
+def _check_requested_event_claims(packet, selected_facts):
+    """Request-only evidence may be Ready only with host-owned visible claims."""
+    statuses = _requested_packet_statuses(selected_facts)
+    if not any(status in {"requested", "pending"} for status in statuses):
+        return
+    if packet.temporal_scope != "no_period_claim":
+        raise ValueError("requested event is not a snapshot")
+    if len(statuses) != len(selected_facts) or any(
+        status not in {"requested", "pending"} for status in statuses
+    ):
+        raise ValueError("mixed requested packet evidence")
+    copy = _requested_packet_copy(selected_facts)
+    if (
+        packet.title != copy["title"]
+        or packet.description != copy["description"]
+        or packet.coverage_summary != copy["coverage_summary"]
+        or packet.pricing.rationale != copy["pricing_rationale"]
+        or packet.utility_rationale != copy["utility_rationale"]
+    ):
+        raise ValueError("requested packet wording mismatch")
+
+
 async def consolidate_facts(
     *, user_id, previous, page_facts, complete, canonical_context=None, interpret=_interpret
 ):
@@ -406,6 +480,15 @@ async def construct_packet(
             )
             if not (current_snapshot or prior_snapshot):
                 raise ValueError("unsupported snapshot scope")
+        if result.state == "ready":
+            selected_facts = [
+                item["facts"] for item in documents if item["document_id"] in selected
+            ]
+            _normalize_requested_packet_copy(result, selected_facts)
+            _check_requested_event_claims(
+                result,
+                selected_facts,
+            )
         if result.state == "ready" and not complete:
             raise ValueError("unfinished assembly cannot be ready")
 
@@ -475,6 +558,7 @@ async def verify_packet(
                     for date in facts.get("date_evidence", [])
                 ):
                     raise ValueError("unsupported snapshot scope")
+                _check_requested_event_claims(proposal, selected_facts)
                 if scope_mode == "complete_compact_summary" and not any(
                     facts.get("facts") or facts.get("periods") for facts in selected_facts
                 ):
