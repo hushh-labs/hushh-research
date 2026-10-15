@@ -63,6 +63,9 @@ function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, prepa
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  // Packets read like Payouts history: a row opens its page, and Back returns focus to that row.
+  // The open packet is the version last seen in the list.
+  const [opened, setOpened] = useState<DrivePacket | null>(null);
   const serial = useRef(0);
   const load = useCallback(async (next?: string | null) => {
     const attempt = ++serial.current;
@@ -72,22 +75,26 @@ function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, prepa
       const result = await DrivePacketService.packets(token, current, ownerPersonRef, next);
       current();
       setPackets(previous => next ? [...previous.filter(packet => !result.packets.some(p => p.packetId === packet.packetId)), ...result.packets] : result.packets);
+      setOpened(previous => previous && (result.packets.find(packet => packet.packetId === previous.packetId) ?? previous));
       setCursor(result.nextCursor); setLoaded(true);
     } catch { try { current(); setError(true); } catch { /* Superseded private view. */ } }
     finally { try { current(); setBusy(false); } catch { /* Superseded private view. */ } }
   }, [guard, ownerPersonRef, token]);
   useEffect(() => { void load(); return () => { serial.current += 1; }; }, [load, refreshKey]);
-  // Packets read like Payouts history: a row opens its page, and Back returns focus to that row.
-  const [opened, setOpened] = useState<DrivePacket | null>(null);
   const opener = useOpenerFocus();
   const open = (packet: DrivePacket) => { opener.remember(); setOpened(packet); };
   const close = () => { setOpened(null); opener.restore(); };
   const live = opened ? packets.find(packet => packet.packetId === opened.packetId) ?? null : null;
   const requests = useBuyerPacketRequests();
-  // A reload starts from the first page. A buyer's open packet may sit further on: load on until it is found or the list ends.
+  // A reload (after an action, or the owner's periodic refresh) starts from the first page. An open
+  // packet may sit further on: load on until it is found or the list ends.
   useEffect(() => {
-    if (ownerPersonRef && opened && !live && cursor && !busy && !error) void load(cursor);
-  }, [busy, cursor, error, live, load, opened, ownerPersonRef]);
+    if (opened && !live && cursor && !busy && !error) void load(cursor);
+  }, [busy, cursor, error, live, load, opened]);
+  // Gone from the owner's whole list, their page closes for good instead of reopening when it returns.
+  useEffect(() => {
+    if (!ownerPersonRef && opened && !live && loaded && !cursor && !busy && !error) { setOpened(null); opener.restore(); }
+  }, [busy, cursor, error, live, loaded, opened, opener, ownerPersonRef]);
   return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"} onClickCapture={opener.capture}>
     <SettingsGroup density="compact" title={ownerPersonRef ? "Available packets" : "Packets"}>
     {ownerPersonRef ? <BuyerPacketRows packets={packets} requests={requests} ownerName={ownerName} onOpen={open} />
@@ -97,7 +104,8 @@ function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, prepa
     {busy && !loaded && <SettingsRow title="Loading packets…" />}
     {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>Load more</Button>}
     </SettingsGroup>
-    {!ownerPersonRef && live && <OwnerPacketPage key={live.packetId} packet={live} token={token} guard={guard}
+    {/* While the list loads on, the page keeps the version it last showed. */}
+    {!ownerPersonRef && opened && (live || cursor) && <OwnerPacketPage key={opened.packetId} packet={live ?? opened} token={token} guard={guard}
       onChanged={() => void load()} onClose={close} />}
     {/* A buyer's page outlives its row: missing from the whole list, the packet can't be bought now. */}
     {ownerPersonRef && opened && <BuyerPacketPage key={opened.packetId} packet={live ?? (cursor ? opened : { ...opened, canRequest: false })}

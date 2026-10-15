@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buyerNotes, buyerPacketStatus, dayRangeLabel } from "@/components/consent/packets/packet-copy";
+import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerPacketStatus } from "@/components/consent/packets/packet-copy";
 import type { DrivePacket } from "@/lib/services/drive-packet-service";
 
 // A synthetic listed packet, as a buyer's list receives it.
@@ -38,5 +38,32 @@ describe("buyer packet words", () => {
     expect(dayRangeLabel("2026-09-29", "2026-09-29")).toBe("Sep 29, 2026");
     expect(dayRangeLabel(null, "2026-09-29")).toBeNull();
     expect(dayRangeLabel("not-a-date", "2026-09-29")).toBeNull();
+  });
+});
+
+describe("owner packet words", () => {
+  // The owner's packets as the server sends them: a version that isn't ready is never "current".
+  const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };
+  const CHECKING = "The private agent is checking current evidence.";
+  const notCurrent = { ...owned, freshness: "stale" as const, canList: false, gaps: [CHECKING] };
+
+  it("says why a packet can't be listed, and keeps Checking for one that is being checked", () => {
+    expect(ownerPacketStatus({ ...notCurrent, state: "incomplete", gaps: ["Documents name different accounts"] }))
+      .toMatchObject({ word: "Needs attention", tone: "attention", detail: "It can’t be listed yet." });
+    expect(ownerPacketStatus({ ...notCurrent, state: "unable_to_verify" })).toMatchObject({ word: "Couldn’t check", tone: "attention" });
+    // The server's stand-in while it checks a packet again, and a ready packet whose files changed.
+    expect(ownerPacketStatus({ ...notCurrent, title: "Packet being checked", state: "incomplete" }))
+      .toMatchObject({ word: "Checking", tone: "waiting", detail: "Agent One is checking its files." });
+    expect(ownerPacketStatus(notCurrent)).toMatchObject({ word: "Checking", detail: "Agent One is checking its files." });
+    // Nothing to say why: the server says it is checking.
+    expect(ownerPacketStatus({ ...notCurrent, state: "incomplete" }).word).toBe("Checking");
+    // A listed packet being checked can't be bought until it is done.
+    expect(ownerPacketStatus({ ...notCurrent, listingEnabled: true, listingRevision: 1 }).detail)
+      .toBe("Agent One is checking its files. Buyers can’t buy it until then.");
+    // Paused by either switch (Prepare packets, or Background Drive access), so it names neither.
+    expect(ownerPacketStatus({ ...notCurrent, freshness: "paused" })).toMatchObject({ word: "Paused", detail: "Preparation is paused." });
+    expect(ownerPacketStatus({ ...notCurrent, freshness: "paused", listingEnabled: true, listingRevision: 1 }).detail)
+      .toBe("Preparation is paused. Connections can see it but can’t buy it.");
+    expect(ownerPacketStatus(owned)).toMatchObject({ word: "Ready to list", tone: "ready" });
   });
 });

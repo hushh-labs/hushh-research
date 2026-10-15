@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ uid: "owner", token: "private-token", unlocked: true,
@@ -31,7 +31,8 @@ const listed = { ...base, packetId: id(2), title: "Example Utility bills", cover
 const checking = { ...base, packetId: id(3), title: "Packet being checked", description: "Current source evidence is being checked.",
   state: "incomplete", coverageSummary: "Coverage is being checked.", gaps: ["The private agent is checking current evidence."],
   documentCount: 1, verifiedAt: null, freshness: "stale", canList: false };
-const missing = { ...base, packetId: id(4), title: "Example Payslips", state: "incomplete",
+// A version that isn't ready is never current on the server, so it arrives as "stale" with its reasons.
+const missing = { ...base, packetId: id(4), title: "Example Payslips", state: "incomplete", freshness: "stale",
   gaps: ["The March 2026 payslip is missing."], documentCount: 2, canList: false };
 const declined = { ...base, packetId: id(5), title: "Example Tax forms", listingRevision: 2, documentCount: 1 };
 const checkingFile = { ...checking, packetId: id(6), contents: { period: null,
@@ -66,7 +67,7 @@ describe("owner packets as a history list", () => {
     expect(row("Example Utility bills")).toHaveTextContent("Listed · 2 documents");
     expect(row("Example Utility bills")).toHaveTextContent("$9");
     expect(row("Example Tax forms")).toHaveTextContent("Not listed · 1 document");
-    expect(row("Example Payslips")).toHaveTextContent("Needs a file · 2 documents");
+    expect(row("Example Payslips")).toHaveTextContent("Needs attention · 2 documents");
     expect(row("New packet")).toHaveTextContent("Checking · 1 document");
     // Only a packet that can be listed shows a price.
     expect(row("Example Payslips").textContent).not.toContain("$");
@@ -169,6 +170,51 @@ describe("owner packets as a history list", () => {
     fireEvent.click(within(page).getByRole("button", { name: "Don’t list" }));
     await waitFor(() => expect(state.listing).toHaveBeenLastCalledWith("private-token", listed, "deny", 900, expect.any(Function)));
     expect(state.request).not.toHaveBeenCalled();
+  });
+
+  it("says why a packet can't be listed, instead of calling it checked", async () => {
+    render(<DrivePacketCatalog />);
+    const page = await openPacket("Example Payslips");
+    const status = section(page, "Status");
+    expect(within(status).getAllByTestId("settings-row").map(item => item.textContent))
+      .toEqual(["Needs attentionIt can’t be listed yet.", "The March 2026 payslip is missing.", "CheckedOct 13, 2026"]);
+    expect(page.textContent).not.toMatch(/Checking|private agent|evidence/i);
+    expect(within(page).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent))
+      .toEqual(["Close detail panel"]);
+  });
+
+  it("keeps a page from a later page open through a reload, and closes it for good once the packet is gone", async () => {
+    const listedNow = { ...ready, listingEnabled: true, listingRevision: 1 };
+    let pageTwo!: (value: unknown) => void;
+    state.packets.mockReset()
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [listed], nextCursor: "page-2" }; })
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [ready], nextCursor: null }; })
+      // Listing it reloads from the first page; the packet is on the next one.
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [listed], nextCursor: "page-2" }; })
+      .mockImplementationOnce(() => new Promise(done => { pageTwo = done; }))
+      // A later reload has it nowhere, then a later one has it again.
+      .mockImplementationOnce(async (_token, guard) => { guard(); return { packets: [listed], nextCursor: null }; })
+      .mockImplementation(async (_token, guard) => { guard(); return { packets: [listed, listedNow], nextCursor: null }; });
+    const view = render(<DrivePacketCatalog />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    const page = await openPacket("Example Bank statements");
+    fireEvent.click(within(page).getByRole("button", { name: "List for $12.34" }));
+    await waitFor(() => expect(state.packets).toHaveBeenCalledTimes(4));
+    expect(state.packets).toHaveBeenLastCalledWith("private-token", expect.any(Function), undefined, "page-2");
+    // While the rest of the list loads, the same page stays open.
+    expect(screen.getByRole("dialog", { name: "Example Bank statements" })).toBe(page);
+    await act(async () => pageTwo({ packets: [listedNow], nextCursor: null }));
+    await waitFor(() => expect(section(page, "Status")).toHaveTextContent("Listed"));
+    view.rerender(<DrivePacketCatalog refreshKey={1} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // It comes back in a later reload: its page doesn't open by itself.
+    view.rerender(<DrivePacketCatalog refreshKey={2} />);
+    await waitFor(() => expect(state.packets).toHaveBeenCalledTimes(6));
+    await screen.findByRole("button", { name: /^Example Bank statements/ });
+    // A page that opened by itself would show after one more effect; give it the time.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(state.listing).toHaveBeenCalledOnce();
   });
 
   it("explains a changed packet and reloads it", async () => {

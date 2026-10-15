@@ -71,7 +71,7 @@ export function packetGaps(packet: DrivePacket): string[] {
 }
 
 export type OwnerPacketStatus = {
-  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs a file" | "Couldn’t check" | "Too large to list" | "Paused";
+  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused";
   tone: PacketTone;
   detail: string;
   /** Lower sorts first: decisions, then live listings, then work in progress. */
@@ -79,11 +79,16 @@ export type OwnerPacketStatus = {
 };
 
 export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
+  // Either switch pauses preparation (Prepare packets, or Background Drive access), so this names neither.
   if (packet.freshness === "paused") return { word: "Paused", tone: "paused", order: 5,
-    detail: packet.listingEnabled ? "Prepare packets is off. Connections can see it but can’t buy it." : "Prepare packets is off." };
-  if (packet.freshness === "stale") return { word: "Checking", tone: "waiting", order: 4, detail: "Agent One is checking its files." };
-  if (packet.state === "incomplete") return { word: "Needs a file", tone: "attention", order: 3, detail: "Some files are missing." };
-  if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Agent One couldn’t confirm what’s in it." };
+    detail: packet.listingEnabled ? "Preparation is paused. Connections can see it but can’t buy it." : "Preparation is paused." };
+  // A version that isn't ready is never current, so the server sends it as stale. Its own state says
+  // more than "Checking", except for the stand-in, which is incomplete only while it is checked again.
+  const checkedAgain = isCheckingPlaceholder(packet);
+  if (packet.state === "unable_to_verify" && !checkedAgain) return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Agent One couldn’t confirm what’s in it." };
+  if (packet.state === "incomplete" && !checkedAgain && packetGaps(packet).length > 0) return { word: "Needs attention", tone: "attention", order: 3, detail: "It can’t be listed yet." };
+  if (packet.freshness === "stale" || packet.state !== "ready") return { word: "Checking", tone: "waiting", order: 4,
+    detail: packet.listingEnabled ? "Agent One is checking its files. Buyers can’t buy it until then." : "Agent One is checking its files." };
   if (packet.listingEnabled) return { word: "Listed", tone: "listed", order: 1, detail: "Connections can see it and ask to buy. You approve each buyer." };
   if (!packet.canList) return { word: "Too large to list", tone: "attention", order: 3, detail: "A packet over 120 documents can’t be listed." };
   if (packet.listingRevision > 0) return { word: "Not listed", tone: "ready", order: 2, detail: "Only you can see it." };
