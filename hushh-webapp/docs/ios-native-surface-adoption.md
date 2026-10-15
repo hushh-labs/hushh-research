@@ -13,6 +13,32 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Current-main sync and Account navigation investigation — 2026-10-15
+
+Merge `f7f38e6236` includes main `85831a2595`, including Wallet capture,
+Calendar availability and Chat detail presentation changes. Mobile header
+geometry and caller-sized artwork deliberately retain the reviewed compact
+shell rather than main's centered/larger variant. Web Drive details inherit
+main's side pane; the native full-page handoff retains its existing owner.
+The advisory merge checker inspected 94 files and flagged these intentional
+avatar fixture differences plus a still-used `JSONResponse` import. No semantic
+operation was removed to satisfy that text heuristic.
+
+Repeated Account navigation is **not accepted**. Device tests reproduced a
+projected Account path with no reachable name row, despite active drawer touch
+and no pending choice. The bounded Back presentation fix passes its physical
+native regression but did not resolve the integrated failure. Destination
+appearance diagnostics therefore remain Debug-only booleans, not private body
+logs or a new product telemetry stream. Do not enable additional families on
+the strength of these admission receipts.
+
+On this merged source, typecheck and plugin parity pass. The Back run passed
+458/459 cases; its one timeout passed unchanged in isolation. Back/Search
+contracts were regenerated, and UI contract validation passes. These checks
+do not establish integrated visual, accessibility or Release performance
+acceptance. The diagnostic native build retains the preceding web bundle;
+the newest combined web/native candidate must be built before acceptance.
+
 ### Main integration and Profile escape control — 2026-10-15
 
 Merge `a2d1a7fff2` incorporates main `57a2c39744`, preserving native presentation
