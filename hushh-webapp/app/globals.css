@@ -9660,6 +9660,22 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 /* One shared header measure, including feature-page and History reservations.
    Identity and actions share one row. The optional cloud-model picker moves
    into One's existing profile on phones, not another shell row. */
+.agent-chat-header [data-agent-chat-one-profile-trigger] {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:is(:hover, :focus, :active) {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.agent-chat-header [data-agent-chat-one-profile-trigger]:focus-visible:not(:active) {
+  outline: 1px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
 .agent-chat-header {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;

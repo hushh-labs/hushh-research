@@ -189,10 +189,10 @@ test.beforeEach(async ({ page }) => {
   );
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
-  await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
+  await page.route(/^http:\/\/localhost\/icons\/connectors\/[a-z0-9-]+\.(?:svg|png|jpg)$/, (route) =>
     route.fulfill({
-      contentType: "image/svg+xml",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname), "utf8"),
+      contentType: route.request().url().endsWith(".svg") ? "image/svg+xml" : route.request().url().endsWith(".png") ? "image/png" : "image/jpeg",
+      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
   await page.route("http://localhost/connections-fixture*", (route) =>
