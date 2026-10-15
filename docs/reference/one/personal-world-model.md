@@ -187,3 +187,7 @@ See the PR and its exact-commit CI for final verification. Contract/unit tests c
 - Review checks: selecting one source fact must never save the unchecked neighbor. Invitation payload includes selected facts only, with token/ID-bound encryption.
 
 User checks on the deployed UAT revision: enable preparation during setup; navigate elsewhere and return; review Feed link; dismiss it and sign out/in; stop research; add an independently supplied profile URL and save only one checked fact; prepare a professional preview and claim it with the intended verified contact; reject another invitation; discard research and use explicit Refresh. No automatic PWM chat messages should appear. Live source quality and p50/p95 improvements are not claimed from unit tests.
+
+## Profile presentation
+
+Personal World Model opens inside the Profile pane, using the same compact grouped settings and Back navigation as Payouts. Edit or remove saved details opens Memory within Profile. Ordinary model links open the Profile pane. Existing `/one/profile/world-model?claim=...` invitation links retain their contact-bound claim flow in the shared Profile workspace. Research, review, saving, and invitation permissions remain unchanged.

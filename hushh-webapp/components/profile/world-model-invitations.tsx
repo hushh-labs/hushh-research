@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,6 +21,12 @@ import {
 } from "@/lib/services/world-model-invitations-service";
 import { shareLink, isShareCancellationError } from "@/lib/share/share-link";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  clearWorldModelInvitationHandoffsForToken,
+  needsWorldModelInvitationAccountSwitch,
+  readWorldModelInvitationHandoff,
+  worldModelInvitationHandoffRoute,
+} from "@/lib/world-model/invitation-handoff";
 
 export function WorldModelInvitations({
   ownerId,
@@ -35,9 +41,8 @@ export function WorldModelInvitations({
 }) {
   const router = useRouter();
   const query = useSearchParams();
-  const [claimToken, setClaimToken] = useState<string | null>(
-    query.get("claim"),
-  );
+  const [claimToken, setClaimToken] = useState<string | null>(null);
+  const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [name, setName] = useState(""),
     [sourceUrl, setSourceUrl] = useState(""),
     [introduction, setIntroduction] = useState("");
@@ -54,22 +59,32 @@ export function WorldModelInvitations({
     [researchConsent, setResearchConsent] = useState(false);
   const { reload: reloadResearch } = useWorldModelResearch();
   useEffect(() => {
-    const syncToken = () =>
-      setClaimToken(
-        new URLSearchParams(window.location.hash.slice(1)).get("claim") ||
-          query.get("claim"),
+    const syncToken = () => {
+      const handoff = query.get("handoff");
+      const recovered = handoff
+        ? readWorldModelInvitationHandoff(handoff, ownerId)
+        : null;
+      setAccountSwitchHandoff(
+        handoff && !recovered && needsWorldModelInvitationAccountSwitch(handoff, ownerId)
+          ? handoff
+          : null,
       );
+      setClaimToken(
+        recovered ||
+          new URLSearchParams(window.location.hash.slice(1)).get("claim"),
+      );
+    };
     syncToken();
     window.addEventListener("hashchange", syncToken);
     return () => window.removeEventListener("hashchange", syncToken);
-  }, [query]);
+  }, [ownerId, query]);
   useEffect(() => {
     let active = true;
     setReceivedPreview(null);
     if (claimToken)
       void WorldModelInvitationsService.preview(claimToken)
         .then((row) => {
-          if (active) setReceivedPreview(row);
+          if (active && "report" in row) setReceivedPreview(row);
         })
         .catch(() => {});
     return () => {
@@ -146,21 +161,31 @@ export function WorldModelInvitations({
     }
   }
   return (
-    <Card preset="compact">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Build for someone else</CardTitle>
+    <SettingsGroup title="Invite someone">
+      <div className="space-y-3 px-4 py-3">
         <HelperText>
           Prepare a short public professional preview, review it, then share a
           contact-bound invitation. Their full model stays under their control.
         </HelperText>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
+        {accountSwitchHandoff && (
+          <div className="space-y-2 rounded-lg border border-border p-3 text-[13px]">
+            <p>This invitation was opened with another account.</p>
+            <Button
+              size="compact"
+              onClick={() =>
+                router.replace(worldModelInvitationHandoffRoute(accountSwitchHandoff))
+              }
+            >
+              Review invitation with this account
+            </Button>
+          </div>
+        )}
         {claimToken && (
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-[13px]">
-              You’ve been invited to claim this starting profile. Verify the
-              invited contact, then review what belongs to you. Claiming shares
-              nothing back.
+              You’ve been invited to claim a Personal World Model. Verify the
+              invited contact, then choose whether to claim or reject the
+              invitation. Claiming shares nothing back.
             </p>
             {receivedPreview && (
               <div className="space-y-2 text-xs">
@@ -211,8 +236,9 @@ export function WorldModelInvitations({
                     researchConsent,
                   );
                   await capture.assertCurrent();
+                  clearWorldModelInvitationHandoffsForToken(claimToken);
                   setMessage(
-                    "Claimed. Review your source details above. Nothing has been shared back.",
+                    "Claimed. You can now review and build your model. Nothing has been shared back.",
                   );
                   setClaimToken(null);
                   reloadResearch();
@@ -237,6 +263,7 @@ export function WorldModelInvitations({
                     claimToken,
                   );
                   await capture.assertCurrent();
+                  clearWorldModelInvitationHandoffsForToken(claimToken);
                   setClaimToken(null);
                   setReceivedPreview(null);
                   router.replace(ROUTES.PROFILE_WORLD_MODEL);
@@ -249,7 +276,7 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          Their name
+          <span className="font-semibold">Their name</span>
           <Input
             aria-label="Their name"
             disabled={busy}
@@ -262,7 +289,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Public professional profile URL
+          <span className="font-semibold">Public professional profile URL</span>
           <Input
             aria-label="Public professional profile URL"
             disabled={busy}
@@ -275,7 +302,7 @@ export function WorldModelInvitations({
           />
         </label>
         <label className="block space-y-1 text-xs">
-          Introduction (optional)
+          <span className="font-semibold">Introduction (optional)</span>
           <Textarea
             aria-label="Introduction (optional)"
             value={introduction}
@@ -356,7 +383,7 @@ export function WorldModelInvitations({
           </div>
         )}
         <label className="block space-y-1 text-xs">
-          <span>Recipient’s email or phone with country code</span>
+          <span className="font-semibold">Recipient’s email or phone with country code</span>
           <Input
             aria-label="Recipient’s email or phone with country code"
             value={contact}
@@ -458,7 +485,7 @@ export function WorldModelInvitations({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }

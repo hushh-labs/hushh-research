@@ -17,6 +17,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.parse import urlparse
 
 from .errors import EnterpriseSsoError
 
@@ -35,6 +36,8 @@ class WorkOSConfig:
     client_id: str = ""
     webhook_secret: str = ""
     redirect_uri: str = ""
+    # Origins the person may start from (the app is served on several hostnames per environment).
+    redirect_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> WorkOSConfig:
@@ -46,7 +49,28 @@ class WorkOSConfig:
             client_id=read("WORKOS_CLIENT_ID"),
             webhook_secret=read("WORKOS_WEBHOOK_SECRET"),
             redirect_uri=read("WORKOS_REDIRECT_URI"),
+            redirect_origins=tuple(
+                part.strip() for part in read("WORKOS_REDIRECT_ORIGINS").split(",") if part.strip()
+            ),
         )
+
+    def _allowed_origins(self) -> frozenset[str]:
+        default = urlparse(self.redirect_uri)
+        base = f"{default.scheme}://{default.netloc}" if default.netloc else ""
+        found = (str(o).strip().rstrip("/").lower() for o in (*self.redirect_origins, base))
+        return frozenset(
+            o for o in found if o.startswith("https://") or o.startswith("http://localhost")
+        )
+
+    def redirect_uri_for(self, origin: str | None) -> str:
+        """Send the person back to the origin they started on, but only to one we serve.
+
+        The pending-attempt state lives in that origin's sessionStorage, so the callback has to
+        return there. Anything not on the allowlist falls back to the configured default."""
+        candidate = str(origin or "").strip().rstrip("/").lower()
+        if candidate and candidate in self._allowed_origins():
+            return f"{candidate}{urlparse(self.redirect_uri).path or '/login'}"
+        return self.redirect_uri
 
     @property
     def sign_in_ready(self) -> bool:
@@ -86,7 +110,12 @@ class WorkOSPort(Protocol):
     def get_organization(self, organization_id: str) -> WorkOSOrganization | None: ...
 
     def authorization_url(
-        self, *, organization_id: str, state: str, login_hint: str | None
+        self,
+        *,
+        organization_id: str,
+        state: str,
+        login_hint: str | None,
+        redirect_uri: str | None = None,
     ) -> str: ...
 
     def exchange_code(self, code: str) -> SsoProfile: ...
@@ -108,6 +137,11 @@ class WorkOSSdkAdapter:
             )
         return self._client
 
+    def _is_staging(self) -> bool:
+        # Staging hides WorkOS's built-in test provider from the list, so an empty list proves
+        # nothing there. Production has no such provider: an empty list means SSO is not set up.
+        return self._config.api_key.startswith("sk_test_")
+
     @staticmethod
     def _state_value(state) -> str:
         return str(getattr(state, "value", state) or "")
@@ -124,7 +158,7 @@ class WorkOSSdkAdapter:
             id=str(organization.id),
             name=str(organization.name or ""),
             verified_domains=verified,
-            sso_disabled=bool(states) and "active" not in states,
+            sso_disabled="active" not in states and (bool(states) or not self._is_staging()),
         )
 
     def get_organization(self, organization_id: str) -> WorkOSOrganization | None:
@@ -154,9 +188,16 @@ class WorkOSSdkAdapter:
             raise EnterpriseSsoError("sso_provider_unavailable", 502) from None
         return matches[0] if len(matches) == 1 else None
 
-    def authorization_url(self, *, organization_id: str, state: str, login_hint: str | None) -> str:
+    def authorization_url(
+        self,
+        *,
+        organization_id: str,
+        state: str,
+        login_hint: str | None,
+        redirect_uri: str | None = None,
+    ) -> str:
         return self._sdk().sso.get_authorization_url(
-            redirect_uri=self._config.redirect_uri,
+            redirect_uri=redirect_uri or self._config.redirect_uri,
             organization=organization_id,
             state=state,
             login_hint=login_hint,

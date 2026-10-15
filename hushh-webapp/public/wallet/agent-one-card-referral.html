@@ -4,13 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light dark" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@500;600;700&amp;display=swap" rel="stylesheet">
+
   <link rel="icon" href="data:," />
   <title>Agent One Cards</title>
   <script>document.documentElement.classList.add('js');</script>
   <style>
+    @font-face { font-family: "Plus Jakarta Sans"; src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+    @font-face { font-family: "Plus Jakarta Sans"; src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+    @font-face { font-family: "Plus Jakarta Sans"; src: url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-display: swap; }
     :root {
       color-scheme: light dark;
       --page: #0c0c0e;
@@ -56,7 +57,7 @@
       margin: 0 auto 24px;
       color: var(--caption);
       text-align: center;
-      font: 500 11px/1.5 "Lexend", system-ui, sans-serif;
+      font: 400 11px/1.5 "Plus Jakarta Sans", system-ui, sans-serif;
       letter-spacing: .28em;
       text-transform: uppercase;
     }
@@ -84,7 +85,7 @@
     }
     .card svg { display: block; width: 100%; height: 100%; overflow: hidden; }
     .brand, .data, .score {
-      font-family: "Lexend", system-ui, -apple-system, sans-serif;
+      font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
     }
     .brand { font-weight: 700; }
     .data { font-variant-numeric: tabular-nums lining-nums; font-feature-settings: "tnum" 1, "lnum" 1; }

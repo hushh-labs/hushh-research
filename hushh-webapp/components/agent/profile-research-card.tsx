@@ -59,6 +59,7 @@ type Props = {
   vaultOwnerToken: string | null;
   enabled: boolean;
   pathname: string;
+  backQuery?: Readonly<Record<string, string>>;
   renderMessage?: (card: ReactNode, businessFacts?: ReactNode) => ReactNode;
   embedded?: boolean;
   present?: boolean;
@@ -90,6 +91,7 @@ export function ProfileResearchCard({
   vaultOwnerToken,
   enabled,
   pathname,
+  backQuery,
   renderMessage,
   embedded = false,
   present = true,
@@ -145,6 +147,7 @@ export function ProfileResearchCard({
         : 2
       : 0,
     cancelReview,
+    backQuery,
   );
 
   useEffect(() => {

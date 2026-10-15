@@ -17,14 +17,11 @@ production-cohort tripwire below drifted twice without anyone noticing.
 
 from __future__ import annotations
 
-import copy
 import importlib.util
 import json
 import os
 import re
 import subprocess
-import sys
-import tempfile
 import textwrap
 from pathlib import Path
 
@@ -165,98 +162,48 @@ def test_production_tripwire_matches_committed_policy() -> None:
     )
 
 
-def _validate_capacity_trigger(event_name: str, event: dict) -> subprocess.CompletedProcess[str]:
-    """Execute the workflow's actual authority gate with offline event fixtures."""
-    workflow = Path(__file__).resolve().parents[2] / ".github/workflows/capacity-maintenance.yml"
+def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main") -> subprocess.CompletedProcess[str]:
+    """Execute the actual shell authority gate, including the real actor policy."""
+    root = Path(__file__).resolve().parents[2]
+    source = (root / ".github/workflows/capacity-maintenance.yml").read_text()
     match = re.search(
-        r"      - name: Resolve and validate cleanup authority\n.*?"
-        r"          python3 - <<'PY'\n(.*?)\n          PY\n",
-        workflow.read_text(encoding="utf-8"),
-        re.DOTALL,
+        r"      - name: Require main and governed manual actor\n.*?"
+        r"        run: \|\n(.*?)(?=\n      - name:|\Z)", source, re.DOTALL,
     )
     assert match is not None, "Capacity cleanup authority gate is missing"
-    with tempfile.TemporaryDirectory() as directory:
-        event_path = Path(directory) / "event.json"
-        output_path = Path(directory) / "output"
-        event_path.write_text(json.dumps(event), encoding="utf-8")
-        result = subprocess.run(
-            [sys.executable, "-c", textwrap.dedent(match.group(1))],
-            env={
-                **os.environ,
-                "GITHUB_EVENT_PATH": str(event_path),
-                "GITHUB_OUTPUT": str(output_path),
-                "GITHUB_EVENT_NAME": event_name,
-                "GITHUB_REPOSITORY": "owner/repo",
-                "GITHUB_ACTOR": "maintainer",
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        result.stdout = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-        return result
+    inputs = event.get("inputs") or {}
+    return subprocess.run(
+        ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", "")},
+        capture_output=True, text=True, check=False,
+    )
 
 
-def _capacity_upstream_run() -> dict:
-    return {
-        "action": "completed",
-        "workflow_run": {
-            "id": 42,
-            "name": "Deploy to UAT",
-            "path": ".github/workflows/deploy-uat.yml",
-            "event": "workflow_dispatch",
-            "status": "completed",
-            "conclusion": "success",
-            "head_branch": "main",
-            "repository": {"full_name": "owner/repo"},
-            "head_repository": {"full_name": "owner/repo"},
-            "actor": {"login": "release-maintainer"},
-        },
-    }
-
-
-def test_capacity_cleanup_accepts_trusted_upstream_and_manual_modes() -> None:
+def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> None:
     scheduled = _validate_capacity_trigger("schedule", {})
     assert scheduled.returncode == 0, scheduled.stderr
-    assert scheduled.stdout == "environment=uat\nrelease_run_id=\nactor=maintainer\napply=true\n"
-    result = _validate_capacity_trigger("workflow_run", _capacity_upstream_run())
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "environment=uat\nrelease_run_id=42\nactor=release-maintainer\napply=true\n"
-    failed = _capacity_upstream_run()
-    failed["workflow_run"]["conclusion"] = "failure"
-    result = _validate_capacity_trigger("workflow_run", failed)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "environment=uat\nrelease_run_id=\nactor=release-maintainer\napply=true\n"
-    event = _capacity_upstream_run()
-    event["workflow"] = {"path": event["workflow_run"].pop("path")}
-    result = _validate_capacity_trigger("workflow_run", event)
-    assert result.returncode == 0, result.stderr
     for environment, apply in (("uat", "true"), ("production", "false")):
-        result = _validate_capacity_trigger("workflow_dispatch", {
-            "inputs": {"environment": environment, "healthy_release_run_id": "43", "apply": apply},
-        })
+        event = {"inputs": {"environment": environment, "healthy_release_run_id": "43", "apply": apply}}
+        result = _validate_capacity_trigger("workflow_dispatch", event)
         assert result.returncode == 0, result.stderr
-        assert result.stdout == f"environment={environment}\nrelease_run_id=43\nactor=maintainer\napply={apply}\n"
+        denied = _validate_capacity_trigger("workflow_dispatch", event, actor="unapproved-contributor")
+        assert denied.returncode != 0, "Ungoverned manual cleanup was accepted"
+    for invalid in ("dev", "production\napply=true"):
+        result = _validate_capacity_trigger("workflow_dispatch", {"inputs": {"environment": invalid, "healthy_release_run_id": "43"}})
+        assert result.returncode != 0
+    result = _validate_capacity_trigger("workflow_dispatch", {"inputs": {"environment": "uat", "healthy_release_run_id": "43\napply=true"}})
+    assert result.returncode != 0
 
 
-def test_capacity_cleanup_rejects_untrusted_upstream_before_outputs() -> None:
-    for key, value in (
-        ("name", "Deploy to Production"),
-        ("path", ".github/workflows/untrusted.yml"),
-        ("event", "pull_request"),
-        ("status", "in_progress"),
-        ("conclusion", "cancelled"),
-        ("head_branch", "contributor-branch"),
-        ("repository", {"full_name": "other/repo"}),
-        ("head_repository", {"full_name": "fork/repo"}),
-        ("id", "42\napply=true"),
-        ("actor", {"login": "maintainer\napply=true"}),
-    ):
-        event = copy.deepcopy(_capacity_upstream_run())
-        event["workflow_run"][key] = value
-        result = _validate_capacity_trigger("workflow_run", event)
-        assert result.returncode != 0, f"Untrusted upstream {key} was accepted"
-        assert result.stdout == "", f"Rejected upstream {key} emitted cleanup authority"
+def test_capacity_cleanup_rejects_deployment_events_and_non_main() -> None:
+    for event_name in ("workflow_run", "pull_request", "push"):
+        result = _validate_capacity_trigger(event_name, {})
+        assert result.returncode != 0, f"Unexpected {event_name} can wake cleanup"
+    for event_name in ("schedule", "workflow_dispatch"):
+        result = _validate_capacity_trigger(event_name, {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}, ref="contributor-branch")
+        assert result.returncode != 0, "Non-main cleanup was accepted"
 
 
 def main() -> int:
@@ -265,8 +212,8 @@ def main() -> int:
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
         test_production_tripwire_matches_committed_policy,
-        test_capacity_cleanup_accepts_trusted_upstream_and_manual_modes,
-        test_capacity_cleanup_rejects_untrusted_upstream_before_outputs,
+        test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
+        test_capacity_cleanup_rejects_deployment_events_and_non_main,
     ]
     for test in tests:
         test()

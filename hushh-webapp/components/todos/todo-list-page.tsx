@@ -36,6 +36,7 @@ import {
   CaptionText,
   HelperText,
   MediumRowLabel,
+  RowLabel,
   SectionLabel,
 } from "@/components/app-ui/typography";
 import {
@@ -350,7 +351,7 @@ function TodoRow({
         className="grid touch-pan-y grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-4 py-3 sm:gap-x-4 sm:px-5 sm:py-4"
         {...swipe}
       >
-        <MediumRowLabel
+        <RowLabel
           as="h3"
           className={cn(
             "self-center break-words [overflow-wrap:anywhere]",
@@ -358,7 +359,7 @@ function TodoRow({
           )}
         >
           {task.title}
-        </MediumRowLabel>
+        </RowLabel>
         <div className="flex shrink-0 items-center gap-1">
           <CircularCheckbox
             checked={task.status === "done"}
@@ -961,7 +962,7 @@ export function TodoListPage() {
               <span>
                 <span
                   id="completed-heading"
-                  className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  className="app-metadata-label text-[12px] uppercase tracking-[0.12em] text-muted-foreground"
                 >
                   Completed
                 </span>

@@ -27,6 +27,7 @@ import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completi
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
+import { safeWorldModelInvitationReturnPath } from "@/lib/world-model/invitation-handoff";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -228,7 +229,9 @@ export function OnboardingJourneyGuard({
         const welcomeState = admissionState;
         if (cancelled) return;
         if (welcomeState?.setupCompleted === true && welcomeState.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
-          const target = buildInitialContactsWelcomeRoute(currentHref);
+          const target = buildInitialContactsWelcomeRoute(
+            safeWorldModelInvitationReturnPath(currentHref, userId),
+          );
           if (redirectTargetRef.current !== target) {
             redirectTargetRef.current = target;
             setRedirecting(true);
@@ -320,7 +323,9 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        const redirectTarget = buildOneSetupRoute({ returnTo: currentHref });
+        const redirectTarget = buildOneSetupRoute({
+          returnTo: safeWorldModelInvitationReturnPath(currentHref, userId),
+        });
         if (redirectTargetRef.current === redirectTarget) {
           return;
         }

@@ -18,7 +18,7 @@
   .accessSurface :global(.ui-text-navigation-title) {
     font-size: 15px !important;
     line-height: 1.2 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: 0 !important;
   }
   .accessSurface :global(.ui-text-row-description) { font-size: 12px !important; line-height: 18px !important; }
@@ -47,5 +47,5 @@
 .dialog button { font-family: var(--font-app-body); font-size: 13px; }
 .dialog [data-slot='tabs-trigger'] { font-size: 13px; }
 .field { display: grid; gap: 8px; }
-.field label { font-size: 13px; font-weight: 500; }
+.field label { font-size: 13px; font-weight: 600; }
 @media (min-width: 640px) { .dialog { padding: 28px; } }

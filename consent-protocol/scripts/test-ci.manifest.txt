@@ -482,6 +482,11 @@ tests/test_capability_graph_gate_compares_against_base.py
 # keeps the UAT backend provenance check in front of the macOS job.
 tests/test_ci_path_filters_cover_lane_scripts.py
 tests/test_testflight_backend_provenance_runs_before_macos.py
+# (2026-10-15) CI Status Gate is the one required check, and GitHub reads a
+# skipped required check as a pass. This runs the gate's own bash and fails
+# when an in-scope lane or authority check can pass unrun, or a dispatched run
+# can stand in for a pull request's checks.
+tests/test_ci_status_gate_fails_closed.py
 
 # Consent and information sharing, proven end to end: the lifecycle proof
 # (request, approve with duration, export, decrypt, deny, revoke, cancel,

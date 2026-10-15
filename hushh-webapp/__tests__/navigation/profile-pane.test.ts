@@ -39,11 +39,20 @@ function currentUrl() {
 }
 
 describe("Profile pane navigation state", () => {
-  it.each(["payouts", "request-pricing"] as const)("opens %s in the existing pane and returns to Profile", (panel) => {
+  it.each(["payouts", "world-model", "request-pricing"] as const)("opens %s in the existing pane and returns to Profile", (panel) => {
     const state = resolveProfilePaneUrlState(`profile_pane=1&profile_panel=${panel}`);
     expect(state).toEqual({ open: true, location: { panel, detail: null } });
     expect(profilePaneParentLocation(state.location)).toEqual({ panel: null, detail: null });
     expect(buildProfilePaneHref("/one/feed", null, state.location)).toBe(`/one/feed?profile_pane=1&profile_panel=${panel}`);
+  });
+
+  it("keeps model claim links on the shared Profile world-model panel", () => {
+    expect(resolveProfileRouteState("/one/profile/world-model?claim=synthetic-token")).toEqual({
+      panel: "world-model", detail: null,
+    });
+    expect(buildProfileRoute({ panel: "world-model", searchParams: "from=%2Fone%2Ffeed" })).toBe(
+      "/one/profile/world-model?from=%2Fone%2Ffeed",
+    );
   });
 
   beforeEach(() => {

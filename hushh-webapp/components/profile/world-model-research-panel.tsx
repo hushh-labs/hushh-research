@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useVault } from "@/lib/vault/vault-context";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { HelperText } from "@/components/app-ui/typography";
@@ -72,11 +72,8 @@ export function WorldModelResearchPanel() {
     }
   }
   return (
-    <Card preset="compact">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Your research</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 p-4 pt-0">
+    <SettingsGroup title="Your research">
+      <div className="space-y-4 px-4 py-3">
         {preferences?.enabled ? (
           <>
             <HelperText>
@@ -146,7 +143,7 @@ export function WorldModelResearchPanel() {
             </div>
             {offered.report.sections.map((section) => (
               <section key={section.kind} className="space-y-2">
-                <h3 className="text-xs font-medium">
+                <h3 className="text-xs font-semibold">
                   {PROFILE_SECTION_LABELS[section.kind]}
                 </h3>
                 <ul className="space-y-3">
@@ -188,7 +185,7 @@ export function WorldModelResearchPanel() {
               <ul className="space-y-3">
                 {offered.research.coverage.map((row) => (
                   <li key={row.topic} className="text-xs">
-                    <span className="font-medium">
+                    <span className="font-semibold">
                       {PROFILE_SECTION_LABELS[
                         row.topic as keyof typeof PROFILE_SECTION_LABELS
                       ] ?? row.topic}
@@ -291,7 +288,7 @@ export function WorldModelResearchPanel() {
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }

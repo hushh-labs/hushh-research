@@ -7,6 +7,7 @@ import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import { loadReceiptSnapshot } from "@/lib/mail/receipt-store";
 import { SecureDurableResourceService as Durable } from "@/lib/services/secure-durable-resource-service";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptRequestError } from "@/lib/services/gmail-receipts-service";
 
 const fixture = vi.hoisted(() => ({
   user: { uid: "synthetic-owner", getIdToken: vi.fn().mockResolvedValue("synthetic-id-token") },
@@ -52,6 +53,46 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); configure({ asyncUtilTimeout: 1000 }); });
 
 describe("receipt sync durable completion", () => {
+  it.each([false, true])("shows each restored-refresh page immediately, dedupes saved groups and keeps the durable snapshot on failure (new saved event=%s)", async newSavedEvent => {
+    const purchase = { ...receipt, order_id: "SHARED-ORDER" };
+    const fulfillment = { ...purchase, id: 2, source_id: "saved-shipping", receipt_key: "saved-shipping",
+      gmail_message_id: "saved-shipping", event_type: "fulfillment" as const, document_kind: "fulfillment" as const };
+    const old = { ...receipt, id: 3, source_id: "old-udemy", receipt_key: "old-udemy", merchant_name: "Udemy", merchant_domain: "udemy.com" };
+    fixture.scan.mockResolvedValueOnce(response([purchase, fulfillment, old]));
+    let view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));
+    const baseline = await loadReceiptSnapshot(session, account);
+    view.unmount(); clearCachedGmailReceipts(session.userId); view = open();
+    await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+    const completion = fixture.completion;
+    let rejectPage!: (reason: unknown) => void;
+    const second = new Promise((_, reject) => { rejectPage = reject; });
+    const fresh = { ...receipt, id: 4, source_id: "new-amazon", receipt_key: "new-amazon", merchant_name: "Amazon", merchant_domain: "amazon.com" };
+    fixture.scan.mockReset();
+    const savedEvent = newSavedEvent ? { ...fulfillment, id: 5, source_id: "new-shipping", receipt_key: "new-shipping", gmail_message_id: "new-shipping" } : purchase;
+    const refund = { ...purchase, id: 6, source_id: "new-refund", receipt_key: "new-refund", gmail_message_id: "new-refund", event_type: "refund" as const, status: "refunded" as const };
+    fixture.scan.mockResolvedValueOnce({ ...response([savedEvent, fresh, ...(newSavedEvent ? [refund] : [])]), has_more: true, next_cursor: "synthetic-next-page" })
+      .mockReturnValueOnce(second);
+    await sync();
+    await waitFor(() => expect(screen.getByText("Amazon")).toBeVisible());
+    expect(screen.getAllByText("Plaid")).toHaveLength(newSavedEvent ? 2 : 1);
+    expect(screen.getByText("Udemy")).toBeVisible();
+    expect(screen.getAllByTestId("receipt-row")).toHaveLength(newSavedEvent ? 4 : 3);
+    expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    expect(screen.getByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(fixture.completion).toBe(completion);
+    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    await act(async () => { rejectPage(new GmailReceiptRequestError("expired", 409, "GMAIL_RECEIPT_CURSOR_EXPIRED", false)); });
+    await waitFor(() => expect(screen.getByText("Couldn’t finish scanning your receipts.")).toBeVisible());
+    expect(fixture.scan).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Amazon")).toBeVisible();
+    expect(screen.getAllByText("Plaid")).toHaveLength(newSavedEvent ? 2 : 1);
+    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    view.unmount(); clearCachedGmailReceipts(session.userId); open();
+    await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+    expect(screen.getByText("Udemy")).toBeVisible();
+    expect(screen.queryByText("Amazon")).toBeNull();
+  }, 30000);
+
   it("reproduces printed-date UAT failure and waits for real encrypted read-back before completing, then restores on remount", async () => {
     fixture.scan.mockResolvedValue(response([receipt]));
     let release!: () => void;
@@ -70,6 +111,25 @@ describe("receipt sync durable completion", () => {
     await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
     expect(fixture.scan).toHaveBeenCalledOnce();
   }, 30000);
+  it.each(["GMAIL_RECEIPT_CONTRACT_MISMATCH", "GMAIL_RECEIPT_EXTRACTION_INVALID",
+    "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"])("permanent %s refresh makes one attempt and keeps saved rows", async code => {
+    fixture.scan.mockResolvedValueOnce(response([receipt]));
+    const view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));
+    const baseline = await loadReceiptSnapshot(session, account);
+    fixture.scan.mockClear();
+    fixture.scan.mockRejectedValue(new GmailReceiptRequestError("invalid", 500, code, false));
+    await sync();
+    await waitFor(() => expect(screen.getByText("Couldn’t finish scanning your receipts.")).toBeVisible());
+    expect(fixture.scan).toHaveBeenCalledOnce();
+    expect(screen.getByText("Plaid")).toBeVisible();
+    expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Scanning" })).toBeNull();
+    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    view.unmount(); clearCachedGmailReceipts(session.userId); open();
+    await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+    expect(fixture.scan).toHaveBeenCalledOnce();
+  }, 30000);
+
   it.each([false, true])("failed refresh preserves rows and the previous snapshot (restored=%s)", async restored => {
     fixture.scan.mockResolvedValue(response([receipt]));
     let view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));

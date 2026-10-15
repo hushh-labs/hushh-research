@@ -26,7 +26,7 @@ const config: Config = {
         display: [
           "var(--font-app-display)",
         ],
-        mono: ["var(--font-app-body)"],
+        mono: ["var(--font-app-mono)"],
       },
       fontSize: {
         xs: ["var(--foundation-caption-size)", { lineHeight: "var(--foundation-caption-line)" }],
