@@ -476,6 +476,31 @@ describe("Live Mirror conflict claims", () => {
       .map(claim => [claim.value, Object.hasOwn(claim, "currency")])).toEqual([["EUR", false], ["JPY", false]]);
   });
 
+  it("raises no side for an empty field that only a removed copy's currency set apart", () => {
+    const paid = sync([{ inputs: [payment({ amountCents: 1_200, currency: "EUR" })], kinds: ["document_request_payment"], now: T1 }]);
+    const [live] = paid.inventory.records;
+    const removed = { ...live!, updatedAt: T1, deletedAt: T1, value: {} };
+    const projection = build({ history: paid.history, inventory: { ...paid.inventory, records: [live!, removed] } });
+    // The refund reads "Not set" on both copies, so it is not a disagreement.
+    expect(projection.conflicts!.map(each => each.predicate)).toEqual([
+      "document_request_payment.mode", "document_request_payment.status", "document_request_payment.amountCents",
+      "document_request_payment.currency", "document_request_payment.paidAt",
+    ]);
+  });
+
+  it("reads an amount with no currency as US dollars, so it agrees with the same amount in USD", () => {
+    const projection = build(twoCopies(payment({ amountCents: 1_200, currency: "USD" }), { currency: null }));
+    expect(conflictOf(projection, "document_request_payment.amountCents")).toBeUndefined();
+    // Positive control: the copies do disagree, on the currency field itself.
+    expect(conflictOf(projection, "document_request_payment.currency")!.claims.map(claim => claim.value)).toEqual(["USD", null]);
+  });
+
+  it("reads a currency code trimmed and in capitals, so EUR and \" eur \" are one currency", () => {
+    const projection = build(twoCopies(payment({ amountCents: 1_200, currency: "EUR" }), { currency: " eur ", status: "refunded" }));
+    expect(conflictOf(projection, "document_request_payment.status")!.claims.map(claim => claim.value)).toEqual(["paid", "refunded"]);
+    expect(conflictOf(projection, "document_request_payment.amountCents")).toBeUndefined();
+  });
+
   it("numbers a record's copies the same on every field, whatever order the inventory lists them in", () => {
     // A tie on change time is settled by value; otherwise the earlier copy is copy 1.
     for (const updatedAt of [T0, T1]) {

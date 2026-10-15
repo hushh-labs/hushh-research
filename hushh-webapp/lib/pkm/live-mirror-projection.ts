@@ -325,15 +325,17 @@ function recordClaims(params: {
     const sides: LiveMirrorClaim[] = [];
     versions.forEach((version, index) => {
       const value = claimValue(predicate, version.deleted ? undefined : version.value[field]);
-      // The same amount in another currency is a different claim.
-      const currency = money && !version.deleted ? claimCurrency(version.value.currency) : null;
-      const key = JSON.stringify([value, currency]);
+      // Sides split as the owner reads them: the same amount in another
+      // currency is another claim, a copy naming no currency reads as US
+      // dollars, and an empty field reads "Not set" whatever its currency.
+      const own = money && !version.deleted ? claimCurrency(version.value.currency) : null;
+      const key = JSON.stringify([value, value === null ? null : own ?? "USD"]);
       if (seen.has(key)) return;
       seen.add(key);
       sides.push({
         source: params.kind, origin: "record", label: `${params.ref}, copy ${index + 1}`, value,
         revision: params.revision, sourceUpdatedAt: version.updatedAt, verifiedAt: params.verifiedAt,
-        ...(money ? { currency } : {}),
+        ...(money ? { currency: own } : {}),
       });
     });
     if (sides.length > 1) claims.set(predicate, sides);
