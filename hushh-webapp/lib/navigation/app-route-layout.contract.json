@@ -7365,7 +7365,7 @@
       "allowedFamilies": []
     },
     "shellVerification": {
-      "file": "components/profile/personal-world-model-page.tsx",
+      "file": "app/profile/profile-workspace-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",

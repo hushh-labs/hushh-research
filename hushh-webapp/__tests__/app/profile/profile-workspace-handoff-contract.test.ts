@@ -113,6 +113,26 @@ describe("profile workspace duplication contract", () => {
     expect(normalizeInternalRouteHref("//evil.example/one/feed")).toBeNull();
   });
 
+  it("opens Personal World Model and its saved details inside the Profile stack", () => {
+    const row = profilePageSource.split('voiceControlId="profile_world_model"')[1]?.split("/>")[0] ?? "";
+    expect(row).toContain('openVaultBackedPanel("world-model")');
+    expect(row).not.toContain("router.push");
+    const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
+    expect(panel).toContain('<PersonalWorldModelPage');
+    expect(panel).toContain('embedded');
+    expect(panel).toContain('onManageDetails={() => openVaultBackedPanel("my-data")}');
+    expect(readFileSync(join(process.cwd(), "app/one/profile/world-model/page.tsx"), "utf8")).toContain(
+      'export { default } from "@/app/profile/profile-workspace-page"',
+    );
+  });
+
+  it("retains a model invitation through vault unlock", () => {
+    expect(profilePageSource).toContain('const worldModelClaim = activePanel === "world-model" && searchParams.has("claim")');
+    expect(profilePageSource).toMatch(/if \(\s*activePanel &&\s*!worldModelClaim &&/);
+    expect(profilePageSource).toContain('claimQuery?.delete("unlock_vault")');
+    expect(profilePageSource).toContain('`${pathname}?${claimQuery.toString()}`');
+  });
+
   it("keeps Security as the sole Profile entry for vault controls", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');

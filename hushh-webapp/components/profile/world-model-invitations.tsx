@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -161,15 +161,12 @@ export function WorldModelInvitations({
     }
   }
   return (
-    <Card preset="compact">
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">Build for someone else</CardTitle>
+    <SettingsGroup title="Invite someone">
+      <div className="space-y-3 px-4 py-3">
         <HelperText>
           Prepare a short public professional preview, review it, then share a
           contact-bound invitation. Their full model stays under their control.
         </HelperText>
-      </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-0">
         {accountSwitchHandoff && (
           <div className="space-y-2 rounded-lg border border-border p-3 text-[13px]">
             <p>This invitation was opened with another account.</p>
@@ -488,7 +485,7 @@ export function WorldModelInvitations({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }
