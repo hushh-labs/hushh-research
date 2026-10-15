@@ -1,7 +1,7 @@
 .shell {
   --welcome-ink: #1d1d1f;
   --welcome-muted: #65656b;
-  --welcome-blue: #0071e3;
+  --welcome-blue: var(--app-accent-deep);
   block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   min-block-size: 0;
   width: 100%;
