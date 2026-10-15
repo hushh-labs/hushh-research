@@ -61,7 +61,8 @@ def founder_report(scorecard: dict, gate: dict) -> str:
         f"Checked by a person: {scorecard.get('human_confirmed_ready', 0):,} of {judged:,}; "
         "the rest by two AI judges and fixed rules.",
         f"Not decided yet: {unknown:,} Ready packets (counted as not passed).",
-        f"Files read right: {_xn(_metric(scorecard, 'extraction_accuracy'))}.",
+        f"Files read with the right page count: {_xn(_metric(scorecard, 'extraction_accuracy'))}; "
+        f"with unreadable pages: {_xn(_metric(scorecard, 'extraction_with_gaps'))}.",
         f"Facts that match the labels: {_xn(facts)}; facts that contradict them: "
         + (
             f"{wrong_claims['successes']:,} of {wrong_claims['trials']:,}."

@@ -118,7 +118,7 @@ def unsupported_correct(rows: list[dict]) -> dict:
 # 2. Extraction ---------------------------------------------------------------
 def extraction(rows: list[dict]) -> list[dict]:
     labeled = [row for row in rows if row.get("true_pages") is not None]
-    passed = false_complete = 0
+    passed = false_complete = with_gaps = 0
     for row in labeled:
         done = row.get("status") == COMPLETED
         pages_ok = done and row.get("extracted_pages") == row["true_pages"]
@@ -126,6 +126,7 @@ def extraction(rows: list[dict]) -> list[dict]:
         claimed = row.get("claimed_complete") is True
         is_false_complete = claimed and (not pages_ok or not recall_ok)
         false_complete += is_false_complete
+        with_gaps += done and not claimed
         passed += done and pages_ok and recall_ok and not is_false_complete
     unknown = len(rows) - len(labeled)
     return [
@@ -140,6 +141,15 @@ def extraction(rows: list[dict]) -> list[dict]:
         score(
             "extraction_false_complete",
             false_complete,
+            len(labeled),
+            unit="document",
+            independence="document_clustered_by_family",
+            n_unknown=unknown,
+        ),
+        # Honestly flagged gaps pass the accuracy definition but are not fully read.
+        score(
+            "extraction_with_gaps",
+            with_gaps,
             len(labeled),
             unit="document",
             independence="document_clustered_by_family",

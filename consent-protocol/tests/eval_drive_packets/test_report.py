@@ -70,7 +70,7 @@ def test_founder_report_is_short_plain_and_shows_both_bars():
         "Ready packets wrong: 0 of 41 (95% bar needs 0 of 59; 99.9% bar needs 0 of 2,995)." in text
     )
     assert "replay of code c8faf48" in text
-    assert "Files read right: 276 of 300." in text
+    assert "Files read with the right page count: 276 of 300; with unreadable pages:" in text
     assert "Checked by a person: 0 of 41" in text
     assert "Buyer search finds it in the top 5: not measured yet." in text
     assert (

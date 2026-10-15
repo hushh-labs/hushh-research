@@ -47,6 +47,8 @@ def test_extraction_page_accounting_false_complete_and_key_recall():
         result["extraction_accuracy"]["trials"],
     ) == (1, 4)
     assert result["extraction_false_complete"]["successes"] == 1
+    # Row 3 honestly flags an unreadable part; it is counted apart, not as read.
+    assert result["extraction_with_gaps"]["successes"] == 1
 
 
 def test_fact_accuracy_wrong_claims_and_abstentions():
