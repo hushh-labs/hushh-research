@@ -1592,12 +1592,15 @@ def test_partial_freebusy_failure_preserves_recovery_without_exposing_calendars(
         ),
     ],
 )
-def test_freebusy_validation_stage_is_correlated_without_payload(calendar, stage, caplog):
+def test_freebusy_validation_stage_survives_runtime_redaction_without_payload(
+    calendar, stage, caplog
+):
     from datetime import UTC, datetime
 
     from hushh_mcp.consent.audit_logger import bind_trace_id, reset_trace_id
+    from mcp_modules.log_redaction import SensitiveLogFilter
 
-    token = bind_trace_id("availability-diagnostic-test")
+    token = bind_trace_id("00000000-0000-4000-a000-000000000001")
     try:
         with pytest.raises(GoogleConnectionError) as caught:
             GoogleCalendarService._merged_busy_intervals(
@@ -1608,8 +1611,12 @@ def test_freebusy_validation_stage_is_correlated_without_payload(calendar, stage
     finally:
         reset_trace_id(token)
     assert caught.value.reason_code == "calendar_invalid_response"
-    assert f"stage={stage}" in caplog.text
-    assert "request_id=availability-diagnostic-test" in caplog.text
+    # Apply the real filter even when this test runs without the full app bootstrap.
+    for record in caplog.records:
+        SensitiveLogFilter().filter(record)
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert f"stage={stage.replace('_', '.')}" in rendered
+    assert "request_id=[REDACTED]" in rendered
     assert "field_path=$.calendars." in caplog.text
     assert "expected=" in caplog.text
     assert "received=" in caplog.text
@@ -1630,7 +1637,7 @@ def test_malformed_freebusy_errors_are_invalid_responses_not_access_failures(err
         )
     assert caught.value.reason_code == "calendar_invalid_response"
     assert caught.value.status_code == 502
-    assert "stage=freebusy_errors_shape" in caplog.text
+    assert "stage=freebusy.errors.shape" in caplog.text
     assert "private-calendar" not in caplog.text
 
 

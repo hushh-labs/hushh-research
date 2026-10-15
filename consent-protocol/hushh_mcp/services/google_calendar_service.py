@@ -538,7 +538,7 @@ class GoogleCalendarService:
         logger.warning(
             "calendar.response.invalid request_id=%s stage=%s field_path=%s expected=%s received=%s reason=%s",
             get_trace_id(),
-            stage,
+            stage.replace("_", "."),
             field_path,
             expected,
             received_type,

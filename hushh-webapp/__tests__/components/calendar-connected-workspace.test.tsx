@@ -909,10 +909,15 @@ describe("CalendarConnectedWorkspace", () => {
   });
 
   it("labels the exclusive next midnight only in Free time and retains booking UTC bounds", async () => {
+    mocks.today.mockImplementation(async ({ date, timeZone }) => ({
+      ...dailyResponse([], date, timeZone),
+      calendars: [{ id: "primary", primary: true, time_zone: "Asia/Kolkata" }],
+    }));
     mocks.availability.mockResolvedValueOnce({ ...freeResponse(), full_count: 1, windows: [
       { start_at: "2026-10-14T18:00:00Z", end_at: "2026-10-14T18:30:00Z", duration_minutes: 30 },
     ] });
     render(workspace());
+    await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: "Asia/Kolkata" })));
     fireEvent.click(control("Free time"));
     expect(await screen.findByText(/Midnight \(next day\)/)).toBeInTheDocument();
     expect(screen.queryByText(/24:00/)).toBeNull();
