@@ -372,6 +372,51 @@ class AuthorityTests(unittest.TestCase):
                 with self.assertRaisesRegex(resume.UnsafeResume, "did not complete"):
                     resume.verify_maintenance(77)
 
+    def test_event_wake_with_complete_uat_checkpoint_reaches_exact_run_proof(self) -> None:
+        maintenance = workflow_run(77)
+        maintenance.update(
+            path=resume.MAINTENANCE_WORKFLOW,
+            event="workflow_run",
+            conclusion="success",
+        )
+        selected = job("Verify due cleanup without cloud credentials", "success", [])
+        cleanup = job("UAT bounded revision cleanup", "success", [
+            ("Recheck due source under the deployment lock", "success"),
+            ("Prepare or finish eligible uat revision cleanup", "success"),
+            ("Save uat cleanup checkpoint", "success"),
+            ("Report cleanup independently of release health", "success"),
+        ])
+        complete = {
+            "schema_version": 1, "checkpoint_version": 2,
+            "environment": "uat", "project": "hushh-pda-uat",
+            "release_run_id": 23, "observed_run_id": 24,
+            "pass_status": "complete", "pending_services": [],
+        }
+        original = workflow_run()
+        with tempfile.TemporaryDirectory() as temporary:
+            event = Path(temporary) / "event.json"
+            event.write_text(json.dumps({"workflow_run": {
+                "id": 77, "path": resume.MAINTENANCE_WORKFLOW,
+                "run_attempt": 1, "head_sha": DISPATCH,
+            }}))
+            output = Path(temporary) / "github-output"
+            with patch.dict(os.environ, {
+                "GITHUB_EVENT_PATH": str(event),
+                "GITHUB_REPOSITORY": resume.REPOSITORY,
+                "GITHUB_EVENT_NAME": "workflow_run",
+            }), patch.object(resume, "api", side_effect=[maintenance, original]), patch.object(
+                resume, "jobs_for", return_value={selected["name"]: selected, cleanup["name"]: cleanup}
+            ), patch.object(resume, "read_uat_checkpoint", return_value=complete), patch.object(
+                resume, "recent_runs", return_value=[original]
+            ), patch.object(resume, "artifact", return_value={"id": 8}), patch.object(
+                resume, "verify_deferred_failure", return_value=receipt("deferred")
+            ), patch.object(resume, "no_superseding_run"), patch.object(
+                resume, "check_live_capacity"
+            ) as capacity:
+                self.assertIn("READY", resume.resume_after_maintenance(77, github_output=output))
+                self.assertEqual(capacity.call_count, 1)
+                self.assertIn(f"target_run_id={original['id']}", output.read_text())
+
     def test_token_canary_posts_only_exact_failed_wait_job(self) -> None:
         original = workflow_run()
         original["path"] = resume.CANARY_WORKFLOW
