@@ -1446,6 +1446,10 @@ test("legacy Gmail reconnect stays in place and reopens the reviewed draft", asy
 
 test("Calendar card connects in place, clears, and a forged settlement is ignored", async ({ page }) => {
   const { server, navigations } = await armChatConnect(page);
+  if (process.env.CALENDAR_CHAT_SCREENSHOT_DIR) {
+    fs.mkdirSync(process.env.CALENDAR_CHAT_SCREENSHOT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.CALENDAR_CHAT_SCREENSHOT_DIR, "synthetic-inline-calendar-permission.png"), fullPage: true });
+  }
   const popupEvent = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Allow Calendar scheduling" }).click();
   const consent = await popupEvent;
