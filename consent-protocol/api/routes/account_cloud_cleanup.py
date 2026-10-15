@@ -44,7 +44,8 @@ async def account_cloud_cleanup(owner: str, request: AccountCloudCleanupRequest)
                 raise AzureTeardownRefused("AZURE_CLEANUP_TERMS_REQUIRED")
             await store.approve(owner, request.planDigest, request.groupConfirmation)
             return {"status": "cleanup_approved", **await store.view(owner)}
-        return await azure_owner_cleanup.begin(store, owner, request.action)
+        result: dict[str, Any] = await azure_owner_cleanup.begin(store, owner, request.action)
+        return result
     except PodMigrationTransportError as exc:
         raise HTTPException(
             status_code=409,
