@@ -4162,21 +4162,32 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-Candidate `a8d323af234da7252904e7bdf9d741f74918ef41` passed the canonical
-local core bundle in 768 seconds and was pushed on the existing branch. Main's
-subsequent phone/Drive integration preserves phone Back behavior, private-placement
-checks and owner comparison context in the existing authored assessments. It does
-not reinstate heuristic name/date classifiers or rewrite successful model answers.
-The nearest owner tests retain 15 core cases for prompt binding, schema refusal,
-owner-only reads and worker recovery; removed cohorts mirrored the retired fuzzy
-name algorithm. Focused owner/intelligence tests passed 87 cases and phone tests
-passed 42; these do not establish live model accuracy.
+The existing branch integrated main through `a0d8fd0a275b0afa80134769e0b632d3ea6acefa`.
+The local core protocol and PostgreSQL stages passed 20,318 and 1,267 cases.
+The web stage found four incoming raw accent literals; the token correction
+passed design checks and the resumed web, MCP and integration stages. That
+correction's protocol tree was byte-identical. The subsequent readiness-job
+headroom integration changes no product runtime or web source: 57 deployment
+contract cases passed. Governance is rechecked on the combined candidate.
+The probe keeps one canonical helper, exact runtime identity, cleared secrets,
+provider deadlines, success receipts and cleanup. No validation gate is weakened.
 
-Both reviewers accepted a scope-free social connection. Discovery exposes the
-synthetic role as a nonwildcard leaf; no paid purchase is yet proven. Intermittent
-frontend PKM proxy failures were observed while the same authenticated backend
-read returned 200; later isolated unlock attempts also failed. These are failed
-acceptance attempts, not successful lifecycle receipts. The existing commerce
-rehearsal still targets a retired JSON grant card; current sharing renders an
-on-device semantic card. Exact visible rendering and full payload verification
-must remain distinct when correcting that helper. Shared Chrome remains untouched.
+Both reviewers accepted a scope-free social connection. Their existing encrypted
+synthetic fixtures expose independently discovered, exact nonwildcard role leaves.
+No paid purchase is yet proven. Frontend PKM proxy failures were observed alongside
+successful authenticated backend reads, followed by rate-limit responses. A later
+sequential unlock/profile read succeeded with one profile request. These outcomes
+remain distinct. Shared Chrome was untouched. The older commerce reader targets
+a retired JSON card; a separately reviewed, read-only canonical-crypto observer is
+prepared to prove full projected payload, independently of current card rendering.
+It has not yet been executed against a paid export.
+
+The approved next user story is employee User 1 sharing Gusto-required onboarding
+information with employer User 2. Gusto is the requirements checklist; no Gusto
+connector or submission is in scope. Government identifiers already have an
+encrypted PKM writer. Explicit owner approval of exact fields, purpose and model
+use must extend the existing grant; it must not be inferred from payment. Current
+sensitive-information withholding remains the default. The private-pod sharing
+continuation adapter and owner identifier-processing opt-in remain implementation
+work. Recipient use stays tied to the granted information; it does not silently
+create a permanent recipient PKM copy. Rehearsals use synthetic identifiers only.

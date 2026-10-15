@@ -24224,7 +24224,7 @@
       "limit": 80,
       "path": "scripts/ci/uat_one_chat_backend_release.py",
       "symbol": "probe_runtime",
-      "value": 102
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -24242,7 +24242,7 @@
       "limit": 500,
       "path": "scripts/ci/uat_one_chat_backend_release.py",
       "symbol": null,
-      "value": 874
+      "value": 877
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -43565,6 +43565,24 @@
     "key": "module_size|hushh-webapp/lib/agent/location-command-private.ts||module exceeds the advisory operon budget",
     "review": "Independent read-only authority review admits one fixed POD_DIRECT_NOT_READY code/message entry. Existing capability preflight refuses before hub grants or effects. No budget, authorization or error-body disclosure changed.",
     "source_sha256": "1c58a0d5d861a1f3cf5c1e8bb5ae29344ba57ff8f21d3cca99c845e7e3be5c16"
+  },
+  "scope_commerce_a0d_probe_review_20261015": {
+    "entries": [
+      {
+        "after": 105,
+        "before": 102,
+        "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|probe_runtime|function exceeds the advisory gene budget",
+        "review": "Independent ci_registry_review: exact incoming a0d8 resource-headroom delta; runtime identity, secret clearing, provider deadlines, success receipts and cleanup unchanged. Canonical extracted helper retains ownership. Only this existing observation changes; scanner and budgets unchanged.",
+        "source_sha256": "4b33018b2299d1898fea22da67d73c54a0915c7848561ee8cd25f865a360bb61"
+      },
+      {
+        "after": 877,
+        "before": 874,
+        "key": "module_size|scripts/ci/uat_one_chat_backend_release.py||module exceeds the advisory operon budget",
+        "review": "Independent ci_registry_review: exact incoming a0d8 resource-headroom delta; runtime identity, secret clearing, provider deadlines, success receipts and cleanup unchanged. Canonical extracted helper retains ownership. Only this existing observation changes; scanner and budgets unchanged.",
+        "source_sha256": "4b33018b2299d1898fea22da67d73c54a0915c7848561ee8cd25f865a360bb61"
+      }
+    ]
   },
   "scope_commerce_b302_integration_review_20261015": {
     "entries": [
