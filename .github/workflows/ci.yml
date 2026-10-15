@@ -634,13 +634,17 @@ jobs:
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
       # Retry traces and failure screenshots for a red leg. Every Playwright run
-      # clears test-results first, so this holds the last browser pack that ran.
+      # clears test-results first, so web-targeted-check.sh moves each failed
+      # pack's results to test-results-failed/<pack>; test-results holds the
+      # last pack that ran.
       - name: Upload Playwright test results
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: web-targeted-playwright-results-${{ matrix.label }}
-          path: hushh-webapp/test-results/**
+          path: |
+            hushh-webapp/test-results-failed/**
+            hushh-webapp/test-results/**
           if-no-files-found: ignore
           retention-days: 3
 

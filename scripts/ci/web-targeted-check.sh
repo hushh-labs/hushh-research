@@ -87,6 +87,14 @@ run_check() {
   if ! (cd "$WEB_DIR" && "$@"); then
     echo "!! Targeted web check failed: $name"
     failed_checks+=("$name")
+    # The next Playwright run clears test-results, so keep this pack's traces
+    # and screenshots for the failure artifact ci.yml uploads.
+    if [ -d "$WEB_DIR/test-results" ]; then
+      local kept="$WEB_DIR/test-results-failed/${name//[^[:alnum:]]/-}"
+      rm -rf "$kept"
+      mkdir -p "$WEB_DIR/test-results-failed"
+      mv "$WEB_DIR/test-results" "$kept"
+    fi
   fi
 }
 

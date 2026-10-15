@@ -269,8 +269,9 @@ for (const width of [390, 1024]) {
     // Embla steps its spring by elapsed wall time, so a loaded runner shows the
     // same flight in fewer, longer frames: at 140ms a frame, a 260ms flight is
     // seen landing after 560ms. Bound arrival in sampled frames (24 is 400ms at
-    // 60Hz) and sample at least 8 more. The drag spring still fails, on 32
-    // frames at 1024px or, when frames are slow, on its 5px overshoot.
+    // 60Hz) and sample at least 8 more. At 60Hz the drag spring still fails at
+    // 1024px, on 32 frames. On slow frames only its 5px overshoot can fail it,
+    // and that ~160ms dip is sampled 97% of the time at 150ms frames, 82% at 185.
     const arrivalFrames = 24;
     await add.evaluate((tab, minimumFrames) => {
       const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
@@ -812,7 +813,7 @@ for (const width of [320, 390, 1440]) {
     test.setTimeout(60_000);
     // Only settled layout is asserted, so reduced motion places the pager and
     // dialogs at once; under load their animation outlasted these waits. The
-    // spring test and swipe-views unit tests cover pager motion and settle.
+    // spring test covers pager motion; swipe-views.test.tsx pins the settle.
     await page.emulateMedia({ reducedMotion: "reduce" });
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
@@ -879,8 +880,8 @@ for (const width of [320, 390, 1440]) {
     await detail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(detail).toBeHidden();
     await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
-    // Terminal settle must remove fractional interpolation so the Sharing
-    // pane remains fully inside the viewport; live drag keeps its own transform.
+    // Reduced motion places the pane, so this checks the placed Sharing pane;
+    // the WebKit terminal-snap repair is pinned in swipe-views.test.tsx.
     await expect.poll(() => sharing.evaluate((el) => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);
     const recipientBounds = (await sharing.getByText("Sample recipient", { exact: true }).boundingBox())!;
     expect(recipientBounds.x).toBeGreaterThanOrEqual(0);
@@ -891,9 +892,11 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]);
   });
 
-  // Keep the confirmation flow separate from typography and geometry so each
-  // contract fits the default timeout on the shared WebKit runner.
+  // Keep the confirmation flow separate from typography and geometry. It timed
+  // out on loaded CI runners and, even with reduced motion, took 26.5s of 30s
+  // at 140ms frames, so it runs slow; each assertion keeps its own timeout.
   test(`Wallet Sharing revocation requires confirmation at ${width}px`, async ({ page }) => {
+    test.slow();
     await page.emulateMedia({ reducedMotion: "reduce" });
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
@@ -1160,6 +1163,9 @@ for (const width of [320, 820, 1440]) {
 }
 
 test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
+  // Even with reduced motion this journey took 22.6s of 30s at 140ms frames,
+  // so it runs slow; each assertion keeps its own timeout.
+  test.slow();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page, 390, "light", { cards: 3 }, { height: 844, shell: true });
   await mount(page, false);
@@ -1198,6 +1204,10 @@ test("Wallet onboarding opens stacked cards directly", async ({ page }) => {
 
 for (const width of [320, 393, 1024]) {
   test(`Visitor preview keeps photo, details and QR readable at ${width}px`, async ({ page }, testInfo) => {
+    // Two mounts and both cards' visitor and editor layers. This timed out at
+    // 30s on a loaded CI runner, and at every width with reduced motion at
+    // 140ms frames, so it runs slow; each assertion keeps its own timeout.
+    test.slow();
     await page.emulateMedia({ reducedMotion: "reduce" });
     const consoleErrors: string[] = [];
     page.on("console", message => { if (["error", "warning"].includes(message.type())) consoleErrors.push(message.text()); });
