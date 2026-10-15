@@ -2,8 +2,10 @@ import type { LivingSourceInput, LivingSourceInventory, LivingSourceRecord } fro
 
 /**
  * An in-memory, owner-only lookup over an already decrypted source inventory.
- * This is neither a source of truth nor an answer, agent-context, or sharing
- * grant. Callers must retain the existing vault and owner-session fences.
+ * It is not a source of truth, an answer or a sharing grant. The owner's own
+ * private agent receives only the bounded, allowlisted Live Mirror packet
+ * built from it on a consented, unlocked turn; nothing here is shareable.
+ * Callers must retain the existing vault and owner-session fences.
  */
 type SourceKind = LivingSourceInput["kind"];
 type FactValue = string | number | boolean;
@@ -48,6 +50,32 @@ const FIELDS = {
   payout_activity: ["kind", "mode", "occurredAt", "updatedAt", "amountCents", "coinsDelta", "status", "reversalStatus", "expectedArrivalAt", "type"],
   document_request_payment: ["counterpartRef", "mode", "status", "amountCents", "currency", "paidAt", "refundStatus", "refundAmountCents", "reconciliationRequired"],
 } as const satisfies Record<SourceKind, readonly string[]>;
+
+/** The admitted field allowlist, shared by every Live Mirror consumer. */
+export const LIVING_SOURCE_FACT_FIELDS: { readonly [K in SourceKind]: readonly string[] } = FIELDS;
+
+/** Plain owner-facing labels for the admitted fields. Display only. */
+export const LIVING_SOURCE_FIELD_LABELS = {
+  profile: { name: "Name", photo: "Photo", email: "Email" },
+  consent: {
+    scope: "Scope", status: "Status", active: "Active", counterpart: "Shared with",
+    expiresAt: "Expires", action: "Last action",
+  },
+  connection: { counterpartId: "Person", establishedAt: "Connected", connectedFromContacts: "From contacts" },
+  curated_oauth_connector: { provider: "App", status: "Status", connectedAt: "Connected", authStyle: "Sign-in type" },
+  document_earning: {
+    stripeMode: "Mode", status: "Status", grossCents: "Gross", refundCents: "Refunded",
+    netCents: "Net", createdAt: "Created", transferredAt: "Paid out", settlementMethod: "Payout method",
+  },
+  payout_activity: {
+    kind: "Activity", mode: "Mode", occurredAt: "Happened", updatedAt: "Updated", amountCents: "Amount",
+    coinsDelta: "Coins", status: "Status", reversalStatus: "Reversal", expectedArrivalAt: "Expected", type: "Type",
+  },
+  document_request_payment: {
+    counterpartRef: "Person", mode: "Mode", status: "Status", amountCents: "Amount", currency: "Currency",
+    paidAt: "Paid", refundStatus: "Refund", refundAmountCents: "Refunded", reconciliationRequired: "Needs check",
+  },
+} as const satisfies { readonly [K in SourceKind]: Readonly<Record<(typeof FIELDS)[K][number], string>> };
 
 const MAX_VERIFICATION_AGE_MS = 5 * 60_000;
 const MAX_FACT_STRING_LENGTH = 2_048;

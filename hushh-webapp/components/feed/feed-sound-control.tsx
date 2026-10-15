@@ -6,16 +6,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { isFeedIdAtOrBefore, latestFeedId } from "@/lib/feed/feed-pagination";
 import { playFeedChime, prepareFeedChime } from "@/lib/feed/feed-chime";
+import { feedSoundStorageKey as preferenceKey } from "@/lib/feed/feed-clear-watermark";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications/fcm-service";
 import { Button } from "@/lib/morphy-ux/button";
 import type { FeedItem } from "@/lib/services/feed-service";
 
 const PUSH_CONFIRM_WINDOW_MS = 15_000;
 const SOUND_BURST_WINDOW_MS = 10_000;
-
-function preferenceKey(userId: string): string {
-  return `hushh:feed-sound-enabled:${userId}`;
-}
 
 function savedPreference(userId: string): boolean {
   try {

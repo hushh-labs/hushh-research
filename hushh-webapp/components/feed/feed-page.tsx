@@ -35,7 +35,11 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
-import { feedClearedThroughStorageKey, readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
+import {
+  feedClearedThroughStorageKey,
+  feedLegacyClearedAtStorageKey,
+  readFeedClearedThroughId,
+} from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
@@ -110,7 +114,10 @@ const CONSENT_BUNDLE_EVENTS = new Set([
   "consent_requested", "consent_granted", "consent_revoked",
 ]);
 
-/** Mirror the server's presentation group while a mutation revalidates. */
+/**
+ * Mirror the server's presentation group while a mutation revalidates. Used
+ * only when the server does not return the ids it hid (an older backend).
+ */
 function belongsToDismissedRow(candidate: FeedItem, selected: FeedItem): boolean {
   if (candidate.id === selected.id) return true;
   if (!isFeedIdAtOrBefore(candidate.id, selected.id)) return false;
@@ -332,7 +339,7 @@ function FeedPageSession({
     ? feedClearedThroughStorageKey(user.uid)
     : null;
   const legacyClearedStorageKey = user?.uid
-    ? `hushh:feed-cleared-at:${user.uid}`
+    ? feedLegacyClearedAtStorageKey(user.uid)
     : null;
 
   // The legacy watermark is read before the first client paint so previously
@@ -368,6 +375,20 @@ function FeedPageSession({
     const timeout = window.setTimeout(() => setClearArmed(false), 5_000);
     return () => window.clearTimeout(timeout);
   }, [clearArmed]);
+
+  // An Undo belongs to the session that removed the row. Sign-out and account
+  // switches remount this session (it is keyed by uid), and the toast outlives
+  // it, so retire the Undo here: a late tap must not restore a row for an
+  // account that is no longer signed in on this device.
+  useEffect(() => {
+    const undoEpoch = undoEpochRef;
+    const undoToastIds = undoToastIdsRef.current;
+    return () => {
+      undoEpoch.current += 1;
+      for (const toastId of undoToastIds) toast.dismiss?.(toastId);
+      undoToastIds.clear();
+    };
+  }, []);
 
   const {
     actionables,
@@ -805,21 +826,24 @@ function FeedPageSession({
     setRemovingItemId(item.id);
     try {
       const idToken = await user.getIdToken();
-      const dismissalToken = await FeedService.dismiss({
+      const dismissal = await FeedService.dismiss({
         idToken, userId: user.uid, itemId: item.id,
       });
       if (startingUndoEpoch !== undoEpochRef.current) {
         void refresh({ force: true });
         return;
       }
-      if (!dismissalToken) {
+      if (!dismissal) {
         // A 200 response can mean the row was already gone: the backend only
         // issues a token when it actually persisted this owner's dismissal.
         await refresh({ force: true });
         toast.error("Couldn't confirm removal. Try again.");
         return;
       }
-      const groupIds = [
+      const dismissalToken = dismissal.token;
+      // Hide exactly what the server hid, including Drive rows it was folding
+      // behind this one, so nothing older surfaces before the refresh lands.
+      const groupIds = dismissal.itemIds ?? [
         ...(data?.items ?? []),
         ...pagination.additionalItems,
       ].filter((candidate) => belongsToDismissedRow(candidate, item))
@@ -878,10 +902,11 @@ function FeedPageSession({
         }
         void refresh({ force: true });
       }
-      // Revoked/expired SOS cards have nothing left to act on. Dismiss them
-      // only after the durable read mutation succeeds, so a backend failure is
-      // a true no-op instead of reporting failure after partially clearing UI.
-      if (hasClearableSmsEmergencies) clearSmsEmergencies();
+      // Revoked/expired SOS cards have nothing left to act on. Their clear is
+      // saved on the server for this account, after the history Clear, and
+      // runs even when only SOS cards are showing. If the server cannot save
+      // it, the clear is kept on this device and saved on a later visit.
+      if (hasClearableSmsEmergencies) await clearSmsEmergencies();
       toast.success("Feed cleared");
     } catch {
       toast.error("Couldn't clear your feed.");

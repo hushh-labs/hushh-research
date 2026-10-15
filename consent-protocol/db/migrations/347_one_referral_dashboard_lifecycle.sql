@@ -30,7 +30,7 @@ BEGIN
   SELECT * INTO STRICT prior FROM one_referral_policies WHERE version=2;
   IF prior.activated_at IS NULL OR prior.retired_at IS NOT NULL OR prior.required_product_event<>'completed_agent_reply'
     OR prior.minimum_meaningful_events<>1 THEN
-   RAISE EXCEPTION 'migration 346: conflicting or inactive qualification policy 2';
+   RAISE EXCEPTION 'migration 347: conflicting or inactive qualification policy 2';
   END IF;
  END IF;
 END $$;
@@ -93,7 +93,7 @@ BEGIN
     AND s.prize_catalogue=prior.prize_catalogue AND s.fulfillment_config=prior.fulfillment_config
     AND s.feature_active=prior.feature_active
     AND s.tie_break_rules=prior.tie_break_rules || '{"individual":"coins_desc_first_earned_asc_user_id_asc","circle":"qualified_referrals_desc_created_at_asc_id_asc"}'::JSONB) THEN
-   RAISE EXCEPTION 'migration 346: conflicting or inactive program settings 4';
+   RAISE EXCEPTION 'migration 347: conflicting or inactive program settings 4';
   END IF;
  END IF;
 END $$;
@@ -253,7 +253,7 @@ INSERT INTO one_referral_network_members(user_id,circle_id,parent_user_id,relati
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM one_referral_relationships r LEFT JOIN one_referral_network_members m
  ON m.user_id = r.referred_user_id WHERE m.user_id IS NULL) THEN
-  RAISE EXCEPTION 'migration 346: unresolved referral genealogy requires audited repair';
+  RAISE EXCEPTION 'migration 347: unresolved referral genealogy requires audited repair';
  END IF;
 END $$;
 

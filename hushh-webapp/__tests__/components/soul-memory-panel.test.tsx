@@ -1,11 +1,14 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(), replace: vi.fn(), peek: vi.fn(), loadContext: vi.fn(), clearContext: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() }, revision: 0,
   back: null as null | (() => boolean),
+  mirror: { status: "loading", view: null } as LiveMirrorViewState,
 }));
+vi.mock("@/lib/pkm/use-live-mirror-view", () => ({ useLiveMirrorView: () => mocks.mirror }));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: mocks.load, replaceMarkdownMemoryDocument: mocks.replace, peekMarkdownMemory: mocks.peek,
   MARKDOWN_MEMORY_DOMAIN: "one_memory", MAX_MARKDOWN_MEMORY_CHARS: 18000,
@@ -29,6 +32,7 @@ const markdown = "# Memory\n\n## Preferences\n- Concise answers.\n";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.revision = 0;
+  mocks.mirror = { status: "loading", view: null };
   mocks.load.mockResolvedValue({ markdown, persisted: true });
   mocks.replace.mockResolvedValue({ success: true, markdown: "# Updated\n" });
 });
@@ -60,6 +64,33 @@ describe("memory.md editor", () => {
     await screen.findByRole("button", { name: "Reload latest version" });
     expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
     expect(mocks.toast.success).not.toHaveBeenCalled();
+  });
+
+  it("shows the shared Live memory preview above memory.md, never while editing or before verification", async () => {
+    const at = "2026-10-15T10:00:00.000Z";
+    mocks.mirror = { status: "ready", view: {
+      schemaVersion: "live_mirror.v1", ownerId: "owner-a", vaultEpoch: 0, builtAt: at, inventoryObservedAt: at,
+      inventoryComplete: true, issues: [], nameConflict: false, sources: [], markdown: "", evaluatedAt: at,
+      overall: "current", lastVerifiedAt: at,
+      history: { entries: [], firstRetainedSequence: 1, droppedCount: 0, truncatedAt: null, coverage: "open_app_only" },
+      facts: [{ key: "name", predicate: "profile.name", kind: "profile", sourceId: "owner-a", ref: "Profile", field: "name",
+        label: "Name", value: "SYNTHETIC_OWNER", state: "verified", revision: 1, sourceUpdatedAt: at, capturedAt: at, verifiedAt: at }],
+    } };
+    const view = render(<SoulMemoryPanel {...props} />);
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
+    const preview = screen.getByRole("region", { name: "Live memory preview" });
+    const soul = screen.getByRole("region", { name: "memory.md" });
+    expect(preview.compareDocumentPosition(soul) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(preview).getByText("SYNTHETIC_OWNER")).toBeInTheDocument();
+    expect(within(preview).getByRole("link", { name: "See all" })).toHaveAttribute("href", "/one/profile/my-data");
+    expect(within(preview).queryByRole("link", { name: "Open Memory" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
+    expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
+    view.unmount();
+    // Negative control: an unverified session shows neither memory.md nor the mirror.
+    render(<SoulMemoryPanel {...props} verified={false} />);
+    expect(screen.queryByRole("region", { name: "Live memory preview" })).toBeNull();
+    expect(screen.queryByText("SYNTHETIC_OWNER")).toBeNull();
   });
 
   it("cancels editor mode through the shared Back layer before leaving Memory", async () => {
