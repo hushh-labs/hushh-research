@@ -156,7 +156,7 @@ export const CIRCLE_PROCEED_TO_SMS_CLASSNAME =
 /**
  * A member's destructive exit stays easy to tap on a phone without becoming a
  * full-width desktop banner. It uses the same 320px responsive cap as the
- * Circle handoff CTA and belongs against the trailing edge of the flow.
+ * Circle handoff CTA and is centered beneath the roster.
  */
 export const CIRCLE_LEAVE_ACTION_CLASSNAME =
   "ui-text-button-label h-11 min-h-11 w-full max-w-[320px] rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";

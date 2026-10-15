@@ -4701,7 +4701,7 @@ export function LocationImmersiveMap({
                               {person.label}
                             </span>
                             {lastSeen ? (
-                              <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              <span className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
                                 {lastSeen}
                               </span>
                             ) : null}

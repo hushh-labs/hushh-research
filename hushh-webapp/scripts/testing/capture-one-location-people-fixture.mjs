@@ -13,6 +13,7 @@ import {
   CircleSummaryGroup,
   PersonRow,
 } from "@/components/one-location/redesign/location-redesign-hub";
+import { JoinCircleFlow } from "@/components/one-location/redesign/circles/named-circle-flows";
 
 const circles = [
   { id: "a", name: "Family", memberCount: 3, role: "owner" },
@@ -38,6 +39,12 @@ it("captures production People UI for browser layout checks", () => {
     </div>,
   );
   writeFileSync(path.join(process.cwd(), "e2e/fixtures/one-location-people-rows.html"), html);
+  const joinHtml = renderToStaticMarkup(
+    <div className="mx-auto w-full max-w-[640px] px-4 py-6">
+      <JoinCircleFlow busy={false} initialCode="RF58-DG8G-W544" onResolve={async () => ({} as any)} onJoin={async () => {}} />
+    </div>,
+  );
+  writeFileSync(path.join(process.cwd(), "e2e/fixtures/circle-join-code.html"), joinHtml);
 });
 `;
 

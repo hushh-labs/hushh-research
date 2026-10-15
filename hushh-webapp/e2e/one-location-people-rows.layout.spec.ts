@@ -12,7 +12,7 @@ import {
 
 const WIDTHS = [320, 360, 390, 430, 768, 1280] as const;
 
-async function buildFixture(dark: boolean): Promise<string> {
+async function buildFixture(dark: boolean, kind: "people" | "join" = "people"): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
     path.join(root, "node_modules/tailwindcss/dist/lib.mjs")
@@ -38,7 +38,7 @@ async function buildFixture(dark: boolean): Promise<string> {
     },
   });
   const markup = fs.readFileSync(
-    path.join(root, "e2e/fixtures/one-location-people-rows.html"),
+    path.join(root, kind === "people" ? "e2e/fixtures/one-location-people-rows.html" : "e2e/fixtures/circle-join-code.html"),
     "utf8",
   );
   const used = new Set<string>();
@@ -98,6 +98,12 @@ for (const dark of [false, true]) {
               const icon = action.querySelector<SVGElement>("svg");
               const iconBox = icon?.getBoundingClientRect();
               return {
+                label: action.textContent?.trim(),
+                background: getComputedStyle(action).backgroundColor,
+                color: getComputedStyle(action).color,
+                weight: getComputedStyle(action).fontWeight,
+                shadow: getComputedStyle(action).boxShadow,
+                radius: getComputedStyle(action).borderRadius,
                 left: box.left,
                 right: box.right,
                 top: box.top,
@@ -153,8 +159,23 @@ for (const dark of [false, true]) {
       expect(measurements.counterGap).toBeGreaterThanOrEqual(7);
       for (const row of measurements.rows) {
         expect(row.actions).toHaveLength(2);
+        expect(row.actions.map((action) => action.label)).toEqual(["Share", "Ask"]);
+        expect(row.actions[0].background).toBe("rgb(0, 113, 227)");
+        expect(row.actions[0].color).toBe("rgb(255, 255, 255)");
+        expect(row.actions[1].background).toBe("rgb(242, 242, 247)");
+        expect(row.actions[1].color).toBe("rgb(28, 28, 30)");
+        expect(row.actions[1].left - row.actions[0].right).toBe(8);
+        expect(row.actions[0].height).toBe(row.actions[1].height);
         expect(row.height).toBeLessThanOrEqual(width < 400 ? 140 : 90);
         for (const action of row.actions) {
+          expect(action.weight).toBe("500");
+          expect(action.radius).toBe("16px");
+          // Tailwind's empty focus-ring layers serialize as transparent
+          // shadows even when the control has no visible shadow.
+          const shadowColors = action.shadow.match(/rgba?\([^)]+\)/g) ?? [];
+          expect(action.shadow === "none" || shadowColors.every(
+            (color) => color === "rgba(0, 0, 0, 0)",
+          )).toBe(true);
           expect(action.height).toBeGreaterThanOrEqual(44);
           expect(action.inside).toBe(true);
           expect(action.iconVisible).toBe(true);
@@ -179,4 +200,44 @@ for (const dark of [false, true]) {
       }
     });
   }
+}
+
+for (const width of [320, 390, 768, 1280]) {
+  test(`Join Circle groups and matching actions fit at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(await buildFixture(false, "join"));
+    await awaitProductFont(page);
+    const fields = page.getByRole("textbox");
+    await expect(fields).toHaveCount(3);
+    for (const [index, value] of ["RF58", "DG8G", "W544"].entries()) {
+      await expect(fields.nth(index)).toHaveValue(value);
+      await expect(fields.nth(index)).toHaveCSS("height", "56px");
+      await expect(fields.nth(index)).toHaveCSS("border-radius", "12px");
+    }
+    const review = page.getByRole("button", { name: "Review Circle" });
+    const paste = page.getByRole("button", { name: "Paste from clipboard" });
+    await expect(review).toHaveCSS("background-color", "rgb(0, 136, 255)");
+    await expect(review).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(paste).toHaveCSS("background-color", "rgb(240, 240, 240)");
+    await expect(paste).toHaveCSS("color", "rgb(0, 136, 255)");
+    for (const button of [review, paste]) {
+      await expect(button).toHaveCSS("height", "52px");
+      await expect(button).toHaveCSS("border-radius", "20px");
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    const boxes = await fields.evaluateAll((inputs) => inputs.map((input) => {
+      const box = input.getBoundingClientRect();
+      return { width: box.width, top: box.top, scroll: input.scrollWidth, client: input.clientWidth };
+    }));
+    expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
+    for (const box of boxes) {
+      expect(box.width).toBeGreaterThanOrEqual(64);
+      expect(box.scroll).toBeLessThanOrEqual(box.client + 1);
+    }
+    const evidence = process.env.CIRCLE_JOIN_EVIDENCE_DIR;
+    if (evidence && (width === 390 || width === 1280)) {
+      fs.mkdirSync(evidence, { recursive: true });
+      await page.screenshot({ path: path.join(evidence, `join-circle-${width}-${testInfo.project.name}.png`), fullPage: true });
+    }
+  });
 }

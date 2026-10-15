@@ -96,6 +96,7 @@ import {
   CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { cn } from "@/lib/utils";
+import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
 
 /* ------------------------------------------------------------------ */
 /* Presentation boundary                                              */
@@ -137,7 +138,7 @@ export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
 /** One row of the bottom sheet's action list. 56px, full bleed, so the whole
  *  width of the row is the target rather than the label alone. */
 export const MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME =
-  "flex min-h-14 w-full items-center gap-3 px-4 text-left text-[17px] font-normal leading-[22px] transition-colors active:bg-[color:var(--app-neutral-fill)] disabled:opacity-60";
+  "flex min-h-14 w-full items-center gap-3 px-4 text-left text-[17px] font-normal leading-[22px] transition-colors active:bg-[#F2F2F7] disabled:opacity-60";
 
 /* ------------------------------------------------------------------ */
 /* Confirmation copy                                                  */
@@ -298,7 +299,11 @@ export function CircleMemberActionsMenu({
         >
           <DrawerContent
             data-testid={MEMBER_ACTIONS_SHEET_TESTID}
-            className="rounded-t-[20px] pb-[max(12px,env(safe-area-inset-bottom))]"
+            className={
+              sheetConfirmingRemove
+                ? "rounded-t-[20px] pb-[max(12px,env(safe-area-inset-bottom))]"
+                : "overflow-y-auto overscroll-contain bg-white px-6 pb-[calc(24px+env(safe-area-inset-bottom,0px))] font-sans text-[#1C1C1E] data-[vaul-drawer-direction=bottom]:rounded-t-[28px] [&>div:first-child]:mt-3 [&>div:first-child]:h-1.5 [&>div:first-child]:w-12 [&>div:first-child]:bg-[#D1D1D6]"
+            }
           >
             {sheetConfirmingRemove ? (
               <div className="px-4 pt-2">
@@ -331,22 +336,22 @@ export function CircleMemberActionsMenu({
                 </div>
               </div>
             ) : (
-              <div className="px-4 pt-1">
+              <div className="pt-6">
                 {/* Whose actions these are, said outright. The anchored menu
                     left this to proximity, and proximity is the one thing a
                     roster of near-identical rows cannot carry. */}
-                <div className="flex items-center gap-3 pb-3">
+                <div className="flex items-center gap-4 pb-6">
                   <ConnectionPersonAvatar
                     label={displayName}
                     photoUrl={photoUrl}
                     verified={verified}
-                    className="h-11 w-11"
+                    className="h-12 w-12"
                   />
                   <div className="min-w-0 flex-1 text-left">
-                    <DrawerTitle className="whitespace-normal text-[17px] leading-[22px] [overflow-wrap:anywhere]">
+                    <DrawerTitle className="whitespace-normal text-[20px] font-bold leading-6 text-[#1C1C1E] [--foundation-title3-size:20px] [--foundation-title3-line:24px] [--foundation-title3-weight:700] [overflow-wrap:anywhere]">
                       {displayName}
                     </DrawerTitle>
-                    <DrawerDescription className="whitespace-normal text-[13px] leading-4 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
+                    <DrawerDescription className="mt-1 whitespace-normal text-[15px] leading-5 text-[#6E6E73] [overflow-wrap:anywhere]">
                       {secondaryLine ?? "Circle member"}
                     </DrawerDescription>
                   </div>
@@ -355,7 +360,7 @@ export function CircleMemberActionsMenu({
                 <div
                   role="menu"
                   aria-label={menuLabel}
-                  className="overflow-hidden rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]"
+                  className={cn("w-full overflow-hidden border border-[#E5E5EA] bg-white", LOCATION_ACTION_SHAPE)}
                 >
                   {profileHref ? (
                     <Link
@@ -366,14 +371,14 @@ export function CircleMemberActionsMenu({
                       data-testid="circle-member-view-profile"
                     >
                       <UserRound
-                        className="h-5 w-5 shrink-0 text-[color:var(--app-secondary-label)]"
+                        className="h-5 w-5 shrink-0 text-[#6E6E73]"
                         aria-hidden="true"
                       />
                       View profile
                     </Link>
                   ) : null}
                   {profileHref && (canShare || canRemove) ? (
-                    <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
+                    <div aria-hidden="true" className="ml-[52px] h-px bg-[#E5E5EA]" />
                   ) : null}
                   {canShare ? (
                     <button
@@ -387,7 +392,7 @@ export function CircleMemberActionsMenu({
                       }}
                     >
                       <Share2
-                        className="h-5 w-5 shrink-0 text-[color:var(--app-secondary-label)]"
+                        className="h-5 w-5 shrink-0 text-[#0071E3]"
                         aria-hidden="true"
                       />
                       Share location
@@ -399,7 +404,7 @@ export function CircleMemberActionsMenu({
                     // the group rather than a divider inside it.
                     <div
                       aria-hidden="true"
-                      className="ml-[52px] h-px bg-[color:var(--app-separator)]"
+                      className="ml-[52px] h-px bg-[#E5E5EA]"
                     />
                   ) : null}
                   {canRemove ? (
@@ -409,7 +414,7 @@ export function CircleMemberActionsMenu({
                       disabled={busy}
                       className={cn(
                         MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
-                        "text-destructive",
+                        "justify-center text-center text-[#FF3B30]",
                       )}
                       onClick={() => setSheetConfirmingRemove(true)}
                     >
@@ -421,8 +426,8 @@ export function CircleMemberActionsMenu({
 
                 <Button
                   type="button"
-                  variant="ghost"
-                  className="mt-2 h-12 w-full rounded-[14px] text-[17px] font-semibold"
+                  variant="secondary"
+                  className={cn("mt-4 h-[52px] min-h-[52px] w-full bg-[#F2F2F7] text-[17px] font-medium text-[#0071E3] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]", LOCATION_ACTION_SHAPE)}
                   onClick={closeSheet}
                 >
                   Cancel
