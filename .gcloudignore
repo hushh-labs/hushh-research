@@ -82,6 +82,9 @@ capacitor.config.ts
 
 # Large Assets/Misc
 assets/
+# Approved Wallet artwork is runtime content, including its nested asset folder.
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/
+!consent-protocol/hushh_mcp/resources/wallet-artwork/assets/**
 # deploy/
 *.sh
 *.ps1
