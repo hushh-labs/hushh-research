@@ -21,6 +21,14 @@
     "hushh_mcp/services/gmail_live_receipts_service.py": {
       "connections": 2,
       "why": "Owner receipt-scan advisory locks. The per-worker _scan_connections semaphore bounds dedicated connections to two; scans release their connection on every terminal path."
+    },
+    "hushh_mcp/services/azure_setup_authority.py": {
+      "connections": 3,
+      "why": "Azure setup/rebuild/upgrade holds one dedicated session per admitted operation through actual worker join and exit receipt. All dedicated callers share db.connection\u2019s process-wide ceiling of three, reserved before network access; this is not three additional sessions per caller."
+    },
+    "hushh_mcp/services/azure_teardown_authority.py": {
+      "connections": 3,
+      "why": "Azure cleanup holds one dedicated session per admitted operation through joined worker settlement and context close. All dedicated callers share db.connection\u2019s process-wide ceiling of three, reserved before network access; this is not three additional sessions per caller."
     }
   },
   "listener_modules": {
