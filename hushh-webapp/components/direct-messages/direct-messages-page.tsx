@@ -2057,8 +2057,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           initialCircleId={restoredSelection?.lane === "circles" ? restoredSelection.circleId : null}
           laneSwitcher={laneSwitcher} headerActions={themeToggle} />
       </section>
-      <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
-        <DialogContent className={styles.newChatDialog} srDescription="Choose a connection to message.">
+      <Dialog modal open={newChatOpen} onOpenChange={setNewChatOpen}>
+        <DialogContent aria-modal="true" className={styles.newChatDialog} srDescription="Choose a connection to message.">
           <DialogHeader><DialogTitle>New chat</DialogTitle></DialogHeader>
           <input type="search" aria-label="Search connections" placeholder="Search connections"
             className={styles.newChatSearch} value={newChatQuery} onChange={(event) => {

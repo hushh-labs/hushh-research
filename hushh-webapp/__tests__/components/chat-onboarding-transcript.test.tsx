@@ -274,6 +274,7 @@ describe("onboarding conversation", () => {
     await waitFor(() =>
       expect(screen.getByTestId("capture").textContent).toBe("null"),
     );
+    expect(await screen.findByText("Okay. What would you like help with?")).toBeInTheDocument();
     // A question goes to One without repeating name or focus recommendations.
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
     await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));

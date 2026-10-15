@@ -20,7 +20,7 @@ for (const conversationId of ["maya", "arjun"]) rows.set(conversationId, Array.f
   createdAt: new Date(Date.UTC(2026, 9, 9, 9, index)).toISOString(), readAt: index % 3 === 1 ? "2026-10-09T12:00:00Z" : null,
 })));
 function conversation(id: string): DirectMessageConversation {
-  return { id, peerPersonRef: id, peerDisplayName: id === "maya" ? "Maya Rao" : "Arjun Mehta with a very long display name",
+  return { id, peerPersonRef: id, peerDisplayName: id === "maya" ? "Maya Rao" : id === "leah" ? "Leah Roy" : "Arjun Mehta with a very long display name",
     peerPhotoUrl: id === "maya" ? "/fixture-person-0.webp" : "/fixture-person-1.webp", createdAt: rows.get(id)![0]!.createdAt,
     lastMessageAt: rows.get(id)!.at(-1)!.createdAt, latestMessage: rows.get(id)!.at(-1)!, unreadCount: rows.get(id)!.filter((item) => !item.senderIsViewer && !item.readAt).length };
 }
@@ -98,18 +98,18 @@ const fixture = {
   incoming: (id = "maya") => {
     const items = rows.get(id)!;
     const message = { id: `${id}-incoming-${items.length}`, conversationId: id, senderIsViewer: false, content: `New message ${items.length + 1}`,
-      createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60_000).toISOString(), readAt: null };
+      createdAt: new Date(Date.parse(items.at(-1)?.createdAt ?? "2026-10-09T12:00:00Z") + 60_000).toISOString(), readAt: null };
     items.push(message); dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: id, messageId: message.id, source: "sse" }); return message.id;
   },
 };
 (window as unknown as { directChatFixture: typeof fixture }).directChatFixture = fixture;
 export class DirectMessagesService {
   static async routeSelection(input: { token?: string; conversationId?: string; personRef?: string }) {
-    const kind = input.personRef ? "person" : "conversation";
-    const ref = input.token?.replace(/^dm1\./, "") ?? input.conversationId ?? input.personRef ?? "maya";
-    return { token: `dm1.${ref}`, kind, ref };
+    const kind = input.personRef || input.token?.startsWith("dm1.person.") ? "person" : "conversation";
+    const ref = input.token?.replace(/^dm1\.(?:person\.)?/, "") ?? input.conversationId ?? input.personRef ?? "maya";
+    return { token: `dm1.${kind === "person" ? "person." : ""}${ref}`, kind, ref };
   }
-  static async routeHref(input: { conversationId?: string; personRef?: string }) { return `/one/messages?token=dm1.${input.conversationId ?? input.personRef}`; }
+  static async routeHref(input: { conversationId?: string; personRef?: string }) { return `/one/messages?token=dm1.${input.conversationId ?? `person.${input.personRef}`}`; }
 
   static async listConversations() {
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });
@@ -135,14 +135,15 @@ export class DirectMessagesService {
     if (photo) { photo.started = true; await photo.wait; }
     return attachments.get(input.messageId)!;
   }
-  static async getConversationWithPerson(input: { personRef: string }) { return { conversation: conversation(input.personRef), canSend: true }; }
+  static async getConversationWithPerson(input: { personRef: string }) { return { conversation: rows.has(input.personRef) ? conversation(input.personRef) : null, peerPersonRef: input.personRef, peerDisplayName: input.personRef === "leah" ? "Leah Roy" : conversation(input.personRef).peerDisplayName, canSend: true }; }
   static async sendMessage(input: typeof sends[number]) {
     sends.push({ ...input });
     if (delaySend) await new Promise<void>((resolve) => { settleSend = resolve; });
-    const items = rows.get(input.recipientPersonRef)!;
+    const items = rows.get(input.recipientPersonRef) ?? [];
+    rows.set(input.recipientPersonRef, items);
     let message = items.find((item) => item.id === input.clientMessageId);
     if (!message) { message = { id: input.clientMessageId, conversationId: input.recipientPersonRef, senderIsViewer: true, content: input.content,
-      createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60_000).toISOString(), readAt: null }; items.push(message); }
+      createdAt: new Date(Date.parse(items.at(-1)?.createdAt ?? "2026-10-09T12:00:00Z") + 60_000).toISOString(), readAt: null }; items.push(message); }
     if (input.replyToMessageId) {
       const reply = items.find((item) => item.id === input.replyToMessageId)!;
       message.replyTo = { id: reply.id, content: reply.content, senderIsViewer: reply.senderIsViewer, deletedForEveryoneAt: reply.deletedForEveryoneAt ?? null };
