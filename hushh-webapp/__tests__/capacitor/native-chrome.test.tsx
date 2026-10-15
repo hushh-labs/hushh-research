@@ -25,7 +25,7 @@ import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-d
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
-import { projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
+import { NativeProfilePresentation, projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
@@ -2994,6 +2994,47 @@ describe("native chrome presentation lease", () => {
     expect(close).toHaveBeenCalledTimes(2);
     view.unmount();
     await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalled());
+  });
+  it("keeps the outgoing Profile detail painted until the returning native menu is acknowledged", async () => {
+    measureSlot();
+    vi.stubGlobal("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { contractVersion: 1, enabled: true, coherentShell: true });
+    publishValidatedAuthSessionOwner("owner-a");
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
+      profileMenuRows: true, profileContentHandoff: true, generation: 0, isolated: false });
+    const rootAdmission = deferred<unknown>();
+    let holdReturn = false;
+    let returning: NativeDrawerProjection | undefined;
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && holdReturn) { returning = state; return rootAdmission.promise; }
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retire.mockResolvedValue({ phase: "retired" });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
+      coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
+    const groups = profileMenuGroups(false);
+    const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    const scene = (detail: boolean) => <NativeProfilePresentation lifetime="owner-a:vault-a" detail={detail}
+      menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
+      page={{ pane: true, title: "Preferences", owner: "owner-a", context: detail ? "preferences" : "root", onBack: vi.fn(), onClose: vi.fn() }}>
+      <p>{detail ? "Public preference controls" : "Menu destination"}</p>
+    </NativeProfilePresentation>;
+    const view = render(scene(true));
+    await waitFor(() => expect(view.getByRole("dialog", { name: "Preferences" })).toBeVisible());
+    await waitFor(() => expect(drawerBridge.apply.mock.calls.some(([state]) => !state.open)).toBe(true));
+    const pane = view.getByRole("dialog", { name: "Preferences" });
+    holdReturn = true;
+    view.rerender(scene(false));
+    await waitFor(() => expect(returning).toBeDefined());
+    expect(pane).toBeVisible();
+    expect(view.getByText("Menu destination").closest("[inert]")).not.toBeNull();
+    expect(view.queryByText("Public preference controls")).toBeNull();
+    expect(bridge.releaseContentPane).not.toHaveBeenCalled();
+    await act(async () => { rootAdmission.resolve({ ...returning!, phase: "active" }); });
+    await waitFor(() => expect(view.queryByRole("dialog", { name: "Preferences" })).toBeNull());
+    await waitFor(() => expect(bridge.releaseContentPane).toHaveBeenCalledOnce());
   });
   it.each(["current", "owner", "closed"] as const)("settles Profile readiness after an appearance change during activation only for the %s pane", async outcome => {
     measureSlot();

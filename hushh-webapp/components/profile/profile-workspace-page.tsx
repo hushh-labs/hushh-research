@@ -42,9 +42,8 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
-import { NativeProfileMenu } from "./native-profile-menu";
+import { NativeProfilePresentation } from "./native-profile-menu";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
-import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 
@@ -747,16 +746,12 @@ function ProfilePageContent({
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
   const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
-  const [nativeDetailReady, setNativeDetailReady] = useState<string | null>(null);
   const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
   const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
     const title = typeof entry?.title === "string" ? entry.title : "Profile";
     setNativeActiveHeading(previous => previous?.owner === nativeDetailOwner && previous.title === title
       ? previous : { owner: nativeDetailOwner, title });
   }, [nativeDetailOwner]);
-  useLayoutEffect(() => {
-    if (!nativeMenuOpen || !activePanel) setNativeDetailReady(null);
-  }, [nativeMenuOpen, activePanel, user?.uid]);
   const preferenceChrome = {
     owner: user?.uid ?? null,
     context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
@@ -4795,17 +4790,16 @@ function ProfilePageContent({
     </AppPageShell>
   );
   if (presentation !== "native-page") return page;
-  return <>
-    <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
-      surfaceOpen={nativeMenuOpen}
-      name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
-      groups={menuGroups} actions={menuActions} />
-    <NativeFeaturePage pane contentInset="profile" bodyClassName="profile-pane-scroll-root" open={nativeMenuOpen && !!activePanel} title={nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
-      owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
-      onReady={() => setNativeDetailReady(nativeDetailOwner)}
-      onClose={() => onNativeMenuClose?.()}
-      onBack={() => popProfilePaneLocation(pathname, searchParams)}>{page}</NativeFeaturePage>
-  </>;
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel}
+    menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+      name: user.displayName || "Your account", email: user.email, onClose: () => onNativeMenuClose?.(),
+      groups: menuGroups, actions: menuActions }}
+    page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
+      title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
+      owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
+      onClose: () => onNativeMenuClose?.(), onBack: () => popProfilePaneLocation(pathname, searchParams) }}>
+    {page}
+  </NativeProfilePresentation>;
 }
 
 export function ProfilePage({
