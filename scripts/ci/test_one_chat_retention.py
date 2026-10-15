@@ -103,6 +103,7 @@ class OneChatRetentionTest(unittest.TestCase):
             ("final_traffic", {self.old_backend: 100}),
             ("temporary_probe_job_deleted", False),
             ("probe", {"one_chat_probe_ok": False}),
+            ("probe", {"one_chat_probe_ok": True, "one_chat_project": "unrelated-project"}),
         )
         for field, value in changes:
             with self.subTest(field=field):
@@ -110,6 +111,36 @@ class OneChatRetentionTest(unittest.TestCase):
                 report[field] = value
                 with self.assertRaises(maintenance.retention.UnsafeState):
                     self.load(report)
+
+    def test_receipts_may_name_the_uat_profile_project_or_a_retired_one(self):
+        profile = json.loads(maintenance.MANAGED_AI_PROFILE.read_text())
+        for project in (profile["environments"]["uat"]["project"], "hussh-511311"):
+            with self.subTest(project=project):
+                report = copy.deepcopy(self.report)
+                report["probe"]["one_chat_project"] = project
+                self.assertEqual(self.load(report)["final"]["backend_revision"], self.backend)
+
+    def test_receipt_project_follows_the_profile_when_it_moves(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            profile = pathlib.Path(temporary) / "managed-ai-runtime.json"
+            profile.write_text(
+                json.dumps({"environments": {"uat": {"project": "next-uat-project"}}})
+            )
+            with mock.patch.object(maintenance, "MANAGED_AI_PROFILE", profile):
+                for project, trusted in (
+                    ("next-uat-project", True),
+                    ("hussh-511311", True),  # retired, still named by older receipts
+                    ("unrelated-project", False),
+                ):
+                    with self.subTest(project=project):
+                        report = copy.deepcopy(self.report)
+                        report["probe"]["one_chat_project"] = project
+                        if trusted:
+                            release = self.load(report)
+                            self.assertEqual(release["final"]["backend_revision"], self.backend)
+                        else:
+                            with self.assertRaises(maintenance.retention.UnsafeState):
+                                self.load(report)
 
     def test_latest_one_chat_source_wins_over_older_standard_release(self):
         standard = {

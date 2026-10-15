@@ -30,6 +30,7 @@ from hushh_eval.drive_packets.contracts import (
     replace_rows,
 )
 from hushh_eval.drive_packets.privacy import PrivacyError, PrivateWorkdir, keyed
+from hushh_mcp.managed_ai_config import load_profile
 
 COMMANDS = ("plan-batch", "run-batch", "judge", "label", "score", "report", "gate")
 VERDICT_ERRORS = {
@@ -44,7 +45,7 @@ DEFAULT_MANIFEST = ROOT / "tests/fixtures/drive_pipeline_eval/manifest-v2.json"
 RUNTIME_MODEL = "gemini-3.6-flash"
 J1_MODEL = "gemini-3.1-pro-preview"
 J2_MODEL = "gemini-3.8-flash"
-VERTEX_PROJECT = "hussh-511311"
+VERTEX_PROJECT = load_profile("uat")["project"]
 
 
 class UsageError(Exception):

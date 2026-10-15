@@ -92,8 +92,9 @@ and `obs_one_voice_client_perf_ms` for content-free client samples relayed by th
 backend. Their metric labels are limited to phase or client metric, resolved
 Vertex project, Live model, and Live region. Cloud Run's resource identifies the
 serving revision. Session IDs, turn IDs, prompts, user data, and tool names are
-not metric labels. `vertex_project=hussh-511311` means inference is routed to
-Parth's project; it does **not** mean the logs or dashboard live there.
+not metric labels. `vertex_project=hushh-vertex-personal54` means inference is
+routed to that Vertex project; it does **not** mean the logs or dashboard live
+there. UAT routed to `hussh-511311` before 2026-10-15.
 
 The managed dashboard plots five-minute, per-revision percentiles for server
 `first_audio` p50/p95 and `tool` p95, plus client `endpointing_client` p95 and
@@ -116,7 +117,7 @@ verify the serving binding and inspect timing rows. Add a
 resource.type="cloud_run_revision"
 resource.labels.service_name="consent-protocol"
 textPayload=~"one_voice[.](provider_binding|latency|client_perf)"
-textPayload=~"provider=vertex_ai vertex_project=hussh-511311 "
+textPayload=~"provider=vertex_ai vertex_project=hushh-vertex-personal54 "
 ```
 
 For a voice-only rollout, add `--voice-only` to the `reconcile_capacity.py`

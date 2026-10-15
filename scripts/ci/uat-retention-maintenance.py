@@ -49,6 +49,11 @@ LANES = {
 STATE_ARTIFACT = LANES["uat"]["state_artifact"]
 ONE_CHAT_WORKFLOW = "deploy-uat-one-chat.yml"
 ONE_CHAT_ARTIFACT = "uat-one-chat-backend-release"
+MANAGED_AI_PROFILE = (
+    Path(__file__).resolve().parents[2] / "consent-protocol/config/managed-ai-runtime.json"
+)
+# UAT probed this Vertex project until 2026-10-15; receipts minted then still name it.
+RETIRED_UAT_VERTEX_PROJECTS = frozenset({"hussh-511311"})
 POST_RELEASE_CLEANUP_STEP = "Retire unused production tags after a healthy release"
 UAT_POST_RELEASE_CLEANUP_STEP = "Retire old UAT revision tags after a healthy release"
 REQUIRED_UAT_HYGIENE_STEPS = (
@@ -560,6 +565,12 @@ def prior_healthy_uat_backend_release(
     raise retention.UnsafeState("no prior healthy UAT backend release artifact")
 
 
+def one_chat_vertex_projects() -> frozenset[str]:
+    """Vertex projects a One chat receipt may name: the UAT profile's and retired ones."""
+    profile = json.loads(MANAGED_AI_PROFILE.read_text())
+    return RETIRED_UAT_VERTEX_PROJECTS | {profile["environments"]["uat"]["project"]}
+
+
 def load_one_chat_release(
     repository: str, run: dict, directory: Path
 ) -> dict | None:
@@ -595,7 +606,7 @@ def load_one_chat_release(
         or report.get("temporary_probe_job_deleted") is not True
         or not isinstance(probe, dict)
         or probe.get("one_chat_probe_ok") is not True
-        or probe.get("one_chat_project") != "hussh-511311"
+        or probe.get("one_chat_project") not in one_chat_vertex_projects()
     ):
         raise retention.UnsafeState("One chat receipt does not prove a healthy backend promotion")
     owner_run_id, owner = prior_healthy_uat_release(
