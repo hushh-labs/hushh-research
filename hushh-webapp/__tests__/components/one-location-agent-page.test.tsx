@@ -3605,6 +3605,8 @@ describe("OneLocationAgentPage", () => {
     );
 
     const { rerender } = render(<OneLocationAgentPage />);
+    const ownedCircles = () =>
+      within(screen.getByTestId("one-location-share-circles-owned"));
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
@@ -3614,7 +3616,7 @@ describe("OneLocationAgentPage", () => {
     if (!shareHeader) throw new Error("Share flow header was not rendered.");
 
     fireEvent.click(
-      screen.getByRole("button", {
+      ownedCircles().getByRole("button", {
         name: "Select the Family Circle, 3 members",
       }),
     );
@@ -3633,7 +3635,7 @@ describe("OneLocationAgentPage", () => {
     expect(within(selectedFamilyRow).getByText("3 members")).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", {
+      ownedCircles().getByRole("button", {
         name: "Select the Friends Circle, 3 members",
       }),
     );
@@ -3673,22 +3675,22 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
     fireEvent.click(
-      screen.getByRole("button", {
+      ownedCircles().getByRole("button", {
         name: "Select the Family Circle, 3 members",
       }),
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", {
+        ownedCircles().getByRole("button", {
           name: "Deselect the Family Circle, 3 members",
         }),
       ).toHaveAttribute("aria-pressed", "true"),
     );
-    const reopenedFamilyRow = screen.getByRole("button", {
+    const reopenedFamilyRow = ownedCircles().getByRole("button", {
       name: "Deselect the Family Circle, 3 members",
     });
     fireEvent.click(
-      screen.getByRole("button", {
+      ownedCircles().getByRole("button", {
         name: "Select the Friends Circle, 3 members",
       }),
     );
