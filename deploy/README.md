@@ -76,7 +76,7 @@ production.
 
 UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-scheduled hourly at minute 17 UTC, independently of deployment events. Maintenance
+hourly and independently of deployment events. Maintenance
 uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
@@ -89,9 +89,16 @@ healthy UAT release's frontend after verifying both against live revision
 provenance. A UAT run that passed every release gate and failed solely while
 retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
-Maintenance runs hourly at minute 17 UTC or by explicit governed manual request;
-no deployment event starts it. Scheduled requests coalesce without cancelling active
-work, and manual requests keep independent identities. Each mutation pass verifies
+Maintenance runs hourly or by explicit governed manual request; no deployment
+event starts it. GitHub delivered only 3-6 of the 24 daily runs of the minute-17
+cron on 2026-10-12..14, so the cron only starts an hourly clock: each scheduled
+or clock pass ends in `next-pass`, which waits 60 minutes in the
+`capacity-maintenance-clock` environment (a wait timer, so no runner is held) and
+then sends one `capacity-maintenance-tick` repository dispatch. A tick has exactly
+the scheduled pass's authority. Scheduled requests and ticks coalesce without
+cancelling active work, so a second chain collapses into the first, and manual
+requests keep independent identities. Cancelling the waiting run stops the clock
+until the next delivered cron. Each mutation pass verifies
 its source against live traffic, removes unused tags, and saves drain evidence in
 `uat-retention-state` or `production-retention-state`. A later hourly pass deletes
 only eligible revisions after the maximum request timeout plus 60 seconds. A backend
