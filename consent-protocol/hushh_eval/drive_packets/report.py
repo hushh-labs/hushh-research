@@ -62,7 +62,13 @@ def founder_report(scorecard: dict, gate: dict) -> str:
         "the rest by two AI judges and fixed rules.",
         f"Not decided yet: {unknown:,} Ready packets (counted as not passed).",
         f"Files read with the right page count: {_xn(_metric(scorecard, 'extraction_accuracy'))}; "
-        f"with unreadable pages: {_xn(_metric(scorecard, 'extraction_with_gaps'))}.",
+        f"with unreadable pages: {_xn(_metric(scorecard, 'extraction_with_gaps'))}"
+        + (
+            f"; {_metric(scorecard, 'extraction_env_limited')['successes']:,} more need OCR "
+            "this check could not run."
+            if _metric(scorecard, "extraction_env_limited").get("successes")
+            else "."
+        ),
         f"Facts that match the labels: {_xn(facts)}; facts that contradict them: "
         + (
             f"{wrong_claims['successes']:,} of {wrong_claims['trials']:,}."

@@ -387,15 +387,20 @@ def scorecard(batch: Batch) -> dict:
         return None if row is None or row.value in ("unknown", "") else row.value
 
     extraction_rows, fact_rows, period_rows = [], [], []
+    env_limited = 0
     for case in sampled:
         extraction = by_stage["extraction"].get(case.case_id)
         facts_row = by_stage["facts"].get(case.case_id)
         detail = details.get(case.case_id, {})
         extracted = (extraction.output if extraction else {}) or {}
+        # Local extraction has no OCR engine: its gaps describe the eval
+        # machine, not the product, so those files are not scored here.
+        limited = extracted.get("source") == "local" and bool(extracted.get("has_gaps"))
+        env_limited += limited
         extraction_rows.append(
             {
                 "status": extraction.status if extraction else "missing",
-                "true_pages": label(case.case_id, "page_count"),
+                "true_pages": None if limited else label(case.case_id, "page_count"),
                 "extracted_pages": extracted.get("total_pages"),
                 "claimed_complete": bool(extracted.get("complete"))
                 and not extracted.get("has_gaps"),
@@ -482,6 +487,15 @@ def scorecard(batch: Batch) -> dict:
             for name, item in frame_summary.items()
         )
     scores += metrics.extraction(extraction_rows)
+    scores.append(
+        metrics.score(
+            "extraction_env_limited",
+            env_limited,
+            len(sampled),
+            unit="file_needing_ocr_absent_on_eval_machine",
+            independence="file",
+        )
+    )
     scores += metrics.facts(fact_rows)
     scores += metrics.periods(period_rows)
     scores += metrics.packet_quality(packet_rows, groups)
