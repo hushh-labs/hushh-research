@@ -53,6 +53,9 @@ START = "<!-- live-memory-source-contract:v1 -->"
 END = "<!-- /live-memory-source-contract:v1 -->"
 PR_TEMPLATE = Path(".github/pull_request_template.md")
 PR_IMPACT_START = "- Live Memory source impact (every feature):"
+# Only a line that starts with the header opens the section, so a body that
+# quotes the header inline is still read from its own block.
+PR_IMPACT_HEADER = re.compile(rf"^[ \t]*{re.escape(PR_IMPACT_START)}", re.MULTILINE)
 # The section ends at the next column-0 field or heading, whatever its name, or
 # at the template's next field wherever it sits. A choice or evidence line
 # written at column 0 still belongs to the section.
@@ -134,9 +137,10 @@ def parse_contract(markdown: str) -> list[dict]:
 
 
 def pr_impact_section(text: str) -> str | None:
-    if PR_IMPACT_START not in text:
+    header = PR_IMPACT_HEADER.search(text)
+    if not header:
         return None
-    first, *rest = (line.rstrip("\r") for line in text.split(PR_IMPACT_START, 1)[1].split("\n"))
+    first, *rest = (line.rstrip("\r") for line in text[header.end():].split("\n"))
     section = [first]
     for line in rest:
         if PR_IMPACT_END in line or (line.startswith(("- ", "#")) and not PR_IMPACT_ITEM.match(line)):
@@ -156,10 +160,11 @@ def validate_pr_impact(body: str, admitted_kinds: set[str] | None = None) -> Non
             "PR body must check exactly one Live Memory impact choice with [x]; "
             f"found {len(checked)} checked, {len(choices)} of them template choices"
         )
-    evidence = re.search(PR_EVIDENCE + r"\s*(\S.*)$", section, re.MULTILINE)
+    # The evidence shares its label's line; the next paragraph or bullet is not evidence.
+    evidence = re.search(PR_EVIDENCE + r"[^\S\n]*(\S.*)$", section, re.MULTILINE)
     if not evidence:
         if re.search(PR_EVIDENCE, section, re.MULTILINE):
-            raise ValueError("PR body has an empty Live Memory evidence line; write the evidence after its label")
+            raise ValueError("PR body has an empty Live Memory evidence line; write the evidence after its label, on the same line")
         raise ValueError(f"PR body needs the exact Live Memory evidence line: - {PR_EVIDENCE_LABEL} <evidence>")
     detail = evidence.group(1).strip()
     choice = choices[0]
@@ -583,12 +588,18 @@ def self_test_pr_body(kinds: set[str]) -> None:
         validate_pr_impact(f"{valid}\n{after}", kinds)
         validate_pr_impact(f"Intro\n\n{valid}\n\n{after}\n".replace("\n", "\r\n"), kinds)
     validate_pr_impact("\n".join(line.lstrip() for line in f"{valid}\n- Mobile parity:\n  - [x] None".split("\n")), kinds)
+    # An indented impact map still ends at the template's next field.
+    validate_pr_impact("\n".join(f"  {line}" for line in f"{valid}\n{PR_IMPACT_END}\n  - [x] None".split("\n")), kinds)
+    # A header quoted inline does not open the section; its own line does.
+    validate_pr_impact(f"Quotes `{PR_IMPACT_START}` inline.\n\n## Impact Map\n\n{valid}\n- Mobile parity:", kinds)
     for invalid, problem in (
         (valid.replace(PR_IMPACT_START, "- Live Memory impact:"), "source impact section header"),
         (valid.replace("[ ] Data should", "[x] Data should"), "found 2 checked"),
         (valid.replace("[x] No durable", "[ ] No durable"), "found 0 checked"),
         (valid.replace(PR_EVIDENCE_LABEL, "Live Memory evidence:"), "exact Live Memory evidence line"),
         (valid.replace(f" {reason}", ""), "empty Live Memory evidence line"),
+        (valid.replace(f" {reason}", "\n\nTested locally on Chrome and Safari with the dashboard open."),
+         "empty Live Memory evidence line"),
     ):
         try:
             validate_pr_body(f"{invalid}\n- Mobile parity:\n  - [x] None", kinds)
@@ -600,7 +611,7 @@ def self_test_pr_body(kinds: set[str]) -> None:
     fixed = f"{valid}\n- Mobile parity:\n  - [x] None"
     requests: list[urllib.request.Request] = []
 
-    def serve(body: str) -> Callable[..., Any]:
+    def serve(body: str | None) -> Callable[..., Any]:
         def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
             requests.append(request)
             return io.BytesIO(json.dumps({"number": 8020, "body": body}).encode("utf-8"))
@@ -631,7 +642,8 @@ def self_test_pr_body(kinds: set[str]) -> None:
         assert requests[-1].get_header("Accept") == "application/vnd.github+json"
         check_event(stale, serve(fixed), {**environ, "GITHUB_API_URL": "https://ghe.example/api/v3"})
         assert requests[-1].full_url == "https://ghe.example/api/v3/repos/hushh-labs/hushh-research/pulls/8020"
-        for payload, urlopen in ((fixed, serve(stale)), (stale, unreachable)):
+        # A cleared live body (null) is checked as empty, not replaced by the payload.
+        for payload, urlopen in ((fixed, serve(stale)), (fixed, serve(None)), (stale, unreachable)):
             try:
                 check_event(payload, urlopen)
             except ValueError as error:
@@ -641,6 +653,8 @@ def self_test_pr_body(kinds: set[str]) -> None:
         assert "source: trigger-time event payload (live read failed" in check_event(fixed, unreachable)
         tokenless = {name: value for name, value in environ.items() if name != "GH_TOKEN"}
         assert "source: trigger-time event payload (no token" in check_event(fixed, unused, tokenless)
+        check_event(stale, serve(fixed), {**tokenless, "GITHUB_TOKEN": "self-test-github-token"})
+        assert requests[-1].get_header("Authorization") == "Bearer self-test-github-token"
         assert check_event(stale, unused, {**environ, "GITHUB_EVENT_NAME": "merge_group"}) == ""
         body_file = Path(scratch) / "body.md"
         for body, status in ((fixed, 0), (stale, 1)):
