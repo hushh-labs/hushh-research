@@ -2212,6 +2212,18 @@
         "before": 1066,
         "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
         "source_sha256": "04a88ecadb1255e5544d3d1f7fc3043a4a6a0a1cde1045bf01af41ab5f06fce2"
+      },
+      {
+        "after": 87,
+        "before": 82,
+        "key": "function_size|consent-protocol/tests/test_hushh_adk_single_turn.py|test_single_turn_genes_fail_over_across_configured_vertex_locations|function exceeds the advisory gene budget",
+        "source_sha256": "5b107c0fcfc1eb23933724b060135a2ed9cc4b905a6c61d55ae3f1e2f1110100"
+      },
+      {
+        "after": 677,
+        "before": 676,
+        "key": "module_size|consent-protocol/tests/test_consent_redaction.py||module exceeds the advisory operon budget",
+        "source_sha256": "3c7c349afa3d34ce880a38147fb0644fd9fb1f57418a0161969dc5b3cd68331a"
       }
     ],
     "evidence_revisions": [
@@ -2219,7 +2231,7 @@
       "9b45e61b289e1b7e57e22011cc27d45f03b3171a",
       "cfec8a49"
     ],
-    "review": "Bounded backport of existing readiness fixes: main adds one prewarm await plus two explanatory lines in its inherited orchestrator; nearest existing deployment-contract module adds one 12-line resource regression. New cold-first-use fake adapters were extracted into a small helper; no new oversized function accepted. Exact measured ceilings only; 500/250/80 budgets and all behavior, provider deadlines, identity and provenance checks remain unchanged. Subsequent bounded 3.8/global default change independently reviewed; exact 1078-line module ceiling retained and source hash refreshed.",
+    "review": "Bounded backport of existing readiness fixes: main adds one prewarm await plus two explanatory lines in its inherited orchestrator; nearest existing deployment-contract module adds one 12-line resource regression. New cold-first-use fake adapters were extracted into a small helper; no new oversized function accepted. Exact measured ceilings only; 500/250/80 budgets and all behavior, provider deadlines, identity and provenance checks remain unchanged. Subsequent bounded 3.8/global default change independently reviewed; exact 1078-line module ceiling retained and source hash refreshed. ADK fixture follow-up independently reviewed: measured 3.7/local setup adds five lines to the existing regional-failover regression; canonical fleet-model import adds one line to consent-redaction tests. All assertions and negative controls preserved; only these two measured ceilings increased.",
     "reviewer": "shared_vertex_release_path"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
@@ -14022,7 +14034,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_hushh_adk_single_turn.py",
       "symbol": "test_single_turn_genes_fail_over_across_configured_vertex_locations",
-      "value": 82
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19026,7 +19038,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_consent_redaction.py",
       "symbol": null,
-      "value": 676
+      "value": 677
     },
     {
       "detail": "module exceeds the advisory operon budget",
