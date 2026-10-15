@@ -69,6 +69,7 @@ def test_build_live_client_pins_one_regional_vertex_client(fake_genai_client):
 
 
 def test_voice_project_override_does_not_change_ambient_client(fake_genai_client, monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
     factory.build_managed_live_client(
