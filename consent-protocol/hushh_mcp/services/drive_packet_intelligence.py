@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -73,6 +74,8 @@ _DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{
 _MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
 ACCOUNT_MISMATCH = "Documents name different accounts"
 HOLDER_MISMATCH = "Documents name different account holders"
+DIFFERENT_PERSON = "Document names a different person"
+OWNER_UNCONFIRMED = "Owner name on file cannot confirm the account holder"
 
 
 class EvidenceValidationError(ValueError):
@@ -577,17 +580,88 @@ def _account_mismatch(selected_facts):
     return None
 
 
-def _close_account_mismatch(packet, selected_facts):
-    """Ready cannot rest on the model checker when the sources disagree about the account.
+_NAME_TITLES = frozenset(
+    {"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "jr", "sr", "ii", "iii", "iv"}
+)
+
+
+def _name_words(value):
+    """Case, punctuation and accent folded words of a name, in order, with
+    titles, suffixes and connectors dropped."""
+    folded = unicodedata.normalize("NFKD", value or "")
+    folded = "".join(char for char in folded if not unicodedata.combining(char))
+    words = re.sub(r"[\W_]+", " ", folded).casefold().split()
+    return [word for word in words if word not in _NAME_CONNECTORS | _NAME_TITLES]
+
+
+def _owner_names(owner):
+    """The owner's usable names on file: a spelled-out first and last word each.
+
+    A single word, an initial or a blank cannot confirm whom a record names.
+    """
+    names = owner.get("names") if isinstance(owner, dict) else None
+    usable = []
+    for value in names if isinstance(names, list) else []:
+        words = _name_words(value) if isinstance(value, str) else []
+        if len(words) >= 2 and len(words[0]) >= 2 and len(words[-1]) >= 2:
+            usable.append(words)
+    return usable
+
+
+def _names_owner(listing, owner_words):
+    """A listing names the owner when it spells the owner's last name and the
+    first name or its initial. Middle names, titles, order and the other
+    holders of a joint listing are tolerated; a shared surname alone is not.
+    Words are compared as a set, so a joint listing's initials are not bound
+    to their surnames; the model checker still reads the listing itself."""
+    words = set(_name_words(listing))
+    first, last = owner_words[0], owner_words[-1]
+    return last in words and (first in words or first[0] in words)
+
+
+def _owner_mismatch(selected_facts, owner):
+    """Compare whom each source names with the Drive owner's name on file.
+
+    An account record's subject is its holder (extraction establishes
+    ownership before filling it), so one naming someone else closes the
+    packet, as does any record naming the owner's surname with another first
+    name. The facts contract models no business, trust or alias the owner is
+    named on, so those are not guessed Ready either; other subjects are
+    topics and stay with the model checker. With no usable name on file an
+    account record naming anyone is unconfirmed, never a match. A caller that
+    passes no listing at all (the offline eval replay) is not checked; the
+    packet worker always passes one.
+    """
+    if owner is None:
+        return None
+    names = _owner_names(owner)
+    named = [
+        (subject, bool(_fact_value(facts, "account")))
+        for facts in selected_facts
+        if (subject := _fact_value(facts, "subject"))
+    ]
+    if not names:
+        return OWNER_UNCONFIRMED if any(account for _, account in named) else None
+    for subject, account in named:
+        if any(_names_owner(subject, words) for words in names):
+            continue
+        if account or any(words[-1] in _name_words(subject) for words in names):
+            return DIFFERENT_PERSON
+    return None
+
+
+def _close_source_mismatch(packet, selected_facts, owner):
+    """Ready cannot rest on the model checker when the sources disagree about
+    the account or name someone other than the owner.
 
     The packet closes as Incomplete with the reason visible; the host does not
     pick a member and the model is not asked to guess again.
     """
-    reason = _account_mismatch(selected_facts)
+    reason = _account_mismatch(selected_facts) or _owner_mismatch(selected_facts, owner)
     if reason is None:
         return
     packet.state = "incomplete"
-    packet.gaps = [*packet.gaps, reason]
+    packet.gaps = [*packet.gaps[:63], reason]
 
 
 async def consolidate_facts(
@@ -643,6 +717,7 @@ async def construct_packet(
     complete,
     previous=None,
     owner_preferences=None,
+    owner=None,
     interpret=_interpret,
 ):
     allowed = {item["document_id"] for item in documents}
@@ -711,7 +786,7 @@ async def construct_packet(
             _require_dated_periods([period.model_dump() for period in result.periods])
             if not complete:
                 raise ValueError("unfinished assembly cannot be ready")
-            _close_account_mismatch(result, selected_facts)
+            _close_source_mismatch(result, selected_facts, owner)
 
     return await _ask(
         "canonical_packet",
@@ -730,7 +805,14 @@ async def construct_packet(
 
 
 async def verify_packet(
-    *, user_id, packet, documents, complete, batch_scope=None, interpret=_interpret
+    *,
+    user_id,
+    packet,
+    documents,
+    complete,
+    batch_scope=None,
+    owner=None,
+    interpret=_interpret,
 ):
     scope_mode = batch_scope.get("mode") if isinstance(batch_scope, dict) else batch_scope
 
@@ -789,10 +871,11 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
-            reason = _account_mismatch(selected_facts)
+            reason = _account_mismatch(selected_facts) or _owner_mismatch(selected_facts, owner)
             if reason is not None:
                 # A batch or final checker that certifies members naming different
-                # accounts is overruled by the extracted facts, with the reason kept.
+                # accounts, or someone other than the owner on file, is overruled
+                # by the extracted facts, with the reason kept.
                 result.state = "incomplete"
                 result.correct_subject_and_account = False
                 result.issues = [*result.issues, reason][:64]
