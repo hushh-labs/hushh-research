@@ -10,8 +10,6 @@ import {
   ProfilePaneCardNetworkIcon,
   ProfilePaneDeleteIcon,
   ProfilePaneGlobeIcon,
-  ProfilePaneKeyIcon,
-  ProfilePaneSecurityIcon,
   ProfilePaneRotateIcon,
 } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
@@ -40,8 +38,6 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
     { icon: ProfilePaneAccountIcon, label: "Name on card", value: name || "Not provided", copyValue: name },
     { icon: ProfilePaneCardNetworkIcon, label: "Card network", value: network, copyValue: network },
     { icon: ProfilePaneCalendarIcon, label: "Expiry (MM/YY)", value: expiry, copyValue: expiry, copyLabel: "Copy expiry date" },
-    { icon: ProfilePaneSecurityIcon, label: "CVV", value: "Hidden" },
-    { icon: ProfilePaneKeyIcon, label: "PIN (optional)", value: "Hidden if saved" },
     { icon: ProfilePaneGlobeIcon, label: "Issuing region", value: card.issuingRegion || "Not provided", copyValue: card.issuingRegion },
   ];
 

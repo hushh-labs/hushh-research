@@ -9409,8 +9409,10 @@ class OneLocationAgentService:
                     )
                 )
             ],
+            # Only the recipient's own view carries their Feed clear; the
+            # owner's grants never say whether or when it was cleared.
             "receivedGrants": [
-                payload
+                {**payload, "recipientClearedAt": _iso(row.get("recipient_cleared_at"))}
                 for row in received_grants
                 if (
                     payload := self._grant_payload(
@@ -9715,6 +9717,44 @@ class OneLocationAgentService:
             "revoked_share_kind": revoked_share_kind,
             "revoked_via_sms": revoked_via_sms,
         }
+
+    def clear_received_grants(self, *, recipient_user_id: str, grant_ids: list[str]) -> list[str]:
+        """Store the recipient's Feed clear of ended shares (the SOS card).
+
+        Presentation state on the recipient's own received grants, so it holds
+        on every device. Only the caller's grants are touched, never a live
+        share; ``updated_at`` stays as it was, so the owner cannot see a clear.
+        Repeating the call returns the same ids: the requested grants that are
+        cleared now.
+        """
+        requested = sorted({str(UUID(str(grant_id))) for grant_id in grant_ids})
+        if not requested:
+            return []
+        rows = self._execute_many(
+            """
+            WITH cleared AS (
+              UPDATE one_location_share_grants AS g
+                 SET recipient_cleared_at = NOW()
+               WHERE g.recipient_user_id = :recipient_user_id
+                 AND g.id = ANY(CAST(:grant_ids AS UUID[]))
+                 AND g.recipient_cleared_at IS NULL
+                 AND NOT (
+                   g.status = 'active'
+                   AND COALESCE(g.expires_at > NOW(), g.duration_mode = 'until_stopped', FALSE)
+                 )
+              RETURNING g.id
+            )
+            SELECT id::TEXT AS id FROM cleared
+            UNION
+            SELECT g.id::TEXT AS id
+              FROM one_location_share_grants AS g
+             WHERE g.recipient_user_id = :recipient_user_id
+               AND g.id = ANY(CAST(:grant_ids AS UUID[]))
+               AND g.recipient_cleared_at IS NOT NULL
+            """,
+            {"recipient_user_id": recipient_user_id, "grant_ids": requested},
+        )
+        return sorted(str(row["id"]) for row in rows)
 
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         with self._event_bound_writer():

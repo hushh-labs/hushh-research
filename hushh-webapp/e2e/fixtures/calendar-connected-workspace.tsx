@@ -7,7 +7,7 @@ import { authorizeSyntheticVault, lockSyntheticVault } from "./calendar-connecte
 function Fixture() {
   const [action, setAction] = useState("");
   return <>
-    <div className="fixed inset-x-0 top-0 z-50 flex h-12 items-center justify-center bg-background text-xs text-muted-foreground">Synthetic Calendar QA fixture</div>
+    <div className="fixed inset-x-0 top-0 z-50 flex h-12 items-center justify-center bg-background text-xs text-muted-foreground">{location.search.includes("providerReplay=1") ? "Explorer-backed local replay · sanitized dates · not live UAT" : "Synthetic Calendar QA fixture"}</div>
     <div data-testid="calendar-scroll-root" className="h-dvh overflow-y-auto pt-16 pb-[var(--app-bottom-content-clearance)]">
       <CalendarConnectedWorkspace userId="synthetic-calendar-owner"
         status={{ configured: true, connected: true, status: "connected", google_email: "qa-owner@example.com", access_level: "manage", scope_csv: "calendar.events calendar.freebusy", calendar_list_access: true }}

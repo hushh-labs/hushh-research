@@ -1,7 +1,7 @@
 /**
  * One card, drawn as the object it is: the ISO/IEC 7810 ID-1 proportion
  * (85.60 x 53.98 mm), the standard's corner radius scaled to the card, and
- * one of the owner's twenty supplied finishes selected by immutable card id.
+ * approved original artwork or a neutral fallback.
  *
  * Masked, it is built from the summary (nickname, network, last four,
  * expiry, region) and an optional owner-only name projection. Revealed, the
@@ -10,6 +10,7 @@
  */
 
 import type { ReactNode } from "react";
+import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 
 import { CardNetworkWordmark, cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -20,12 +21,13 @@ import {
   formatCardNumber,
   maskedCardNumberGroups,
 } from "@/lib/wallet/wallet-card-presentation";
-import { paymentCardArtwork } from "@/lib/wallet/wallet-payment-card-artwork";
+import type { WalletCardArtwork } from "@/lib/wallet/card-artwork";
 
 import styles from "./wallet-payment-card-artwork.module.css";
 
 export interface WalletCardFaceProps {
   summary: WalletCardSummary;
+  artwork?: WalletCardArtwork;
   /** Decrypted owner-only display projection, never a chat/index summary. */
   cardholderName?: string;
   /** Retained for callers; all payment-card surfaces share one finish. */
@@ -62,8 +64,7 @@ function FaceField({
   );
 }
 
-export function WalletCardFace({ summary, cardholderName, revealed, children, className }: WalletCardFaceProps) {
-  const artwork = paymentCardArtwork(summary.cardId);
+export function WalletCardFace({ summary, artwork, cardholderName, revealed, children, className }: WalletCardFaceProps) {
   const network = cardNetworkLabel(summary.brand);
   const title = summary.nickname?.trim();
   const groups = revealed
@@ -73,16 +74,25 @@ export function WalletCardFace({ summary, cardholderName, revealed, children, cl
   const holder = revealed?.cardholderName || cardholderName;
   const accessibleLast4 = /^\d{4}$/.test(summary.last4) ? summary.last4 : "hidden";
 
+  if (artwork && artwork.source !== "neutral") return <div className={cn(styles.container, className)}>
+    <div data-testid="wallet-card-face" data-card-artwork={artwork.source} data-artwork-digest={artwork.digest} data-revealed={revealed ? "true" : "false"} className={styles.face} style={{ borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})`, background: "#172a46" }}>
+      {/* Encoded, approved owner artwork only; no fabricated chip/logo or text overlay. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={artwork.image} alt={title || "Your card design"} className="absolute inset-0 h-full w-full object-contain" />{children}
+    </div>
+    <p className={cn(TYPOGRAPHY_CLASSNAMES.helperText, "mt-2 text-center")}>{holder || network} · {revealed ? formatCardNumber(summary.brand, revealed.pan) : `•••• ${accessibleLast4}`} · {expiry}</p>
+  </div>;
   return (
     // The container is what the corner radius is measured against.
     <div className={cn(styles.container, className)}>
       <div
         data-testid="wallet-card-face"
-        data-card-artwork={artwork.id}
+        data-card-artwork="neutral"
         data-revealed={revealed ? "true" : "false"}
-        className={cn(styles.face, styles[`art${artwork.id.toUpperCase()}`])}
+        className={styles.face}
         style={{
           borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})`,
+          background: "#172a46",
         }}
       >
         <span className={styles.content}>

@@ -45,6 +45,7 @@ export function isPrivatePkmExportScope(scope: string): boolean {
     ["one_living_sources", "one_todos"].includes(parts[1] || "")
   )
     return true;
+  if (parts[0] === "attr" && parts[1] === "wallet") return !(parts.length === 4 && ["summary", "secrets"].includes(parts[2] || "") && parts[3] === "*");
   if (parts[0] !== "attr" || parts[1] !== "financial") return false;
   const path = parts.slice(2).filter((part) => part !== "*");
   if (path.length === 0) return true;
@@ -59,7 +60,7 @@ export function excludePrivatePkmDomains(
   return Object.fromEntries(
     Object.entries(fullBlob).filter(
       ([domain]) =>
-        !["one_living_sources", "one_todos"].includes(domain.toLowerCase()),
+        !["one_living_sources", "one_todos", "wallet"].includes(domain.trim().toLowerCase()),
     ),
   );
 }

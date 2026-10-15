@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
@@ -150,6 +150,28 @@ class CardNetworkBody(BaseModel):
     selected_network: str | None = Field(default=None, alias="selectedNetwork", max_length=32)
 
 
+class ArtworkLookupBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    iin_prefix: str = Field(alias="iinPrefix", pattern=r"^(?:[0-9]{6}|[0-9]{8})$")
+    pan_length: StrictInt = Field(alias="panLength", ge=13, le=19)
+    selected_network: str | None = Field(default=None, alias="selectedNetwork", max_length=32)
+
+
+class ArtworkSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    assetId: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    issuerId: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    productId: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    variantId: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    catalogVersion: str = Field(pattern=r"^[A-Za-z0-9._-]{1,100}$")
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ArtworkValidationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selections: list[ArtworkSelection] = Field(min_length=1, max_length=24)
+
+
 async def owner_identity(
     uid: str = Depends(require_firebase_auth), consent: dict = Depends(require_vault_owner_token)
 ):
@@ -186,6 +208,48 @@ async def reserve(body: RegistrationBody, owner: str = Depends(owner_identity)):
     except Exception as exc:
         logger.warning("wallet_card_access.registration_unavailable error=%s", type(exc).__name__)
         return {"enabled": False, "cardId": None}
+
+
+@router.post("/artwork/resolve")
+async def artwork_lookup(body: ArtworkLookupBody, owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_artwork_catalog import resolve_artwork
+    from hushh_mcp.services.wallet_card_validation import classify_card_network
+
+    try:
+        network = classify_card_network(
+            body.iin_prefix[:6], body.pan_length, body.selected_network
+        )["network"]
+        return await run_in_threadpool(resolve_artwork, body.iin_prefix, body.pan_length, network)
+    except ValueError:
+        raise HTTPException(422, {"code": "WALLET_CARD_REQUEST_INVALID"}) from None
+
+
+@router.get("/artwork/assets/{digest}")
+async def artwork_asset(digest: str, owner: str = Depends(owner_identity)):
+    import re
+
+    from hushh_mcp.services.wallet_artwork_catalog import read_asset
+
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise HTTPException(404, {"code": "WALLET_ARTWORK_UNAVAILABLE"})
+    try:
+        data, mime = await run_in_threadpool(read_asset, digest)
+        return Response(
+            data, media_type=mime, headers={**HEADERS, "X-Content-Type-Options": "nosniff"}
+        )
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(404, {"code": "WALLET_ARTWORK_UNAVAILABLE"}) from None
+
+
+@router.post("/artwork/validate")
+async def artwork_validation(body: ArtworkValidationBody, owner: str = Depends(owner_identity)):
+    from hushh_mcp.services.wallet_artwork_catalog import validate_artwork_selections
+
+    return {
+        "selections": await run_in_threadpool(
+            validate_artwork_selections, [selection.model_dump() for selection in body.selections]
+        )
+    }
 
 
 @router.get("/connections")

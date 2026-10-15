@@ -1,0 +1,36 @@
+{
+  "description": "Golden journal reset replies from SourceJournalService._replay. tests/test_live_memory_journal_reset_contract.py proves the backend emits exactly these; hushh-webapp/__tests__/services/source-journal-service.test.ts proves both web journal clients accept them.",
+  "source_in_range_gap": {
+    "after": 4,
+    "response": {
+      "events": [],
+      "nextCursor": "4",
+      "headCursor": "6",
+      "earliestCursor": "0",
+      "resetRequired": true,
+      "hasMore": false
+    }
+  },
+  "connector_in_range_gap": {
+    "after": 4,
+    "response": {
+      "events": [],
+      "nextCursor": "4",
+      "headCursor": "6",
+      "earliestCursor": "0",
+      "resetRequired": true,
+      "hasMore": false
+    }
+  },
+  "retention_reset": {
+    "after": 1,
+    "response": {
+      "events": [],
+      "nextCursor": "1",
+      "headCursor": "6",
+      "earliestCursor": "2",
+      "resetRequired": true,
+      "hasMore": false
+    }
+  }
+}

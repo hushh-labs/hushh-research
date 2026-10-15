@@ -688,6 +688,11 @@ tests/services/test_chat_notification_state.py
 # Grouped Feed pagination/read authority and authenticated chat route boundaries.
 tests/services/test_feed_service.py
 tests/routes/test_feed_route.py
+# Feed removal and the ended-SOS clear belong to the account: a new session or
+# device reads the same server state, another account is untouched, and account
+# deletion leaves no Feed. PostgreSQL runs in the serial lane.
+tests/test_feed_account_session_postgres.py
+tests/test_one_location_recipient_feed_clear_migration.py
 tests/services/test_direct_messages_service.py
 tests/routes/test_direct_messages_route.py
 
@@ -695,6 +700,8 @@ tests/routes/test_direct_messages_route.py
 tests/test_direct_message_feed_projection_postgres.py
 tests/services/test_wallet_card_access_service.py
 tests/services/test_wallet_card_network.py
+tests/services/test_wallet_artwork_catalog.py
+tests/routes/test_wallet_artwork_route.py
 tests/test_wallet_card_validation.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
@@ -823,3 +830,4 @@ tests/test_calendar_schedule_routes.py
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
 tests/test_source_journal_routes.py
 tests/test_live_memory_source_journal_postgres.py
+tests/services/test_calendar_shared_availability.py

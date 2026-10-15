@@ -72,12 +72,6 @@ function rowsFor(summary: WalletCardSummary, secrets: WalletCardSecrets): Secret
       copyValue: `${String(summary.expiryMonth).padStart(2, "0")}/${summary.expiryYear}`,
     },
   ];
-  if (secrets.cvv) {
-    rows.push({ id: "cvv", noun: "CVV", copyLabel: "Copy CVV", label: "CVV", value: secrets.cvv, copyValue: secrets.cvv });
-  }
-  if (secrets.pin) {
-    rows.push({ id: "pin", noun: "PIN", copyLabel: "Copy PIN", label: "PIN", value: secrets.pin, copyValue: secrets.pin });
-  }
   if (secrets.cardholderName) {
     rows.push({
       id: "name",

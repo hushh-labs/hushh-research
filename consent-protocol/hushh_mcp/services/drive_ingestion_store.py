@@ -2,7 +2,9 @@
 
 Lock order: connection -> registry -> document -> chunks. No provider/processor
 I/O under a database lock. Redis may later provide admission, never replace the
-generation/lease/CAS authority here. Each owner has at most one active job.
+generation/lease/CAS authority here. A selected-files owner has at most one
+active job; a live collection owner has at most ``live_owner_leases()``, each
+on a distinct document (claims for one owner serialize on the connection row).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from hushh_mcp.services.drive_document_store import (
     DriveDocumentStore,
 )
 from hushh_mcp.services.drive_document_targets import document_targets
+from hushh_mcp.services.drive_worker_limits import live_owner_leases
 from hushh_mcp.services.google_drive_adapter import (
     LIVE_EXTRACTABLE_ORIGINAL_TYPES,
     DriveMetadata,
@@ -160,15 +163,17 @@ class DriveIngestionStore(DriveDocumentStore):
             """),
                 {"user": user_id, "attempts": MAX_ATTEMPTS},
             )
-            active = self._row(
-                connection,
-                """
-                SELECT document_id FROM connected_documents WHERE user_id=:user
-                  AND lease_expires_at > clock_timestamp() LIMIT 1
-            """,
+            # Every claim for this owner holds the connection row lock taken
+            # above, so this count and the SKIP LOCKED pick below cannot
+            # overshoot the cap, even across worker instances.
+            active = connection.execute(
+                text("""
+                SELECT count(*) FROM connected_documents WHERE user_id=:user
+                  AND lease_expires_at > clock_timestamp()
+            """),
                 {"user": user_id},
-            )
-            if active:
+            ).scalar_one()
+            if active >= (live_owner_leases() if profile == "live" else 1):
                 return None
             if profile == "live" and targets is None and not prefer_profile_upgrade:
                 self._classify_unsupported_live_due(

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from api.middleware import (
     require_firebase_auth,
@@ -13,8 +14,10 @@ from api.middleware import (
     require_vault_owner_token,
     verify_user_id_match,
 )
+from api.middlewares.observability import get_request_id
 from api.middlewares.rate_limit import limiter
 from api.routes.one.calendar import _http
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 router = APIRouter(prefix="/api/one/calendar", tags=["One Calendar Workspace"])
 
@@ -31,6 +34,13 @@ class CalendarOpeningWindow(CalendarDay):
     start_time: str = Field(default="09:00", max_length=5)
     end_time: str = Field(default="17:00", max_length=5)
     duration_minutes: Literal[15, 30, 60] = 30
+
+
+class CalendarAvailabilityWindow(CalendarDay):
+    start_time: Literal["00:00"] = "00:00"
+    end_time: Literal["24:00"] = "24:00"
+    duration_minutes: Literal[15, 30, 60] = 30
+    calendar_overrides: dict[str, StrictBool] | None = Field(default=None, max_length=100)
 
 
 class CalendarAttendanceReview(CalendarOpeningWindow):
@@ -70,15 +80,33 @@ async def schedule_today(
 
 @router.post("/schedule/availability")
 async def schedule_availability(
-    payload: CalendarOpeningWindow,
+    payload: CalendarAvailabilityWindow,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth_read_only),
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
-        return await _schedule().free_windows(user_id=firebase_uid, **payload.model_dump())
+        return await _schedule().free_windows(
+            user_id=firebase_uid, **payload.model_dump(exclude_none=True)
+        )
     except Exception as exc:
-        raise _http(exc) from exc
+        # Correlate classified failures without account IDs or provider payloads.
+        logging.getLogger(__name__).warning(
+            "calendar.availability.failed request_id=%s reason_code=%s status=%s",
+            get_request_id(),
+            exc.reason_code if isinstance(exc, GoogleConnectionError) else "backend_failure",
+            exc.status_code if isinstance(exc, GoogleConnectionError) else 503,
+        )
+        error = _http(exc)
+        error.headers = {**(error.headers or {}), "Cache-Control": "private, no-store"}
+        options = getattr(exc, "calendar_options", None)
+        if (
+            isinstance(exc, GoogleConnectionError)
+            and options is not None
+            and isinstance(error.detail, dict)
+        ):
+            error.detail = {**error.detail, "calendar_options": options}
+        raise error from exc
 
 
 @router.post("/attendance/review")

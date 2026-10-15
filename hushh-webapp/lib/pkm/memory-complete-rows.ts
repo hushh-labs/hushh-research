@@ -16,7 +16,7 @@
  * Pure and import-safe.
  */
 
-import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { isPrivateWalletArtworkBranch, reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
 import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
 import {
@@ -66,6 +66,7 @@ function excluded(
   domain: string,
   branch: string,
 ): boolean {
+  if (isPrivateWalletArtworkBranch(domain, branch)) return true;
   if (audience === "agent") {
     if (shouldSkipPkmAgentContextKey(key)) return true;
     const entry = reservedEntryFor(domain, branch);
@@ -88,6 +89,42 @@ function renderScalar(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);
   return JSON.stringify(value);
+}
+
+const GAP_VALUE_KEYS = [
+  "committedChanges", "firstOccurredAt", "lastOccurredAt", "reason", "verifiedChanges",
+].join();
+
+function isGapCount(value: unknown): value is number | null {
+  return value === null ||
+    (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+}
+
+function isGapTime(value: unknown): boolean {
+  return value === null ||
+    (typeof value === "string" && Number.isFinite(Date.parse(value)));
+}
+
+/**
+ * Plain text for a valid journal gap marker, or null when the marker is
+ * malformed. A marker counts changes; it never carries the values in between.
+ */
+function gapMarkerText(change: Record<string, unknown>): string | null {
+  const gap = change.value;
+  if (change.id !== "*" || change.revision !== 0 || !isRecord(gap) ||
+      Object.keys(gap).sort().join() !== GAP_VALUE_KEYS ||
+      !isGapCount(gap.committedChanges) || !isGapCount(gap.verifiedChanges) ||
+      // An unknown committed count is exactly what a journal gap means.
+      gap.reason !== (gap.committedChanges === null ? "journal_gap" : "unobserved_changes") ||
+      !isGapTime(gap.firstOccurredAt) || !isGapTime(gap.lastOccurredAt))
+    return null;
+  const committed = gap.committedChanges;
+  if (committed === null) return "Some changes may be missing.";
+  const changes = `${committed} ${committed === 1 ? "change" : "changes"} committed`;
+  // Retention removed part of the span, so it is unknown what was seen.
+  return gap.verifiedChanges === null
+    ? `${changes}; recorded count unknown.`
+    : `${changes}; ${gap.verifiedChanges} recorded. Values in between were not seen.`;
 }
 
 /**
@@ -281,10 +318,17 @@ export function collectDomainRows(params: {
               truncated = true;
               continue;
             }
+            // A valid gap marker is an explicit, counted boundary rather than a
+            // truncation. A malformed one cannot vouch for that span.
+            const gapText = change.operation === "gap" ? gapMarkerText(change) : undefined;
+            if (gapText === null) {
+              truncated = true;
+              continue;
+            }
             if (!pushSourceRow({
               path: `observed_history.changes.${String(change.sequence).padStart(19, "0")}`,
               label: `Recent observed change #${change.sequence} · ${change.kind}:${change.id} · ${change.operation} · revision ${change.revision} · captured ${change.capturedAt}`,
-              value: change.operation === "delete" ? "Removed" : renderScalar(change.value),
+              value: gapText ?? (change.operation === "delete" ? "Removed" : renderScalar(change.value)),
             })) break;
           }
         }

@@ -9452,8 +9452,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
-    width: 36px !important;
-    height: 36px !important;
+    width: 44px !important;
+    height: 44px !important;
   }
   .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
     position: absolute;
@@ -9536,4 +9536,30 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     width: 18px;
     height: 18px;
   }
+}
+
+/* Chat detail bodies inherit the same grouped material and type as Profile. */
+[data-chat-detail-body] [role="region"] {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+}
+[data-chat-detail-body] :is(p, ul) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-chat-detail-body] button {
+  height: auto;
+  min-height: 44px;
+  padding-block: 10px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+
+[data-chat-detail-body] button > span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

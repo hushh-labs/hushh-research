@@ -28,7 +28,7 @@ export const AuthService = {
   linkGoogleIdentity: async () => { throw new Error("No identity mutation in the layout fixture"); },
 };
 export function useVault() {
-  return { vaultOwnerToken: "synthetic-owner" };
+  return { vaultOwnerToken: "synthetic-owner", isVaultUnlocked: true, getVaultOwnerToken: () => "synthetic-owner" };
 }
 // Same synthetic vault as `useVault`, for components that read the context.
 export const VaultContext = createContext<{ vaultOwnerToken: string } | null>({
@@ -123,3 +123,8 @@ export const CacheSyncService = {
     throw new Error("Feed mutations are not admitted in the read-only Connections layout fixture");
   },
 };
+
+// The fixture vault is locked, so the shared Live Mirror shows only its status.
+export function useLiveMirrorView() {
+  return { status: "locked", view: null } as const;
+}

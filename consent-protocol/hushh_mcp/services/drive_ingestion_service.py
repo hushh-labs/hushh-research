@@ -7,6 +7,8 @@ No API/startup hook activates processing, and selection alone is not consent.
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from dataclasses import asdict, replace
 from typing import Protocol
 
@@ -22,6 +24,8 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentProcessor(Protocol):
@@ -113,11 +117,28 @@ class DriveIngestionService:
         )
         if not job:
             return {"status": "idle"}
+        started, marks = time.monotonic(), {}
+        result = await self._process(job, user_id=user_id, marks=marks)
+        fetched = marks.get("fetched", started)
+        extracted = marks.get("extracted", fetched)
+        # Aggregate stage timing only: no owner, document, name or content.
+        logger.info(
+            "drive_extraction_job status=%s pages=%d fetch_ms=%d extract_ms=%d total_ms=%d",
+            result["status"],
+            marks.get("pages", 0),
+            round((fetched - started) * 1000),
+            round((extracted - fetched) * 1000),
+            round((time.monotonic() - started) * 1000),
+        )
+        return result
+
+    async def _process(self, job: dict, *, user_id: str, marks: dict) -> dict[str, str]:
         try:
             # Less than the DB-clock lease. Cancellation/crash leaves a durable
             # reclaimable job; no late publish can acquire a replacement lease.
             async with asyncio.timeout(170):
                 content = await self._fetch(job)
+                marks["fetched"] = time.monotonic()
                 if content is None:
                     return {"status": "unchanged"}
                 await self.store.stage(job, "parsing")
@@ -136,6 +157,9 @@ class DriveIngestionService:
                     prepared = await self.processor.prepare(
                         content=content.content, mime_type=content.mime_type
                     )
+                marks["extracted"] = time.monotonic()
+                if live:
+                    marks["pages"] = len(prepared.pages)
                 if live and content.metadata.mime_type in LIVE_PARTIAL_EXPORTS:
                     prepared = replace(
                         prepared,

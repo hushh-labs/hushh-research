@@ -1,5 +1,12 @@
 # ADR: PKM Storage and JSONB Boundaries
 
+Wallet payment-card design uses the existing encrypted `wallet.artwork` sibling
+segment, atomically committed with `summary` and `secrets`. It has no consent or
+model exposure; current writers enforce actual reserved value differences before
+encryption. Current code removes security-code collection/read/write, while
+historical encrypted retention and old-client migration remain separately governed.
+See [Wallet scanning, artwork and release boundaries](../one/wallet.md#intelligent-local-scanning-and-private-card-design).
+
 
 ## Visual Context
 

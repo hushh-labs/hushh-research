@@ -78,6 +78,20 @@ describe("a memory record is complete, not a display summary", () => {
 });
 
 describe("exclusion still applies to the complete walk", () => {
+  it("keeps private Wallet artwork out of owner and agent documents while retaining owner summaries", () => {
+    const wallet = { summary: { card_1: { nickname: "Everyday card" } },
+      artwork: { card_1: { image: "private-raster-marker" } } };
+    for (const audience of ["self", "agent"] as const) {
+      const rows = collectDomainRows({ domain: "wallet", domainData: wallet, audience });
+      const document = buildMemoryDocument({ snapshot: emptySnapshot, audience,
+        sources: [{ domain: "wallet", contentRevision: 1 }], domainData: { wallet },
+        builtAt: "2026-10-15T00:00:00.000Z" });
+      expect(JSON.stringify(rows)).not.toContain("private-raster-marker");
+      expect(document.markdown).not.toContain("private-raster-marker");
+      if (audience === "self") expect(document.markdown).toContain("Everyday card");
+    }
+  });
+
   it("bounds source rows deterministically and reports an incomplete record at the cap", () => {
     const now = "2026-10-15T00:00:00.000Z";
     const records = Array.from({ length: 2_224 }, (_, index) => ({
