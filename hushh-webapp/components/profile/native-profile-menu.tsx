@@ -66,17 +66,18 @@ export function NativeProfilePresentation({ lifetime, detail, menu, page, childr
   account?: { active: boolean; page: NativeProfilePage; rows: NativeDrawerActions["rows"]; editor: (destinationId?: string) => ReactNode };
 }) {
   const [stackSupported, setStackSupported] = useState<boolean | null>(null);
+  const hasAccount = account !== undefined;
   useEffect(() => {
-    if (!account) return;
+    if (!hasAccount) return;
     let current = true;
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
       if (current) setStackSupported(capability.contractVersion === 1 && capability.supported &&
         capability.profileNavigationStack === true && capability.profileNameScene === true);
     }).catch(() => { if (current) setStackSupported(false); });
     return () => { current = false; };
-  }, [!!account]);
+  }, [hasAccount]);
   const nativeAccount = stackSupported === true && account?.active === true;
-  const destinationId = useMemo(() => nativeAccount ? crypto.randomUUID() : undefined, [nativeAccount, lifetime]);
+  const destinationId = useMemo(() => nativeAccount && lifetime ? crypto.randomUUID() : undefined, [nativeAccount, lifetime]);
   const webDetail = detail && !nativeAccount;
   const [prepared, setPrepared] = useState<string | null>(null);
   const [restored, setRestored] = useState<string | null>(null);

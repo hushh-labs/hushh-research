@@ -2022,23 +2022,16 @@ final class AppUITests: XCTestCase {
         let webFrame = web.frame
         perfTapNav(app, label: "One")
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
-        let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
-        let grid = web.buttons["Show agent grid view"].firstMatch
-        let list = web.buttons["Show agent list view"].firstMatch
-        guard waitForAdmittedControl(grid), waitForAdmittedControl(list), dock.waitForExistence(timeout: 10) else {
+        // Observe the rendered dock child, not an optional AX container or a
+        // roster-view toggle which can be below the fold on compact phones.
+        // Keep the actual scroll/paired-motion assertions independent of view preference.
+        let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
+        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
             XCTFail("NATIVE_BOTTOM_SCROLL_HOME_NOT_ADMITTED"); return
         }
-        func selected(_ element: XCUIElement) -> Bool {
-            element.isSelected || ["1", "true"].contains(element.value as? String ?? "")
-        }
-        let restoreGrid = selected(grid)
-        guard restoreGrid || selected(list) else { XCTFail("NATIVE_BOTTOM_SCROLL_VIEW_STATE_UNKNOWN"); return }
-        if restoreGrid { list.tap() }
         var returnedToChat = false
         defer {
             if !returnedToChat {
-                for _ in 0..<3 where !grid.isHittable { web.swipeDown() }
-                if restoreGrid && grid.exists && grid.isHittable { grid.tap() }
                 perfTapNav(app, label: "Chat")
             }
         }
@@ -2068,7 +2061,6 @@ final class AppUITests: XCTestCase {
             }
             XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)
         }
-        if restoreGrid { grid.tap() }
         perfTapNav(app, label: "Chat")
         guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_RESTORED"); return }
         XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_CHANGED_DRAFT")
