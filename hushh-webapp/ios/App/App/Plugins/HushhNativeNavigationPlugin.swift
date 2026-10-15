@@ -395,6 +395,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
         guard compositor?.interactionIsolated != true, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
                               shielded: privacy.shielded, keyboardVisible: keyboardVisible) else { return }
+        // Tracking has completed. Reveal for this deliberate tab intent only
+        // now, never by moving its target during touch-up-inside tracking.
+        invalidateScroll(snap: true)
         tapSequence += 1
         notifyListeners("selectionRequested", data: ["tab": tab, "sequence": tapSequence,
                                                     "interactionEpoch": state.interactionEpoch,
