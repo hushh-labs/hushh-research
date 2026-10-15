@@ -3,8 +3,16 @@ versioned so stale scores are refused."""
 
 import pytest
 
+from hushh_eval.drive_packets import batch as ops
 from hushh_eval.drive_packets import cli
-from hushh_eval.drive_packets.contracts import LabelRow
+from hushh_eval.drive_packets.contracts import (
+    JudgmentRow,
+    LabelRow,
+    PacketRow,
+    QueueRow,
+    read_rows,
+    replace_rows,
+)
 from hushh_eval.drive_packets.gates import listing_gate, load_thresholds
 from hushh_eval.drive_packets.labels import (
     LABEL_VERSION,
@@ -15,7 +23,9 @@ from hushh_eval.drive_packets.labels import (
     resolved,
     silver,
     terminal_label,
+    terminal_verdict,
 )
+from hushh_eval.drive_packets.privacy import PrivateWorkdir
 
 
 def label(subject, field, value, source, version=LABEL_VERSION):
@@ -99,3 +109,120 @@ def test_period_phrase_rule_and_terminal_labeler():
         ("period_end", "2026-10-31", "human"),
         ("account", None, "human"),
     ]
+
+
+def test_terminal_verdict_records_a_person_and_skips_anything_unclear():
+    def run(*answers):
+        replies = iter(answers)
+        return terminal_verdict(
+            "p1",
+            ["packet p1"],
+            batch_id="B",
+            labeler="ops",
+            ask=lambda _prompt: next(replies),
+            show=lambda _line: None,
+        )
+
+    passed = run("p")
+    assert (passed.judge_id, passed.verdict, passed.severity, passed.model_version) == (
+        "human",
+        "pass",
+        None,
+        "human:ops",
+    )
+    failed = run("f", "s2")
+    assert (failed.verdict, failed.severity, failed.failed_checks) == (
+        "fail",
+        "S2",
+        ["human_review"],
+    )
+    assert run("s") is None and run("") is None
+    assert run("f", "x", "y", "z") is None  # a fail needs a severity
+
+
+def test_a_person_decides_queued_ready_packets_and_the_score_follows(tmp_path):
+    common = ["--workdir", str(tmp_path / "work"), "--batch-id", "H1"]
+    for command, extra in [
+        ("plan-batch", ["--seed", "7", "--n-clusters", "4", "--n-loose", "3"]),
+        ("run-batch", []),
+        ("judge", ["--judge", "fake"]),
+        ("label", ["--judge", "fake"]),
+    ]:
+        assert cli.main([command, *common, *extra]) == 0, command
+    batch = ops.Batch(PrivateWorkdir((tmp_path / "work").resolve()), "H1")
+    packets = {row.packet_key: row for row in read_rows(batch.file("packets.jsonl"), PacketRow)}
+    judgments = read_rows(batch.file("judgments.jsonl"), JudgmentRow)
+    queue = read_rows(batch.file("queue.jsonl"), QueueRow)
+    ready = sorted(key for key, row in packets.items() if row.state == "ready")
+    assert ready and {f"packet:{key}" for key in ready} <= {row.subject for row in queue}
+    assert ops.scorecard(batch)["human_confirmed_ready"] == 0
+
+    # A person fails the first packet shown (S1) and passes every other one.
+    answers = iter(["f", "S1"] + ["p"] * (len(ready) - 1))
+    shown = []
+    written = cli.review_packets(
+        batch,
+        queue,
+        packets,
+        judgments,
+        labeler="tester",
+        ask=lambda _prompt: next(answers),
+        show=shown.append,
+    )
+    assert written == len(ready)
+    assert any("consensus/consensus: pass" in line for line in shown)
+    again = read_rows(batch.file("judgments.jsonl"), JudgmentRow)
+    assert (
+        cli.review_packets(
+            batch,
+            queue,
+            packets,
+            again,
+            labeler="tester",
+            ask=lambda _prompt: pytest.fail("a decided packet was asked again"),
+            show=shown.append,
+        )
+        == 0
+    )
+
+    card = ops.scorecard(batch)
+    gated = next(row for row in card["scores"] if row["metric"] == "ready_correct_one_per_family")
+    assert card["human_confirmed_ready"] == gated["trials"] > 0
+    assert gated["trials"] - gated["successes"] == 1 and gated["extra"]["open_s1"] == 1
+    gate = listing_gate(card, load_thresholds())
+    assert gate.status == "fail" and gate.reasons[0] == "open_s1"
+
+
+def test_rejudging_provider_errors_keeps_a_persons_verdict(tmp_path):
+    common = ["--workdir", str(tmp_path / "work"), "--batch-id", "R1"]
+    for command, extra in [
+        ("plan-batch", ["--seed", "7", "--n-clusters", "4", "--n-loose", "3"]),
+        ("run-batch", []),
+        ("judge", ["--judge", "fake"]),
+    ]:
+        assert cli.main([command, *common, *extra]) == 0, command
+    batch = ops.Batch(PrivateWorkdir((tmp_path / "work").resolve()), "R1")
+    path = batch.file("judgments.jsonl")
+    key = read_rows(path, JudgmentRow)[0].packet_key
+    person = terminal_verdict(
+        key, [], batch_id="R1", labeler="ops", ask=lambda _prompt: "p", show=lambda _line: None
+    )
+    error = JudgmentRow(
+        batch_id="R1",
+        packet_key=key,
+        judge_id="J1",
+        model_version="fake-j1",
+        prompt_sha256=None,
+        seed=None,
+        variant="rerun",
+        verdict="unknown",
+        failed_checks=[],
+        severity=None,
+        citations_valid=None,
+        error_code="judge_ClientError",
+    )
+    replace_rows(path, [*read_rows(path, JudgmentRow), person, error])
+    assert cli.main(["judge", *common, "--judge", "fake", "--retry-provider-errors"]) == 0
+    rows = [row for row in read_rows(path, JudgmentRow) if row.packet_key == key]
+    assert [row.verdict for row in rows if row.judge_id == "human"] == ["pass"]
+    assert any(row.judge_id == "consensus" for row in rows)  # judged again

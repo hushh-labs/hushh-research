@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hushh_eval.drive_packets.contracts import LabelRow
+from hushh_eval.drive_packets.contracts import JudgmentRow, LabelRow
 from hushh_eval.drive_packets.deterministic import MONTHS
 
 LABEL_VERSION = "labels.v1"
@@ -324,3 +324,51 @@ def terminal_label(
             )
         )
     return rows
+
+
+SEVERITY_PROMPT = (
+    "severity: [S1] wrong person, account or period, or a request shown as executed  "
+    "[S2] incomplete, duplicate, missing or unrelated member  [S3] wording only > "
+)
+
+
+def terminal_verdict(
+    packet_key: str,
+    summary: Iterable[str],
+    *,
+    batch_id: str,
+    labeler: str,
+    ask: Callable[[str], str] = input,
+    show: Callable[[str], None] = print,
+) -> JudgmentRow | None:
+    """One person's pass / fail decision on one packet, in the operator's own terminal.
+
+    The row overrides the model judges for that packet in ``score``. Anything other
+    than a clear pass, or a fail with a severity, is a skip: no row is written.
+    """
+    for line in summary:
+        show(line)
+    answer = ask("[p] pass  [f] fail  [s] skip > ").strip().casefold()
+    if answer not in {"p", "f"}:
+        return None
+    severity = None
+    if answer == "f":
+        for _ in range(3):
+            severity = ask(SEVERITY_PROMPT).strip().upper()
+            if severity in {"S1", "S2", "S3"}:
+                break
+        else:
+            return None
+    return JudgmentRow(
+        batch_id=batch_id,
+        packet_key=packet_key,
+        judge_id="human",
+        model_version=f"human:{labeler}",
+        prompt_sha256=None,
+        seed=None,
+        variant="primary",
+        verdict="pass" if answer == "p" else "fail",
+        failed_checks=[] if answer == "p" else ["human_review"],
+        severity=severity,
+        citations_valid=None,
+    )

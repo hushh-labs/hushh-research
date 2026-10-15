@@ -406,7 +406,10 @@ async def _judge(args) -> int:
             and row.error_code
             and row.error_code not in VERDICT_ERRORS
         }
-        judgments = [row for row in judgments if row.packet_key not in failed]
+        # A person's verdict is not a provider result: it survives the re-judging.
+        judgments = [
+            row for row in judgments if row.packet_key not in failed or row.judge_id == "human"
+        ]
         replace_rows(batch.file("judgments.jsonl"), judgments)
         queue_rows = read_rows(batch.file("queue.jsonl"), QueueRow)
         replace_rows(
@@ -611,6 +614,7 @@ async def _label(args) -> int:
     ]
     append_rows(batch.file("queue.jsonl"), queue)
     if args.interactive:
+        review_packets(batch, queue, packets, judgments, labeler=args.labeler)
         for item in queue:
             if not item.subject.startswith("c"):
                 continue
@@ -638,6 +642,73 @@ async def _label(args) -> int:
 
 def cmd_label(args) -> int:
     return asyncio.run(_label(args))
+
+
+REVIEW_ORDER = {"fail": 0, "unknown": 1, "pass": 2}
+
+
+def packet_review_lines(batch, packet: PacketRow, judgments: list[JudgmentRow]) -> list[str]:
+    """What a person needs to decide one packet: its visible claims, the judges'
+    verdicts and where the members' originals are. Operator terminal only."""
+    assessment = (packet.visible or {}).get("assessment") or {}
+    lines = [
+        f"packet {packet.packet_key}: state {packet.state}",
+        f"  title: {assessment.get('title')!r}",
+        f"  description: {assessment.get('description')!r}",
+        f"  coverage: {assessment.get('coverage_summary')!r}",
+        f"  scope: {packet.temporal_scope}; periods: {packet.periods}; gaps: {packet.gaps_count}",
+    ]
+    for row in judgments:
+        if row.packet_key == packet.packet_key and row.judge_id != "human":
+            lines.append(
+                f"  {row.judge_id}/{row.variant}: {row.verdict} {row.severity or ''} "
+                f"{','.join(row.failed_checks)}".rstrip()
+            )
+    for case_id in packet.selected_case_ids:
+        lines.append(f"  member {case_id}: {batch.path / 'originals' / case_id}")
+    return lines
+
+
+def review_packets(
+    batch,
+    queue: list[QueueRow],
+    packets: dict,
+    judgments: list[JudgmentRow],
+    *,
+    labeler: str,
+    ask=input,
+    show=print,
+) -> int:
+    """Ask a person for a pass / fail on each queued Ready packet: wrong first, then
+    undecided, then passed. A packet a person already decided is not asked again."""
+    from hushh_eval.drive_packets.labels import terminal_verdict
+
+    decided = {row.packet_key for row in judgments if row.judge_id == "human"}
+    consensus = {
+        row.packet_key: row.verdict
+        for row in judgments
+        if row.judge_id in {"consensus", "deterministic"}
+    }
+    keys = [
+        item.subject.removeprefix("packet:") for item in queue if item.subject.startswith("packet:")
+    ]
+    pending = sorted(
+        (key for key in keys if key in packets and key not in decided),
+        key=lambda key: (REVIEW_ORDER.get(consensus.get(key, "unknown"), 1), key),
+    )
+    written = 0
+    for key in pending:
+        row = terminal_verdict(
+            key,
+            packet_review_lines(batch, packets[key], judgments),
+            batch_id=batch.batch_id,
+            labeler=labeler,
+            ask=ask,
+            show=show,
+        )
+        if row is not None:
+            written += append_rows(batch.file("judgments.jsonl"), [row])
+    return written
 
 
 # --- score / report / gate ------------------------------------------------------------

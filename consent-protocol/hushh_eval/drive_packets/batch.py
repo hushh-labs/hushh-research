@@ -461,6 +461,7 @@ def scorecard(batch: Batch) -> dict:
                 "selected": packet.selected_case_ids,
                 "verdict": verdict.verdict if verdict else None,
                 "severity": verdict.severity if verdict else None,
+                "human": packet.packet_key in human,
                 "family_key": families.most_common(1)[0][0] if families else None,
                 "price_cents": packet.price_cents,
                 "price_findings": [],
@@ -505,7 +506,9 @@ def scorecard(batch: Batch) -> dict:
     requests = batch.private_json("requests_scored.json")
     if requests:
         scores += metrics.retrieval(requests, retrievable_fraction=None)
-    ready_keys = {row["packet_key"] for row in packet_rows if row["state"] == "ready"}
+    # A person confirmed the gated unit itself: the one Ready packet per family
+    # that the listing gate counts, not any other Ready packet.
+    gated = next(row for row in scores if row["metric"] == "ready_correct_one_per_family")
     usage = batch.private_json("usage_summary.json", {})
     return {
         "batch_id": batch.batch_id,
@@ -517,7 +520,7 @@ def scorecard(batch: Batch) -> dict:
         "judge_signature": json.dumps(plan.judge, sort_keys=True),
         "files": len(sampled),
         "bars": {"n95": zero_failure_sample_size(0.95), "n999": zero_failure_sample_size(0.999)},
-        "human_confirmed_ready": sum(1 for key in ready_keys if key in human),
+        "human_confirmed_ready": gated["extra"]["human_confirmed"],
         "human_labels": len({row.subject for row in label_rows if row.source == "human"}),
         "scores": scores,
         "packets": {
