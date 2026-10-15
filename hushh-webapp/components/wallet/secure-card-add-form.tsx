@@ -282,7 +282,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             />
           </div>
         </div>
-        <div className={styles.row}>
+        <div className={cn(styles.row, styles.pairedRow)}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
@@ -297,7 +297,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
               {...fieldErrors("expiry_month_invalid", "expiry_year_invalid", "card_expired")}
             />
           </div>
-        </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
             <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
@@ -309,11 +308,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
                 {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
-            {catalogFailed ? <div role="status" className={styles.scanHint}>
-              <p>Network options could not load. Auto-detect is still available.</p>
-              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
-            </div> : null}
           </div>
+        </div>
+        {catalogFailed ? <div role="status" className={styles.scanHint}>
+          <p>Network options could not load. Auto-detect is still available.</p>
+          <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+        </div> : null}
         <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
           <summary>Additional details</summary>
           <div className={styles.fields}>

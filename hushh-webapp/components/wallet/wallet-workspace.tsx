@@ -178,7 +178,7 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
       </div>
 
       <h2 id="one-wallet-empty-title" className="sr-only">
-        All your cards. In one place.
+        All your cards in one place
       </h2>
       <PageTitle
         as="p"
@@ -186,8 +186,7 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
         className="mt-4 max-w-[20rem] text-balance lg:max-w-none lg:whitespace-nowrap"
         data-testid="one-wallet-empty-display-title"
       >
-        <span className="block lg:inline">All your cards.</span>{" "}
-        <span className="block lg:inline">In one place.</span>
+        All your cards in one place
       </PageTitle>
       <div className="mx-auto mt-5 w-full max-w-[244px]">
         <Button

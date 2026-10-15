@@ -517,6 +517,8 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
   test(`Wallet introduction fits image and Continue at ${width}x${height}`, async ({ page }) => {
     const errors = await open(page, width!, "light", { cards: 0 }, { height, shell: true });
     await mount(page, false);
+    await expect(page.getByRole("heading", { name: "All your cards in one place", exact: true })).toBeAttached();
+    await expect(page.getByTestId("one-wallet-empty-display-title")).toHaveText("All your cards in one place");
     await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toHaveCount(0);
     const image = page.getByTestId("one-wallet-empty-art").locator("img");
     await expect(image).toBeVisible();
@@ -657,7 +659,6 @@ for (const width of [320, 393, 1440]) {
     }
     const bounds = await Promise.all([number, holder, expiry].map(field => field.boundingBox()));
     for (const [first, second] of [[0, 2]]) {
-      expect(Math.abs(bounds[first]!.width - bounds[second]!.width)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.height - bounds[second]!.height)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.x - bounds[second]!.x)).toBeLessThan(1);
     }
@@ -674,7 +675,11 @@ for (const width of [320, 393, 1440]) {
     const networkBounds = (await network.boundingBox())!;
     for (const label of ["Expiry (MM/YY)"]) {
       const box = (await form.getByLabel(label, { exact: true }).boundingBox())!;
-      expect(networkBounds.y).toBeGreaterThanOrEqual(box.y + box.height);
+      expect(Math.abs(networkBounds.y - box.y)).toBeLessThan(1);
+      expect(Math.abs(networkBounds.width - box.width)).toBeLessThan(1);
+      expect(Math.abs(networkBounds.height - box.height)).toBeLessThan(1);
+      expect(networkBounds.x).toBeGreaterThanOrEqual(box.x + box.width);
+      expect(networkBounds.y).toBeGreaterThanOrEqual(bounds[1]!.y + bounds[1]!.height);
     }
     await page.getByText("Additional details", { exact: true }).click();
     for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
