@@ -114,7 +114,7 @@ describe("full Calendar workspace with real AG-UI stream handling", () => {
         type: "calendar.connect", accessLevel: "manage", summary: "Allow Calendar scheduling", confirmLabel: "Allow Calendar scheduling",
       } },
     }));
-    const connect = vi.spyOn(connections, "connectCalendarInPlace").mockReturnValue({ surface: "window", result: Promise.resolve("cancelled") } as never);
+    const connect = vi.spyOn(connections, "connectCalendarInPlace").mockReturnValue({ surface: "window", result: Promise.resolve("not_connected") });
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
     workspace();
     fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Book a call" } });
