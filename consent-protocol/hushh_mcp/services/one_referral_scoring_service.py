@@ -402,7 +402,7 @@ _LEADERBOARD_COHORT_SQL = f"""
             ) s ON s.user_id=p.user_id
             WHERE s.total>0 OR EXISTS(SELECT 1 FROM one_referral_relationships r
               WHERE r.referrer_user_id=p.user_id AND {JOINED_REFERRAL_PREDICATE})
-"""
+"""  # nosec B608 # Authored constant predicate; watermark is bound.
 
 
 def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublishResult:
@@ -431,7 +431,7 @@ def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublish
                 ), saved AS (
                   SELECT user_id,cumulative_points AS total,rank FROM one_referral_leaderboard_snapshot_entries WHERE snapshot_id=:sid
                 ) SELECT EXISTS(SELECT * FROM ranked EXCEPT SELECT * FROM saved)
-                      OR EXISTS(SELECT * FROM saved EXCEPT SELECT * FROM ranked)"""),
+                      OR EXISTS(SELECT * FROM saved EXCEPT SELECT * FROM ranked)"""),  # nosec B608 # Fixed cohort SQL; snapshot ID and watermark are bound.
                 {"sid": latest.snapshot_id, "watermark": watermark},
             ).scalar()
         ):
@@ -450,7 +450,7 @@ def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublish
           INSERT INTO one_referral_leaderboard_snapshot_entries(snapshot_id,user_id,cumulative_points,rank)
           SELECT :sid,user_id,total,ROW_NUMBER() OVER(ORDER BY total DESC,earliest,user_id)
           FROM ({_LEADERBOARD_COHORT_SQL}) ranked
-        """),
+        """),  # nosec B608 # Fixed cohort SQL; snapshot ID and watermark are bound.
             {"sid": snapshot.snapshot_id, "watermark": watermark},
         )
         entry_count = inserted.rowcount

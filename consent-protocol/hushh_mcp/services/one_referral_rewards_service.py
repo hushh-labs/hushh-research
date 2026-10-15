@@ -78,7 +78,7 @@ def lifetime_joined_count(connection, user_id: str) -> int:
     row = connection.execute(
         text(f"""SELECT COUNT(DISTINCT r.referred_user_id) AS total
           FROM one_referral_relationships r
-          WHERE r.referrer_user_id=:uid AND {JOINED_REFERRAL_PREDICATE}"""),
+          WHERE r.referrer_user_id=:uid AND {JOINED_REFERRAL_PREDICATE}"""),  # nosec B608 # Authored constant predicate; owner ID is bound.
         {"uid": user_id},
     ).fetchone()
     return int(row.total) if row else 0
