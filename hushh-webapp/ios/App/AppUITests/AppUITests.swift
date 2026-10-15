@@ -4190,7 +4190,14 @@ final class AppUITests: XCTestCase {
                     nested.tap()
                     guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
                     back.tap()
-                    XCTAssertTrue(waitForAdmittedControl(row(title)), "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
+                    let parentRestored = waitForAdmittedControl(row(title))
+                    if !parentRestored {
+                        let kind = title == "Vault methods" ? "vault" : title == "Gemini" ? "gemini" : "voice"
+                        let parent = row(title)
+                        print("PROFILE_NESTED_RETURN kind=\(kind) level=\(publicPaneLevel() ?? -1) row_present=\(parent.exists) row_hittable=\(parent.exists && parent.isHittable)")
+                        printCoherentPresentationAdmission(app)
+                    }
+                    XCTAssertTrue(parentRestored, "PROFILE_BATCH_QUERY_PARENT_NOT_RESTORED")
                 }
             }
             // A returned/direct query entry climbs its authored parents in
