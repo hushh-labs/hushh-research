@@ -326,7 +326,7 @@ export function AgentHistorySidebar({
             <Input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
-              className={cn("h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-medium text-foreground focus-visible:ring-0", isMobileMode && "h-11 text-[13px]")}
+              className={cn("h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-normal text-foreground focus-visible:ring-0", isMobileMode && "h-11 text-[13px]")}
               maxLength={160}
               autoFocus
               disabled={pending}
@@ -522,7 +522,7 @@ export function AgentHistorySidebar({
           <div data-agent-history-header className="relative flex shrink-0 flex-col border-b text-left">
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex min-w-0 items-center gap-2">
-                <h2 data-agent-history-title className="truncate text-[20px] font-bold leading-[23px] tracking-[-0.025em] text-foreground">
+                <h2 data-agent-history-title className="truncate text-[20px] font-semibold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (

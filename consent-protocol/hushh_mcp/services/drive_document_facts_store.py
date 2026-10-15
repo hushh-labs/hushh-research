@@ -88,7 +88,9 @@ class DriveDocumentFactsStore(DriveCollectionStore):
         )
         return active, collection, preference
 
-    def _reconcile_membership_locked(self, connection, *, user_id, generation, revision, policy):
+    def _reconcile_membership_locked(
+        self, connection, *, user_id, generation, revision, policy, document_ids=None
+    ):
         """Replay current complete facts after a late retired-policy writer.
 
         The owner authority lock is already held. Facts stay immutable; their
@@ -101,6 +103,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                 SELECT f.* FROM drive_document_facts f
                 JOIN connected_documents d ON d.document_id=f.document_id AND d.user_id=f.user_id
                 WHERE f.user_id=:user AND f.connection_generation=:generation
+                  AND (:all_documents OR f.document_id=ANY(CAST(:document_ids AS uuid[])))
                   AND f.facts_profile=:policy AND f.extraction_profile=:profile AND f.status='complete'
                   AND d.connection_generation=:generation AND d.source_profile='live'
                   AND d.processing_enabled AND d.collection_revision=:revision AND d.status='ready'
@@ -123,6 +126,8 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                     "revision": revision,
                     "policy": policy,
                     "profile": EXTRACTION_PROFILE,
+                    "all_documents": document_ids is None,
+                    "document_ids": list(document_ids or ()),
                 },
             ).mappings()
         )
@@ -155,6 +160,7 @@ class DriveDocumentFactsStore(DriveCollectionStore):
                 generation=active["connection_generation"],
                 revision=collection["revision"],
                 policy=policy_version,
+                document_ids=targets,
             )
             rows = connection.execute(
                 text("""

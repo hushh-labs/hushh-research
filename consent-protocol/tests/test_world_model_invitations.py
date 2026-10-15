@@ -2,10 +2,11 @@
 
 import os
 import sys
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -13,6 +14,44 @@ from hushh_mcp.services import world_model_invitations as invites
 from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.asyncio
+async def test_public_preview_accepts_previewless_link_without_private_metadata(monkeypatch):
+    previewless_token, previewed_token = "a" * 43, "b" * 43
+    previewed_id = uuid4()
+    selected_preview = {
+        "report": {"sections": [{"kind": "profile", "facts": []}]},
+        "introduction": "Synthetic introduction",
+        "prepared_by": "inviter",
+    }
+    rows = {
+        sha256(previewless_token.encode()).hexdigest(): {
+            "id": uuid4(),
+            "preview_envelope": None,
+            "inviter_user_id": "private-inviter",
+            "contact_commitment": "private-contact-commitment",
+        },
+        sha256(previewed_token.encode()).hexdigest(): {
+            "id": previewed_id,
+            "preview_envelope": invites.seal_preview(
+                previewed_token, previewed_id, selected_preview
+            ),
+        },
+    }
+
+    async def fetchrow(query, token_hash, *, timeout):
+        assert "state='pending'" in query and "expires_at>NOW()" in query
+        assert timeout == 5
+        return rows.get(token_hash)
+
+    monkeypatch.setattr(
+        invites, "get_pool", AsyncMock(return_value=SimpleNamespace(fetchrow=fetchrow))
+    )
+    assert await invites.preview(previewless_token) == {"has_preview": False}
+    assert await invites.preview(previewed_token) == selected_preview
+    with pytest.raises(ValueError, match="Preview unavailable"):
+        await invites.preview("c" * 43)
 
 
 @pytest.mark.asyncio
@@ -148,6 +187,9 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         invitation = await asyncio.wait_for(
             invites.create("inviter", "fixture", "recipient@example.test"), 2
         )
+        assert await invites.preview(invitation["token"]) == {"has_preview": False}
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview("x" * 43)
         invites.owner_identity.return_value = {"email": "wrong@example.test"}
         with pytest.raises(ValueError):
             await invites.claim("wrong", "fixture", invitation["token"])
@@ -162,14 +204,31 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             "draft_id": None,
         }
         assert await invites.claim("recipient", "fixture", invitation["token"]) == result
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(invitation["token"])
         second = await invites.create("inviter", "fixture", "recipient@example.test")
+        selected_preview = {
+            "report": {"sections": [{"kind": "profile", "facts": []}]},
+            "introduction": "Synthetic introduction",
+            "prepared_by": "inviter",
+        }
+        await pool.execute(
+            "UPDATE pwm_claim_invitations SET preview_envelope=$1,preview_version=1 WHERE id=$2",
+            invites.seal_preview(second["token"], UUID(second["id"]), selected_preview),
+            UUID(second["id"]),
+        )
+        assert await invites.preview(second["token"]) == selected_preview
         await invites.revoke("inviter", "fixture", UUID(second["id"]))
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(second["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", second["token"])
         third = await invites.create("inviter", "fixture", "recipient@example.test")
         await pool.execute(
             "UPDATE pwm_claim_invitations SET expires_at=NOW()-INTERVAL '1 day' WHERE state='pending'"
         )
+        with pytest.raises(ValueError, match="Preview unavailable"):
+            await invites.preview(third["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", third["token"])
         await pool.execute("UPDATE vault_keys SET setup_completed=false WHERE user_id='inviter'")
@@ -224,6 +283,42 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
         async with pool.acquire() as conn, conn.transaction():
             await checkpoint_committed(conn, "recipient", state)
         assert await pool.fetchval("SELECT email_state FROM pwm_completion_events") == "accepted"
+        # Only a newly active draft restarts the re-preparation interval.
+        stale = "SELECT auto_started_at<NOW()-INTERVAL '29 days' FROM pwm_research_preferences WHERE user_id='recipient'"
+        await pool.execute(
+            "UPDATE pwm_research_preferences SET auto_started_at=NOW()-INTERVAL '30 days' WHERE user_id='recipient'"
+        )
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(conn, "recipient", state)
+        assert await pool.fetchval(stale) is True
+        async with pool.acquire() as conn, conn.transaction():
+            await checkpoint_committed(
+                conn, "recipient", {**state, "job_id": str(uuid4()), "status": "pending"}
+            )
+        assert await pool.fetchval(stale) is False
+        # Default research enrolls once and never rewrites an existing choice.
+        from hushh_mcp.services import world_model_preferences as research_preferences
+
+        monkeypatch.setattr(research_preferences, "get_pool", AsyncMock(return_value=pool))
+        monkeypatch.setattr(
+            research_preferences,
+            "validate_first_party_owner_token",
+            AsyncMock(return_value=object()),
+        )
+        enrolled = "SELECT * FROM pwm_research_preferences WHERE user_id='wrong'"
+        await research_preferences.enroll_default("wrong", "fixture")
+        row = dict(await pool.fetchrow(enrolled))
+        assert (row["enabled"], row["email_enabled"], row["consent_version"]) == (
+            True,
+            True,
+            "pwm-default-v1",
+        )
+        await pool.execute(
+            "UPDATE pwm_research_preferences SET enabled=false,email_enabled=false WHERE user_id='wrong'"
+        )
+        opted_out = dict(await pool.fetchrow(enrolled))
+        await research_preferences.enroll_default("wrong", "fixture")
+        assert dict(await pool.fetchrow(enrolled)) == opted_out
         await pool.execute("DELETE FROM pwm_research_preferences WHERE user_id='recipient'")
         async with pool.acquire() as conn, conn.transaction():
             with pytest.raises(PermissionError):

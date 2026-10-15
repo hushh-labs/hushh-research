@@ -17,21 +17,33 @@ import {
   type PwmPreferences,
   type PwmResult,
 } from "@/lib/services/world-model-research-service";
+import {
+  WorldModelDecisionService,
+  type PwmOwnerDecisions,
+} from "@/lib/services/world-model-decision-service";
 
 const Context = createContext<{
+  /** False when a page renders outside the app-level provider. */
+  mounted: boolean;
   result: PwmResult | null;
   preferences: PwmPreferences | null;
   failed: boolean;
-  reload: () => void;
+  /** Restarts the reader; pass the switches a preference write just confirmed. */
+  reload: (confirmed?: PwmPreferences) => void;
   refresh: () => void;
 }>({
+  mounted: false,
   result: null,
   preferences: null,
   failed: false,
   reload: () => {},
   refresh: () => {},
 });
-/** One app-level reader. Python owns preparation, confidence and durable state. */
+/**
+ * One app-level reader. Research is on by default: the server enrolls the
+ * owner on ensure and answers consent_required only after an explicit opt-out.
+ * Python owns preparation, confidence and durable state.
+ */
 export function WorldModelProvider({ children }: { children: ReactNode }) {
   const { user, loading, sessionVerificationRequired } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
@@ -97,29 +109,67 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
       signal: controller.signal,
       assertCurrent: guard.assertCurrent,
     };
-    let prefs: PwmPreferences | null = null;
-    const publish = (result: PwmResult | null, failed = false) => {
+    let prefs: PwmPreferences | null = null,
+      latest: PwmResult | null = null,
+      failed = false,
+      preferencesRequested = false;
+    const publish = () => {
       if (guard.isCurrent())
-        setSnapshot({
+        setSnapshot((previous) => ({
           owner,
           key: vaultKey,
           token: vaultOwnerToken,
-          preferences: prefs,
-          result,
+          // A restart for the same owner, key and token (reload after a toggle)
+          // keeps the last known switches until this run reads them again.
+          preferences:
+            prefs ??
+            (previous?.owner === owner &&
+            previous.key === vaultKey &&
+            previous.token === vaultOwnerToken
+              ? previous.preferences
+              : null),
+          result: latest,
           failed,
-        });
+        }));
+    };
+    // Read after ensure, so a first-time owner sees the enrolled row; a failed
+    // run still reads them, so the off switch stays reachable.
+    const readPreferences = () => {
+      if (preferencesRequested) return;
+      preferencesRequested = true;
+      void WorldModelResearchService.preferences(authority)
+        .then((value) => {
+          prefs = value;
+          publish();
+        })
+        .catch(() => undefined);
     };
     void (async () => {
-      prefs = await WorldModelResearchService.preferences(authority);
-      publish(null);
-      if (prefs.enabled)
-        await WorldModelResearchService.observe({
-          ...authority,
-          onResult: publish,
-          refresh: explicitRefresh,
-        });
+      // Past decisions only refine research; an unreadable memory never blocks it.
+      let ownerDecisions: PwmOwnerDecisions | undefined;
+      try {
+        ownerDecisions = WorldModelDecisionService.ownerDecisions(
+          await WorldModelDecisionService.load({ ...authority, userId: owner }),
+        );
+      } catch {
+        if (controller.signal.aborted) return;
+      }
+      await WorldModelResearchService.observe({
+        ...authority,
+        ownerDecisions,
+        refresh: explicitRefresh,
+        onResult: (result) => {
+          latest = result;
+          publish();
+          readPreferences();
+        },
+      });
     })().catch(() => {
-      if (!controller.signal.aborted) publish(null, true);
+      if (controller.signal.aborted) return;
+      latest = null;
+      failed = true;
+      publish();
+      readPreferences();
     });
     return () => controller.abort();
   }, [ready, user, vaultKey, vaultOwnerToken, inSetup, revision]);
@@ -130,11 +180,22 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
     snapshot?.token === vaultOwnerToken;
   const value = useMemo(
     () => ({
+      mounted: true,
       result: valid ? snapshot!.result : null,
       preferences: valid ? snapshot!.preferences : null,
       failed: valid ? snapshot!.failed : false,
-      reload: () => {
+      reload: (confirmed?: PwmPreferences) => {
         refreshIntent.current = null;
+        const state = current.current;
+        if (confirmed && state.ready)
+          setSnapshot((previous) =>
+            previous &&
+            previous.owner === state.owner &&
+            previous.key === state.key &&
+            previous.token === state.token
+              ? { ...previous, preferences: confirmed }
+              : previous,
+          );
         setRevision((value) => value + 1);
       },
       refresh: () => {

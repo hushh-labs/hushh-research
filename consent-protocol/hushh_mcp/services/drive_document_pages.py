@@ -13,6 +13,7 @@ import io
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -35,7 +36,7 @@ else:
         parse_live_document,
     )
 
-EXTRACTION_PROFILE = "drive-pages-v1:pdfplumber-0.11.10:pdfium:tesseract-5-eng"
+EXTRACTION_PROFILE = "drive-pages-v2:pdfplumber-0.11.10:pdfium:tesseract-5-eng:ocr-signal"
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_BATCH_PAGES = 4
 MAX_PAGE_TEXT_BYTES = 64 * 1024
@@ -43,6 +44,15 @@ MAX_RENDER_PIXELS = 12_000_000
 MIN_RENDER_DPI = 150
 RENDER_POLICY_VERSION = "bounded-adaptive-dpi-v1"
 OCR_SECONDS = 12
+MIN_OCR_WORDS = 8
+MIN_OCR_MEAN_WORD_CONFIDENCE = 70
+MIN_OCR_DATE_TOKEN_CONFIDENCE = 80
+OCR_DATE_TOKEN = re.compile(
+    r"(?:\b(?:19|20)\d{2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.](?:\d{2}|\d{4})\b|"
+    r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+    r"Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b)",
+    re.IGNORECASE,
+)
 TESSERACT_BINARY = "/usr/bin/tesseract"
 TESSDATA_FILE = "/usr/share/tesseract-ocr/5/tessdata/eng.traineddata"
 
@@ -178,20 +188,27 @@ def _ocr_page(pdf, number: int) -> tuple[str, dict]:
             raise ParseError("ocr_failed")
         lines: dict[tuple, list[str]] = {}
         confidences = []
+        date_token_confidences = []
         for row in csv.DictReader(io.StringIO(result.stdout.decode("utf-8")), delimiter="\t"):
             word = row.get("text", "").strip()
             if word:
                 key = tuple(row.get(k) for k in ("block_num", "par_num", "line_num"))
                 lines.setdefault(key, []).append(word)
                 confidence = float(row.get("conf", "-1"))
-                if confidence >= 0:
+                if math.isfinite(confidence) and 0 <= confidence <= 100:
                     confidences.append(confidence)
+                    if OCR_DATE_TOKEN.search(word):
+                        date_token_confidences.append(confidence)
         text = "\n".join(" ".join(words) for words in lines.values())
         if not text.strip():
             raise ParseError("ocr_no_text")
         return text, {
             "ocr_mean_word_confidence": round(sum(confidences) / len(confidences), 2)
             if confidences
+            else None,
+            "ocr_word_count": sum(len(words) for words in lines.values()),
+            "ocr_date_token_min_confidence": min(date_token_confidences)
+            if date_token_confidences
             else None,
             "confidence_kind": "ocr_engine_score_not_probability",
             "render_dpi": dpi,
@@ -206,6 +223,29 @@ def _ocr_page(pdf, number: int) -> tuple[str, dict]:
         if bitmap is not None:
             bitmap.close()
         page.close()
+
+
+def _ocr_signal_error(quality: dict) -> str | None:
+    """A legible-looking OCR string is not proof the whole scanned page was read."""
+    words = quality.get("ocr_word_count")
+    score = quality.get("ocr_mean_word_confidence")
+    if type(words) is not int or words < MIN_OCR_WORDS:
+        return "ocr_insufficient_text"
+    if (
+        type(score) not in (int, float)
+        or not math.isfinite(score)
+        or not 0 <= score <= 100
+        or score < MIN_OCR_MEAN_WORD_CONFIDENCE
+    ):
+        return "ocr_low_confidence"
+    date_score = quality.get("ocr_date_token_min_confidence")
+    if date_score is not None and (
+        type(date_score) not in (int, float)
+        or not math.isfinite(date_score)
+        or date_score < MIN_OCR_DATE_TOKEN_CONFIDENCE
+    ):
+        return "ocr_date_token_uncertain"
+    return None
 
 
 def _pdf_pages(content: bytes, start: int, limit: int) -> tuple[list[PageEvidence], int]:
@@ -242,11 +282,14 @@ def _pdf_pages(content: bytes, start: int, limit: int) -> tuple[list[PageEvidenc
                     try:
                         ocr, quality = _ocr_page(raster, number)
                         body = (text + "\n" + ocr).strip() if text.strip() else ocr
+                        signal_error = _ocr_signal_error(quality)
                         extracted.append(
                             _bounded_page(
                                 number,
                                 body,
                                 method="native_text+ocr" if text.strip() else "ocr",
+                                status="partial" if signal_error else "extracted",
+                                error_code=signal_error,
                                 quality=quality,
                             )
                         )

@@ -30,6 +30,7 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  actions: read
   id-token: write
 
 env:
@@ -86,6 +87,7 @@ jobs:
           fetch-depth: 0
           ref: main
 
+
       - name: Assert manual UAT dispatch actor policy
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
 
@@ -126,7 +128,7 @@ jobs:
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 7
     permissions:
       contents: read
       checks: read
@@ -193,6 +195,14 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
+
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
@@ -375,11 +385,11 @@ jobs:
             exit 1
           fi
           if [ "$DEPLOY_BACKEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               --candidate-service consent-protocol \
               --candidate-service consent-protocol-drive-worker
           elif [ "$DEPLOY_FRONTEND" = true ]; then
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
           else
             echo "No resolved UAT deploy scope; refusing capacity admission." >&2
             exit 1
@@ -1056,6 +1066,12 @@ jobs:
           if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}##_WORKOS_REDIRECT_URI=${{ env.APP_FRONTEND_ORIGIN }}/login"
           fi
+          # Every hostname UAT is served on (single source: the passkey alias list), so SSO can
+          # return to the one the person started on.
+          if grep -q '^[[:space:]]*_WORKOS_REDIRECT_ORIGINS:' deploy/backend.cloudbuild.yaml; then
+            WORKOS_ORIGINS="$(python3 -c "import json;print(','.join('https://'+h for h in json.load(open('hushh-webapp/lib/vault/passkey-domain-aliases.json'))['uat']))")"
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_REDIRECT_ORIGINS=${WORKOS_ORIGINS}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -1372,7 +1388,7 @@ jobs:
             echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
             exit 1
           fi
-          python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
             --frontend-only --frontend-revision "$FRONTEND_REVISION"
 
       - name: Verify frontend candidate runs the pinned image digest
@@ -1605,7 +1621,7 @@ jobs:
             if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
               # Recheck the immutable candidate and current frontend template
               # immediately before sending it serving traffic.
-              python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
                 --frontend-only \
                 --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
             fi

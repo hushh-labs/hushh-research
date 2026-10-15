@@ -2,13 +2,18 @@
 
 # ruff: noqa: F811 -- shared disposable database fixtures
 
+import io
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from PIL import Image
 from sqlalchemy import text
 
+from hushh_mcp.services import drive_document_pages
 from hushh_mcp.services.drive_document_page_store import DriveDocumentPageStore
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE, ExtractedPages, PageEvidence
+from hushh_mcp.services.drive_packet_intelligence import EvidenceValidationError, verify_packet
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_ingestion import (  # noqa: F401
     connector_postgres_url,
@@ -19,6 +24,98 @@ from tests.services.test_drive_ingestion import (  # noqa: F401
     lifecycle,
     pick,
 )
+
+
+@pytest.mark.parametrize("word", ["Maybe", "Mayor", "Marching", "Separate"])
+def test_date_token_detector_does_not_match_ordinary_words(word):
+    assert drive_document_pages.OCR_DATE_TOKEN.search(word) is None
+
+
+@pytest.mark.parametrize(
+    ("quality", "expected_error"),
+    [
+        ({"ocr_word_count": 30, "ocr_mean_word_confidence": 60.31}, "ocr_low_confidence"),
+        ({"ocr_word_count": 3, "ocr_mean_word_confidence": 94.0}, "ocr_insufficient_text"),
+        (
+            {
+                "ocr_word_count": 30,
+                "ocr_mean_word_confidence": 94.0,
+                "ocr_date_token_min_confidence": 60.0,
+            },
+            "ocr_date_token_uncertain",
+        ),
+    ],
+)
+def test_weak_scan_text_cannot_be_complete_page_evidence(monkeypatch, quality, expected_error):
+    source = io.BytesIO()
+    Image.new("RGB", (300, 300), "white").save(source, format="PDF")
+    monkeypatch.setattr(
+        drive_document_pages,
+        "_ocr_page",
+        lambda _pdf, _number: ("MONTH & YEAR OF EXAMINATION Nov 2026", quality),
+    )
+    monkeypatch.setattr(drive_document_pages, "engine_versions", lambda: {"test": "1"})
+
+    result = drive_document_pages.extract_pages(source.getvalue(), "application/pdf")
+
+    assert result.complete and result.has_gaps
+    assert result.pages[0].status == "partial"
+    assert result.pages[0].error_code == expected_error
+    assert "Nov 2026" in result.pages[0].text
+
+
+async def test_uncertain_scanned_date_cannot_be_declared_ready(monkeypatch):
+    source = io.BytesIO()
+    Image.new("RGB", (300, 300), "white").save(source, format="PDF")
+    monkeypatch.setattr(
+        drive_document_pages,
+        "_ocr_page",
+        lambda _pdf, _number: (
+            "Published March 2026. Month and year of examination November 2026.",
+            {"ocr_word_count": 30, "ocr_mean_word_confidence": 60.31},
+        ),
+    )
+    monkeypatch.setattr(drive_document_pages, "engine_versions", lambda: {"test": "1"})
+    extracted = drive_document_pages.extract_pages(source.getvalue(), "application/pdf")
+    assert extracted.has_gaps
+    verdict = {
+        "state": "ready",
+        "correct_subject_and_account": True,
+        "correct_issuer_and_type": True,
+        "correct_record_status": True,
+        "correct_standalone_value": True,
+        "correct_coverage": True,
+        "no_unrelated_inclusions": True,
+        "no_unexplained_omissions": True,
+        "issues": [],
+    }
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet={"state": "ready", "selected_document_ids": ["scan"]},
+            documents=[{"document_id": "scan", "complete": not extracted.has_gaps}],
+            complete=not extracted.has_gaps,
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+
+def test_legible_scan_keeps_complete_page_evidence(monkeypatch):
+    source = io.BytesIO()
+    Image.new("RGB", (300, 300), "white").save(source, format="PDF")
+    monkeypatch.setattr(
+        drive_document_pages,
+        "_ocr_page",
+        lambda _pdf, _number: (
+            "MONTH & YEAR OF EXAMINATION Nov 2025",
+            {"ocr_word_count": 30, "ocr_mean_word_confidence": 94.0},
+        ),
+    )
+    monkeypatch.setattr(drive_document_pages, "engine_versions", lambda: {"test": "1"})
+
+    result = drive_document_pages.extract_pages(source.getvalue(), "application/pdf")
+
+    assert result.complete and not result.has_gaps
+    assert result.pages[0].status == "extracted"
 
 
 @pytest.fixture

@@ -27,8 +27,9 @@ export function registerBackLayer(layer: BackLayer): () => void {
   };
 }
 
-export function unwindBackLayer(pathname: string, query?: { get(name: string): string | null } | null): boolean {
+export function unwindBackLayer(pathname: string, query?: { get(name: string): string | null } | null, requiredQuery?: Readonly<Record<string, string>>): boolean {
   const active = matching(pathname, query)
+    .filter(layer => Object.entries(requiredQuery ?? {}).every(([key, value]) => layer.query?.[key] === value))
     .sort((a, b) => b.depth - a.depth || layers.indexOf(b) - layers.indexOf(a));
   for (const layer of active) if (layer.back()) return true;
   return false;

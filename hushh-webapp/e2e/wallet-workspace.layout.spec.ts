@@ -229,7 +229,7 @@ async function open(
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
-    if (/^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(assetPath)) {
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v[12]\.svg$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/svg+xml" });
       return;
     }
@@ -766,7 +766,8 @@ for (const width of [320, 390, 1440]) {
     await expect(detail.getByText(/15 minutes/)).toBeVisible();
     const name = detail.getByRole("heading", { name: "Sample recipient", exact: true });
     await expect(name).toHaveCSS("font-size", "13px");
-    await expect(name).toHaveCSS("font-weight", "500");
+    await expect(name).toHaveCSS("font-weight", "550");
+    await expect(name).toHaveCSS("font-family", /Plus Jakarta Sans/);
     await expect(name).toHaveCSS("font-family", profileFont);
     await expect(detail.getByText("Shared card", { exact: true })).toHaveCSS("font-size", "12px");
     await expect(detail.locator('[data-slot$="-header"] .ui-text-row-description')).toHaveCSS("font-size", "12px");

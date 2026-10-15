@@ -20,7 +20,7 @@ from hushh_mcp.services.drive_document_facts_store import (
 from hushh_mcp.services.drive_document_pages import EXTRACTION_PROFILE
 from hushh_mcp.services.drive_packet_contract import (
     DocumentFacts,
-    PacketAssessment,
+    PacketProposal,
     PacketVerificationProposal,
     evidence_digest,
 )
@@ -532,7 +532,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
         await self._transaction(operation)
 
     async def finalize_packet(self, job, *, assessment, verification):
-        packet = PacketAssessment.model_validate(assessment)
+        packet = PacketProposal.model_validate(assessment)
         checked = PacketVerificationProposal.model_validate(verification)
 
         def operation(connection):
@@ -702,13 +702,21 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 text("""SELECT NOT EXISTS(SELECT 1 FROM drive_packet_members WHERE packet_id=:id)
               OR EXISTS(SELECT 1 FROM drive_packet_version_sources s
               LEFT JOIN connected_documents d ON d.document_id=s.document_id AND d.user_id=:user
+              LEFT JOIN drive_document_facts f ON f.document_id=s.document_id
+                AND f.facts_version=s.facts_version AND f.user_id=:user
               WHERE s.packet_id=:id AND s.version=:version AND (d.document_id IS NULL OR d.source_version<>s.source_version
-                OR d.active_version IS NULL OR d.status<>'ready' OR d.connection_generation<>:generation))"""),
+                OR d.active_version IS NULL OR d.status<>'ready' OR d.connection_generation<>:generation
+                OR f.document_id IS NULL OR f.source_version<>s.source_version
+                OR f.connection_generation<>:generation OR f.extraction_profile<>:profile
+                OR f.extraction_version<>d.active_version OR f.facts_profile<>:policy
+                OR f.status<>'complete' OR f.has_gaps))"""),
                 {
                     "id": row["packet_id"],
                     "version": row["version"],
                     "user": row["user_id"],
                     "generation": row["connection_generation"],
+                    "profile": EXTRACTION_PROFILE,
+                    "policy": policy,
                 },
             ).scalar_one()
         )
@@ -735,12 +743,14 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 AND v.version IS NOT NULL AND v.document_count>0
                 AND EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
                 AND (:after IS NULL OR h.packet_id>CAST(:after AS uuid))
-                AND (:is_owner OR l.enabled) ORDER BY h.packet_id LIMIT :limit"""),
+                AND (:is_owner OR (l.enabled AND v.policy_version=:policy))
+              ORDER BY h.packet_id LIMIT :limit"""),
                     {
                         "owner": owner,
                         "generation": active["connection_generation"],
                         "after": after,
                         "is_owner": user_id == owner,
+                        "policy": policy,
                         "limit": max(1, min(100, limit)) + 1,
                     },
                 ).mappings()
@@ -748,6 +758,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             result = []
             for item in rows[: max(1, min(100, limit))]:
                 row = dict(item)
+                policy_stale = row["policy_version"] != policy
                 current = (
                     not paused
                     and row["version"] is not None
@@ -756,7 +767,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 manifest = self._manifest(row) if row["version"] else None
                 assessment = manifest["assessment"] if manifest else {}
                 key = self._key(row) if user_id == owner else {}
-                gaps = list(assessment.get("gaps", []))
+                gaps = list(assessment.get("gaps", [])) if not policy_stale else []
                 if not current and not gaps:
                     gaps = [
                         "Processing is paused."
@@ -764,15 +775,19 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         else "The private agent is checking current evidence."
                     ]
                 purchasable = bool(current and 0 < (row["document_count"] or 0) <= 120)
-                description = assessment.get("description", key.get("description", ""))
-                if not self._collection_complete(
+                description = (
+                    "Current source evidence is being checked."
+                    if policy_stale
+                    else assessment.get("description", key.get("description", ""))
+                )
+                if not policy_stale and not self._collection_complete(
                     connection, owner, active["connection_generation"], policy
                 ):
                     description = description[:790] + (
                         " Covers only its verified documents and stated span. Other Drive files remain unverified;"
                         " this is not a complete inventory of matching records."
                     )
-                if (row["document_count"] or 0) > 120:
+                if not policy_stale and (row["document_count"] or 0) > 120:
                     description = (
                         description[:930]
                         + " This packet exceeds the current 120-document purchase limit."
@@ -782,23 +797,25 @@ class DrivePacketStore(DriveDocumentFactsStore):
                         "packetId": str(row["packet_id"]),
                         "version": row["version"] or 0,
                         "listingRevision": row["listing_revision"] or 0,
-                        "title": assessment.get("title", key.get("title", "Document packet")),
+                        "title": "Packet being checked"
+                        if policy_stale
+                        else assessment.get("title", key.get("title", "Document packet")),
                         "description": description,
-                        "state": row["state"] or "incomplete",
-                        "coverageSummary": assessment.get(
-                            "coverage_summary", "Evidence is being prepared."
-                        ),
+                        "state": "incomplete" if policy_stale else row["state"],
+                        "coverageSummary": "Coverage is being checked."
+                        if policy_stale
+                        else assessment.get("coverage_summary", "Evidence is being prepared."),
                         "gaps": gaps,
                         "documentCount": row["document_count"] or 0,
                         "verifiedAt": row["verified_at"].isoformat()
-                        if row["verified_at"]
+                        if row["verified_at"] and not policy_stale
                         else None,
                         "freshness": "paused" if paused else "current" if current else "stale",
                         "assessmentScore": assessment.get("assessment_score"),
                         "importance": assessment.get("importance"),
                         "suggestedPriceCents": row["suggested_price_cents"],
                         "priceCents": row["listing_price"] or row["suggested_price_cents"],
-                        "listingEnabled": bool(row["listing_enabled"]),
+                        "listingEnabled": bool(row["listing_enabled"] and not policy_stale),
                         "canRequest": bool(
                             purchasable and row["listing_enabled"] and user_id != owner
                         ),

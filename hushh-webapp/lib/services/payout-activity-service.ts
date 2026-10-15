@@ -265,7 +265,11 @@ function invalidReceipt(field: string): PayoutContractError {
   return new PayoutContractError("Invalid payout receipt", field);
 }
 
-export function parsePayoutActivityPage(body: unknown, query: PayoutActivityQuery): PayoutActivityPage {
+export function parsePayoutActivityPage(
+  body: unknown,
+  query: PayoutActivityQuery,
+  options: { sourceRead?: boolean } = {},
+): PayoutActivityPage {
   if (!isRecord(body)) throw invalidPage("activity");
   // A new schema is a breaking change this build cannot read.
   if (body.schemaVersion !== 1) throw invalidPage("schemaVersion");
@@ -285,10 +289,25 @@ export function parsePayoutActivityPage(body: unknown, query: PayoutActivityQuer
   const items: PayoutActivityItem[] = [];
   for (const value of body.items) {
     const item = activityItem(value, query.mode, query.kind);
-    if (!item || seen.has(item.id)) continue;
+    if (options.sourceRead) {
+      if (!isRecord(value) || !item || seen.has(item.id) ||
+          value.test !== (query.mode === "test") || !isoDate(value.updatedAt) ||
+          (item.kind !== "earning" && item.amountCents === null) ||
+          ("status" in item && item.status === "unrecognized") ||
+          (item.kind === "redemption" && item.reversalStatus === "unrecognized") ||
+          (item.kind === "deposit" && value.expectedArrivalAt != null &&
+            !isoDate(value.expectedArrivalAt)))
+        throw invalidPage("sourceRead.items");
+    } else if (!item || seen.has(item.id)) continue;
+    if (!item) continue;
     seen.add(item.id);
     items.push(item);
   }
+  if (options.sourceRead &&
+      (items.length !== body.items.length || body.sourceItemCount !== body.items.length ||
+        body.reset === true ||
+        (body.nextCursor !== null && items.length !== query.limit)))
+    throw invalidPage("sourceRead.completeness");
   return { mode: query.mode, kind: query.kind, asOf: body.asOf, balanceCoins: body.balanceCoins, items,
     nextCursor: body.nextCursor as string | null, reset: body.reset === true };
 }
@@ -424,10 +443,14 @@ function activityPath(query: PayoutActivityQuery): string {
 }
 
 export class PayoutActivityService {
-  static async list(vaultOwnerToken: string, query: PayoutActivityQuery): Promise<PayoutActivityPage> {
+  static async list(
+    vaultOwnerToken: string,
+    query: PayoutActivityQuery,
+    options: { sourceRead?: boolean } = {},
+  ): Promise<PayoutActivityPage> {
     const path = activityPath(query);
     const body = await apiJson<unknown>(path, { headers: authHeaders(vaultOwnerToken), cache: "no-store" });
-    return parsePayoutActivityPage(body, query);
+    return parsePayoutActivityPage(body, query, options);
   }
 
   static async item(vaultOwnerToken: string, itemId: string): Promise<PayoutReceipt> {

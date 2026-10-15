@@ -140,7 +140,7 @@ for (const viewport of VIEWPORTS) {
       };
     });
     expect(layout.headingSize).toBe("28px");
-    expect(layout.headingWeight).toBe("700");
+    expect(layout.headingWeight).toBe("600");
     expect(layout.titleSizes).toEqual(["17px", "17px", "17px"]);
     expect(layout.bodySizes).toEqual(["15px", "15px", "15px"]);
     expect(layout.overflow).toBe(false);

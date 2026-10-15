@@ -5,7 +5,7 @@ import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-d
 import { buildWalletCardSvg, createWalletCardImageFile, walletCardImageKey } from "@/lib/wallet/wallet-card-image";
 
 vi.mock("@/lib/services/wallet-card-artwork-service", () => ({
-  loadWalletCardArtwork: vi.fn(async (kind: string) => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8")),
+  loadWalletCardArtwork: vi.fn(async (kind: string) => readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v2.svg`), "utf8")),
 }));
 
 const profile = { ownerId: "owner-a", displayName: "Old display name", cardPayload: { full_name: "Ankit Kumar Singh", username: "ankit.kumar.singh" }, memberSince: "2021-04-14T00:00:00Z", walletId: "wallet-1234abcd", shareUrl: "https://one.hushh.ai/c/profile-test-token", referralUrl: "https://one.hushh.ai/r/referral-test-slug" };
@@ -27,7 +27,8 @@ describe("Wallet card image composition", () => {
     const document = new DOMParser().parseFromString(svg, "image/svg+xml");
     expect(document.querySelector("parsererror")).toBeNull();
     expect(document.querySelector("image")?.getAttribute("href")).toMatch(/^data:image\/png;base64,/);
-    expect(document.querySelector("style")?.textContent).toContain("data:font/ttf;base64,");
+    expect(document.querySelector("style")?.textContent).toContain("data:font/woff2;base64,");
+    expect(document.querySelector("style")?.textContent).toContain("WalletJakarta");
     expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("Ankit Kumar Singh");
     expect(document.querySelector("[data-wallet-identity]")?.textContent).toContain("2021");
     expect(qrPayload(document)).toBe(kind === "profile" ? profile.shareUrl : profile.referralUrl);

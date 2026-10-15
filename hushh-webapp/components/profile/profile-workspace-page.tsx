@@ -110,6 +110,7 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { PersonalWorldModelPage } from "@/components/profile/personal-world-model-page";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
@@ -190,12 +191,12 @@ import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
+  buildProfileWorldModelRoute,
   resolveProfileRouteState,
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
 import {
-  buildProfilePaneCloseHref,
   popProfilePaneLocation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
@@ -598,6 +599,7 @@ function profileRouteRequiresUnlockedVault(
   if (
     panel === "my-data" ||
     panel === "payouts" ||
+    panel === "world-model" ||
     panel === "request-pricing" ||
     panel === "connected-systems" ||
     panel === "connectors" ||
@@ -852,6 +854,23 @@ function ProfilePageContent({
     if (!legacyProfileRedirectHref) return;
     router.replace(legacyProfileRedirectHref, { scroll: false });
   }, [legacyProfileRedirectHref, router]);
+
+  // A pane address naming the model (a deep link, an invitation, a ready
+  // draft) lands on its full page with the claim, handoff or draft it carries.
+  // The pane is outside the provider that prepares the model, so it never
+  // shows it. Only while the pane's URL is live: a closing pane holds its last
+  // location, which must not redirect a second time.
+  const paneWorldModelRedirect =
+    isPanePresentation &&
+    activePanel === "world-model" &&
+    resolveProfilePaneUrlState(searchParams).open;
+  useEffect(() => {
+    if (!paneWorldModelRedirect) return;
+    router.replace(
+      buildProfileWorldModelRoute(searchParams, window.location.hash),
+      { scroll: false },
+    );
+  }, [paneWorldModelRedirect, router, searchParams]);
 
   useEffect(() => {
     if (!supportRouteKind || supportRouteKind === supportKind) return;
@@ -1109,6 +1128,17 @@ function ProfilePageContent({
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
         };
+        if (isPanePresentation && nextLocation.panel === "world-model") {
+          // The model is a full page: the pane sits outside the provider that
+          // prepares it. Leaving the pane's URL closes it; Back returns here.
+          const href = buildProfileWorldModelRoute();
+          if (mode === "push") {
+            router.push(href, { scroll: false });
+          } else {
+            router.replace(href, { scroll: false });
+          }
+          return;
+        }
         if (isPanePresentation) {
           if (mode === "push") {
             pushProfilePaneLocation(pathname, searchParams, nextLocation);
@@ -1879,6 +1909,7 @@ function ProfilePageContent({
       ProfilePanel,
       | "my-data"
       | "payouts"
+      | "world-model"
       | "request-pricing"
       | "connected-systems"
       | "connectors"
@@ -2468,7 +2499,7 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
-        : activePanel === "payouts" || activePanel === "request-pricing"
+        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2479,6 +2510,8 @@ function ProfilePageContent({
       ? [
           activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2512,7 +2545,7 @@ function ProfilePageContent({
           ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
-      activePanel === "payouts" || activePanel === "request-pricing"
+      activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
         ? []
         : activePanel === "gmail"
           ? [
@@ -2559,7 +2592,9 @@ function ProfilePageContent({
     return {
       surfaceDefinition: {
         screenId:
-          activePanel === "request-pricing"
+          activePanel === "world-model"
+            ? "profile_world_model"
+          : activePanel === "request-pricing"
             ? "profile_request_pricing"
             : activePanel
               ? `profile_${activePanel}`
@@ -2567,6 +2602,8 @@ function ProfilePageContent({
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "world-model"
+              ? "Personal World Model"
             : activePanel === "payouts"
               ? "Payouts"
               : activePanel === "request-pricing"
@@ -2842,8 +2879,15 @@ function ProfilePageContent({
         { panel: activePanel, detail: activeDetail },
       );
     } else {
+      // Keep the one-time invitation through unlock; only remove the unlock marker.
+      const claimQuery = activePanel === "world-model" && searchParams.has("claim")
+        ? new URLSearchParams(searchParams.toString())
+        : null;
+      claimQuery?.delete("unlock_vault");
       router.replace(
-        buildProfileRoute({ panel: activePanel, detail: activeDetail }),
+        claimQuery
+          ? `${pathname}?${claimQuery.toString()}`
+          : buildProfileRoute({ panel: activePanel, detail: activeDetail }),
         { scroll: false },
       );
     }
@@ -2869,8 +2913,10 @@ function ProfilePageContent({
     // Stripe returns to Payouts with a short callback marker. Keep that route
     // while the owner unlocks so an expired Connect link can be refreshed.
     const documentPayoutReturn = searchParams.get("documentPayouts");
+    const worldModelClaim = activePanel === "world-model" && searchParams.has("claim");
     if (
       activePanel &&
+      !worldModelClaim &&
       documentPayoutReturn !== "refresh" &&
       documentPayoutReturn !== "done"
     ) {
@@ -4493,6 +4539,24 @@ function ProfilePageContent({
         </div>
       ),
     });
+  } else if (
+    !routeBlockedByVault &&
+    !isPanePresentation &&
+    activePanel === "world-model"
+  ) {
+    // Route only: a pane address naming the model redirects to this page.
+    profileStackEntries.push({
+      key: "panel:world-model",
+      title: "Personal World Model",
+      content: (
+        <div className="space-y-4">
+          <PersonalWorldModelPage
+            embedded
+            onManageDetails={() => openVaultBackedPanel("my-data")}
+          />
+        </div>
+      ),
+    });
   } else if (!routeBlockedByVault && activePanel === "request-pricing") {
     // Opened from another screen (Feed's "Set price"), a save returns there.
     // Without a safe origin, and in the pane, the card confirms inline.
@@ -4877,11 +4941,7 @@ function ProfilePageContent({
                 voiceActionId="route.profile_world_model"
                 voiceLabel="Personal World Model"
                 voicePurpose="Opens your Personal World Model."
-                onClick={() => {
-                  const from = normalizeInternalRouteHref(searchParams.get("from")) ??
-                    (isPanePresentation ? normalizeInternalRouteHref(buildProfilePaneCloseHref(pathname, searchParams)) : null);
-                  router.push(from ? `${ROUTES.PROFILE_WORLD_MODEL}?${new URLSearchParams({ from })}` : ROUTES.PROFILE_WORLD_MODEL);
-                }}
+                onClick={() => openVaultBackedPanel("world-model")}
               />
               <SettingsRow
                 icon={

@@ -382,7 +382,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2388,7 +2388,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding and explicit research consent. Chat does not inject automatic research messages.",
+          "completion_boundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding; public research is disclosed at setup, on by default, and the owner can turn it off. Chat does not inject automatic research messages.",
           "next_route": "/one",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7400,7 +7400,7 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/profile/personal-world-model-page.tsx",
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
           "AppPageHeaderRegion",
@@ -7413,7 +7413,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.world_model",
-          "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Explicit Build starts public research; the owner checks exact statements and sources before saving. Invitation claiming verifies a contact and grants no sharing.",
+          "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares the model automatically; the owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
           "screen": "profile_world_model",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -7458,17 +7458,20 @@
       },
       "voice_action_contract_file": "app/one/profile/world-model/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "profile.world_model.build",
         "profile.world_model.claim",
-        "profile.world_model.discard",
+        "profile.world_model.confirm_fact",
+        "profile.world_model.edit_fact",
         "profile.world_model.email",
         "profile.world_model.invite",
-        "profile.world_model.pause",
+        "profile.world_model.open",
+        "profile.world_model.open_fact",
         "profile.world_model.preview",
         "profile.world_model.refresh",
         "profile.world_model.reject",
+        "profile.world_model.reject_fact",
+        "profile.world_model.remove_fact",
+        "profile.world_model.research",
         "profile.world_model.retry",
-        "profile.world_model.review",
         "profile.world_model.sources"
       ],
       "api_dependencies": [],
@@ -10338,7 +10341,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public invitation preview preserves its token through authentication and vault setup.",
+        "exemption_reason": "Public invitation keeps its claim capability in the browser through authentication and vault setup.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -10346,9 +10349,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.world_model.invite",
-          "purpose": "Review an inviter-prepared public professional preview and continue through verified claiming.",
+          "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
           "screen": "app",
-          "entry_cue": "Review your starting profile, then continue when ready.",
+          "entry_cue": "Check your invitation, then continue when ready.",
           "proactivity": "ambient",
           "primary_action_id": null,
           "happy_path_action_ids": [],
@@ -10395,5 +10398,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9517f63bd5e660dda558468c4e9bde028bb5bd68e855edc4ceeebcd5e5c67328"
+  "content_sha256": "be783b0dcc9f59b7ba34591af0eaa87f151be89742419da70a44536a4e48bf04"
 }

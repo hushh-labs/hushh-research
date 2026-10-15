@@ -136,17 +136,20 @@ export function GuestPreview({
           <OneWelcomeStory headingRef={headingRef} motionEnabled={motionEnabled}>
             <footer className={welcomeStyles.footer}>
               <Button
+                type="button"
                 variant="blue"
                 effect="fill"
                 size="prominent"
-                fullWidth
                 className={welcomeStyles.welcomeCta}
                 onClick={() => moveTo(1)}
               >
                 <span className={welcomeStyles.ctaLabel}>Create your One</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M4 12h15M13 5l7 7-7 7" />
+                </svg>
               </Button>
               {publicLinks && (
-                <nav className={welcomeStyles.links} aria-label="Explore Hussh">
+                <nav className={welcomeStyles.links} aria-label="Explore One">
                   <Link href={ROUTES.RESEARCH} className={welcomeStyles.link}>Research</Link>
                   <Link href={ROUTES.BLOG} className={welcomeStyles.link}>Blog</Link>
                   <Link href={ROUTES.DEVELOPERS} className={welcomeStyles.link}>Developers</Link>

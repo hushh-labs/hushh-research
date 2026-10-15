@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,11 +17,19 @@ export function WorldModelSources({
   vaultKey,
   vaultOwnerToken,
   name: initialName,
+  embedded = false,
+  present = true,
+  backQuery,
+  onSaved,
 }: {
   ownerId: string;
   vaultKey: string;
   vaultOwnerToken: string;
   name: string;
+  embedded?: boolean;
+  present?: boolean;
+  backQuery?: Readonly<Record<string, string>>;
+  onSaved?: () => void;
 }) {
   const [name, setName] = useState(initialName),
     [urls, setUrls] = useState(""),
@@ -91,17 +99,14 @@ export function WorldModelSources({
   }
   return (
     <>
-      <Card preset="compact">
-        <CardHeader className="p-4 pb-2">
-          <CardTitle className="text-sm">Add your own sources</CardTitle>
+      <SettingsGroup title="Add your own sources">
+        <div className="space-y-3 px-4 py-3">
           <HelperText>
             Bring your website or public profiles. Review the supported details
             before saving them.
           </HelperText>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4 pt-0">
           <label className="block space-y-1 text-xs">
-            Your account name
+            <span className="font-semibold">Your account name</span>
             <Input
               aria-label="Your account name"
               value={name}
@@ -110,7 +115,7 @@ export function WorldModelSources({
             />
           </label>
           <label className="block space-y-1 text-xs">
-            Public source links, one per line
+            <span className="font-semibold">Public source links, one per line</span>
             <Textarea
               aria-label="Public source links, one per line"
               value={urls}
@@ -135,8 +140,8 @@ export function WorldModelSources({
             {busy ? "Reading your sources…" : "Prepare details to review"}
           </Button>
           {message && <HelperText role="status">{message}</HelperText>}
-        </CardContent>
-      </Card>
+        </div>
+      </SettingsGroup>
       {result?.status === "offered" && (
         <ProfileResearchCard
           key={result.draft_id}
@@ -147,7 +152,13 @@ export function WorldModelSources({
           vaultOwnerToken={vaultOwnerToken}
           enabled
           pathname={pathname}
-          onSaved={() => setResult(null)}
+          embedded={embedded}
+          present={present}
+          backQuery={backQuery}
+          onSaved={() => {
+            setResult(null);
+            onSaved?.();
+          }}
           onDiscarded={() => setResult(null)}
         />
       )}

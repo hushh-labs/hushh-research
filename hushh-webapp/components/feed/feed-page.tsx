@@ -812,6 +812,13 @@ function FeedPageSession({
         void refresh({ force: true });
         return;
       }
+      if (!dismissalToken) {
+        // A 200 response can mean the row was already gone: the backend only
+        // issues a token when it actually persisted this owner's dismissal.
+        await refresh({ force: true });
+        toast.error("Couldn't confirm removal. Try again.");
+        return;
+      }
       const groupIds = [
         ...(data?.items ?? []),
         ...pagination.additionalItems,
@@ -827,12 +834,12 @@ function FeedPageSession({
       dispatchFeedStateChanged("action");
       void refresh({ force: true });
       const undoEpoch = undoEpochRef.current;
-      const toastId = toast.success("Removed from Feed", dismissalToken ? {
+      const toastId = toast.success("Removed from Feed", {
         action: { label: "Undo", onClick: () => {
           if (undoEpoch !== undoEpochRef.current) return;
           void restoreItem(item.id, dismissalToken);
         } },
-      } : undefined);
+      });
       if (typeof toastId === "string" || typeof toastId === "number") {
         undoToastIdsRef.current.add(toastId);
       }

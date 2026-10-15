@@ -275,7 +275,7 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     <Sheet open={inviteOpen} onOpenChange={setInviteOpen}><SheetContent side="bottom">
       <SheetHeader><SheetTitle>Bring your people</SheetTitle><SheetDescription>Choose whether to invite someone to One or into your shared circle.</SheetDescription></SheetHeader>
       <div className="space-y-4">
-        <div><p className="font-medium">Join Contacts</p>
+        <div><p className="font-normal">Join Contacts</p>
           {snapshot.circle?.code ? <p className="font-mono tracking-wider" dir="ltr">{snapshot.circle.code}</p> : <p className="text-sm text-muted-foreground">Your circle code is being prepared.</p>}
           <div className="flex gap-2">
             <Button variant="outline" disabled={!snapshot.circle?.code || full} onClick={() => { if (currentOwner()) void actions.copyCode(snapshot.circle!.code); }}>Copy code</Button>

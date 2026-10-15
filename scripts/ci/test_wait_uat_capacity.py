@@ -39,28 +39,25 @@ class FakeClock:
 
 
 class CapacityAdmissionTests(unittest.TestCase):
-    def test_default_wait_survives_full_verified_drain(self) -> None:
+    def test_default_wait_defers_in_five_minutes_without_dispatching_cleanup(self):
         clock = FakeClock()
-        blocked = {"admitted": False, "projected_connections": 844,
-                   "admission_limit": 800}
-        admitted = {"admitted": True, "projected_connections": 774,
-                    "admission_limit": 800}
-
-        def report(*_args):
-            return admitted if clock.now >= 3660 else blocked
-
+        blocked = {
+            "admitted": False,
+            "projected_connections": 844,
+            "admission_limit": 800,
+        }
         with (
-            patch.object(wait, "verify_request") as authority,
-            patch.object(wait, "capacity_report", side_effect=report),
+            patch.object(wait, "verify_request"),
+            patch.object(wait, "capacity_report", return_value=blocked),
             patch.object(wait.time, "monotonic", side_effect=clock.monotonic),
             patch.object(wait.time, "sleep", side_effect=clock.sleep),
             contextlib.redirect_stdout(io.StringIO()),
         ):
-            scope = wait.wait_for_capacity("a" * 40, "auto", "one-chat")
-        self.assertEqual(wait.MAX_WAIT_SECONDS, 90 * 60)
-        self.assertEqual(scope, "backend")
-        self.assertEqual(sum(clock.sleeps), 3660)
-        self.assertEqual(authority.call_count, 2)
+            with self.assertRaises(wait.CapacityDeferred):
+                wait.wait_for_capacity("a" * 40, "auto", "one-chat")
+        self.assertEqual(wait.MAX_WAIT_SECONDS, 300)
+        self.assertEqual(clock.now, 300)
+        self.assertTrue(all(delay <= 60 for delay in clock.sleeps))
 
     def test_candidates_follow_full_scope_and_one_chat_inheritance(self) -> None:
         backend = types.SimpleNamespace(scope="backend", deploy_backend=True, deploy_frontend=False)
@@ -326,86 +323,89 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("queue: max", source)
                 self.assertIn("  wait-capacity:\n", source)
                 self.assertIn("  deploy:\n", source)
-                wait_job = source.split("  wait-capacity:\n", 1)[1].split("  deploy:\n", 1)[0]
+                wait_job = source.split("  wait-capacity:\n", 1)[1].split(
+                    "  deploy:\n", 1
+                )[0]
                 deploy_job = source.split("  deploy:\n", 1)[1]
                 self.assertNotIn("group: deploy-uat", wait_job)
                 self.assertIn("group: deploy-uat", deploy_job)
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
-                self.assertIn("timeout-minutes: 100", wait_job)
+                self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
         full = (ROOT / ".github/workflows/deploy-uat.yml").read_text()
         self.assertIn("inputs.scope == 'frontend' && 'frontend' || 'backend'", full)
         self.assertIn("needs: [select-target, wait-capacity]", full)
-        self.assertLess(full.index("- name: Enforce UAT database connection budget before deployment"),
-                        full.index("- name: Apply UAT DB migrations behind account deletion fence"))
-        budget_gate = full.split("- name: Enforce UAT database connection budget before deployment", 1)[1].split("\n      - name:", 1)[0]
+        self.assertLess(
+            full.index(
+                "- name: Enforce UAT database connection budget before deployment"
+            ),
+            full.index("- name: Apply UAT DB migrations behind account deletion fence"),
+        )
+        budget_gate = full.split(
+            "- name: Enforce UAT database connection budget before deployment", 1
+        )[1].split("\n      - name:", 1)[0]
         self.assertIn("--candidate-service consent-protocol", budget_gate)
         self.assertIn("--frontend-only", budget_gate)
         self.assertNotIn("--no-candidates", budget_gate)
-        candidate_sql_check = full.split("- name: Verify frontend-only candidate has no SQL binding before smoke", 1)[1].split("\n      - name:", 1)[0]
-        self.assertIn("steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'", candidate_sql_check)
-        self.assertIn('--frontend-only --frontend-revision "$FRONTEND_REVISION"', candidate_sql_check)
-        self.assertLess(full.index("- name: Resolve deployed candidate revisions"),
-            full.index("- name: Verify frontend-only candidate has no SQL binding before smoke"))
-        self.assertLess(full.index("- name: Verify frontend-only candidate has no SQL binding before smoke"),
-                        full.index("- name: Resolve zero-traffic frontend analytics candidate"))
-        promotion = full.split("- name: Promote deployed revisions to UAT traffic", 1)[1].split("\n      - name:", 1)[0]
+        candidate_sql_check = full.split(
+            "- name: Verify frontend-only candidate has no SQL binding before smoke", 1
+        )[1].split("\n      - name:", 1)[0]
+        self.assertIn(
+            "steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'",
+            candidate_sql_check,
+        )
+        self.assertIn(
+            '--frontend-only --frontend-revision "$FRONTEND_REVISION"',
+            candidate_sql_check,
+        )
+        self.assertLess(
+            full.index("- name: Resolve deployed candidate revisions"),
+            full.index(
+                "- name: Verify frontend-only candidate has no SQL binding before smoke"
+            ),
+        )
+        self.assertLess(
+            full.index(
+                "- name: Verify frontend-only candidate has no SQL binding before smoke"
+            ),
+            full.index("- name: Resolve zero-traffic frontend analytics candidate"),
+        )
+        promotion = full.split("- name: Promote deployed revisions to UAT traffic", 1)[
+            1
+        ].split("\n      - name:", 1)[0]
         self.assertIn("--frontend-only", promotion)
-        self.assertIn('--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"', promotion)
-        self.assertLess(promotion.index("--frontend-only"),
-                        promotion.index('gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'))
+        self.assertIn(
+            '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"',
+            promotion,
+        )
+        self.assertLess(
+            promotion.index("--frontend-only"),
+            promotion.index(
+                'gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'
+            ),
+        )
         one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
         self.assertIn("group: uat-release-requests-backend", one_chat)
         self.assertIn("needs: wait-capacity", one_chat)
-        self.assertLess(one_chat.index("- name: Enforce UAT database connection budget"),
-                        one_chat.index("- name: Deploy and verify only the backend service"))
+        self.assertLess(
+            one_chat.index("- name: Enforce UAT database connection budget"),
+            one_chat.index("- name: Deploy and verify only the backend service"),
+        )
 
-    def test_deadline_follow_up_rechecks_under_shared_lock(self) -> None:
+    def test_hourly_cleanup_has_no_waiting_followup(self):
         source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
-        maintenance = source.split("  uat-maintenance:\n", 1)[1].split("  uat-drain-wait:\n", 1)[0]
-        wait_job = source.split("  uat-drain-wait:\n", 1)[1].split("  uat-drain-recheck:\n", 1)[0]
-        recheck = source.split("  uat-drain-recheck:\n", 1)[1].split("  cleanup:\n", 1)[0]
-
-        self.assertIn('cron: "11,26,41,56 * * * *"', source)
-        self.assertIn("verified_source_run_id: ${{ steps.retention.outputs.verified_source_run_id }}", maintenance)
-        self.assertIn("drain_not_before: ${{ steps.retention.outputs.drain_not_before }}", maintenance)
-        self.assertIn("group: deploy-uat", maintenance)
-        self.assertIn("name: uat-retention-state", maintenance)
-        self.assertIn("needs.uat-maintenance.outputs.drain_not_before != ''", wait_job)
-        self.assertIn("permissions: {}", wait_job)
-        self.assertNotIn("group: deploy-uat", wait_job)
-        self.assertIn("group: capacity-uat-drain-wait-${{ github.run_id }}", wait_job)
-        self.assertIn("queue: max", wait_job)
-        self.assertIn("timeout-minutes: 75", wait_job)
-        self.assertIn("DRAIN_NOT_BEFORE + 60 - now", wait_job)
-        self.assertIn('sleep "$wait_seconds"', wait_job)
-
-        self.assertIn("needs: [uat-maintenance, uat-drain-wait]", recheck)
-        self.assertIn("group: deploy-uat", recheck)
-        self.assertIn("queue: max", recheck)
-        self.assertIn("environment:\n      name: uat", recheck)
-        self.assertIn("--verify-source-only", recheck)
-        self.assertIn("steps.source.outputs.cleanup_ready == 'true'", recheck)
-        self.assertIn("steps.source.outputs.cleanup_ready != 'true'", recheck)
-        for step_name in (
-            "Restore this run's first-pass drain evidence",
-            "Authenticate to UAT",
-            "Set up Cloud SDK",
-            "Finish eligible UAT revision cleanup",
-        ):
-            with self.subTest(step=step_name):
-                step = recheck.split(f"- name: {step_name}\n", 1)[1].split("\n      - name:", 1)[0]
-                self.assertIn("if: steps.source.outputs.cleanup_ready == 'true'", step)
-        self.assertIn("actions/download-artifact@v4", recheck)
-        self.assertIn("--release-run-id \"$VERIFIED_SOURCE_RUN_ID\" --apply", recheck)
-        self.assertIn("steps.retention.outputs.cleanup_outcome == 'no_live_source'", recheck)
-        self.assertIn("steps.retention.outputs.cleanup_outcome == 'applied'", recheck)
-        self.assertIn("overwrite: true", recheck)
-        self.assertIn("--phase post-release", recheck)
-        self.assertLess(recheck.index("--verify-source-only"),
-                        recheck.index("name: Authenticate to UAT"))
-        self.assertLess(recheck.index("actions/download-artifact@v4"),
-                        recheck.index("--release-run-id \"$VERIFIED_SOURCE_RUN_ID\" --apply"))
+        clock = (ROOT / ".github/workflows/capacity-maintenance-clock.yml").read_text()
+        # The hourly cadence lives in the clock (GitHub dropped most runs of the
+        # cron this workflow had); it holds no runner while it waits.
+        self.assertIn('cron: "41 * * * *"', clock)
+        self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", clock)
+        self.assertNotIn("schedule:", source.split("\npermissions:", 1)[0])
+        self.assertNotIn("workflow_run:", source)
+        self.assertNotIn("uat-drain-wait:", source)
+        self.assertNotIn("uat-drain-recheck:", source)
+        for group in ("deploy-uat", "deploy-production"):
+            self.assertIn("group: " + group, source)
+        self.assertIn("steps.retention.outputs.checkpoint_ready == 'true'", source)
 
 
 if __name__ == "__main__":

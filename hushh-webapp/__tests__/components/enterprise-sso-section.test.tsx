@@ -36,6 +36,11 @@ vi.mock("@/lib/observability/client", () => ({ trackEvent: vi.fn() }));
 
 import { EnterpriseSsoSection } from "@/components/onboarding/EnterpriseSsoSection";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import {
+  createWorldModelInvitationHandoff,
+  readWorldModelInvitationHandoff,
+  worldModelInvitationHandoffRoute,
+} from "@/lib/world-model/invitation-handoff";
 
 const PENDING_KEY = "hushh.enterprise_sso.pending";
 
@@ -114,7 +119,9 @@ describe("EnterpriseSsoSection", () => {
 
   it("restores the invitation destination to Next search params before signing in", async () => {
     vi.stubEnv("NEXT_PUBLIC_WORKOS_SSO_ENABLED", "true");
-    const resume = "/world-model/invite#claim=recipient-preview-token";
+    const token = "a".repeat(43);
+    const id = createWorldModelInvitationHandoff(token)!;
+    const resume = worldModelInvitationHandoffRoute(id);
     window.sessionStorage.setItem(
       PENDING_KEY,
       JSON.stringify({ state: "expected.state", resume, startedAt: Date.now() }),
@@ -139,6 +146,8 @@ describe("EnterpriseSsoSection", () => {
       render(<EnterpriseSsoSection redirectPath="" />);
       await waitFor(() => expect(mocks.complete).toHaveBeenCalledWith("settlement-1"));
       expect(destinationAtSignIn).toBe(resume);
+      expect(window.location.search).not.toContain(token);
+      expect(readWorldModelInvitationHandoff(id, null)).toBe(token);
       expect(nextSearchParams.has("code")).toBe(false);
       expect(nextSearchParams.has("state")).toBe(false);
       expect(window.history.state).toEqual(nextHistoryState);
