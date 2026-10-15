@@ -2,6 +2,7 @@
 export const ConnectionsService = {
   listConnectionsPage: async ({ query = "" }: { query?: string }) => {
     const people = [
+      { connectionId: "connection-leah", userId: "leah", publicPersonRef: "leah", displayName: "Leah Roy", photoUrl: null, createdAt: null },
       { connectionId: "connection-maya", userId: "maya", publicPersonRef: "maya", displayName: "Maya Rao", photoUrl: null, createdAt: null },
       { connectionId: "connection-arjun", userId: "arjun", publicPersonRef: "arjun", displayName: "Arjun Mehta", photoUrl: null, createdAt: null },
     ];

@@ -166,16 +166,16 @@ test("system Back closes message search before returning from a People thread", 
   expect(await systemBack()).toBe(false);
 });
 
-test("New chat opens a private conversation and sends two distinct emoji selections", async ({ page }) => {
+test("New chat creates a first private conversation and sends two distinct emoji selections", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
   await page.getByRole("button", { name: "New chat", exact: true }).first().click();
   const picker = page.getByRole("dialog", { name: "New chat" });
   await expect(picker).toHaveAttribute("aria-modal", "true");
-  await picker.getByRole("searchbox", { name: "Search connections" }).fill("Maya");
-  await picker.getByRole("button", { name: "Message Maya Rao" }).click();
+  await picker.getByRole("searchbox", { name: "Search connections" }).fill("Leah");
+  await picker.getByRole("button", { name: "Message Leah Roy" }).click();
   await expect(picker).toHaveCount(0);
-  const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+  const composer = page.getByRole("textbox", { name: "Message Leah Roy" });
   await expect(composer).toBeEnabled();
   for (const emoji of ["😀", "🐱"]) {
     await page.getByRole("button", { name: "Choose emoji", exact: true }).click();
