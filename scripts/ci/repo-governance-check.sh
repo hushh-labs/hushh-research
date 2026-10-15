@@ -24,6 +24,7 @@ python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
 python3 scripts/ci/test_pending_uat_retention_state.py
 python3 scripts/ci/test_wait_uat_capacity.py
+python3 scripts/ci/test_uat_capacity_resume.py
 python3 scripts/ci/test_runtime_capacity_budget.py
 python3 scripts/ci/test_verify_passkey_domain_associations.py
 python3 scripts/ci/test_verify_prod_places_readiness.py

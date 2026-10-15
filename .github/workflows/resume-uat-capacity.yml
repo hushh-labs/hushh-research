@@ -1,0 +1,101 @@
+name: Resume Deferred UAT Capacity
+
+on:
+  workflow_run:
+    workflows: [Capacity Maintenance]
+    types: [completed]
+
+concurrency:
+  group: resume-deferred-uat-capacity
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Verify maintenance, original target, and fresh capacity
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    environment:
+      name: uat
+      deployment: false
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+      id-token: write
+    outputs:
+      ready: ${{ steps.inspect.outputs.ready }}
+    steps:
+      - name: Checkout main authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Inspect one-shot resumption without mutation
+        id: inspect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat-capacity-resume.py resume-after-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID" | tee "$RUNNER_TEMP/uat-capacity-resume.txt"
+          if grep -q '^READY:' "$RUNNER_TEMP/uat-capacity-resume.txt"; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  resume:
+    name: Rerun only the original capacity job and its dependents
+    needs: inspect
+    if: needs.inspect.outputs.ready == 'true' && vars.UAT_CAPACITY_AUTO_RESUME_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    environment:
+      name: uat
+      deployment: false
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+      id-token: write
+    steps:
+      - name: Checkout main authority tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate for fresh UAT capacity proof
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Revalidate and resume the exact original capacity job once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAINTENANCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python3 scripts/ci/uat-capacity-resume.py resume-after-maintenance \
+            --maintenance-run-id "$MAINTENANCE_RUN_ID" --apply

@@ -36,7 +36,22 @@ class AdmissionError(RuntimeError):
 
 
 class CapacityDeferred(AdmissionError):
-    """Safe capacity did not become available; only an operator may retry."""
+    """Safe capacity did not become available during this bounded wait."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        resolved_scope: str | None = None,
+        projected_connections: int | None = None,
+        admission_limit: int | None = None,
+        next_eligible_drain_time: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.resolved_scope = resolved_scope
+        self.projected_connections = projected_connections
+        self.admission_limit = admission_limit
+        self.next_eligible_drain_time = next_eligible_drain_time
 
 
 class TransientJobInventoryDrift(AdmissionError):
@@ -55,6 +70,7 @@ def load_script(name: str, filename: str) -> Any:
 
 serving = load_script("uat_capacity_serving", "resolve-cloud-run-serving-state.py")
 scope_tool = load_script("uat_capacity_scope", "resolve-deploy-scope.py")
+resume_tool = load_script("uat_capacity_resume", "uat-capacity-resume.py")
 
 
 def remaining_query_seconds() -> float:
@@ -292,17 +308,31 @@ def _wait_for_capacity(
     started = time.monotonic()
     verify_request(target_sha)
     last_projection = "not yet measured"
+    last_projected: int | None = None
+    last_limit: int | None = None
+    next_eligible_drain_time: str | None = None
+    last_scope: str | None = None
     warned_about_maintenance = False
+
+    def deferred() -> CapacityDeferred:
+        return CapacityDeferred(
+            f"UAT capacity was not admitted (last worst-case projected connection "
+            f"budget: {last_projection}; live SQL sessions were not measured) within "
+            f"{max_wait_seconds}s; retry the same exact SHA and requested scope after verified maintenance",
+            resolved_scope=last_scope,
+            projected_connections=last_projected,
+            admission_limit=last_limit,
+            next_eligible_drain_time=next_eligible_drain_time,
+        )
+
     while True:
         if time.monotonic() - started >= max_wait_seconds:
-            raise CapacityDeferred(
-                f"UAT capacity was not admitted ({last_projection}) within "
-                f"{max_wait_seconds}s; retry the same exact SHA and requested scope after verified maintenance"
-            )
+            raise deferred()
         decision = (
             resolved_scope(target_sha, requested_scope) if mode == "full" else None
         )
         scope_name = decision.scope if decision is not None else "backend"
+        last_scope = scope_name
         frontend_only = (
             mode == "full"
             and decision is not None
@@ -314,11 +344,16 @@ def _wait_for_capacity(
         except TransientJobInventoryDrift as exc:
             report = None
             last_projection = str(exc)
+            last_projected = None
+            last_limit = None
+            next_eligible_drain_time = None
         if report is not None:
             projected, limit = (
                 report["projected_connections"],
                 report["admission_limit"],
             )
+            last_projected, last_limit = projected, limit
+            next_eligible_drain_time = report.get("next_eligible_drain_time")
             last_projection = (
                 f"{projected} incremental frontend SQL connections"
                 if frontend_only
@@ -342,6 +377,9 @@ def _wait_for_capacity(
             except TransientJobInventoryDrift as exc:
                 final_report = None
                 last_projection = str(exc)
+                last_projected = None
+                last_limit = None
+                next_eligible_drain_time = None
             if final_report is not None and final_report["admitted"]:
                 if time.monotonic() - started >= max_wait_seconds:
                     raise AdmissionError(
@@ -365,6 +403,8 @@ def _wait_for_capacity(
                     final_report["projected_connections"],
                     final_report["admission_limit"],
                 )
+                last_projected, last_limit = projected, limit
+                next_eligible_drain_time = final_report.get("next_eligible_drain_time")
                 last_projection = (
                     f"{projected} incremental frontend SQL connections"
                     if frontend_only
@@ -372,13 +412,10 @@ def _wait_for_capacity(
                 )
         remaining = max_wait_seconds - (time.monotonic() - started)
         if remaining <= 0:
-            raise CapacityDeferred(
-                f"UAT capacity was not admitted ({last_projection}) within "
-                f"{max_wait_seconds}s; retry the same exact SHA and requested scope after verified maintenance"
-            )
+            raise deferred()
         if not warned_about_maintenance:
             print(
-                "Capacity Maintenance runs hourly or by governed manual request. "
+                "Capacity Maintenance reconciles retained revisions. "
                 "This observer never dispatches maintenance or authorizes deletion; "
                 "retry the original SHA and scope after verified cleanup.",
                 flush=True,
@@ -420,17 +457,41 @@ def main() -> int:
     parser.add_argument("--requested-scope", default="auto")
     parser.add_argument("--mode", choices=("full", "one-chat"), required=True)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--deferred-receipt", type=Path)
     args = parser.parse_args()
     try:
         scope = wait_for_capacity(args.target_sha, args.requested_scope, args.mode)
     except CapacityDeferred as exc:
         print(f"DEFERRED_CAPACITY: {exc}", file=sys.stderr)
+        if args.mode == "full" and args.deferred_receipt and exc.resolved_scope:
+            try:
+                resume_tool.write_receipt(
+                    "deferred", args.target_sha, args.requested_scope,
+                    args.deferred_receipt, resolved_scope=exc.resolved_scope,
+                    projected_connections=exc.projected_connections,
+                    admission_limit=exc.admission_limit,
+                    next_eligible_drain_time=exc.next_eligible_drain_time,
+                )
+            except (resume_tool.UnsafeResume, OSError):
+                print("UAT capacity deferral receipt could not be written", file=sys.stderr)
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
             with Path(summary).open("a", encoding="utf-8") as output:
                 output.write(
                     f"Capacity deferred for `{args.target_sha}` ({args.requested_scope}). "
-                    "No deployment authorized. Retry the original request after verified cleanup.\n"
+                    "The connection budget is a projected worst-case reservation, "
+                    "not observed live SQL sessions. No deployment authorized. "
+                    "Retry the original request after verified cleanup.\n"
+                )
+                output.write(
+                    f"Last projection: `{exc.projected_connections}/{exc.admission_limit}`. "
+                    if exc.projected_connections is not None and exc.admission_limit is not None
+                    else "Last projection: unavailable during inventory drift. "
+                )
+                output.write(
+                    f"Next eligible drain: `{exc.next_eligible_drain_time}`.\n"
+                    if exc.next_eligible_drain_time
+                    else "Next eligible drain: unavailable from capacity inventory.\n"
                 )
         return 3
     except AdmissionError as exc:
