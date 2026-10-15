@@ -105,6 +105,11 @@ def compact_evidence(document):
         "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
+        # The provider's content digest lets the final checker refuse one
+        # original selected twice, even when the two extractions differ.
+        **(
+            {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
+        ),
     }
 
 

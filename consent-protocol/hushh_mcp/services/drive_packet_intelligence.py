@@ -9,7 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
+from collections import Counter
+from datetime import date
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -29,6 +32,7 @@ from hushh_mcp.services.drive_packet_contract import (
     PacketProposal,
     PacketRequestMatch,
     PacketVerificationProposal,
+    evidence_digest,
     validate_page_citations,
 )
 from hushh_mcp.services.drive_request_package_assessment import _interpret
@@ -37,6 +41,43 @@ MAX_INPUT_BYTES = 160 * 1024
 FACTS_SCHEMA_VERSION = "document-facts-v6-record-status"
 logger = logging.getLogger(__name__)
 MAX_VALIDATION_ATTEMPTS = 2
+MONTHS = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sept", "sep"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ),
+        start=1,
+    )
+    for name in names
+}
+_YEAR = re.compile(r"\b(\d{4})\b")
+_NUMERIC_DATE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b")
+_MONTH_NAME = re.compile(r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\b", re.I)
+# Member keys that identify a row or its extraction, not the document's content.
+MEMBER_IDENTITY_KEYS = frozenset(
+    {
+        "document_id",
+        "source_version",
+        "facts_version",
+        "facts_profile",
+        "extraction_profile",
+        "extraction_version",
+        "complete",
+        "content_digest",
+    }
+)
 
 
 class EvidenceValidationError(ValueError):
@@ -68,6 +109,7 @@ def _validation_code(error):
         "invented packet member": "model_membership_invalid",
         "unaccounted packet member": "model_membership_invalid",
         "invalid packet exclusion": "model_membership_invalid",
+        "duplicate packet member content": "model_membership_invalid",
         "unfinished assembly cannot be ready": "model_readiness_invalid",
         "incomplete evidence cannot verify ready": "model_readiness_invalid",
         "nonready proposal cannot verify ready": "model_readiness_invalid",
@@ -298,6 +340,60 @@ def _require_source_periods(periods, source_periods, *, citations=True):
                 raise ValueError("unsupported content period")
 
 
+def _quoted_dates(quote):
+    """Years and month numbers a quote states; other digits are not dates."""
+    years = {int(match.group(1)) for match in _YEAR.finditer(quote)}
+    months = {MONTHS[match.group(1).casefold()] for match in _MONTH_NAME.finditer(quote)}
+    for match in _NUMERIC_DATE.finditer(quote):
+        first, second, year = (int(part) for part in match.groups())
+        years.add(year + (2000 if year < 70 else 1900) if year < 100 else year)
+        months.update(part for part in (first, second) if 1 <= part <= 12)
+    return years, months
+
+
+def _period_dated(period):
+    endpoints = [date.fromisoformat(period[key]) for key in ("start", "end")]
+    years, months = {item.year for item in endpoints}, {item.month for item in endpoints}
+    for citation in period["citations"]:
+        quoted_years, quoted_months = _quoted_dates(citation["quote"])
+        if quoted_years & years or quoted_months & months:
+            return True
+    return False
+
+
+def _require_dated_periods(periods):
+    """A Ready coverage window needs a quote that states its month or year.
+
+    A period supported only by undated text (a title, an account line) can
+    come from the file's edit date instead of the document. The feedback
+    names the period and what it lacks.
+    """
+    issues = [
+        {"field": "periods", "item": index, "missing": "dated_citation"}
+        for index, period in enumerate(periods)
+        if not _period_dated(period)
+    ]
+    if issues:
+        raise EvidenceValidationError("model_period_invalid", issues=issues[:8])
+
+
+def _member_evidence(document):
+    facts = document.get("facts")
+    if isinstance(facts, dict):
+        return facts
+    return {key: value for key, value in document.items() if key not in MEMBER_IDENTITY_KEYS}
+
+
+def _require_distinct_member_content(documents, selected):
+    """Selected members with one content digest, or identical evidence, are one
+    source. The model keeps one and excludes the other as its duplicate."""
+    members = [item for item in documents if item["document_id"] in selected]
+    digests = Counter(item["content_digest"] for item in members if item.get("content_digest"))
+    evidence = Counter(evidence_digest(_member_evidence(item)) for item in members)
+    if any(count > 1 for count in (*digests.values(), *evidence.values())):
+        raise ValueError("duplicate packet member content")
+
+
 def _requested_packet_copy(selected_facts):
     types = []
     for facts in selected_facts:
@@ -489,6 +585,8 @@ async def construct_packet(
                 result,
                 selected_facts,
             )
+            _require_distinct_member_content(documents, selected)
+            _require_dated_periods([period.model_dump() for period in result.periods])
         if result.state == "ready" and not complete:
             raise ValueError("unfinished assembly cannot be ready")
 
@@ -559,6 +657,8 @@ async def verify_packet(
                 ):
                     raise ValueError("unsupported snapshot scope")
                 _check_requested_event_claims(proposal, selected_facts)
+                _require_distinct_member_content(documents, set(selected))
+                _require_dated_periods([period.model_dump() for period in proposal.periods])
                 if scope_mode == "complete_compact_summary" and not any(
                     facts.get("facts") or facts.get("periods") for facts in selected_facts
                 ):

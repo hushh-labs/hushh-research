@@ -452,13 +452,15 @@ async def test_packet_rejects_period_citations_outside_selected_source_periods(q
 
 async def test_packet_carries_prior_verified_provenance_only_with_exact_membership():
     previous = packet([period()], ["previous"])
-    result = packet([period(), period("Current period")], ["previous", "current"])
+    result = packet([period(), period("Current period Jan 2026")], ["previous", "current"])
     arguments = {
         "user_id": "owner",
         "key": "group",
         "complete": True,
         "previous": previous,
-        "documents": [{"document_id": "current", "facts": {"periods": [period("Current period")]}}],
+        "documents": [
+            {"document_id": "current", "facts": {"periods": [period("Current period Jan 2026")]}}
+        ],
     }
     assert (
         await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
@@ -471,7 +473,7 @@ async def test_packet_carries_prior_verified_provenance_only_with_exact_membersh
 
 async def test_packet_can_replace_prior_copy_with_current_supported_complete_copy():
     previous = packet([period("Earlier copy period")], ["earlier_copy"])
-    result = packet([period("Complete copy period")], ["complete_copy"])
+    result = packet([period("Complete copy period Jan 2026")], ["complete_copy"])
     result["excluded_documents"] = [exclusion("earlier_copy", duplicate_of="complete_copy")]
     interpreter = AsyncMock(return_value=result)
     answer = await construct_packet(
@@ -482,7 +484,7 @@ async def test_packet_can_replace_prior_copy_with_current_supported_complete_cop
         documents=[
             {
                 "document_id": "complete_copy",
-                "facts": {"periods": [period("Complete copy period")]},
+                "facts": {"periods": [period("Complete copy period Jan 2026")]},
             }
         ],
         interpret=interpreter,
@@ -1083,3 +1085,234 @@ def test_legacy_manifest_remains_readable_but_new_ready_proposal_requires_typed_
         PacketProposal.model_validate(legacy)
     with pytest.raises(ValueError):
         PacketProposal.model_validate({**legacy, "temporal_scope": "unknown"})
+
+
+# Runtime Ready guards for two incident classes seen in the read-only Drive
+# eval (the eval package's adversarial cases same-pdf-twice and
+# period-from-modified-date, tracked there as strict expected failures by a
+# known_gap field; drop those two fields once that package lands). The same
+# checks run at both deterministic gates a packet passes before
+# DrivePacketStore.finalize_packet can mark it Ready.
+
+
+def statement_facts(period_quote="Statement period September 1, 2026 to September 30, 2026"):
+    facts = page_facts()
+    facts.pop("pages")
+    facts.update(
+        document_type={
+            "value": "Monthly statement",
+            "citations": [{"page": 1, "quote": "Monthly statement"}],
+        },
+        issuer={"value": "Example Bank", "citations": [{"page": 1, "quote": "Example Bank"}]},
+        account={
+            "value": "Account ending 1122",
+            "citations": [{"page": 1, "quote": "Account ending 1122"}],
+        },
+        periods=[
+            {
+                "start": "2026-09-01",
+                "end": "2026-09-30",
+                "citations": [{"page": 1, "quote": period_quote}],
+            }
+        ],
+        facts=[
+            {
+                "value": "Ending balance $1,000.00",
+                "citations": [{"page": 1, "quote": "Ending balance $1,000.00"}],
+            }
+        ],
+    )
+    return facts
+
+
+def statement_member(document_id, facts=None, **extra):
+    return {
+        "document_id": document_id,
+        "source_version": "7",
+        "complete": True,
+        "facts": facts or statement_facts(),
+        **extra,
+    }
+
+
+def statement_packet(selected, periods):
+    result = packet(periods, selected)
+    result.update(title="Example Bank statements", description="Monthly statements for one account")
+    return result
+
+
+def ready_verdict():
+    return dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+
+
+@pytest.mark.parametrize("signal", ["content_digest", "identical_evidence"])
+async def test_ready_packet_cannot_select_the_same_content_twice(signal):
+    # One original stored twice is one source. The host decides this from the
+    # evidence; the model's confidence cannot make both copies Ready members.
+    copies = [statement_member("copy_a"), statement_member("copy_b")]
+    if signal == "content_digest":
+        for copy in copies:
+            copy["content_digest"] = "a" * 32
+        # A noisier second extraction of the same bytes is still the same original.
+        copies[1]["facts"]["facts"] = []
+    arguments = dict(user_id="owner", key="statements", complete=True, documents=copies)
+    both = statement_packet(["copy_a", "copy_b"], [statement_facts()["periods"][0]])
+    interpreter = AsyncMock(return_value=both)
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await construct_packet(**arguments, interpret=interpreter)
+    assert interpreter.await_count == 2
+
+    # The contract's own answer: keep one copy and exclude the other as its duplicate.
+    deduped = statement_packet(["copy_a"], [statement_facts()["periods"][0]])
+    deduped["excluded_documents"] = [exclusion("copy_b", duplicate_of="copy_a")]
+    answer = await construct_packet(**arguments, interpret=AsyncMock(return_value=deduped))
+    assert answer.state == "ready" and answer.selected_document_ids == ["copy_a"]
+
+
+async def test_distinct_statements_remain_ready_together():
+    october = statement_facts("Statement period October 1, 2026 to October 31, 2026")
+    october["periods"][0].update(start="2026-10-01", end="2026-10-31")
+    october["facts"][0] = {
+        "value": "Ending balance $1,250.00",
+        "citations": [{"page": 1, "quote": "Ending balance $1,250.00"}],
+    }
+    documents = [
+        statement_member("september", content_digest="a" * 32),
+        statement_member("october", october, content_digest="b" * 32),
+    ]
+    result = statement_packet(
+        ["september", "october"], [statement_facts()["periods"][0], october["periods"][0]]
+    )
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=documents,
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.selected_document_ids == ["september", "october"]
+
+
+async def test_final_checker_cannot_verify_the_same_content_twice_as_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    copies = [
+        statement_member("copy_a", content_digest="a" * 32),
+        statement_member("copy_b", content_digest="a" * 32),
+    ]
+    documents = [compact_evidence(copy) for copy in copies]
+    assert [item["content_digest"] for item in documents] == ["a" * 32, "a" * 32]
+    arguments = dict(
+        user_id="owner",
+        documents=documents,
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+    )
+    both = statement_packet(["copy_a", "copy_b"], [statement_facts()["periods"][0]])
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await verify_packet(
+            **arguments, packet=both, interpret=AsyncMock(return_value=ready_verdict())
+        )
+
+    deduped = statement_packet(["copy_a"], [statement_facts()["periods"][0]])
+    deduped["excluded_documents"] = [exclusion("copy_b", duplicate_of="copy_a")]
+    checked = await verify_packet(
+        **arguments, packet=deduped, interpret=AsyncMock(return_value=ready_verdict())
+    )
+    assert checked.state == "ready"
+
+    # Without a provider digest, identical compact evidence is still one source.
+    for item in documents:
+        item.pop("content_digest")
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await verify_packet(
+            **arguments, packet=both, interpret=AsyncMock(return_value=ready_verdict())
+        )
+
+
+@pytest.mark.parametrize(
+    "quote", ["Monthly statement", "Account ending 1122", "Ending balance $2,026.00"]
+)
+async def test_ready_packet_period_needs_a_quote_that_states_its_date(quote):
+    # A period equal to the file's edit month with no dated quote reads a
+    # recent edit as a recent statement. Without a document-derived date the
+    # packet is not Ready, and the retry feedback names what is missing.
+    source = statement_member("trap", statement_facts(quote))
+    arguments = dict(user_id="owner", key="statements", complete=True, documents=[source])
+    result = statement_packet(["trap"], [source["facts"]["periods"][0]])
+    interpreter = AsyncMock(return_value=result)
+    with pytest.raises(EvidenceValidationError) as info:
+        await construct_packet(**arguments, interpret=interpreter)
+    assert info.value.code == "model_period_invalid"
+    assert info.value.issues == [{"field": "periods", "item": 0, "missing": "dated_citation"}]
+    feedback = json.loads(interpreter.await_args.kwargs["prompt"])["validation_feedback"]
+    assert feedback["code"] == "model_period_invalid"
+    assert feedback["issues"] == info.value.issues
+
+    # The honest answer for undated evidence is not Ready, with the gap stated.
+    result.update(state="incomplete", gaps=["Statement period is not stated in the document"])
+    answer = await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
+    assert answer.state == "incomplete" and answer.gaps == result["gaps"]
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Statement period September 1, 2026 to September 30, 2026",
+        "September 2026",
+        "Sept. 2026 statement",
+        "Closing date 09/30/2026",
+        "2026-09-30",
+        "Period ending 30.09.26",
+        "For the month of September",
+        "Tax year 2026",
+    ],
+)
+async def test_ready_packet_period_accepts_a_quote_stating_its_month_or_year(quote):
+    source = statement_member("statement", statement_facts(quote))
+    result = statement_packet(["statement"], [source["facts"]["periods"][0]])
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.periods[0].citations[0].quote == quote
+
+
+async def test_final_checker_cannot_verify_an_undated_period_as_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    arguments = dict(
+        user_id="owner", complete=True, batch_scope={"mode": "complete_compact_summary"}
+    )
+    undated = statement_member("trap", statement_facts("Monthly statement"))
+    proposal = statement_packet(["trap"], [undated["facts"]["periods"][0]])
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            **arguments,
+            packet=proposal,
+            documents=[compact_evidence(undated)],
+            interpret=AsyncMock(return_value=ready_verdict()),
+        )
+
+    dated = statement_member("statement")
+    proposal = statement_packet(["statement"], [dated["facts"]["periods"][0]])
+    checked = await verify_packet(
+        **arguments,
+        packet=proposal,
+        documents=[compact_evidence(dated)],
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"

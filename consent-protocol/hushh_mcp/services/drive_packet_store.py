@@ -381,6 +381,10 @@ class DrivePacketStore(DriveDocumentFactsStore):
                     "extraction_version": row["extraction_version"],
                     "complete": not row["has_gaps"],
                     "facts": self.facts(dict(row)),
+                    # Provider checksum of the original bytes (absent for native
+                    # Google files). The Ready gates use it to spot one file
+                    # selected twice; it is not persisted in the manifest.
+                    "content_digest": self.cipher.open(dict(row)).get("checksum"),
                 }
             )
         return documents
@@ -558,7 +562,8 @@ class DrivePacketStore(DriveDocumentFactsStore):
                             {
                                 key: value
                                 for key, value in document.items()
-                                if key not in {"facts", "complete", "facts_profile"}
+                                if key
+                                not in {"facts", "complete", "facts_profile", "content_digest"}
                             }
                         )
                 if len(documents) < 50:
