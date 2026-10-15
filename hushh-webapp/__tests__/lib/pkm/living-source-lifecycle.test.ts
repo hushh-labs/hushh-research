@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendJournalGapMarkers,
   appendVerifiedLivingSourceChanges,
   MAX_RETAINED_LIVING_SOURCE_CHANGES,
   reconcileLivingSources,
+  type LivingJournalPending,
   type LivingSourceInput,
 } from "@/lib/pkm/living-source-records";
 import { sourceReceipts } from "@/lib/pkm/living-source-receipts";
@@ -83,6 +85,80 @@ it("declares a retention gap when the bounded owner history rolls over", () => {
   expect(history.firstRetainedSequence).toBe(2);
   expect(history.nextSequence).toBe(MAX_RETAINED_LIVING_SOURCE_CHANGES + 2);
   expect(history.truncatedAt).toBe(T1);
+});
+
+const pendingConsent = (count: number | null, historySequence: number): LivingJournalPending => ({
+  version: 1,
+  kinds: { consent: { count, firstOccurredAt: T1, lastOccurredAt: T2, historySequence } },
+});
+const revoked = (input: LivingSourceInput): LivingSourceInput => ({
+  ...input, value: { ...input.value, status: "revoked", active: false },
+});
+
+it("marks committed changes this history did not capture, never the values in between", () => {
+  const before = reconcileLivingSources(null, [consent], ["consent"], [], T1);
+  const history = appendVerifiedLivingSourceChanges(null, null, before);
+  const pendingFrom = history.nextSequence;
+  const after = reconcileLivingSources(before, [revoked(consent)], ["consent"], [], T3);
+  const withLatest = appendVerifiedLivingSourceChanges(history, before, after);
+
+  const marked = appendJournalGapMarkers(withLatest, pendingConsent(3, pendingFrom), ["consent"], T3);
+  expect(marked.changes.map((change) => change.operation)).toEqual(["upsert", "upsert", "gap"]);
+  const marker = marked.changes.at(-1)!;
+  expect(marker).toEqual({
+    sequence: 3, kind: "consent", id: "*", revision: 0, operation: "gap",
+    capturedAt: T3, sourceUpdatedAt: null,
+    value: {
+      reason: "unobserved_changes", committedChanges: 3, verifiedChanges: 1,
+      firstOccurredAt: T1, lastOccurredAt: T2,
+    },
+  });
+  expect(Object.keys(marker.value).sort()).toEqual([
+    "committedChanges", "firstOccurredAt", "lastOccurredAt", "reason", "verifiedChanges",
+  ]);
+  // Every committed change was recorded, or the source was not verified: no marker.
+  expect(appendJournalGapMarkers(withLatest, pendingConsent(1, pendingFrom), ["consent"], T3))
+    .toEqual(withLatest);
+  expect(appendJournalGapMarkers(withLatest, pendingConsent(3, pendingFrom), ["profile"], T3))
+    .toEqual(withLatest);
+  // A journal reset leaves the committed count unknown.
+  expect(appendJournalGapMarkers(withLatest, pendingConsent(null, pendingFrom), ["consent"], T3)
+    .changes.at(-1)?.value).toMatchObject({ reason: "journal_gap", committedChanges: null });
+  // Retention already removed part of the span, so the recorded count is unknown.
+  const trimmed = { ...withLatest, changes: withLatest.changes.slice(1), firstRetainedSequence: 2 };
+  expect(appendJournalGapMarkers(trimmed, pendingConsent(3, 1), ["consent"], T3)
+    .changes.at(-1)?.value).toMatchObject({ committedChanges: 3, verifiedChanges: null });
+});
+
+it("keeps gap markers inside the shared retention cap and renders them as counted, not truncated", () => {
+  const grants = Array.from({ length: MAX_RETAINED_LIVING_SOURCE_CHANGES }, (_, i): LivingSourceInput => ({
+    ...consent, id: `grant-${i}`,
+  }));
+  const full = reconcileLivingSources(null, grants, ["consent"], [], T1);
+  const history = appendVerifiedLivingSourceChanges(null, null, full);
+  expect(history.changes).toHaveLength(MAX_RETAINED_LIVING_SOURCE_CHANGES);
+  expect(history.truncatedAt).toBeNull();
+  const changed = reconcileLivingSources(full, [revoked(grants[0]!), ...grants.slice(1)], ["consent"], [], T2);
+  const next = appendJournalGapMarkers(
+    appendVerifiedLivingSourceChanges(history, full, changed),
+    pendingConsent(3, history.nextSequence), ["consent"], T2,
+  );
+  expect(next.changes).toHaveLength(MAX_RETAINED_LIVING_SOURCE_CHANGES);
+  expect(next.firstRetainedSequence).toBe(3);
+  expect(next.truncatedAt).toBe(T2);
+
+  const render = (observed: typeof next) => collectDomainRows({
+    domain: "one_living_sources", audience: "self",
+    domainData: { _private: { inventory: changed, observed_history: observed } },
+  });
+  const rendered = render(next);
+  const gapRow = rendered.rows.find((row) => row.label.includes("consent:* · gap"));
+  expect(gapRow?.value).toBe("3 changes committed; 1 recorded. Values in between were not seen.");
+  expect(rendered.truncated).toBe(false);
+  // Negative control: a malformed marker cannot vouch for the span it covers.
+  const malformed = { ...next, changes: next.changes.map((change) => change.operation === "gap"
+    ? { ...change, value: { ...change.value, committedChanges: "3" } } : change) };
+  expect(render(malformed).truncated).toBe(true);
 });
 it("does not delete unavailable sources, then tombstones after full verified readback", () => {
   const a = reconcileLivingSources(

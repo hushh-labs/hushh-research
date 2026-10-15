@@ -1,5 +1,6 @@
-/** Owner-only source provenance. These encrypted projections are derived,
- * not another authority and never an agent/shareable export. */
+/** Owner-only source provenance. These encrypted projections are derived, not
+ * another authority, and never shared with another person. Only the bounded,
+ * allowlisted Live Mirror packet reaches the owner's own private agent. */
 export interface LivingSourceInput {
   kind: "profile" | "consent" | "connection" | "curated_oauth_connector" | "document_earning" | "payout_activity" | "document_request_payment";
   id: string;
@@ -83,6 +84,92 @@ export interface LivingSourceHistory {
 }
 
 export const MAX_RETAINED_LIVING_SOURCE_CHANGES = 2_048;
+/** Owner-only lag samples kept per source. */
+export const MAX_LIVING_SOURCE_LAG_SAMPLES = 20;
+
+type LivingSourceKind = LivingSourceInput["kind"];
+/** Canonical kind order for encrypted bookkeeping and gap markers. */
+export const LIVING_SOURCE_KINDS = [
+  "profile", "consent", "connection", "curated_oauth_connector",
+  "document_earning", "payout_activity", "document_request_payment",
+] as const satisfies readonly LivingSourceKind[];
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isTime(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function ownEntry(map: Record<string, unknown>, kind: string): unknown {
+  return Object.hasOwn(map, kind) ? map[kind] : undefined;
+}
+
+/** Missing bookkeeping is an empty list. Anything malformed returns null, and
+ * the caller must then force an authoritative scan of every source. */
+export function parseLivingJournalPending(value: unknown): LivingJournalPending | null {
+  if (value === undefined) return { version: 1, kinds: {} };
+  if (!isPlainRecord(value) || value.version !== 1 || !isPlainRecord(value.kinds)) return null;
+  const known = new Set<string>(LIVING_SOURCE_KINDS);
+  for (const [kind, entry] of Object.entries(value.kinds)) {
+    if (!known.has(kind) || !isPlainRecord(entry) ||
+        !(entry.count === null || isCount(entry.count)) ||
+        !(entry.firstOccurredAt === null || isTime(entry.firstOccurredAt)) ||
+        !(entry.lastOccurredAt === null || isTime(entry.lastOccurredAt)) ||
+        !isCount(entry.historySequence) || entry.historySequence < 1)
+      return null;
+  }
+  const kinds: LivingJournalPending["kinds"] = {};
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const entry = ownEntry(value.kinds, kind) as LivingJournalPendingEntry | undefined;
+    if (entry) kinds[kind] = {
+      count: entry.count,
+      firstOccurredAt: entry.firstOccurredAt,
+      lastOccurredAt: entry.lastOccurredAt,
+      historySequence: entry.historySequence,
+    };
+  }
+  return { version: 1, kinds };
+}
+
+/** Freshness health is advisory: malformed entries are dropped, never trusted. */
+export function parseLivingSourceHealth(value: unknown): LivingSourceHealth {
+  const kinds: LivingSourceHealth["kinds"] = {};
+  if (!isPlainRecord(value) || value.version !== 1 || !isPlainRecord(value.kinds))
+    return { version: 1, kinds };
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const entry = ownEntry(value.kinds, kind);
+    if (!isPlainRecord(entry) || !isTime(entry.lastVerifiedAt) ||
+        !(entry.lastLagMs === null || isCount(entry.lastLagMs)) ||
+        !Array.isArray(entry.lagSamplesMs) || !entry.lagSamplesMs.every(isCount))
+      continue;
+    kinds[kind] = {
+      lastLagMs: entry.lastLagMs,
+      lagSamplesMs: entry.lagSamplesMs.slice(-MAX_LIVING_SOURCE_LAG_SAMPLES),
+      lastVerifiedAt: entry.lastVerifiedAt,
+    };
+  }
+  return { version: 1, kinds };
+}
+
+/** Bounds a retained history to the shared cap. A rollover records its time. */
+function retainLivingSourceChanges(
+  changes: LivingSourceChange[],
+  nextSequence: number,
+  truncatedAt: string | null,
+  rolledOverAt: string,
+): LivingSourceHistory {
+  const overflow = Math.max(0, changes.length - MAX_RETAINED_LIVING_SOURCE_CHANGES);
+  if (overflow) changes.splice(0, overflow);
+  return {
+    changes,
+    nextSequence,
+    firstRetainedSequence: changes[0]?.sequence ?? nextSequence,
+    truncatedAt: overflow ? rolledOverAt : truncatedAt,
+  };
+}
 
 /** Append only changed, verified revisions. Incomplete source scans retain
  * their old records and therefore cannot manufacture a deletion here. */
@@ -113,14 +200,58 @@ export function appendVerifiedLivingSourceChanges(
       value: record.deletedAt ? {} : record.value,
     });
   }
-  const overflow = Math.max(0, changes.length - MAX_RETAINED_LIVING_SOURCE_CHANGES);
-  if (overflow) changes.splice(0, overflow);
-  return {
-    changes,
-    nextSequence,
-    firstRetainedSequence: changes[0]?.sequence ?? nextSequence,
-    truncatedAt: overflow ? inventory.observedAt : previousHistory?.truncatedAt ?? null,
-  };
+  return retainLivingSourceChanges(
+    changes, nextSequence, previousHistory?.truncatedAt ?? null, inventory.observedAt,
+  );
+}
+
+/**
+ * Append one explicit gap marker for each verified kind whose committed hints
+ * outnumber the revisions this history recorded since the hints were first
+ * pending. A marker counts changes; it never invents the values in between.
+ * An unknown count (after a journal reset) is a "journal_gap". When retention
+ * already removed part of that span, the recorded count is unknown (null).
+ */
+export function appendJournalGapMarkers(
+  history: LivingSourceHistory,
+  pending: LivingJournalPending,
+  verifiedKinds: readonly LivingSourceKind[],
+  capturedAt: string,
+): LivingSourceHistory {
+  const verified = new Set(verifiedKinds);
+  const changes = [...history.changes];
+  let nextSequence = history.nextSequence;
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const entry = pending.kinds[kind];
+    if (!entry || !verified.has(kind)) continue;
+    const countable = entry.historySequence >= history.firstRetainedSequence &&
+      entry.historySequence <= history.nextSequence;
+    const verifiedChanges = countable
+      ? history.changes.filter((change) => change.kind === kind &&
+          change.operation !== "gap" && change.sequence >= entry.historySequence).length
+      : null;
+    if (entry.count !== null && verifiedChanges !== null && entry.count <= verifiedChanges)
+      continue;
+    const value: LivingSourceGapValue = {
+      reason: entry.count === null ? "journal_gap" : "unobserved_changes",
+      committedChanges: entry.count,
+      verifiedChanges,
+      firstOccurredAt: entry.firstOccurredAt,
+      lastOccurredAt: entry.lastOccurredAt,
+    };
+    changes.push({
+      sequence: nextSequence++,
+      kind,
+      id: "*",
+      revision: 0,
+      operation: "gap",
+      capturedAt,
+      sourceUpdatedAt: null,
+      value: { ...value },
+    });
+  }
+  if (nextSequence === history.nextSequence) return history;
+  return retainLivingSourceChanges(changes, nextSequence, history.truncatedAt, capturedAt);
 }
 export const DOCUMENT_EARNINGS_FRESHNESS_MS = 5 * 60_000;
 export const PAYOUT_ACTIVITY_FRESHNESS_MS = 5 * 60_000;
@@ -132,6 +263,24 @@ function recentlyVerified(at: string | undefined, now: string, maxAge: number): 
   if (!at) return true; // Legacy inventories gain a timestamp on their next scan.
   const age = Date.parse(now) - Date.parse(at);
   return Number.isFinite(age) && age >= 0 && age <= maxAge;
+}
+const VERIFICATION_WINDOWS = [
+  ["consent", CONSENT_FRESHNESS_MS],
+  ["curated_oauth_connector", CURATED_OAUTH_CONNECTOR_FRESHNESS_MS],
+  ["connection", CONNECTION_FRESHNESS_MS],
+  ["document_earning", DOCUMENT_EARNINGS_FRESHNESS_MS],
+  ["payout_activity", PAYOUT_ACTIVITY_FRESHNESS_MS],
+  ["document_request_payment", DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS],
+] as const;
+/** Sources that keep an inventory from being complete: unavailable in this
+ * read, or last verified outside their freshness window. */
+export function incompleteLivingSourceKinds(
+  inventory: Pick<LivingSourceInventory, "unavailable" | "observedAt" | "verifiedAt">,
+): string[] {
+  const kinds = new Set(inventory.unavailable);
+  for (const [kind, maxAge] of VERIFICATION_WINDOWS)
+    if (!recentlyVerified(inventory.verifiedAt?.[kind], inventory.observedAt, maxAge)) kinds.add(kind);
+  return [...kinds].sort();
 }
 export function reconcileLivingSources(
   previous: LivingSourceInventory | null,
@@ -200,13 +349,7 @@ export function reconcileLivingSources(
     records: [...records.values()].sort((a, b) =>
       `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`),
     ),
-    complete: unavailable.length === 0 &&
-      recentlyVerified(verifiedAt.consent, now, CONSENT_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.curated_oauth_connector, now, CURATED_OAUTH_CONNECTOR_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.connection, now, CONNECTION_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.document_earning, now, DOCUMENT_EARNINGS_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.payout_activity, now, PAYOUT_ACTIVITY_FRESHNESS_MS) &&
-      recentlyVerified(verifiedAt.document_request_payment, now, DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS),
+    complete: incompleteLivingSourceKinds({ unavailable, observedAt: now, verifiedAt }).length === 0,
     unavailable: [...unavailable].sort(),
     observedAt: now,
     verifiedAt,

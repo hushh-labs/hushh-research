@@ -50,9 +50,15 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === m.epoch,
 }));
-import { syncLivingSources } from "@/lib/pkm/living-source-sync";
+import { LivingSourcesIncompleteError, syncLivingSources } from "@/lib/pkm/living-source-sync";
+import { getLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { DocumentRequestPaymentSourceCapacityError } from "@/lib/services/document-request-payment-source-service";
-import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
+import type {
+  LivingJournalPending,
+  LivingSourceHealth,
+  LivingSourceHistory,
+  LivingSourceInventory,
+} from "@/lib/pkm/living-source-records";
 const OWNER = "owner",
   T = "2026-10-11T00:00:00.000Z";
 const params = {
@@ -147,6 +153,40 @@ const requesterPayment = (status: "paid" | "refunded" = "paid") => ({
 let stored: Record<string, unknown>;
 const inventory = () =>
   (stored._private as { inventory: LivingSourceInventory }).inventory;
+type StoredPrivate = Record<string, unknown> & {
+  journal_cursors: { connectors: string; events: string };
+  journal_pending: LivingJournalPending;
+  source_health: LivingSourceHealth;
+  observed_history: LivingSourceHistory;
+};
+const privateData = () => stored._private as StoredPrivate;
+const ALL_JOURNAL_KINDS = ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"];
+const quietConnector = (head = "0") => ({
+  headCursor: head, changed: false, resetRequired: false, pendingCount: 0, firstOccurredAt: null,
+});
+const quietEvents = (head = "0") => ({
+  headCursor: head, changedKinds: [], resetRequired: false, hints: {}, exact: true,
+});
+const exactHints = (head: string, counts: Record<string, number>, at = T) => ({
+  headCursor: head, changedKinds: Object.keys(counts), resetRequired: false, exact: true,
+  hints: Object.fromEntries(Object.entries(counts).map(([kind, count]) =>
+    [kind, { count, firstOccurredAt: at, lastOccurredAt: at }])),
+});
+const collectorCalls = () => ({
+  consent: m.list.mock.calls.length,
+  connection: m.connections.mock.calls.length,
+  connector: m.connectors.mock.calls.length,
+  earnings: m.earnings.mock.calls.length,
+  activity: m.activity.mock.calls.length,
+  payments: m.paymentSnapshot.mock.calls.length,
+});
+type CollectorCalls = ReturnType<typeof collectorCalls>;
+const callsSince = (before: CollectorCalls): CollectorCalls => {
+  const after = collectorCalls();
+  return Object.fromEntries(Object.entries(after).map(([kind, count]) =>
+    [kind, count - before[kind as keyof CollectorCalls]])) as CollectorCalls;
+};
+const emptyConsent = () => ({ source_read_verified: true, user_id: OWNER, items: [], has_more: false });
 beforeEach(() => {
   vi.clearAllMocks();
   m.epoch = 0;
@@ -167,8 +207,8 @@ beforeEach(() => {
     earningsPage(mode));
   m.activity.mockImplementation(async (_token, query) => activityPage(query.mode));
   m.paymentSnapshot.mockResolvedValue([]);
-  m.connectorHead.mockResolvedValue({ headCursor: "0", changed: false, resetRequired: false });
-  m.sourceChanges.mockResolvedValue({ headCursor: "0", changedKinds: [], resetRequired: false });
+  m.connectorHead.mockResolvedValue(quietConnector());
+  m.sourceChanges.mockResolvedValue(quietEvents());
   m.save.mockImplementation(async (p) => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
@@ -179,11 +219,10 @@ beforeEach(() => {
 });
 
 it("commits source and connector cursors with a verified encrypted inventory", async () => {
-  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: true, resetRequired: false });
-  m.sourceChanges.mockResolvedValue({
-    headCursor: "7", changedKinds: ["consent", "document_request_payment"],
-    resetRequired: false,
+  m.connectorHead.mockResolvedValue({
+    headCursor: "4", changed: true, resetRequired: false, pendingCount: 4, firstOccurredAt: T,
   });
+  m.sourceChanges.mockResolvedValue(exactHints("7", { consent: 2, document_request_payment: 1 }));
   await syncLivingSources(params);
   expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
     connectors: "4", events: "7",
@@ -193,8 +232,8 @@ it("commits source and connector cursors with a verified encrypted inventory", a
   expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
   expect(m.sourceChanges).toHaveBeenCalledWith(params.vaultOwnerToken, "0");
 
-  m.connectorHead.mockResolvedValue({ headCursor: "4", changed: false, resetRequired: false });
-  m.sourceChanges.mockResolvedValue({ headCursor: "7", changedKinds: [], resetRequired: false });
+  m.connectorHead.mockResolvedValue(quietConnector("4"));
+  m.sourceChanges.mockResolvedValue(quietEvents("7"));
   await syncLivingSources(params);
   expect(m.connectorHead).toHaveBeenLastCalledWith(params.vaultOwnerToken, "4");
   expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "7");
@@ -202,18 +241,22 @@ it("commits source and connector cursors with a verified encrypted inventory", a
 
 it("replays an uncommitted hint after incomplete source verification", async () => {
   await syncLivingSources(params);
-  m.sourceChanges.mockResolvedValue({
-    headCursor: "8", changedKinds: ["consent"], resetRequired: false,
-  });
+  m.sourceChanges.mockResolvedValue(exactHints("8", { consent: 1 }));
   m.list.mockRejectedValueOnce(new Error("source unavailable"));
   await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
-  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
-    .toBe("0");
-  m.list.mockResolvedValue({ source_read_verified: true, user_id: OWNER, items: [], has_more: false });
+  // The cursor moves past the hint only in the same encrypted write that keeps
+  // its unverified source pending, so the hint is never lost.
+  expect(privateData().journal_cursors.events).toBe("8");
+  expect(privateData().journal_pending.kinds).toEqual({
+    consent: { count: 1, firstOccurredAt: T, lastOccurredAt: T, historySequence: expect.any(Number) },
+  });
+  m.list.mockResolvedValue(emptyConsent());
+  m.sourceChanges.mockResolvedValue(quietEvents("8"));
+  const before = collectorCalls();
   await syncLivingSources(params);
-  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "0");
-  expect((stored._private as { journal_cursors: { events: string } }).journal_cursors.events)
-    .toBe("8");
+  expect(m.sourceChanges).toHaveBeenLastCalledWith(params.vaultOwnerToken, "8");
+  expect(callsSince(before).consent).toBeGreaterThan(0);
+  expect(privateData().journal_pending.kinds).toEqual({});
 });
 
 it("rebuilds sources on reset and can checkpoint a reset stream below its old cursor", async () => {
@@ -221,11 +264,11 @@ it("rebuilds sources on reset and can checkpoint a reset stream below its old cu
   (stored._private as Record<string, unknown>).journal_cursors = {
     connectors: "12", events: "12",
   };
-  m.connectorHead.mockResolvedValue({ headCursor: "3", changed: true, resetRequired: true });
+  m.connectorHead.mockResolvedValue({
+    headCursor: "3", changed: true, resetRequired: true, pendingCount: null, firstOccurredAt: null,
+  });
   m.sourceChanges.mockResolvedValue({
-    headCursor: "3",
-    changedKinds: ["profile", "consent", "connection", "document_earning", "payout_activity", "document_request_payment"],
-    resetRequired: true,
+    headCursor: "3", changedKinds: ALL_JOURNAL_KINDS, resetRequired: true, hints: {}, exact: false,
   });
   m.list.mockClear();
   m.paymentSnapshot.mockClear();
@@ -234,6 +277,135 @@ it("rebuilds sources on reset and can checkpoint a reset stream below its old cu
   expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
   expect((stored._private as Record<string, unknown>).journal_cursors).toEqual({
     connectors: "3", events: "3",
+  });
+});
+
+it("repairs an in-range journal gap by full rescan without trusting hints", async () => {
+  // Every source is verified, so only the reset can make it read again.
+  const atCursor4 = async () => {
+    stored = {};
+    m.connectorHead.mockResolvedValue(quietConnector());
+    m.sourceChanges.mockResolvedValue(quietEvents());
+    await syncLivingSources(params);
+    privateData().journal_cursors = { connectors: "4", events: "4" };
+    m.connectorHead.mockResolvedValue({
+      headCursor: "6", changed: true, resetRequired: true, pendingCount: null, firstOccurredAt: null,
+    });
+    m.sourceChanges.mockResolvedValue({
+      headCursor: "6", changedKinds: ALL_JOURNAL_KINDS, resetRequired: true, hints: {}, exact: false,
+    });
+    return { calls: collectorCalls(), historySequence: privateData().observed_history.nextSequence };
+  };
+
+  const { calls: before } = await atCursor4();
+  await syncLivingSources(params);
+  expect(callsSince(before)).toEqual({
+    consent: 8, connection: 2, connector: 2, earnings: 4, activity: 4, payments: 2,
+  });
+  expect(privateData().journal_cursors).toEqual({ connectors: "6", events: "6" });
+  expect(privateData().journal_pending.kinds).toEqual({});
+  expect(JSON.stringify(inventory().records)).not.toMatch(/historySequence|OccurredAt|committedChanges/);
+
+  // A source that fails the rescan stays pending, with an unknown count, in
+  // the same write that moves the cursor past the reset.
+  const { historySequence } = await atCursor4();
+  m.list.mockRejectedValueOnce(new Error("consent offline"));
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect(privateData().journal_cursors).toEqual({ connectors: "6", events: "6" });
+  expect(privateData().journal_pending.kinds).toEqual({
+    consent: { count: null, firstOccurredAt: null, lastOccurredAt: null, historySequence },
+  });
+
+  // Negative control: an unreadable journal moves neither its cursor nor the list.
+  await atCursor4();
+  m.sourceChanges.mockRejectedValueOnce(new Error("journal offline"));
+  await syncLivingSources(params);
+  expect(privateData().journal_cursors.events).toBe("4");
+  expect(privateData().journal_pending.kinds).toEqual({});
+});
+
+it("a failing source stays pending while healthy sources and cursors advance", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-10-16T00:00:00.000Z"));
+    stored = { _private: { future_field: { kept: true } } };
+    m.sourceChanges.mockResolvedValue(exactHints("8", { consent: 1, connection: 1 }));
+    m.list.mockRejectedValue(new Error("consent offline"));
+    const first = syncLivingSources(params);
+    await expect(first).rejects.toBeInstanceOf(LivingSourcesIncompleteError);
+    await expect(first).rejects.toMatchObject({ failedKinds: ["consent"] });
+    expect(privateData().journal_cursors.events).toBe("8");
+    expect(Object.keys(privateData().journal_pending.kinds)).toEqual(["consent"]);
+    expect(privateData().future_field).toEqual({ kept: true });
+
+    // No new hints: the pending source alone is read again; the verified one
+    // stays inside its window.
+    vi.setSystemTime(new Date("2026-10-16T00:01:00.000Z"));
+    m.sourceChanges.mockResolvedValue(quietEvents("8"));
+    let before = collectorCalls();
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(callsSince(before)).toMatchObject({ consent: 1, connection: 0 });
+    expect(Object.keys(privateData().journal_pending.kinds)).toEqual(["consent"]);
+
+    vi.setSystemTime(new Date("2026-10-16T00:03:00.000Z"));
+    m.list.mockResolvedValue(emptyConsent());
+    before = collectorCalls();
+    await syncLivingSources(params);
+    expect(callsSince(before)).toMatchObject({ consent: 8, connection: 0 });
+    expect(privateData().journal_pending.kinds).toEqual({});
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each([
+  ["missing", undefined, []],
+  ["another tab's", { version: 1, kinds: { consent: {
+    count: 1, firstOccurredAt: T, lastOccurredAt: T, historySequence: 1,
+  } } }, ["consent"]],
+  ["malformed", "bad", ["consent", "connection", "connector", "earnings", "activity", "payments"]],
+] as const)("reads %s pending bookkeeping safely", async (_label, value, rescanned) => {
+  await syncLivingSources(params);
+  const bookkeeping = stored._private as Record<string, unknown>;
+  if (value === undefined) delete bookkeeping.journal_pending;
+  else bookkeeping.journal_pending = value;
+  const before = collectorCalls();
+  await syncLivingSources(params);
+  // Missing bookkeeping is empty. A pending source is read again even though
+  // this tab verified it recently. Malformed bookkeeping cannot say which
+  // hints are unverified, so every source is read again.
+  expect(Object.entries(callsSince(before)).filter(([, count]) => count > 0)
+    .map(([collector]) => collector)).toEqual(rescanned);
+  expect(privateData().journal_pending).toEqual({ version: 1, kinds: {} });
+});
+
+it("rescans a source whose forced read failed instead of reusing its older verification", async () => {
+  await syncLivingSources(params);
+  m.list.mockRejectedValueOnce(new Error("consent offline"));
+  await expect(syncLivingSources({ ...params, forceConsent: true })).rejects.toThrow("incomplete");
+  const before = collectorCalls();
+  await syncLivingSources(params);
+  // The earlier consent verification is still inside its window, but a failed
+  // read after a change signal can never be reported as current.
+  expect(callsSince(before)).toMatchObject({ consent: 8, connection: 0 });
+  expect(inventory().complete).toBe(true);
+});
+
+it.each([
+  [2, ["upsert", "gap"]],
+  [1, ["upsert"]],
+] as const)("stores %i committed profile changes as only what was verified", async (count, operations) => {
+  m.identity.mockResolvedValue(profile("A"));
+  await syncLivingSources(params);
+  m.identity.mockResolvedValue(profile("C"));
+  m.sourceChanges.mockResolvedValue(exactHints("2", { profile: count }));
+  await syncLivingSources(params);
+  const changes = privateData().observed_history.changes.filter((change) => change.kind === "profile");
+  expect(changes.slice(1).map((change) => change.operation)).toEqual(operations);
+  expect(changes.slice(1, 2).map((change) => change.value.name)).toEqual(["C"]);
+  if (count === 2) expect(changes.at(-1)?.value).toEqual({
+    reason: "unobserved_changes", committedChanges: 2, verifiedChanges: 1,
+    firstOccurredAt: T, lastOccurredAt: T,
   });
 });
 it("stores each verified profile correction in the encrypted owner history", async () => {
@@ -315,11 +487,111 @@ it("backs off only a requester payment capacity error for five minutes unless a 
     await expect(syncLivingSources({ ...params, forceDocumentRequestPayments: true }))
       .rejects.toThrow("incomplete");
     expect(m.paymentSnapshot).toHaveBeenCalledTimes(2);
+    // Other failures never get the five-minute capacity window; a failing
+    // source retries after the bounded 60-second delay instead.
     vi.setSystemTime(new Date("2026-10-15T00:06:01.000Z"));
     m.paymentSnapshot.mockRejectedValue(new Error("network"));
     await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
     await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(m.paymentSnapshot).toHaveBeenCalledTimes(3);
+    vi.setSystemTime(new Date("2026-10-15T00:07:02.000Z"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
     expect(m.paymentSnapshot).toHaveBeenCalledTimes(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("bounds retries of a failing source while healthy sources keep their cadence", async () => {
+  vi.useFakeTimers();
+  try {
+    const T0 = Date.parse("2026-10-18T00:00:00.000Z");
+    const at = (offsetMs: number) => vi.setSystemTime(T0 + offsetMs);
+    const receiptPages = async (_token: string, _cursor: string | undefined, mode: "live" | "test") =>
+      earningsPage(mode, mode === "live" ? [earning(1)] : []);
+    at(-6 * 60_000);
+    m.earnings.mockImplementation(receiptPages);
+    await syncLivingSources(params);
+    const receipt = inventory().records.find((record) => record.kind === "document_earning");
+    m.earnings.mockRejectedValue(new Error("offline"));
+    const attempted: boolean[] = [];
+    const connectionsScanned: boolean[] = [];
+    for (const offset of [0, 30_000, 61_000, 120_000, 182_000, 482_000]) {
+      at(offset);
+      const before = collectorCalls();
+      await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+      const calls = callsSince(before);
+      attempted.push(calls.earnings > 0);
+      connectionsScanned.push(calls.connection > 0);
+      // A waiting source stays unavailable and keeps its records.
+      expect(inventory().unavailable).toContain("document_earning");
+      expect(inventory().records.find((record) => record.kind === "document_earning")).toEqual(receipt);
+    }
+    // 60s, 120s and 240s delays, then the five-minute cap.
+    expect(attempted).toEqual([true, false, true, false, true, true]);
+    // The healthy source keeps its own five-minute cadence.
+    expect(connectionsScanned).toEqual([true, false, false, false, false, true]);
+
+    // A new committed hint gets one immediate attempt and stays pending.
+    at(483_000);
+    m.sourceChanges.mockResolvedValue(exactHints("1", { document_earning: 1 }));
+    let before = collectorCalls();
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(callsSince(before).earnings).toBe(1);
+    at(484_000);
+    m.sourceChanges.mockResolvedValue(quietEvents("1"));
+    before = collectorCalls();
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(callsSince(before).earnings).toBe(0);
+    expect(Object.keys(privateData().journal_pending.kinds)).toEqual(["document_earning"]);
+
+    // Success clears the delay: the next failure retries after 60s again.
+    at(782_000);
+    m.earnings.mockImplementation(receiptPages);
+    await syncLivingSources(params);
+    expect(privateData().journal_pending.kinds).toEqual({});
+    m.earnings.mockRejectedValue(new Error("offline"));
+    at(1_083_000);
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    at(1_144_000);
+    before = collectorCalls();
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(callsSince(before).earnings).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("measures commit-to-encrypted-write lag per source for the owner only", async () => {
+  vi.useFakeTimers();
+  try {
+    let now = Date.parse("2026-10-17T00:00:00.000Z");
+    const hintedBefore = (lagMs: number, head: number) => {
+      vi.setSystemTime(now);
+      m.sourceChanges.mockResolvedValue(
+        exactHints(String(head), { consent: 1 }, new Date(now - lagMs).toISOString()));
+    };
+    m.list.mockResolvedValue({ ...emptyConsent(), items: [entry("grant-1")] });
+    hintedBefore(42_000, 1);
+    await syncLivingSources(params);
+    const health = () => privateData().source_health;
+    expect(health()).toEqual({ version: 1, kinds: { consent: {
+      lastLagMs: 42_000, lagSamplesMs: [42_000], lastVerifiedAt: new Date(now).toISOString(),
+    } } });
+    for (let build = 2; build <= 25; build++) {
+      now += 1_000;
+      hintedBefore(42_000, build);
+      await syncLivingSources(params);
+    }
+    expect(health().kinds.consent?.lagSamplesMs).toHaveLength(20);
+    expect(health().kinds.consent?.lagSamplesMs.at(-1)).toBe(42_000);
+    // A commit stamped after the write (clock skew) is not a lag sample.
+    now += 1_000;
+    hintedBefore(-10_000, 26);
+    await syncLivingSources(params);
+    expect(health().kinds.consent?.lastLagMs).toBeNull();
+    expect(health().kinds.consent?.lagSamplesMs).toHaveLength(20);
+    expect(JSON.stringify(health())).not.toMatch(/grant-1|must-not-persist|peer|attr\./);
   } finally {
     vi.useRealTimers();
   }
@@ -621,6 +893,39 @@ it("skips a redundant encrypted write when a verified inventory is unchanged", a
     await syncLivingSources(params);
     expect(stored).toBe(previousStored);
     expect(inventory().observedAt).toBe(observedAt);
+    // The skipped write still verified the profile in this unlocked session.
+    // Reused scans were not verified again, and another vault epoch sees nothing.
+    expect(getLivingSourceSessionVerification(OWNER, 0)).toMatchObject({
+      profile: "2026-10-14T00:01:00.000Z", consent: "2026-10-14T00:00:00.000Z",
+    });
+    expect(getLivingSourceSessionVerification(OWNER, 1)).toEqual({});
+
+    // Pending and health bookkeeping belong to the change check: a repaired
+    // value is written, never skipped as unchanged.
+    const unchangedPlans: boolean[] = [];
+    m.save.mockImplementation(async (p) => {
+      const plan = await p.build({ currentDomainData: stored });
+      unchangedPlans.push(plan.unchanged);
+      await p.beforeEffect();
+      if (!plan.unchanged) stored = plan.domainData;
+      return { success: true };
+    });
+    for (const [field, value] of [
+      ["source_health", { version: 1, kinds: { consent: "bad" } }],
+      ["journal_pending", { version: 1, kinds: {}, stray: true }],
+    ] as const) {
+      (stored._private as Record<string, unknown>)[field] = value;
+      unchangedPlans.length = 0;
+      await syncLivingSources(params);
+      expect(unchangedPlans).toEqual([false]);
+      expect((stored._private as Record<string, unknown>)[field]).toEqual({ version: 1, kinds: {} });
+    }
+
+    // A failed identity read is not a verification.
+    vi.setSystemTime(new Date("2026-10-14T00:02:00.000Z"));
+    m.identity.mockRejectedValueOnce(new Error("identity offline"));
+    await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+    expect(getLivingSourceSessionVerification(OWNER, 0).profile).toBe("2026-10-14T00:01:00.000Z");
   } finally {
     vi.useRealTimers();
   }

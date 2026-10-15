@@ -14,10 +14,13 @@ import {
   isSourceJournalCursor,
   SOURCE_JOURNAL_KINDS,
   SourceJournalService,
-  type SourceJournalKind,
 } from "@/lib/services/source-journal-service";
 import {
+  appendJournalGapMarkers,
   appendVerifiedLivingSourceChanges,
+  incompleteLivingSourceKinds,
+  parseLivingJournalPending,
+  parseLivingSourceHealth,
   reconcileLivingSources,
   DOCUMENT_EARNINGS_FRESHNESS_MS,
   PAYOUT_ACTIVITY_FRESHNESS_MS,
@@ -25,10 +28,15 @@ import {
   CONNECTION_FRESHNESS_MS,
   CONSENT_FRESHNESS_MS,
   CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
+  LIVING_SOURCE_KINDS,
+  MAX_LIVING_SOURCE_LAG_SAMPLES,
+  type LivingJournalPending,
+  type LivingSourceHealth,
   type LivingSourceInput,
   type LivingSourceHistory,
   type LivingSourceInventory,
 } from "@/lib/pkm/living-source-records";
+import { recordLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -64,6 +72,7 @@ type JournalCursors = { connectors: string; events: string };
 
 function readJournalCursors(value: unknown): {
   cursors: JournalCursors;
+  stored: Record<string, unknown>;
   invalidConnectors: boolean;
   invalidEvents: boolean;
 } {
@@ -74,6 +83,7 @@ function readJournalCursors(value: unknown): {
       connectors: isSourceJournalCursor(stored.connectors) ? stored.connectors : "0",
       events: isSourceJournalCursor(stored.events) ? stored.events : "0",
     },
+    stored,
     invalidConnectors: stored.connectors !== undefined && !isSourceJournalCursor(stored.connectors),
     invalidEvents: stored.events !== undefined && !isSourceJournalCursor(stored.events),
   };
@@ -105,6 +115,146 @@ function canReuseVerifiedScan(params: {
   return !params.forced && cached?.epoch === params.epoch &&
     cached.verifiedAt === params.previousAt && age >= 0 &&
     (age < params.maxAge || (cooldownAge >= 0 && cooldownAge < params.maxAge));
+}
+
+type SourceKind = LivingSourceInput["kind"];
+/** Every source except the always-read profile has a scan cache and retries. */
+type RetriedKind = Exclude<SourceKind, "profile">;
+type JournalHintRange = {
+  count: number | null;
+  firstOccurredAt: string | null;
+  lastOccurredAt: string | null;
+};
+const UNKNOWN_HINT: JournalHintRange = { count: null, firstOccurredAt: null, lastOccurredAt: null };
+
+const SCAN_CACHES: Record<RetriedKind, Map<string, CompletedScan>> = {
+  consent: lastConsentScan,
+  connection: lastConnectionScan,
+  curated_oauth_connector: lastCuratedConnectorScan,
+  document_earning: lastDocumentEarningsScan,
+  payout_activity: lastPayoutActivityScan,
+  document_request_payment: lastDocumentRequestPaymentsScan,
+};
+
+/** Thrown after the verified sources were stored, when at least one source
+ * is still unavailable or outside its freshness window. */
+export class LivingSourcesIncompleteError extends Error {
+  readonly failedKinds: string[];
+  constructor(failedKinds: readonly string[]) {
+    super("Source inventory incomplete; retry required");
+    this.name = "LivingSourcesIncompleteError";
+    this.failedKinds = [...failedKinds];
+  }
+}
+
+const RETRY_BASE_MS = 60_000;
+const RETRY_MAX_MS = 5 * 60_000;
+type SourceRetry = { failures: number; lastFailureAt: number };
+/** In-memory retry delays for failing sources, fenced by owner and vault
+ * epoch. Never persisted; a lock or another owner starts clean. */
+const sourceRetries = new Map<string, { epoch: number; kinds: Map<RetriedKind, SourceRetry> }>();
+
+function isRetryDeferred(userId: string, epoch: number, kind: RetriedKind, now: number): boolean {
+  const owner = sourceRetries.get(userId);
+  const retry = owner?.epoch === epoch ? owner.kinds.get(kind) : undefined;
+  if (!retry) return false;
+  const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retry.failures - 1));
+  const elapsed = now - retry.lastFailureAt;
+  return elapsed >= 0 && elapsed < delay;
+}
+
+/** A verified source clears its delay. Consecutive failures double it, from
+ * 60 seconds up to five minutes, while the source stays unavailable. */
+function recordSourceRetries(params: {
+  userId: string;
+  epoch: number;
+  verified: readonly SourceKind[];
+  failed: readonly RetriedKind[];
+  previouslyUnavailable: ReadonlySet<string>;
+  at: number;
+}): void {
+  let owner = sourceRetries.get(params.userId);
+  if (owner?.epoch !== params.epoch) {
+    if (!params.failed.length) {
+      sourceRetries.delete(params.userId);
+      return;
+    }
+    owner = { epoch: params.epoch, kinds: new Map() };
+    sourceRetries.set(params.userId, owner);
+  }
+  for (const kind of params.verified) if (kind !== "profile") owner.kinds.delete(kind);
+  for (const kind of params.failed) {
+    const prior = params.previouslyUnavailable.has(kind) ? owner.kinds.get(kind) : undefined;
+    owner.kinds.set(kind, { failures: (prior?.failures ?? 0) + 1, lastFailureAt: params.at });
+  }
+}
+
+function earlierTime(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Date.parse(b) < Date.parse(a) ? b : a;
+}
+
+function laterTime(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+/** Fold this read's journal hints into the encrypted pending list. Counts add
+ * up unless either is unknown; a kind keeps the history position where it
+ * first became pending. */
+function mergeJournalHints(
+  pending: LivingJournalPending,
+  hints: ReadonlyMap<SourceKind, JournalHintRange>,
+  historySequence: number,
+): LivingJournalPending {
+  const kinds: LivingJournalPending["kinds"] = {};
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const prior = pending.kinds[kind];
+    const hint = hints.get(kind);
+    if (!hint) {
+      if (prior) kinds[kind] = prior;
+      continue;
+    }
+    kinds[kind] = {
+      count: !prior ? hint.count : prior.count === null || hint.count === null ? null
+        : Math.min(Number.MAX_SAFE_INTEGER, prior.count + hint.count),
+      firstOccurredAt: earlierTime(prior?.firstOccurredAt ?? null, hint.firstOccurredAt),
+      lastOccurredAt: laterTime(prior?.lastOccurredAt ?? null, hint.lastOccurredAt),
+      historySequence: prior?.historySequence ?? historySequence,
+    };
+  }
+  return { version: 1, kinds };
+}
+
+/** Owner-only commit-to-encrypted-write lag for each source verified with a
+ * pending hint. A commit time after the write (clock skew) is not a sample. */
+function nextSourceHealth(
+  health: LivingSourceHealth,
+  pending: LivingJournalPending,
+  verified: readonly SourceKind[],
+  storedAt: string,
+): LivingSourceHealth {
+  const kinds: LivingSourceHealth["kinds"] = {};
+  for (const kind of LIVING_SOURCE_KINDS) {
+    const prior = health.kinds[kind];
+    const entry = pending.kinds[kind];
+    if (!entry || !verified.includes(kind)) {
+      if (prior) kinds[kind] = prior;
+      continue;
+    }
+    const lag = entry.firstOccurredAt === null ? NaN
+      : Date.parse(storedAt) - Date.parse(entry.firstOccurredAt);
+    const measured = Number.isSafeInteger(lag) && lag >= 0;
+    kinds[kind] = {
+      lastLagMs: measured ? lag : null,
+      lagSamplesMs: [...(prior?.lagSamplesMs ?? []), ...(measured ? [lag] : [])]
+        .slice(-MAX_LIVING_SOURCE_LAG_SAMPLES),
+      lastVerifiedAt: storedAt,
+    };
+  }
+  return { version: 1, kinds };
 }
 
 /** The owner-vault earnings API uses a stable (createdAt, requestId) keyset.
@@ -434,7 +584,10 @@ export async function syncLivingSources(params: {
   const epoch = snapshotVaultSessionEpoch();
   const readStartedAt = new Date().toISOString();
   let storedSnapshotAt = readStartedAt;
-  let incomplete = false;
+  let incompleteKinds: string[] = [];
+  let verifiedKinds: SourceKind[] = [];
+  let scanFailures: { kind: RetriedKind; counted: boolean }[] = [];
+  let previouslyUnavailable = new Set<string>();
   let earningsScanned = false;
   let payoutActivityScanned = false;
   let documentRequestPaymentsScanned = false;
@@ -450,10 +603,17 @@ export async function syncLivingSources(params: {
   let consentOverflowed = false;
   let documentRequestPaymentOverflowed = false;
   let documentRequestPaymentOverflowCleared = false;
+  const ownerForced: Record<RetriedKind, boolean> = {
+    consent: Boolean(params.forceConsent),
+    connection: Boolean(params.forceConnections),
+    curated_oauth_connector: Boolean(params.forceCuratedConnectors),
+    document_earning: Boolean(params.forceDocumentEarnings),
+    payout_activity: Boolean(params.forcePayoutActivity),
+    document_request_payment: Boolean(params.forceDocumentRequestPayments),
+  };
   const fetchSources = async (
     previous: LivingSourceInventory | undefined,
-    replayKinds: ReadonlySet<SourceJournalKind>,
-    connectorChanged: boolean,
+    journal: { hinted: ReadonlySet<SourceKind>; pending: ReadonlySet<SourceKind> },
   ) => {
     // A coordinator conflict can run build again. Only the final attempt may
     // publish verification and cooldown state.
@@ -475,6 +635,31 @@ export async function syncLivingSources(params: {
     const inputs: LivingSourceInput[] = [];
     const successful: string[] = [];
     const unavailable: string[] = [];
+    const failed: { kind: RetriedKind; counted: boolean }[] = [];
+    // A new journal hint or an owner event gets one immediate attempt. Hints
+    // still pending from earlier reads force a rescan too, but a failing
+    // source waits out its retry delay first.
+    const immediate = (kind: RetriedKind) => ownerForced[kind] || journal.hinted.has(kind);
+    const planScan = (
+      kind: RetriedKind,
+      maxAge: number,
+      rescanUnavailable = false,
+    ): "reuse" | "defer" | "scan" => {
+      if (!rescanUnavailable && canReuseVerifiedScan({
+        userId: params.userId, epoch, observedAt: readStartedAt,
+        previousAt: previous?.verifiedAt?.[kind],
+        maxAge,
+        forced: immediate(kind) || journal.pending.has(kind),
+        cache: SCAN_CACHES[kind],
+      })) return "reuse";
+      return !immediate(kind) && previous?.unavailable?.includes(kind) &&
+        isRetryDeferred(params.userId, epoch, kind, Date.parse(readStartedAt))
+        ? "defer" : "scan";
+    };
+    const scanFailed = (kind: RetriedKind) => {
+      unavailable.push(kind);
+      failed.push({ kind, counted: !immediate(kind) });
+    };
     try {
       const identity = await AccountIdentityService.refreshIdentityForSession(
         params.userId,
@@ -500,17 +685,12 @@ export async function syncLivingSources(params: {
     }
     const overflow = lastConsentOverflow.get(params.userId);
     const overflowAge = overflow ? Date.parse(readStartedAt) - Date.parse(overflow.at) : Infinity;
-    if (!params.forceConsent && !replayKinds.has("consent") && previous?.unavailable?.includes("consent") &&
+    const consentPlan = !immediate("consent") && previous?.unavailable?.includes("consent") &&
         overflow?.epoch === epoch &&
-        overflowAge >= 0 && overflowAge < CONSENT_FRESHNESS_MS) {
-      unavailable.push("consent");
-    } else if (!canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.consent,
-      maxAge: CONSENT_FRESHNESS_MS,
-      forced: params.forceConsent || replayKinds.has("consent"),
-      cache: lastConsentScan,
-    })) try {
+        overflowAge >= 0 && overflowAge < CONSENT_FRESHNESS_MS
+      ? "defer" : planScan("consent", CONSENT_FRESHNESS_MS);
+    if (consentPlan === "defer") unavailable.push("consent");
+    else if (consentPlan === "scan") try {
       const startFence = await ConsentCenterService.sourceFence(
         params.idToken,
         params.userId,
@@ -599,87 +779,68 @@ export async function syncLivingSources(params: {
       consentVerifiedAt = new Date().toISOString();
     } catch (error) {
       consentOverflowed = error instanceof ConsentSourceCapacityError;
-      unavailable.push("consent");
+      scanFailed("consent");
     }
-    if (!canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.connection,
-      maxAge: CONNECTION_FRESHNESS_MS,
-      forced: params.forceConnections || replayKinds.has("connection"),
-      cache: lastConnectionScan,
-    })) {
+    const connectionPlan = planScan("connection", CONNECTION_FRESHNESS_MS);
+    if (connectionPlan === "defer") unavailable.push("connection");
+    else if (connectionPlan === "scan") {
       try {
         inputs.push(...await collectConnections(params));
         successful.push("connection");
         connectionsScanned = true;
         connectionVerifiedAt = new Date().toISOString();
       } catch {
-        unavailable.push("connection");
+        scanFailed("connection");
       }
     }
-    if (!canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.curated_oauth_connector,
-      maxAge: CURATED_OAUTH_CONNECTOR_FRESHNESS_MS,
-      forced: params.forceCuratedConnectors || connectorChanged,
-      cache: lastCuratedConnectorScan,
-    })) {
+    const connectorPlan = planScan("curated_oauth_connector", CURATED_OAUTH_CONNECTOR_FRESHNESS_MS);
+    if (connectorPlan === "defer") unavailable.push("curated_oauth_connector");
+    else if (connectorPlan === "scan") {
       try {
         inputs.push(...await collectConnectorStatuses(params.vaultOwnerToken));
         successful.push("curated_oauth_connector");
         curatedConnectorsScanned = true;
         curatedConnectorsVerifiedAt = new Date().toISOString();
       } catch {
-        unavailable.push("curated_oauth_connector");
+        scanFailed("curated_oauth_connector");
       }
     }
-    if (!canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.document_earning,
-      maxAge: DOCUMENT_EARNINGS_FRESHNESS_MS,
-      forced: params.forceDocumentEarnings || replayKinds.has("document_earning"),
-      cache: lastDocumentEarningsScan,
-    })) {
+    const earningsPlan = planScan("document_earning", DOCUMENT_EARNINGS_FRESHNESS_MS);
+    if (earningsPlan === "defer") unavailable.push("document_earning");
+    else if (earningsPlan === "scan") {
       try {
         inputs.push(...await collectDocumentEarnings(params.vaultOwnerToken));
         successful.push("document_earning");
         earningsScanned = true;
         earningsVerifiedAt = new Date().toISOString();
       } catch {
-        unavailable.push("document_earning");
+        scanFailed("document_earning");
       }
     }
-    if (!canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.payout_activity,
-      maxAge: PAYOUT_ACTIVITY_FRESHNESS_MS,
-      forced: params.forcePayoutActivity || replayKinds.has("payout_activity"),
-      cache: lastPayoutActivityScan,
-    })) {
+    const activityPlan = planScan("payout_activity", PAYOUT_ACTIVITY_FRESHNESS_MS);
+    if (activityPlan === "defer") unavailable.push("payout_activity");
+    else if (activityPlan === "scan") {
       try {
         inputs.push(...await collectPayoutActivity(params.vaultOwnerToken));
         successful.push("payout_activity");
         payoutActivityScanned = true;
         payoutActivityVerifiedAt = new Date().toISOString();
       } catch {
-        unavailable.push("payout_activity");
+        scanFailed("payout_activity");
       }
     }
     const paymentOverflow = lastDocumentRequestPaymentOverflow.get(params.userId);
     const paymentOverflowAge = paymentOverflow
       ? Date.parse(readStartedAt) - Date.parse(paymentOverflow.at) : Infinity;
-    if (!params.forceDocumentRequestPayments && !replayKinds.has("document_request_payment") &&
+    const paymentPlan = !immediate("document_request_payment") &&
         previous?.unavailable?.includes("document_request_payment") &&
         paymentOverflow?.epoch === epoch && paymentOverflowAge >= 0 &&
-        paymentOverflowAge < DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS) {
-      unavailable.push("document_request_payment");
-    } else if (previous?.unavailable?.includes("document_request_payment") || !canReuseVerifiedScan({
-      userId: params.userId, epoch, observedAt: readStartedAt,
-      previousAt: previous?.verifiedAt?.document_request_payment,
-      maxAge: DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
-      forced: params.forceDocumentRequestPayments || replayKinds.has("document_request_payment"),
-      cache: lastDocumentRequestPaymentsScan,
-    })) {
+        paymentOverflowAge < DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS
+      ? "defer"
+      : planScan("document_request_payment", DOCUMENT_REQUEST_PAYMENT_FRESHNESS_MS,
+        previous?.unavailable?.includes("document_request_payment"));
+    if (paymentPlan === "defer") unavailable.push("document_request_payment");
+    else if (paymentPlan === "scan") {
       try {
         inputs.push(...await collectDocumentRequestPayments(params.vaultOwnerToken, params.userId));
         successful.push("document_request_payment");
@@ -688,7 +849,7 @@ export async function syncLivingSources(params: {
       } catch (error) {
         documentRequestPaymentOverflowed = error instanceof DocumentRequestPaymentSourceCapacityError;
         documentRequestPaymentOverflowCleared = !documentRequestPaymentOverflowed;
-        unavailable.push("document_request_payment");
+        scanFailed("document_request_payment");
       }
     }
     // Tombstones are retained for owner provenance. Refuse a source update
@@ -711,7 +872,10 @@ export async function syncLivingSources(params: {
         if (inputs[index]?.kind === kind) inputs.splice(index, 1);
       }
       const successfulIndex = successful.indexOf(kind);
-      if (successfulIndex >= 0) successful.splice(successfulIndex, 1);
+      if (successfulIndex >= 0) {
+        successful.splice(successfulIndex, 1);
+        failed.push({ kind, counted: !immediate(kind) });
+      }
       if (!unavailable.includes(kind)) unavailable.push(kind);
       if (kind === "connection") connectionsScanned = false;
       if (kind === "document_earning") earningsScanned = false;
@@ -726,7 +890,7 @@ export async function syncLivingSources(params: {
       }
       if (kind === "curated_oauth_connector") curatedConnectorsScanned = false;
     }
-    return { inputs, successful, unavailable };
+    return { inputs, successful, unavailable, failed };
   };
   if (!isVaultSessionEpochCurrent(epoch)) return;
   const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -746,44 +910,67 @@ export async function syncLivingSources(params: {
       const privateData = (current._private ?? {}) as Record<string, unknown>;
       const previous = privateData.inventory as
         LivingSourceInventory | undefined;
+      const priorHistory =
+        (privateData.observed_history as LivingSourceHistory | undefined) ?? null;
       // Read replay cursors from this CAS-consistent decrypted domain, never
       // from device storage. A competing tab may have advanced them already.
       const persisted = readJournalCursors(privateData.journal_cursors);
-      let connectorChanged = persisted.invalidConnectors;
+      // Missing bookkeeping is empty. Malformed bookkeeping cannot say which
+      // hints are still unverified, so every source is read again.
+      const storedPending = parseLivingJournalPending(privateData.journal_pending);
+      const hints = new Map<SourceKind, JournalHintRange>();
+      if (!storedPending) for (const kind of LIVING_SOURCE_KINDS) hints.set(kind, UNKNOWN_HINT);
+      if (persisted.invalidConnectors) hints.set("curated_oauth_connector", UNKNOWN_HINT);
+      if (persisted.invalidEvents) for (const kind of SOURCE_JOURNAL_KINDS) hints.set(kind, UNKNOWN_HINT);
       let connectorHead: string | null = null;
       let connectorReset = false;
-      const replayKinds = new Set<SourceJournalKind>(
-        persisted.invalidEvents ? SOURCE_JOURNAL_KINDS : [],
-      );
-      let eventsHead: string | null = null;
-      let eventsReset = false;
       try {
         const connector = await SourceJournalService.connectorHead(
           params.vaultOwnerToken, persisted.cursors.connectors,
         );
         connectorHead = connector.headCursor;
-        connectorChanged ||= connector.changed || connector.resetRequired;
         connectorReset = connector.resetRequired;
+        if ((connector.changed || connector.resetRequired) && !hints.has("curated_oauth_connector"))
+          hints.set("curated_oauth_connector", connector.resetRequired ? UNKNOWN_HINT : {
+            count: connector.pendingCount,
+            firstOccurredAt: connector.firstOccurredAt,
+            lastOccurredAt: null,
+          });
       } catch {
         // A failed hint read cannot advance a cursor. Periodic authoritative
         // verification remains available while this journal is unavailable.
       }
+      let eventsHead: string | null = null;
+      let eventsReset = false;
       try {
         const changes = await SourceJournalService.sourceChanges(
           params.vaultOwnerToken, persisted.cursors.events,
         );
         eventsHead = changes.headCursor;
         eventsReset = changes.resetRequired;
-        if (eventsReset) for (const kind of SOURCE_JOURNAL_KINDS) replayKinds.add(kind);
-        for (const kind of changes.changedKinds) replayKinds.add(kind);
+        for (const kind of changes.changedKinds) {
+          if (hints.has(kind)) continue;
+          // A reset or a replay cut short cannot count its hints.
+          const hint = changes.exact ? changes.hints[kind] : undefined;
+          hints.set(kind, hint ? {
+            count: hint.count,
+            firstOccurredAt: hint.firstOccurredAt,
+            lastOccurredAt: hint.lastOccurredAt,
+          } : UNKNOWN_HINT);
+        }
       } catch {
         // Retry this cursor on the next wake. Never infer a source value from
         // an unavailable or malformed journal page.
       }
-      const { inputs, successful, unavailable } = await fetchSources(
-        previous, replayKinds, connectorChanged,
+      const pending = mergeJournalHints(
+        storedPending ?? { version: 1, kinds: {} },
+        hints,
+        priorHistory?.nextSequence ?? 1,
       );
-      incomplete = unavailable.length > 0;
+      const { inputs, successful, unavailable, failed } = await fetchSources(previous, {
+        hinted: new Set(hints.keys()),
+        pending: new Set(LIVING_SOURCE_KINDS.filter((kind) => storedPending?.kinds[kind])),
+      });
       if (!isVaultSessionEpochCurrent(epoch))
         throw new Error("Vault session changed");
       // A long keyset read is fresh when it finishes. Timestamping the start
@@ -804,22 +991,40 @@ export async function syncLivingSources(params: {
           curated_oauth_connector: curatedConnectorsVerifiedAt,
         },
       );
-      incomplete = !inventory.complete;
+      incompleteKinds = incompleteLivingSourceKinds(inventory);
+      verifiedKinds = LIVING_SOURCE_KINDS.filter((kind) => successful.includes(kind));
+      scanFailures = failed;
+      previouslyUnavailable = new Set(previous?.unavailable ?? []);
       // Only verified source revisions enter the encrypted observed history.
-      // Journal hints choose scans and never become facts themselves.
-      const history = appendVerifiedLivingSourceChanges(
-        (privateData.observed_history as LivingSourceHistory | undefined) ?? null,
-        previous ?? null,
-        inventory,
+      // Journal hints choose scans and never become facts; a gap marker only
+      // counts the committed changes this history did not capture.
+      const history = appendJournalGapMarkers(
+        appendVerifiedLivingSourceChanges(priorHistory, previous ?? null, inventory),
+        pending,
+        verifiedKinds,
+        storedSnapshotAt,
       );
-      const journalCursors = inventory.complete ? {
-        connectors: nextJournalCursor(
-          persisted.cursors.connectors, connectorHead, connectorReset,
-        ),
-        events: nextJournalCursor(
-          persisted.cursors.events, eventsHead, eventsReset,
-        ),
-      } : privateData.journal_cursors;
+      // A cursor moves past a hint only in this same write, which either
+      // verifies the hint's source or keeps that source pending.
+      const journalPending: LivingJournalPending = { version: 1, kinds: {} };
+      for (const kind of LIVING_SOURCE_KINDS) {
+        const entry = pending.kinds[kind];
+        if (entry && !verifiedKinds.includes(kind)) journalPending.kinds[kind] = entry;
+      }
+      const sourceHealth = nextSourceHealth(
+        parseLivingSourceHealth(privateData.source_health),
+        pending,
+        verifiedKinds,
+        storedSnapshotAt,
+      );
+      const journalCursors = connectorHead === null && eventsHead === null
+        ? privateData.journal_cursors
+        : {
+          connectors: connectorHead === null ? persisted.stored.connectors ?? "0"
+            : nextJournalCursor(persisted.cursors.connectors, connectorHead, connectorReset),
+          events: eventsHead === null ? persisted.stored.events ?? "0"
+            : nextJournalCursor(persisted.cursors.events, eventsHead, eventsReset),
+        };
       const unchanged = Boolean(previous) && JSON.stringify({
         records: previous?.records,
         complete: previous?.complete,
@@ -827,6 +1032,8 @@ export async function syncLivingSources(params: {
         verifiedAt: previous?.verifiedAt,
         history: privateData.observed_history,
         journalCursors: privateData.journal_cursors,
+        journalPending: privateData.journal_pending,
+        sourceHealth: privateData.source_health,
       }) === JSON.stringify({
         records: inventory.records,
         complete: inventory.complete,
@@ -834,13 +1041,21 @@ export async function syncLivingSources(params: {
         verifiedAt: inventory.verifiedAt,
         history,
         journalCursors,
+        journalPending,
+        sourceHealth,
       });
       return {
         unchanged,
         domainData: {
           ...current,
-          _private: { ...privateData, inventory, observed_history: history,
-            ...(inventory.complete ? { journal_cursors: journalCursors } : {}) },
+          _private: {
+            ...privateData,
+            inventory,
+            observed_history: history,
+            ...(journalCursors === undefined ? {} : { journal_cursors: journalCursors }),
+            journal_pending: journalPending,
+            source_health: sourceHealth,
+          },
         },
         summary: {
           item_count: inventory.records.length,
@@ -885,6 +1100,21 @@ export async function syncLivingSources(params: {
     lastCuratedConnectorScan.set(params.userId, {
       epoch, verifiedAt: curatedConnectorsVerifiedAt!, completedAt: storedSnapshotAt,
     });
-  if (incomplete)
-    throw new Error("Source inventory incomplete; retry required");
+  // A failed scan is never reused as current. A later wake rescans it, after
+  // its retry delay unless a new hint or owner event arrives first.
+  for (const failure of scanFailures) SCAN_CACHES[failure.kind].delete(params.userId);
+  recordSourceRetries({
+    userId: params.userId,
+    epoch,
+    verified: verifiedKinds,
+    failed: scanFailures.filter((failure) => failure.counted).map((failure) => failure.kind),
+    previouslyUnavailable,
+    at: Date.parse(storedSnapshotAt),
+  });
+  // An unchanged store skips its write, so the stored inventory time can lag
+  // this verification. Profile reads the session time in this vault epoch.
+  if (isVaultSessionEpochCurrent(epoch))
+    recordLivingSourceSessionVerification(params.userId, epoch, verifiedKinds, storedSnapshotAt);
+  if (incompleteKinds.length)
+    throw new LivingSourcesIncompleteError(incompleteKinds);
 }
