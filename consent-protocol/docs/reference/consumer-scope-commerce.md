@@ -3813,3 +3813,10 @@ failure was an `auth/invalid-api-key` fixture error, not a missing product headi
 Final combined core, exact-head hosted CI, Dev release and financial acceptance
 remain required. Existing Chrome transport and the owner session remain connected;
 no funding, purchase or payout was repeated during these checks.
+
+The combined candidate subsequently passed all 461 Back cases in the canonical
+generation command and all 13 selected Chromium cases covering Calendar recovery,
+uniform settings rows, sharing-history geometry and confirmed revocation. Back
+and Search receipts were regenerated together; workflow history and the capability
+graph remain unchanged. These synthetic checks do not replace the hosted full
+suite, private-agent software update or real Sandbox lifecycle receipts.
