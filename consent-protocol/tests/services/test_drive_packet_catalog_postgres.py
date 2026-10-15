@@ -59,7 +59,7 @@ async def test_private_packet_catalog_refuses_owner_plaintext_before_store_read(
         "packets": []
     }
     packets.list_packets.assert_awaited_once_with(
-        user_id="buyer", owner_user_id="private-owner", cursor=None
+        user_id="buyer", owner_user_id="private-owner", cursor=None, owner_contents=True
     )
 
 
