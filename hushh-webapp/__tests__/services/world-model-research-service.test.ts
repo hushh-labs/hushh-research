@@ -84,6 +84,98 @@ describe("PWM service authority and request recovery", () => {
     expect(api.mock.calls[0][0]).toBe("/api/one/world-model/jobs");
     expect(api.mock.calls[0][1].method).toBe("POST");
   });
+  it("sends owner decisions only when starting research", async () => {
+    const ownerDecisions = { confirmed: ["Saved."], rejected: ["Declined."] };
+    api
+      .mockResolvedValueOnce({
+        status: "pending",
+        pkm_written: false,
+        restart_required: false,
+      })
+      .mockResolvedValueOnce({ status: "saved", pkm_written: false })
+      .mockResolvedValueOnce({ status: "saved", pkm_written: false })
+      .mockResolvedValueOnce({ status: "saved", pkm_written: false });
+    const signal = new AbortController().signal;
+    const run = WorldModelResearchService.observe({
+      ...session,
+      signal,
+      onResult: vi.fn(),
+      ownerDecisions,
+    });
+    await vi.runAllTimersAsync();
+    await run;
+    await WorldModelResearchService.observe({
+      ...session,
+      signal,
+      onResult: vi.fn(),
+      refresh: true,
+      ownerDecisions,
+    });
+    await WorldModelResearchService.observe({
+      ...session,
+      signal,
+      onResult: vi.fn(),
+    });
+    expect(
+      api.mock.calls.map(([path, init]) => [
+        path,
+        init.method,
+        init.body === undefined ? undefined : JSON.parse(init.body),
+      ]),
+    ).toEqual([
+      [
+        "/api/one/world-model/ensure",
+        "POST",
+        { owner_decisions: ownerDecisions },
+      ],
+      ["/api/one/world-model/jobs", "GET", undefined],
+      [
+        "/api/one/world-model/jobs",
+        "POST",
+        { owner_decisions: ownerDecisions },
+      ],
+      ["/api/one/world-model/ensure", "POST", undefined],
+    ]);
+  });
+  it("does not spend the polling deadline while the tab is hidden", async () => {
+    let hidden = false;
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+    try {
+      api.mockResolvedValue({
+        status: "pending",
+        pkm_written: false,
+        restart_required: false,
+      });
+      const onResult = vi.fn();
+      const controller = new AbortController();
+      const run = WorldModelResearchService.observe({
+        ...session,
+        signal: controller.signal,
+        onResult,
+      });
+      run.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api).toHaveBeenCalledTimes(1);
+      hidden = true;
+      // Two hours away: no polling, and the hour-long budget is not spent.
+      await vi.advanceTimersByTimeAsync(5_000 + 7_200_000);
+      expect(api).toHaveBeenCalledTimes(1);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api).toHaveBeenCalledTimes(2);
+      expect(onResult).not.toHaveBeenCalledWith(
+        expect.objectContaining({ status: "paused" }),
+      );
+      controller.abort();
+      await expect(run).rejects.toThrow();
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
   it("rejects extra private fields in a status payload", () => {
     expect(
       pwmResultSchema.safeParse({

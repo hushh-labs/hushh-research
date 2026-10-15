@@ -190,7 +190,9 @@ class ProfileResearchJobs:
             else state["result"]
         )
 
-    async def start(self, user_id: str, consent_token: str) -> dict[str, Any]:
+    async def start(
+        self, user_id: str, consent_token: str, *, inputs: dict | None = None
+    ) -> dict[str, Any]:
         # Slow setup/identity/provider admission belongs to the bounded worker,
         # not the initiating exchange. Exact owner authority still gates even
         # the encrypted checkpoint claim; no model runs before full admission.
@@ -264,6 +266,11 @@ class ProfileResearchJobs:
         ):
             next_state["work"] = state.get("work", {})
             next_state["job_id"] = state["job_id"]
+        # Caller-supplied model inputs stay sealed with the job and carry across
+        # resumes; they never change the reuse context above.
+        carried = (state or {}).get("inputs") if inputs is None else inputs
+        if carried:
+            next_state["inputs"] = carried
         # Reserve before the awaited CAS, including contenders for other owners.
         next_state.update(context)
         self.active += 1
@@ -400,6 +407,7 @@ class ProfileResearchJobs:
                                 if self.progressive
                                 else {}
                             ),
+                            **({"inputs": state["inputs"]} if state.get("inputs") else {}),
                         )
                         stage = "release"
                         refused, binding = await self.check(user_id, consent_token)

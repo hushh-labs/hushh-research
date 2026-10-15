@@ -14,6 +14,7 @@ import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
 import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
+import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -424,6 +425,9 @@ export function GeminiRuntimeConfigurationPage({
         />
         {setupMode ? (
           <div className={`mx-auto w-full sm:w-80 ${setupStyles.aiSelectionFooter}`}>
+            {/* Continue finishes setup here without visiting the hub, so it
+                carries the same research disclosure. */}
+            <PwmResearchDisclosure className="mb-4" />
             <Button
               type="button" variant="blue" effect="fill" size="prominent" fullWidth
               onClick={() => void finishConnections()}

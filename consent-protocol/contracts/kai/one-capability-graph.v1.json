@@ -18958,7 +18958,7 @@
     },
     {
       "aliases": [
-        "Prepare my model"
+        "Open a detail"
       ],
       "authorization": {
         "guard_ids": [
@@ -18990,16 +18990,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "profile.world_model.build",
+      "capability_id": "profile.world_model.open_fact",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Consent to native Gemini public research using the verified owner identity, then start or resume preparation.",
+      "description": "Show one detail's sources, why it may be about the owner, how certain it is, and its choices.",
       "execution": {
-        "binding_ref": "render:profile.world_model.build",
+        "binding_ref": "render:profile.world_model.open_fact",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -19012,7 +19012,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.profile.world_model.build",
+      "goal_id": "goal.profile.world_model.open_fact",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -19030,7 +19030,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Prepare my model",
+      "label": "Open a detail",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -19115,7 +19115,7 @@
     },
     {
       "aliases": [
-        "Review selected details"
+        "Yes, this is right"
       ],
       "authorization": {
         "guard_ids": [
@@ -19147,16 +19147,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "profile.world_model.review",
+      "capability_id": "profile.world_model.confirm_fact",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Review source-cited statements, edit and save exactly the checked details.",
+      "description": "Save the exact statement to the owner's memory. Success is shown only after the encrypted write commits.",
       "execution": {
-        "binding_ref": "render:profile.world_model.review",
+        "binding_ref": "render:profile.world_model.confirm_fact",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -19169,7 +19169,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.profile.world_model.review",
+      "goal_id": "goal.profile.world_model.confirm_fact",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -19187,7 +19187,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Review selected details",
+      "label": "Yes, this is right",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -19272,7 +19272,7 @@
     },
     {
       "aliases": [
-        "Create model invitation"
+        "No, this isn't right"
       ],
       "authorization": {
         "guard_ids": [
@@ -19304,16 +19304,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "profile.world_model.invite",
+      "capability_id": "profile.world_model.reject_fact",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "description": "Remember privately that a statement is not about the owner so research does not propose it again. Saves no opposite fact.",
       "execution": {
-        "binding_ref": "render:profile.world_model.invite",
+        "binding_ref": "render:profile.world_model.reject_fact",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -19326,7 +19326,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.profile.world_model.invite",
+      "goal_id": "goal.profile.world_model.reject_fact",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -19344,7 +19344,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Create model invitation",
+      "label": "No, this isn't right",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -19429,7 +19429,7 @@
     },
     {
       "aliases": [
-        "Claim my model"
+        "Edit a detail"
       ],
       "authorization": {
         "guard_ids": [
@@ -19461,16 +19461,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "profile.world_model.claim",
+      "capability_id": "profile.world_model.edit_fact",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "description": "Save only the owner's corrected wording in place of the statement.",
       "execution": {
-        "binding_ref": "render:profile.world_model.claim",
+        "binding_ref": "render:profile.world_model.edit_fact",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -19483,7 +19483,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.profile.world_model.claim",
+      "goal_id": "goal.profile.world_model.edit_fact",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -19501,7 +19501,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Claim my model",
+      "label": "Edit a detail",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -19586,7 +19586,321 @@
     },
     {
       "aliases": [
-        "Readiness emails"
+        "Remove a detail"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.remove_fact",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "After one confirmation, remove a saved detail from the owner's memory and keep it from coming back.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.remove_fact",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.remove_fact",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Remove a detail",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Use public sources"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.research",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Turn public research on or off. Off is an explicit opt-out that research respects.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.research",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.research",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Use public sources",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Email me when it's ready"
       ],
       "authorization": {
         "guard_ids": [
@@ -19658,7 +19972,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Readiness emails",
+      "label": "Email me when it's ready",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -19743,164 +20057,7 @@
     },
     {
       "aliases": [
-        "Stop automatic research"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "vault_owner_token"
-          },
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "manual_user_execution"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "profile.world_model.pause",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Revoke automatic research consent and fence running work.",
-      "execution": {
-        "binding_ref": "render:profile.world_model.pause",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.profile.world_model.pause",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Stop automatic research",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in",
-          "vault_owner_token",
-          "manual_user_execution"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Refresh research"
+        "Check for updates"
       ],
       "authorization": {
         "guard_ids": [
@@ -19939,7 +20096,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Explicitly start fresh after the prior draft was discarded or expired.",
+      "description": "Start a fresh research pass when research is on and none is running.",
       "execution": {
         "binding_ref": "render:profile.world_model.refresh",
         "executor": {
@@ -19972,7 +20129,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Refresh research",
+      "label": "Check for updates",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20057,7 +20214,7 @@
     },
     {
       "aliases": [
-        "Retry research"
+        "Try again"
       ],
       "authorization": {
         "guard_ids": [
@@ -20096,7 +20253,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Resume completed research steps under fresh owner authority.",
+      "description": "Resume preparation or reopen saved details under fresh owner authority.",
       "execution": {
         "binding_ref": "render:profile.world_model.retry",
         "executor": {
@@ -20129,7 +20286,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Retry research",
+      "label": "Try again",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20214,7 +20371,7 @@
     },
     {
       "aliases": [
-        "Discard research"
+        "Open Personal World Model"
       ],
       "authorization": {
         "guard_ids": [
@@ -20246,16 +20403,16 @@
         "feature_flags": [],
         "product_available": true
       },
-      "capability_id": "profile.world_model.discard",
+      "capability_id": "profile.world_model.open",
       "confirmation": {
         "mode": "none",
         "required": false,
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Remove the current research draft while retaining spent provider budget.",
+      "description": "Open the dedicated Personal World Model page.",
       "execution": {
-        "binding_ref": "render:profile.world_model.discard",
+        "binding_ref": "render:profile.world_model.open",
         "executor": {
           "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
@@ -20268,7 +20425,7 @@
           "target": ""
         }
       },
-      "goal_id": "goal.profile.world_model.discard",
+      "goal_id": "goal.profile.world_model.open",
       "idempotency": {
         "scope": "action_and_normalized_slots",
         "strategy": "action_directive_ledger"
@@ -20286,7 +20443,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Discard research",
+      "label": "Open Personal World Model",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20371,7 +20528,7 @@
     },
     {
       "aliases": [
-        "Prepare source details"
+        "Add a public source"
       ],
       "authorization": {
         "guard_ids": [
@@ -20443,7 +20600,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Prepare source details",
+      "label": "Add a public source",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -20601,6 +20758,320 @@
       },
       "kind": "action",
       "label": "Prepare invitation preview",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Invite someone"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.invite",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.invite",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.invite",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Invite someone",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Claim my model"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.world_model.claim",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Claim the reviewed preview using a matching verified contact; optional research consent starts owner preparation and grants no sharing.",
+      "execution": {
+        "binding_ref": "render:profile.world_model.claim",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.world_model.claim",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Claim my model",
       "navigation": {
         "fallback": null,
         "routes": [
@@ -36361,307 +36832,6 @@
     },
     {
       "aliases": [
-        "Prepare Personal World Model",
-        "prepare my personal world model",
-        "enable personal research",
-        "PWM consent"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "one.setup.pwm_consent",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Opt in to research using the account name and verified contact after setup and vault readiness.",
-      "execution": {
-        "binding_ref": "render:one.setup.pwm_consent",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.one.setup.pwm_consent",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Prepare Personal World Model",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model",
-        "PWM",
-        "research",
-        "consent",
-        "setup"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Personal World Model readiness emails",
-        "email me when my model is ready",
-        "PWM readiness emails"
-      ],
-      "authorization": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [
-          {
-            "authority": "server",
-            "effect": "required",
-            "id": "auth_signed_in"
-          }
-        ],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "one.setup.pwm_email",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Opt in to a minimal readiness email after personal research finishes.",
-      "execution": {
-        "binding_ref": "render:one.setup.pwm_email",
-        "executor": {
-          "kind": "typed_render",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "RENDER",
-        "target": {
-          "path": "",
-          "status": "unwired",
-          "target": ""
-        }
-      },
-      "goal_id": "goal.one.setup.pwm_email",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Personal World Model readiness emails",
-      "navigation": {
-        "fallback": null,
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "mounted_surface_required": true,
-        "requires_signed_in": true,
-        "requires_vault": false
-      },
-      "render_surface": "render.data_card",
-      "required_entities": [],
-      "search_keywords": [
-        "personal world model",
-        "PWM",
-        "email",
-        "notification",
-        "setup"
-      ],
-      "settlement_proof": "approved_render_acknowledgement",
-      "side_effect": {
-        "classification": "render_or_guidance"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
         "Open RIA Client Account Detail",
         "open account detail",
         "show client account detail",
@@ -41917,7 +42087,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "71da362a3ea3c4c920bc5bf2228262188b7bf78b84d8046a8c796ef70abeffd8",
+      "projection_digest": "7d516e970b78ef93a710a81cb74f83bd0eb509a7776101b2154a494b61138bc0",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41927,7 +42097,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "637d63cdd1704758b21a41659c4c45afe9163968c09265f3bf30bb432fd708b0",
+        "capability_graph_evolution": "673a913f0cd2cdc3c106d1ad3e9a47995c11b7a9bf5f339325abb611ca979cde",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
@@ -41936,7 +42106,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "5dd05b725c815199",
+      "source_revision": "710bd535b7febc69",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -43454,7 +43624,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "5dd05b725c815199",
+    "source_revision": "710bd535b7febc69",
     "web": {
       "actions": [
         {
@@ -43497,7 +43667,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "472d7acb7f1041cf918f16ebb4e6492b42030cb3dc0340dd49688685d4c04083",
+      "projection_digest": "eed22b6c25a09c4524ff8a4366d620c541f3c7771621a6cd02eec936443b99bb",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43507,7 +43677,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "637d63cdd1704758b21a41659c4c45afe9163968c09265f3bf30bb432fd708b0",
+        "capability_graph_evolution": "673a913f0cd2cdc3c106d1ad3e9a47995c11b7a9bf5f339325abb611ca979cde",
         "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
@@ -43516,7 +43686,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
       },
-      "source_revision": "5dd05b725c815199",
+      "source_revision": "710bd535b7febc69",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -45073,7 +45243,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "5dd05b725c815199",
+  "revision": "710bd535b7febc69",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46938,14 +47108,47 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.world_model.confirm_fact",
+      "actions:profile.world_model.edit_fact",
+      "actions:profile.world_model.open",
+      "actions:profile.world_model.open_fact",
+      "actions:profile.world_model.reject_fact",
+      "actions:profile.world_model.remove_fact",
+      "actions:profile.world_model.research"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:profile.world_model.email",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.refresh",
+      "actions:profile.world_model.retry",
+      "actions:profile.world_model.sources"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "a26ec99e74ba2208",
+    "deprecated": [
+      "actions:one.setup.pwm_consent",
+      "actions:one.setup.pwm_email",
+      "actions:profile.world_model.build",
+      "actions:profile.world_model.discard",
+      "actions:profile.world_model.email",
+      "actions:profile.world_model.invite",
+      "actions:profile.world_model.pause",
+      "actions:profile.world_model.refresh",
+      "actions:profile.world_model.retry",
+      "actions:profile.world_model.review",
+      "actions:profile.world_model.sources"
+    ],
+    "from_revision": "5dd05b725c815199",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:one.setup.pwm_consent",
+      "actions:one.setup.pwm_email",
+      "actions:profile.world_model.build",
+      "actions:profile.world_model.discard",
+      "actions:profile.world_model.pause",
+      "actions:profile.world_model.review"
+    ]
   },
   "services": [
     {
@@ -49174,21 +49377,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "637d63cdd1704758b21a41659c4c45afe9163968c09265f3bf30bb432fd708b0",
+    "capability_graph_evolution": "673a913f0cd2cdc3c106d1ad3e9a47995c11b7a9bf5f339325abb611ca979cde",
     "capability_runtime_compiler": "dd82c04208091a0d80e026e262a68d601679af37bfabc603cac6a5ba00336848",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "87ff1cf21a1797371d7916e1d28265a62027a3afd2c084e9d50fca52b13280f8",
+    "kai_action_gateway": "2e7014392fdaac58bc20ddbdbeb5ddee9f4320ff607347db8990ab0b5cfdb737",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "4bc758bc28b5eec14541c091df560b5bae7b7fb006df003647589d89b8ac2721",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "89c1ee738effeaa899f0d1467104bf075dc53cbb0ff7c06ce66ecde1fece2c28",
-    "route_orchestration_index": "19a88134935b83d9576a2dc9147efa5515b55f5c460715691f7b9e52fc34a460",
+    "product_agent_registry": "1d52a84047a9d586dd97523aeff3c1a5ca1c3b36b8557f4561a477c95643dbb1",
+    "route_orchestration_index": "f8779ba3b574ea8acaa29d8b166f3b2aa4adfb6759e23e40e3e796888388eeef",
     "service_knowledge_packages": "9454a160145e27ad0f3347f238ed71a032c681cacb6b2a79374a8352e4e41e5e"
   },
-  "source_revision": "5dd05b725c815199",
+  "source_revision": "710bd535b7febc69",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "5dd05b725c815199",
+    "current_graph_revision": "710bd535b7febc69",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -49252,6 +49455,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
@@ -49446,6 +49650,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
@@ -49620,6 +49825,7 @@
           "5009d0612016fd66",
           "514233a33ab8fa37",
           "594add96607b6147",
+          "5dd05b725c815199",
           "60f052ad508244d1",
           "66bd2c14003aab77",
           "6a987992e57a50e3",
@@ -49835,6 +50041,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
@@ -50029,6 +50236,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
@@ -50223,6 +50431,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
@@ -50417,6 +50626,7 @@
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
           "594add96607b6147",
+          "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
