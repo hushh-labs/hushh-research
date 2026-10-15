@@ -887,6 +887,7 @@ final class NativeSupportTests: XCTestCase {
         }
         await requireRow("row-handle")
         let host = controller.host
+        let retainedBinding = controller.model.navigationBinding
         controller.update(account)
         await requireClose()
         await requireRow("edit-name")
@@ -898,9 +899,10 @@ final class NativeSupportTests: XCTestCase {
             if action == "back" { backs += 1; controller?.model.pendingSequence = backs }
             return true
         }
-        controller.model.requestPath([], from: account)
-        controller.model.requestPath([], from: account)
+        retainedBinding.wrappedValue = []
+        retainedBinding.wrappedValue = []
         XCTAssertEqual(backs, 1)
+        XCTAssertFalse(controller.model.allowsPageInteraction)
         XCTAssertEqual(controller.model.navigationPath, [], "SwiftUI's Back binding must synchronously reflect the presented pop")
         XCTAssertEqual(controller.model.projection.profileStack?.map(\.id), ["account"], "Presentation does not commit the authored route")
         XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "Pending Back quarantines competing operations")
@@ -910,20 +912,23 @@ final class NativeSupportTests: XCTestCase {
         controller.model.requestPath([], from: refreshed)
         XCTAssertEqual(backs, 1, "A compatible refresh must not release pending Back")
         XCTAssertEqual(controller.model.navigationPath, [], "A compatible old projection must not replay the pending pop")
+        XCTAssertFalse(controller.model.allowsPageInteraction)
         var returned = privateDrawerState(update: 4, backEnabled: true)
         returned.surfaceOpen = true; returned.profileStack = []
         controller.update(returned)
         await requireClose()
         await requireRow("row-handle")
+        XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)
         account = privateDrawerState(update: 5, backEnabled: true)
         account.surfaceOpen = true; account.profileDestinationId = "account-returned"
         account.profileStack = [controller.model.page("account")!]
         controller.update(account)
+        await requireRow("edit-name")
         controller.model.requestPath([], from: returned)
         XCTAssertEqual(backs, 1, "A retained old setter cannot dispatch a fresh Back")
-        controller.model.requestPath([], from: account)
+        retainedBinding.wrappedValue = []
         XCTAssertEqual(backs, 2)
         controller.model.settle(sequence: 1, success: false)
         XCTAssertFalse(controller.model.choice("row", row: "edit-name"), "An old refusal cannot release a newer Back")
@@ -931,14 +936,21 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(backs, 2)
         controller.model.settle(sequence: 2, success: false)
         XCTAssertEqual(controller.model.navigationPath, ["account"], "An explicit refusal restores the current authored page without replaying Back")
+        XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.model.choice("row", row: "edit-name"))
+        controller.model.clearDetails()
+        XCTAssertFalse(controller.model.choicePending)
         controller.setFormCoverage(true)
+        retainedBinding.wrappedValue = []
+        XCTAssertEqual(backs, 2, "Covered presentation bindings cannot invoke Back")
         XCTAssertFalse(controller.model.interactionEnabled)
         XCTAssertFalse(controller.allowsInteraction("back", row: nil))
         XCTAssertFalse(controller.allowsInteraction("close", row: nil))
         controller.setFormCoverage(false)
         XCTAssertTrue(controller.allowsInteraction("back", row: nil))
         controller.retire()
+        retainedBinding.wrappedValue = []
+        XCTAssertEqual(backs, 2, "A retained retired binding cannot invoke a route operation")
     }
 
     @MainActor

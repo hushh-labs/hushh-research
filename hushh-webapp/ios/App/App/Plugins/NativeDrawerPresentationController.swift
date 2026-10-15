@@ -32,9 +32,18 @@ final class NativeDrawerModel: ObservableObject {
     @Published var headerInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
     @Published var panelCornerRadius: CGFloat = 0
     @Published private(set) var navigationPath: [String] = []
-    private var backPending = false
+    @Published private var backPending = false
+    var allowsPageInteraction: Bool { !backPending }
     private var navigationPages = [String: NativeProfilePage]()
     func page(_ id: String) -> NativeProfilePage? { navigationPages[id] }
+    var navigationBinding: Binding<[String]> {
+        // This is a native presentation binding, not an external action token.
+        // SwiftUI can retain it across renders; capture the model, never an
+        // expired render's update sequence or destination incarnation.
+        Binding(get: { self.navigationPath }, set: { path, transaction in
+            withTransaction(transaction) { self.requestPath(path, from: self.projection) }
+        })
+    }
     func requestPath(_ path: [String], from state: NativeDrawerProjection) {
         // SwiftUI owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
@@ -42,7 +51,12 @@ final class NativeDrawerModel: ObservableObject {
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId, path.count + 1 == navigationPath.count,
               Array(navigationPath.prefix(path.count)) == path else { return }
-        backPending = choice("back")
+        guard choice("back") else { return }
+        backPending = true
+        // Honor SwiftUI's pop in its original transaction. React still owns
+        // the committed projection/route and confirms the existing Back event.
+        // Waiting for that bridge round trip here causes a second native pop.
+        navigationPath = path
     }
     var pendingSequence: Int?
     var choose: ((String, String?, String?) -> Bool)?
@@ -86,7 +100,7 @@ final class NativeDrawerModel: ObservableObject {
         if let pages = projection.profileStack {
             pages.forEach { navigationPages[$0.id] = $0 }
             let next = pages.map(\.id)
-            if next != navigationPath { withAnimation { navigationPath = next } }
+            if !backPending, next != navigationPath { withAnimation { navigationPath = next } }
         } else {
             navigationPath = []; navigationPages.removeAll()
         }
@@ -107,7 +121,11 @@ final class NativeDrawerModel: ObservableObject {
         pendingSequence = nil; choicePending = false
         if success { clearDetails() }
     }
-    private func rejectBack() { backPending = false }
+    private func rejectBack() {
+        backPending = false
+        let committed = projection.profileStack?.map(\.id) ?? []
+        if committed != navigationPath { withAnimation { navigationPath = committed } }
+    }
     func details(_ row: NativeDrawerRow) {
         guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
         detailRow = row.id; detailMode = "actions"; renameDraft = row.label
@@ -331,7 +349,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pose(current)
     }
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, covered,
+        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.allowsPageInteraction, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
         // A nested native page owns its system edge-pop. The outer drawer's
@@ -552,8 +570,7 @@ struct NativeDrawerContent: View {
         }
     }
     private var profileNavigation: some View {
-        let state = model.projection
-        return NavigationStack(path: Binding(get: { model.navigationPath }, set: { model.requestPath($0, from: state) })) {
+        return NavigationStack(path: model.navigationBinding) {
             profileContent(model.projection.sections)
                 .navigationTitle(model.projection.title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -754,6 +771,8 @@ struct NativeDrawerContent: View {
                 }
             }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
         }.background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .allowsHitTesting(model.allowsPageInteraction)
+            .accessibilityHidden(!model.allowsPageInteraction)
             .accessibilityIdentifier("native-profile-menu-scroll")
     }
     private func profileInitials(_ name: String) -> String {

@@ -3814,7 +3814,11 @@ final class AppUITests: XCTestCase {
         var originalName: String? // Private equality only; no screenshots or value diagnostics.
         for cycle in 0..<10 {
             if cycle > 0 { root.tap() }
-            guard waitForAdmittedControl(row) else { XCTFail("PROFILE_NAME_RETURN_UNAVAILABLE"); return }
+            guard waitForAdmittedControl(row) else {
+                print("PROFILE_NAME_STAGE cycle=\(cycle) name_row=false")
+                printCoherentPresentationAdmission(app)
+                XCTFail("PROFILE_NAME_RETURN_UNAVAILABLE"); return
+            }
             row.tap()
             guard waitForAdmittedControl(field), waitForAdmittedControl(cancel) else {
                 XCTFail("PROFILE_NAME_NATIVE_SCENE_UNAVAILABLE"); return
