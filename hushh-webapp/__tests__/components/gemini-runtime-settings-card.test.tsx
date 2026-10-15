@@ -80,7 +80,7 @@ function runtimeChoice(id: string) {
 
 describe("GeminiRuntimeSettingsCard setup choice", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionOwner("fresh-user");
     getPersonalAgentStatusMock.mockResolvedValue({ hostingMode: "shared" });
@@ -680,19 +680,21 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     selectManagedGeminiRuntimeMock
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
-    const completedB = vi.fn();
-    const view = render(
+    const completedB = vi.fn(), view = render(
       <GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />,
     );
     await clickManaged();
+    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(1));
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(
       <GeminiRuntimeSettingsCard {...ownerProps("owner-b", completedB)} />,
     );
     await clickManaged();
+    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(2));
     await act(async () => {
       first.resolve(selectionResult);
     });
+    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
     fireEvent.click(runtimeChoice("profile-managed-runtime"));
     expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(2);
     await act(async () => {
@@ -700,7 +702,6 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     });
     expect(completedB).toHaveBeenCalledOnce();
   });
-
   it("never publishes an old owner's delayed project lookup", async () => {
     const pending = deferred<{
       hostingMode: string;
@@ -752,11 +753,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   it("rejects the old session generation even without an intermediate React render", async () => {
     const pending = deferred<typeof selectionResult>();
     selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
-    const committed = vi.fn();
-    render(
+    const committed = vi.fn(); render(
       <GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />,
     );
     await clickManaged();
+    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(1));
     publishValidatedAuthSessionOwner("owner-b");
     publishValidatedAuthSessionOwner("fresh-user");
     await act(async () => {
@@ -768,7 +769,6 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     await clickManaged();
     await waitFor(() => expect(committed).toHaveBeenCalledOnce());
   });
-
   it("clears a prior owner's draft and ignores delayed BYOK validation", async () => {
     const pending = deferred<{ status: string }>();
     validateGeminiRuntimeCredentialMock.mockReturnValueOnce(pending.promise);

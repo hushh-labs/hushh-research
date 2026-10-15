@@ -12,7 +12,7 @@ export async function expectPaneMotionReleased(pane: Locator) {
   });
 }
 
-/** Sample the real fixture action after a painted baseline, retaining intermediate frames. */
+/** Observe actual CSS geometry through RAF and a timer; this is not an FPS measurement. */
 export async function sampleHistoryMotion(page: Page, action: "open" | "close") {
   return page.evaluate(async action => {
     const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
@@ -22,24 +22,45 @@ export async function sampleHistoryMotion(page: Page, action: "open" | "close") 
     const width = panel.offsetWidth;
     const frames: { elapsed: number; x: number }[] = [];
     const start = performance.now();
+    const transitions: { type: string; property: string; elapsed: number }[] = [];
+    const observeTransition = (event: TransitionEvent) => {
+      if (event.target === panel && ["translate", "transform", "visibility"].includes(event.propertyName))
+        transitions.push({ type: event.type, property: event.propertyName, elapsed: performance.now() - start });
+    };
+    panel.addEventListener("transitionrun", observeTransition);
+    panel.addEventListener("transitionstart", observeTransition);
+    let frameId = 0;
+    let timerId = 0;
+    let done = false;
     const finished = new Promise<void>(resolve => {
       const sample = () => {
+        if (done) return;
         const elapsed = performance.now() - start;
         frames.push({ elapsed, x: panel.getBoundingClientRect().x });
-        if (elapsed < (action === "open" ? 360 : 260)) requestAnimationFrame(sample); else resolve();
+        if (elapsed >= (action === "open" ? 360 : 260)) { done = true; resolve(); }
       };
-      requestAnimationFrame(sample);
+      const onFrame = () => { sample(); if (!done) frameId = requestAnimationFrame(onFrame); };
+      frameId = requestAnimationFrame(onFrame);
+      timerId = window.setInterval(sample, 8);
     });
-    if (action === "open") {
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .find(button => button.textContent === "Open drawer")!.click();
-    } else {
-      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    try {
+      if (action === "open") {
+        Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+          .find(button => button.textContent === "Open drawer")!.click();
+      } else {
+        panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      }
+      await finished;
+      return { frames, transitions, width, restingX: panel.offsetLeft, before,
+        after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
+        shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
+    } finally {
+      done = true;
+      cancelAnimationFrame(frameId);
+      clearInterval(timerId);
+      panel.removeEventListener("transitionrun", observeTransition);
+      panel.removeEventListener("transitionstart", observeTransition);
     }
-    await finished;
-    return { frames, width, restingX: panel.offsetLeft, before,
-      after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y],
-      shadowClearance: Number.parseFloat(getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance")) || 0 };
   }, action);
 }
 

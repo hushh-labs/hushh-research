@@ -164,7 +164,7 @@ export function FilesEntryRow({
           false,
         ),
     });
-    actions.push({
+    if (settings.backgroundAvailable) actions.push({
       id: "schedule",
       label: "Schedule organization…",
       onSelect: () => setScheduleOpen(true),

@@ -271,12 +271,12 @@ export function FilesWorkspace() {
                       disabled={busy}
                       onClick={() =>
                         void act(
-                          () => ApiService.reconnectOwnerPod(),
-                          "Pod connected",
+                          () => hosting === "shared" ? load() : ApiService.reconnectOwnerPod(),
+                          hosting === "shared" ? "Files refreshed" : "Pod connected",
                         )
                       }
                     >
-                      Reconnect pod
+                      {hosting === "shared" ? "Try again" : "Reconnect pod"}
                     </Button>
                     <Link
                       href={ROUTES.PROFILE_HOSTING}

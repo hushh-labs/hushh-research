@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { files, fileEntry, session } from "../fixtures/files-workspace";
+import { FilesEntryRow } from "@/components/files/files-entry-row";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
 import { toast } from "sonner";
@@ -29,6 +30,19 @@ describe("Files settings and local navigation", () => {
         physicalDeletion: "not_requested_by_trash",
       },
     });
+  });
+
+  it.each([false, true])("offers scheduling only for a qualified background executor (%s)", async (backgroundAvailable) => {
+    const settings = { revision: 1, analysis: true, automatic: false,
+      excluded: [], foregroundOnly: !backgroundAvailable, backgroundAvailable };
+    const noop = vi.fn();
+    render(<FilesEntryRow entry={fileEntry({})} busy={false} trash={false}
+      signal={new AbortController().signal} settings={settings} ancestorExcluded={false}
+      act={async () => {}} onOpen={noop} onResume={noop} setEdit={noop} rename={null}
+      onRenameChange={noop} onRenameSave={noop} onRenameCancel={noop} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for notes.txt" }), { key: "Enter" });
+    await screen.findByRole("menuitem", { name: "Organize", exact: true });
+    expect(Boolean(screen.queryByRole("menuitem", { name: "Schedule organization…" }))).toBe(backgroundAvailable);
   });
 
   it("closes protected settings when the vault locks and does not reopen on unlock", async () => {
