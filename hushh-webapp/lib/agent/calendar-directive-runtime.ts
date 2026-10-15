@@ -1,3 +1,4 @@
+import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import type {
   DelegateResult,
   SpecialistDirective,
@@ -33,6 +34,8 @@ export async function runCalendarDirective(
     userId,
     proposalId,
   });
+
+  notifyCalendarChanged(userId);
 
   let addedToTodoList = false;
   if (result.action === "create" && vaultKey) {

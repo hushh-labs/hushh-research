@@ -7,6 +7,7 @@ authority are rechecked before/after each call. No share, listing or payment I/O
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -14,7 +15,7 @@ from collections import Counter
 
 from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStore
 from hushh_mcp.services.drive_document_targets import document_targets
-from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal
+from hushh_mcp.services.drive_packet_contract import PacketVerificationProposal, evidence_digest
 from hushh_mcp.services.drive_packet_intelligence import (
     EvidenceValidationError,
     consolidate_facts,
@@ -25,6 +26,7 @@ from hushh_mcp.services.drive_packet_intelligence import (
 )
 from hushh_mcp.services.drive_packet_store import DrivePacketStore, safe_packet_failure_code
 from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.drive_worker_limits import facts_owner_leases
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -103,6 +105,14 @@ def compact_evidence(document):
         "facts": [item["value"] for item in facts["facts"]],
         "ambiguous": facts["ambiguous"],
         "missing_information": facts["missing_information"],
+        # A digest of the full facts lets the final checker tell one original
+        # selected twice from two sparse extractions that compact alike.
+        "facts_digest": evidence_digest(facts),
+        # The provider's content digest refuses one original selected twice
+        # even when its two extractions differ.
+        **(
+            {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
+        ),
     }
 
 
@@ -125,16 +135,36 @@ class DrivePacketWorker:
         )
         self.page_assessor, self.consolidator = page_assessor, consolidator
         self.constructor, self.checker, self.policy, self.wake = constructor, checker, policy, wake
+        self._key_folds: dict[str, list] = {}
 
     def _policy_current(self, expected):
         if self.policy() != expected:
             raise DriveReadError("packet_policy_changed")
 
-    async def run_facts_one(self, *, user_id, document_ids=None):
+    @contextlib.asynccontextmanager
+    async def _key_fold(self, user_id):
+        """One canonical-key fold at a time per owner in this process.
+
+        A final fold reads the owner's existing keys and commits its own in one
+        critical section, so parallel facts jobs reuse each other's new keys
+        instead of inventing spelling variants. Page facts stay parallel.
+        """
+        entry = self._key_folds.setdefault(user_id, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if not entry[1]:
+                self._key_folds.pop(user_id, None)
+
+    async def run_facts_one(self, *, user_id, document_ids=None, enqueue=True):
         targets = document_targets(document_ids)
         targeted = {"document_ids": targets} if targets is not None else {}
         policy = self.policy()
-        await self.facts_store.enqueue(user_id=user_id, policy_version=policy, **targeted)
+        if enqueue:
+            await self.facts_store.enqueue(user_id=user_id, policy_version=policy, **targeted)
         job = await self.facts_store.claim(user_id=user_id, policy_version=policy, **targeted)
         if not job:
             return "idle"
@@ -164,26 +194,27 @@ class DrivePacketWorker:
                 await self.facts_store.require_current(job)
                 self._policy_current(policy)
                 stage = "document_facts"
-                canonical_context = (
-                    await self.packet_store.canonical_key_context(
-                        user_id=user_id, policy_version=policy
+                async with self._key_fold(user_id) if complete else contextlib.nullcontext():
+                    canonical_context = (
+                        await self.packet_store.canonical_key_context(
+                            user_id=user_id, policy_version=policy
+                        )
+                        if complete
+                        else None
                     )
-                    if complete
-                    else None
-                )
-                folded = await self.consolidator(
-                    user_id=user_id,
-                    previous=job["previous"],
-                    page_facts=[_payload(observed)],
-                    complete=complete,
-                    canonical_context=canonical_context,
-                )
-                await self.facts_store.require_current(job)
-                self._policy_current(policy)
-                stage = "persist_facts"
-                result = await self.facts_store.commit_batch(
-                    job, page_facts=_payload(observed), document_facts=_payload(folded)
-                )
+                    folded = await self.consolidator(
+                        user_id=user_id,
+                        previous=job["previous"],
+                        page_facts=[_payload(observed)],
+                        complete=complete,
+                        canonical_context=canonical_context,
+                    )
+                    await self.facts_store.require_current(job)
+                    self._policy_current(policy)
+                    stage = "persist_facts"
+                    result = await self.facts_store.commit_batch(
+                        job, page_facts=_payload(observed), document_facts=_payload(folded)
+                    )
                 await self.wake("documents")
                 return "facts_complete" if result["complete"] else "facts_queued"
         except asyncio.CancelledError:
@@ -207,8 +238,14 @@ class DrivePacketWorker:
                 job.get("attempts", 0) + 1,
                 round((time.monotonic() - started) * 1000),
             )
+            # A rejected model answer can differ on the next call, so it is
+            # retried; the store bounds those retries. Host integrity and
+            # input-budget errors are deterministic and stay terminal.
             await self.facts_store.release(
-                job, code=code, retryable=not isinstance(error, ValueError)
+                job,
+                code=code,
+                retryable=isinstance(error, EvidenceValidationError)
+                or not isinstance(error, ValueError),
             )
             return "facts_unavailable"
 
@@ -369,26 +406,44 @@ class DrivePacketWorker:
         try:
             async with asyncio.timeout(deadline_seconds):
                 owners = await self.facts_store.due_owners(limit=max(1, (max_jobs + 1) // 2))
+                # Every owner first gets one facts job and one packet job, as
+                # before. Leftover budget adds facts jobs per owner, up to the
+                # durable per-owner facts cap. Packet builds stay one per owner.
+                plan = [(user_id, packet) for user_id in owners for packet in (False, True)]
+                plan += [
+                    (user_id, False) for _ in range(1, facts_owner_leases()) for user_id in owners
+                ]
+                plan = plan[:max_jobs]
+                facts_jobs = Counter(user_id for user_id, packet in plan if not packet)
 
-                async def one(user_id, packet):
+                async def one(job, **kwargs):
                     try:
-                        outcome = await (
-                            self.run_packet_one(user_id=user_id)
-                            if packet
-                            else self.run_facts_one(user_id=user_id)
-                        )
-                        counts[outcome] += 1
+                        counts[await job(**kwargs)] += 1
                     except Exception:  # noqa: BLE001 - one owner cannot cancel other durable lanes
                         counts["unavailable"] += 1
 
+                async def owner_facts(user_id, jobs):
+                    # One enqueue per owner per sweep; the parallel jobs only claim.
+                    try:
+                        await self.facts_store.enqueue(
+                            user_id=user_id, policy_version=self.policy()
+                        )
+                    except Exception:  # noqa: BLE001 - reported like a failed facts job
+                        counts["unavailable"] += jobs
+                        return
+                    await asyncio.gather(
+                        *(
+                            one(self.run_facts_one, user_id=user_id, enqueue=False)
+                            for _ in range(jobs)
+                        )
+                    )
+
                 async with asyncio.TaskGroup() as group:
-                    dispatched = 0
                     for user_id in owners:
-                        for packet in (False, True):
-                            if dispatched >= max_jobs:
-                                break
-                            group.create_task(one(user_id, packet))
-                            dispatched += 1
+                        if facts_jobs[user_id]:
+                            group.create_task(owner_facts(user_id, facts_jobs[user_id]))
+                        if (user_id, True) in plan:
+                            group.create_task(one(self.run_packet_one, user_id=user_id))
         except TimeoutError:
             counts["deadline"] += 1
         return dict(counts)

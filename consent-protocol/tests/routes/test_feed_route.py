@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.middleware import require_firebase_auth
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.one.feed import router
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX
@@ -121,3 +121,40 @@ def test_feed_preserves_retryable_database_unavailable_semantics() -> None:
         }
     }
     assert "private driver details" not in response.text
+
+
+def test_sos_card_clear_binds_the_vault_owner_and_bounds_the_ids() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": "recipient-from-token"
+    }
+    client = TestClient(app)
+    location = Mock()
+    grant_id = "22222222-2222-4222-8222-222222222222"
+    location.clear_received_grants.return_value = [grant_id]
+    path = "/api/one/feed/sos-cards/clear"
+
+    with patch("api.routes.one.feed._location_service", return_value=location):
+        response = client.post(path, json={"grant_ids": [grant_id]})
+        # The recipient comes only from the token, and ids are bounded UUIDs.
+        rejected = [
+            client.post(path, json=body).status_code
+            for body in (
+                {"grant_ids": [grant_id], "recipient_user_id": "someone-else"},
+                {"grant_ids": []},
+                {"grant_ids": [grant_id] * 51},
+                {"grant_ids": ["not-a-grant-id"]},
+            )
+        ]
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared_grant_ids": [grant_id]}
+    location.clear_received_grants.assert_called_once_with(
+        recipient_user_id="recipient-from-token", grant_ids=[grant_id]
+    )
+    assert rejected == [422, 422, 422, 422]
+
+    signed_out = FastAPI()
+    signed_out.include_router(router)
+    assert TestClient(signed_out).post(path, json={"grant_ids": [grant_id]}).status_code == 401

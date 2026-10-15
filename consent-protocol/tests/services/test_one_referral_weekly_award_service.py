@@ -25,6 +25,18 @@ import pytest
 from hushh_mcp.services import one_referral_weekly_award_service as weekly_award_service
 
 CUTOFF_AT = datetime(2026, 10, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def finalized_clock(monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(weekly_award_service, "datetime", Clock)
+
+
 ROUND_ID = "55555555-5555-5555-5555-555555555555"
 
 
@@ -104,6 +116,8 @@ def test_finalize_awards_top_three_by_cumulative_points_as_of_cutoff(monkeypatch
 
     def execute(query, params=None):
         sql = str(query)
+        if "SELECT status FROM one_referral_reward_rounds" in sql:
+            return _Result([SimpleNamespace(status="scheduled")])
         if "GROUP BY user_id" in sql:
             assert params["cutoff_at"] == CUTOFF_AT
             return _Result(ranked_rows)
@@ -138,6 +152,8 @@ def test_finalize_leaves_a_slot_unawarded_when_fewer_than_three_are_eligible(mon
 
     def execute(query, params=None):
         sql = str(query)
+        if "SELECT status FROM one_referral_reward_rounds" in sql:
+            return _Result([SimpleNamespace(status="scheduled")])
         if "GROUP BY user_id" in sql:
             return _Result(ranked_rows)
         if "INSERT INTO one_referral_weekly_awards" in sql:
@@ -171,12 +187,16 @@ def test_finalize_is_a_no_op_the_second_time_for_an_already_finalized_round(monk
         SimpleNamespace(award_slot=2, user_id="user_b", cumulative_points_at_cutoff=200),
     ]
     conn = MagicMock()
-    conn.execute.return_value = _Result(existing_rows)
+    conn.execute.side_effect = lambda query, params=None: (
+        _Result([SimpleNamespace(status="finalized")])
+        if "SELECT status" in str(query)
+        else _Result(existing_rows)
+    )
 
     with patch.object(weekly_award_service, "get_db_connection", side_effect=lambda: _db(conn)):
         result = weekly_award_service.finalize_reward_round(CUTOFF_AT, "UTC")
 
-    assert conn.execute.call_count == 1
+    assert conn.execute.call_count == 2
     assert [a.user_id for a in result.awards] == ["user_a", "user_b"]
 
 
@@ -210,6 +230,8 @@ def test_a_previous_winner_can_win_the_next_round_with_zero_new_referrals(monkey
 
     def execute_round_1(query, params=None):
         sql = str(query)
+        if "SELECT status FROM one_referral_reward_rounds" in sql:
+            return _Result([SimpleNamespace(status="scheduled")])
         if "GROUP BY user_id" in sql:
             return _Result(ranked_round_1)
         if "INSERT INTO one_referral_weekly_awards" in sql:
@@ -246,6 +268,8 @@ def test_a_previous_winner_can_win_the_next_round_with_zero_new_referrals(monkey
 
     def execute_round_2(query, params=None):
         sql = str(query)
+        if "SELECT status FROM one_referral_reward_rounds" in sql:
+            return _Result([SimpleNamespace(status="scheduled")])
         if "GROUP BY user_id" in sql:
             assert params["cutoff_at"] == cutoff_2
             return _Result(ranked_round_2)

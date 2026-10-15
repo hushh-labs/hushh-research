@@ -6,7 +6,7 @@
  * the owner's vault key. They never enter a chat message or a Server Action.
  */
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   ProfilePaneAccountIcon,
@@ -30,9 +30,11 @@ import { WalletService, type WalletNetworkContext, type WalletNetworkResult, typ
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 
-import { type WalletCardArtwork } from "@/lib/wallet/card-artwork";
+import { type WalletCardArtwork, type WalletArtworkVariant } from "@/lib/wallet/card-artwork";
+import { WalletBankDesignPicker } from "./wallet-bank-design-picker";
 import { WalletCardArtworkPicker } from "./wallet-card-artwork-picker";
 import { WalletCardFace } from "./wallet-card-face";
+import { useWalletArtworkVisibility } from "@/lib/wallet/use-wallet-artwork-visibility";
 import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -68,14 +70,19 @@ export interface SecureCardAddFormProps {
   initialNickname?: string;
   /** Decrypted by the host from the owner's Secrets; never passed in a URL. */
   initialPan?: string;
+  /** Owner host performs usage allocation privately; the picker never gets PAN. */
+  suggestBankDesign?: (pan: string, variants: readonly WalletArtworkVariant[], signal: AbortSignal) => Promise<WalletArtworkVariant | null>;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, artworkEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan, suggestBankDesign }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
   const [cardholderName, setCardholderName] = useState("");
-  const [pan, setPan] = useState(initialPan ?? "");
+  const [pan, setPanValue] = useState(initialPan ?? "");
+  const [bankDraftRevision, setBankDraftRevision] = useState(0);
+  const setPan = (value: string) => { setPanValue(value); setBankDraftRevision(revision => revision + 1); };
+  const [bankSelection, setBankSelection] = useState<string | null>(null);
   const [network, setNetwork] = useState<CardBrand | "">("");
   const draftId = useRef(walletOperationId());
   const edited = useRef({ pan: Boolean(initialPan), expiry: false, cardholderName: false });
@@ -85,7 +92,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const [issuingRegion, setIssuingRegion] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [artworkBusy, setArtworkBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [additionalOpen, setAdditionalOpen] = useState(false);
   useEffect(() => { if (!active) { setScanReading(null); setArtwork(undefined); } }, [active]);
@@ -103,6 +109,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const ownerKey = `${epoch}:${context?.userId ?? ""}`;
   const previousOwner = useRef(ownerKey);
   const draftVisible = active && previousOwner.current === ownerKey;
+  const artworkVisible = useWalletArtworkVisibility(context, artwork?.source === "catalog" ? artwork : undefined, draftVisible);
   useEffect(() => {
     if (previousOwner.current === ownerKey) return;
     previousOwner.current = ownerKey;
@@ -118,6 +125,14 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
   const lookupKey = JSON.stringify([epoch, context?.userId, prefix, length, network]);
   const currentReply = networkReply?.key === lookupKey && networkReply.vaultOwnerToken === context?.vaultOwnerToken ? networkReply : null;
   const brand = currentReply?.result?.network ?? "other";
+  // An unchanged owner/draft keeps its confirmed network during token renewal.
+  // This is presentation continuity, never authority to skip save validation.
+  const bankNetwork = currentReply?.result?.network ?? (networkReply?.key === lookupKey ? networkReply.result?.network : undefined) ?? "other";
+  const bankContextKey = `${ownerKey}:${bankNetwork}:${issuingRegion}`;
+  const bankMode = bankSelection === bankContextKey;
+  useLayoutEffect(() => {
+    if (bankSelection && bankSelection !== bankContextKey) { setBankSelection(null); setArtwork(undefined); }
+  }, [bankSelection, bankContextKey]);
   const networkLengthMismatch = length >= 13 && length <= 19 && !isCardPanLengthValid(length, network || brand);
   const networkHint = networkLengthMismatch ? ERROR_COPY.pan_length_invalid_for_brand : networkLoading || !currentReply ? null : !currentReply.result
     ? "Network identification is unavailable. Your card will use a neutral Card label."
@@ -162,7 +177,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || scanning || artworkBusy || networkLoading || !draftVisible) return;
+    if (saving.current || scanning || networkLoading || !draftVisible) return;
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
@@ -206,7 +221,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} onBusyChange={setScanning} onRead={(draft) => {
+  const scanner = scanEnabled ? <WalletCardScanner key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar} onBusyChange={setScanning} onRead={(draft) => {
         setScanReading(draft); setArtwork(undefined);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(draft.fields.expiry);
@@ -232,7 +247,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       {!scanInToolbar ? scanner : null}
       {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
       {draftVisible && (scanReading || digits.length >= 13) ? <div className="mx-auto w-full max-w-[26.5rem]">
-        <WalletCardFace artwork={artwork} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
+        <WalletCardFace artwork={artworkVisible ? artwork : undefined} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
       </div> : null}
       <fieldset disabled={submitting || scanning || !draftVisible} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
@@ -267,7 +282,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
             />
           </div>
         </div>
-        <div className={styles.row}>
+        <div className={cn(styles.row, styles.pairedRow)}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
@@ -282,7 +297,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
               {...fieldErrors("expiry_month_invalid", "expiry_year_invalid", "card_expired")}
             />
           </div>
-        </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
             <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
@@ -294,11 +308,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
                 {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
-            {catalogFailed ? <div role="status" className={styles.scanHint}>
-              <p>Network options could not load. Auto-detect is still available.</p>
-              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
-            </div> : null}
           </div>
+        </div>
+        {catalogFailed ? <div role="status" className={styles.scanHint}>
+          <p>Network options could not load. Auto-detect is still available.</p>
+          <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+        </div> : null}
         <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
           <summary>Additional details</summary>
           <div className={styles.fields}>
@@ -319,17 +334,20 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
           </div>
         </details>
       </fieldset>
-      {artworkEnabled ? <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} onChange={setArtwork} onBusyChange={setArtworkBusy} /> : null}
+      {artworkEnabled ? <>
+        <WalletBankDesignPicker key={bankContextKey} context={context} network={bankNetwork} country={issuingRegion || undefined} active={draftVisible && !submitting && !scanning && Boolean(currentReply?.result || (networkReply?.key === lookupKey && networkReply.result))} draftRevision={bankDraftRevision} onChange={setArtwork} onModeChange={enabled => setBankSelection(enabled ? bankContextKey : null)} suggest={suggestBankDesign ? (variants, signal) => suggestBankDesign(digits, variants, signal) : undefined} hasPhoto={Boolean(scanReading?.sanitized || scanReading?.candidate)} />
+        <WalletCardArtworkPicker compact context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} showSimpleDesign={false} />
+      </> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}
         </ul>
       ) : null}
       <FlowActionGroup
-        className="mx-auto max-w-[244px]"
-        stacked
-        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || artworkBusy || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
-        secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
+        className={styles.actions}
+        separateSecondary={false}
+        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
+        secondary={onCancel ? <Button type="button" variant="ghost" size="prominent" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
     </>

@@ -266,8 +266,9 @@ The `/api/one/wallet/card-access` endpoints are:
 | GET | `/networks` | Matching Firebase identity and vault-owner consent; supported canonical network identifiers. Independent of temporary-sharing rollout. |
 | POST | `/networks/resolve` | Same owner authority; transient six-digit issuer prefix and strict integer card length, optional selected network. No payment credentials accepted, persisted, logged or sent to a provider. Returns normalized `network`, `source`, and ambiguous `candidates`. |
 | POST | `/artwork/resolve` | Matching Firebase identity and vault-owner consent. Only six/eight-digit IIN, strict PAN length and optional selected network. Approved-catalog candidates, honest unconfigured fallback; exact product/variant requires authorized proof. No full credentials, names or photos accepted or echoed. |
+| POST | `/artwork/banks` | Same owner authority. Strict network, optional country, opaque issuer/country bank key and bounded offset only. Approved cosmetic bank choices and 24 designs per page; owner confirmation required, no exact proof or card credentials. Uses existing private asset/validation endpoints. |
 | GET | `/artwork/assets/{sha256}` | Same owner authority. Current approved, digest-bound local PNG/JPEG/WebP; 512 KB maximum; private/no-store/nosniff. |
-| POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. Current catalog version and approval status must match. No stored owner image or card ID is disclosed. |
+| POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. `purpose=selection` (default) requires current catalog version, selectable asset and complete provider snapshot. `purpose=saved` validates an immutable saved reference independently of unrelated catalog versions. Both require current approval, grant and rights. No stored owner image or card ID is disclosed. See [provider contract](../one/wallet-artwork-providers.md). |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
@@ -1560,8 +1561,18 @@ are Coming soon. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
-are calculated server-side. Time zone resolves from the browser; the account
-menu edits time zone and availability hours for the current owner session.
+are calculated server-side. Time zone resolves from the connected primary calendar,
+with device fallback; advanced options remain in the account menu. Free time
+checks the full selected local day. A selected window hands its date, exact
+start/end, duration, zone and account context to the existing One conversation.
+One asks who should join; the reply carries this memory-only context through
+normal chat text attachments. The existing proposal requires confirmation.
+The selected window/duration are checked before confirmation and execution.
+Change time offers fitting starts in the resolved zone and requests a fresh
+proposal with the reviewed attendees/title. A changed connected account blocks
+execution. A conflict offers a fresh availability check inside chat. Only successful
+execution publishes an owner-scoped refresh for Today and Free time. Slot taps,
+cancellation and authorization never execute an event.
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -3573,10 +3584,10 @@ the badge rather than inventing a mutual relationship. No migration is required.
 requires a Firebase ID token; the verified UID selects the owner, never a
 client-supplied user identifier.
 
-- `GET /api/one/referrals/points` returns `{points: number}` from the owner's
+- `GET /api/one/referrals/points` returns `{points: number, coins: number}` from the owner's
   cumulative ledger, independently of published leaderboard snapshots.
 - `GET /api/one/referrals/challenge` returns `active`, `week_started_at`,
-  `cutoff_at`, and `timezone`. Its weekly window derives from active program
+  `cutoff_at`, `timezone`, `round_id`, persisted `status`, and `server_now`. Its weekly window derives from active program
   settings. Missing settings or an unset schedule returns inactive with null
   timestamps. A scheduled challenge does not imply weekly prize finalization
   is enabled.
@@ -3594,6 +3605,16 @@ against an environment where writes are prohibited.
   active settings `version`, `points`, `streak_rules`, `weekly_schedule`,
   `challenge_duration_days` (null when unscheduled), and `weekly_prizes_enabled`.
   Rules uses these amounts directly; this read does not activate policy or award rewards.
+
+- `GET /summary?offset=0&limit=50` returns total registered valid referrals, qualified/in-progress/review counts, privacy-safe direct member display names, dates and usage counts. Public individual standings continue to use opt-in aliases.
+- `POST /app-open` records one authenticated calendar day atomically and returns current/longest streak plus `server_now` and `next_day_at`. Reads never award a day.
+- `POST /activity` accepts only `{message_id: UUID}`. It reconciles an existing server-persisted completed-reply event belonging to the verified owner; client reward amounts or owner identifiers are rejected.
+- `GET /transactions?before_id=...&limit=20` returns owner-only point/coin ledger history with a cursor.
+- `POST /rewards/claim` accepts `{milestone_key}` and atomically claims an earned owner entitlement. Unearned and duplicate claims return 409; fulfillment remains a separate staff state.
+- `GET /circle` returns inherited referral genealogy membership and authoritative rank/member/qualified metrics. `POST /circle` permits only acknowledging the current circle; changing it returns 403. Location Circle permissions are independent.
+- `GET /circles/leaderboard?after_rank=0&limit=20` ranks referral networks by valid qualified descendants. Individual `/leaderboard` ranks eligible coins and accepts `snapshot_id` to pin continuation pages.
+
+Migration 339 extends the existing ledger and lifecycle. The selected registration-to-qualification activity policy awards 5 points, then a 10-point upgrade to 15 total activity points. The independent qualification award records 100 points and 100 referral coins (or the configured replacement flash amount); activity points carry zero coins. Referral coins have no cash-wallet conversion. Daily streaks use app attendance. See [the referral audit and deployment contract](../one/referral-backend.md).
 
 ### Document request prices and payouts
 

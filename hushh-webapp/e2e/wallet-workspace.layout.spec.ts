@@ -225,7 +225,7 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (assetPath === "/wallet/card-scan-agent-one.webp") {
+    if (assetPath === "/wallet/card-scan-agent-one-emerging.webp") {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "image/webp" });
       return;
     }
@@ -256,6 +256,52 @@ async function mount(page: Page, enter = true) {
   await expect(page.locator("#root")).not.toBeEmpty();
   const next = page.getByRole("button", { name: "Continue", exact: true });
   if (enter) { await expect(next).toBeVisible(); await next.click(); }
+}
+
+for (const width of [390, 1024]) {
+  test(`tab clicks settle without a spring overshoot at ${width}px`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const errors = await open(page, width, "light", { cards: 3 }, { shell: true });
+    await page.addScriptTag({ content: "window.__walletPagerOnly = true;" });
+    await mount(page, false);
+    await expect(page.getByRole("tabpanel", { name: "Cards", exact: true })).toBeVisible();
+    const add = page.getByRole("tab", { name: "Add", exact: true });
+    await add.evaluate((tab) => {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
+      const viewport = panel.closest('[data-swipe-views-root="true"]')!;
+      const state = window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> };
+      state.__walletTabMotion = new Promise((resolve) => {
+        tab.addEventListener("click", () => {
+          const started = performance.now();
+          const frames: { time: number; offset: number }[] = [];
+          const sample = () => {
+            const time = performance.now() - started;
+            frames.push({ time, offset: panel.getBoundingClientRect().x - viewport.getBoundingClientRect().x });
+            if (time < 800) requestAnimationFrame(sample);
+            else resolve(frames);
+          };
+          requestAnimationFrame(sample);
+        }, { once: true });
+      });
+    });
+    await add.click();
+    const frames = await page.evaluate(() => (window as unknown as { __walletTabMotion: Promise<{ time: number; offset: number }[]> }).__walletTabMotion);
+    const rendering = await add.evaluate(tab => {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
+      const viewport = panel.closest('[data-swipe-views-root="true"]')!;
+      return { selected: tab.getAttribute("aria-selected"), visibility: document.visibilityState,
+        viewportWidth: viewport.getBoundingClientRect().width,
+        transform: getComputedStyle(panel.parentElement!).transform };
+    });
+    const diagnostics = JSON.stringify({ ...rendering, frameCount: frames.length,
+      maxFrameGap: Math.max(...frames.map((frame, index) => frame.time - (frames[index - 1]?.time ?? 0))),
+      first: frames.slice(0, 3), last: frames.slice(-3) });
+    const arrived = frames.find((frame, index) => Math.abs(frame.offset) < 3 && frames.slice(index).every((later) => Math.abs(later.offset) < 3));
+    expect(arrived, `the selected pane must arrive: ${diagnostics}`).toBeDefined();
+    expect(arrived!.time, `tab presses should not wait out the drag spring: ${diagnostics}`).toBeLessThan(400);
+    expect(Math.min(...frames.map((frame) => frame.offset)), `the pane must not overshoot its snap: ${diagnostics}`).toBeGreaterThanOrEqual(-3);
+    expect(errors).toEqual([]);
+  });
 }
 
 for (const width of [320, 393, 1440]) {
@@ -397,13 +443,13 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         const details = page.getByRole("region", { name: "Saved card details", exact: true });
         await expect(details).toBeVisible();
         const selectedFace = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
-        await expect(selectedFace).toHaveAttribute("data-revealed", "true");
+        await expect(selectedFace).toHaveAttribute("data-revealed", "false");
         const fullNumber = (await selectedFace.locator('[data-slot="wallet-card-number"] > [aria-hidden="true"]').allTextContents()).join(" ");
-        expect(fullNumber).toMatch(/^\d[\d ]+\d$/);
+        expect(fullNumber).toBe(maskedNumber);
         expect(fullNumber.replace(/ /g, "").endsWith(maskedNumber.slice(-4))).toBe(true);
         await expect(details.getByText(fullNumber, { exact: true })).toBeVisible();
         await expect(details).not.toContainText(/CVV|CVC|PIN/);
-        expect(await page.evaluate(() => window.__walletEvents ?? [])).toContain(`reveal:${lastCardId}`);
+        expect(await page.evaluate(() => window.__walletEvents ?? [])).not.toContain(`reveal:${lastCardId}`);
         await page.getByRole("button", { name: "Back", exact: true }).click();
       }
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -471,6 +517,8 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
   test(`Wallet introduction fits image and Continue at ${width}x${height}`, async ({ page }) => {
     const errors = await open(page, width!, "light", { cards: 0 }, { height, shell: true });
     await mount(page, false);
+    await expect(page.getByRole("heading", { name: "All your cards in one place", exact: true })).toBeAttached();
+    await expect(page.getByTestId("one-wallet-empty-display-title")).toHaveText("All your cards in one place");
     await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toHaveCount(0);
     const image = page.getByTestId("one-wallet-empty-art").locator("img");
     await expect(image).toBeVisible();
@@ -589,7 +637,7 @@ for (const width of [320, 393, 1440]) {
     await expect(scan).toBeVisible();
     await expect(scan.getByText("Scan here to add card", { exact: true })).toBeVisible();
     const artwork = scan.locator("img");
-    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one.webp");
+    await expect(artwork).toHaveAttribute("src", "/wallet/card-scan-agent-one-emerging.webp");
     await expect.poll(() => artwork.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true);
     if (await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia === "function")) {
       await scan.click();
@@ -611,7 +659,6 @@ for (const width of [320, 393, 1440]) {
     }
     const bounds = await Promise.all([number, holder, expiry].map(field => field.boundingBox()));
     for (const [first, second] of [[0, 2]]) {
-      expect(Math.abs(bounds[first]!.width - bounds[second]!.width)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.height - bounds[second]!.height)).toBeLessThan(1);
       expect(Math.abs(bounds[first]!.x - bounds[second]!.x)).toBeLessThan(1);
     }
@@ -628,16 +675,35 @@ for (const width of [320, 393, 1440]) {
     const networkBounds = (await network.boundingBox())!;
     for (const label of ["Expiry (MM/YY)"]) {
       const box = (await form.getByLabel(label, { exact: true }).boundingBox())!;
-      expect(networkBounds.y).toBeGreaterThanOrEqual(box.y + box.height);
+      expect(Math.abs(networkBounds.y - box.y)).toBeLessThan(1);
+      expect(Math.abs(networkBounds.width - box.width)).toBeLessThan(1);
+      expect(Math.abs(networkBounds.height - box.height)).toBeLessThan(1);
+      expect(networkBounds.x).toBeGreaterThanOrEqual(box.x + box.width);
+      expect(networkBounds.y).toBeGreaterThanOrEqual(bounds[1]!.y + bounds[1]!.height);
     }
     await page.getByText("Additional details", { exact: true }).click();
     for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
-    await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
-    await expect(form.getByTestId("secure-card-save")).toBeVisible();
-    await expectCompactPrimary(form.getByTestId("secure-card-save"));
+    const save = form.getByTestId("secure-card-save");
+    await save.scrollIntoViewIfNeeded();
+    await expect(save).toBeVisible();
     const cancel = form.getByRole("button", { name: "Cancel", exact: true });
+    await expect(cancel).toBeVisible();
+    const saveBox = (await save.boundingBox())!, cancelBox = (await cancel.boundingBox())!;
+    const formBox = (await form.boundingBox())!;
+    for (const box of [cancelBox, saveBox]) {
+      expect(box.height).toBeCloseTo(50, 0);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeLessThanOrEqual(244);
+      expect(box.x).toBeGreaterThanOrEqual(formBox.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(formBox.x + formBox.width);
+    }
+    expect(saveBox.width).toBeCloseTo(cancelBox.width, 0);
+    expect(saveBox.y).toBeCloseTo(cancelBox.y, 0);
+    expect(saveBox.x).toBeGreaterThan(cancelBox.x + cancelBox.width);
+    expect((cancelBox.x + saveBox.x + saveBox.width) / 2).toBeCloseTo(formBox.x + formBox.width / 2, 0);
+    if (width === 1440) expect(saveBox.width).toBeCloseTo(244, 0);
     await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await page.screenshot({ path: test.info().outputPath("wallet-add-compact-actions.png") });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -680,8 +746,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(face.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
   await expect(face.getByTestId("card-network-wordmark-mastercard")).toBeVisible();
   await expect(face.locator('[data-slot="wallet-card-number"]')).toContainText("4444");
-  await expect(face).toContainText("5555555555554444");
-  await expect(face).toHaveAttribute("data-revealed", "true");
+  await expect(face).not.toContainText("5555555555554444");
+  await expect(face).toHaveAttribute("data-revealed", "false");
   const artwork = await face.getAttribute("data-card-artwork");
   await selected.getByRole("button", { name: "Back", exact: true }).click();
   const saved = page.locator('[data-gesture-card="card_saved_1"]');
@@ -694,7 +760,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
   await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
-  expect(await page.evaluate(() => window.__walletEvents)).toEqual(["add", "reveal:card_saved_1"]);
+  expect(await page.evaluate(() => window.__walletEvents?.filter(event => !event.startsWith("history-loaded:")))).toEqual(["add"]);
   expect(errors).toEqual([]);
 });
 
@@ -741,6 +807,7 @@ for (const width of [320, 390, 1440]) {
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("history-loaded:")).length)).toBe(2);
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
     await recordWalletLayout(page, "sharing-after-tap");
     try {
@@ -755,11 +822,18 @@ for (const width of [320, 390, 1440]) {
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
     const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
     await expect(history).toBeVisible();
+    await expect(sharing.getByText("Loading shared cards...")).toHaveCount(0);
+    await page.getByRole("tab", { name: "Cards", exact: true }).click();
+    await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+    await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("history-loaded:")).length)).toBe(2);
     const received = sharing.getByRole("region", { name: "Received card history", exact: true });
     await expect(received.getByText("Example Sender", { exact: true })).toBeVisible();
     await expect(received.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
+    await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toHaveCSS("font-size", "13px");
+    await expect(received.getByRole("heading", { name: "Cards shared with you", exact: true })).toHaveCSS("font-size", "13px");
     await expect(sharing.getByText("Sample recipient", { exact: true })).toBeVisible();
     const profileFont = await history.getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
     await expect(history.getByText(/15 minutes/)).toBeHidden();
@@ -901,17 +975,20 @@ for (const width of [390, 1440]) {
         await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
         await expectAligned();
         if (name === "Add") {
+          await expect(page.getByRole("button", { name: "Use a simple design", exact: true })).toHaveCount(0);
           for (let press = 0; press < 4; press++) {
-            const button = page.getByRole("button", { name: "Use neutral design", exact: true });
+            const button = page.getByRole("button", { name: "Add to Wallet", exact: true });
             await button.evaluate(el => {
               const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
               root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
             });
             const box = await button.boundingBox();
-            if (!box) throw new Error("Design control missing");
+            if (!box) throw new Error("Add control missing");
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await page.mouse.down();
             expect(await alignment()).toBeLessThan(2);
+            // Probe the held-control geometry without opening the camera.
+            await page.mouse.move(0, 0);
             await page.mouse.up();
             await expect(button).toBeVisible();
             await expectAligned();
@@ -929,8 +1006,9 @@ for (const width of [390, 1440]) {
     await mount(page);
     await page.getByRole("button", { name: "Everyday", exact: true }).click();
     const details = page.getByRole("region", { name: "Saved card details" });
-    await expect(details).toContainText("4242 4242 4242 4242");
-    await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
+    await expect(details).toContainText("•••• •••• •••• 4242");
+    await expect(page.getByRole("button", { name: "Change card design", exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
     await expect(details).not.toContainText(/CVV|CVC|PIN/);
     const icons = details.locator('[data-slot="settings-row-icon"] svg');
@@ -986,7 +1064,7 @@ for (const width of [390, 1440]) {
     await rupay.focus();
     await rupay.press("Enter");
     const face = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
-    await expect(face).toHaveAttribute("data-revealed", "true");
+    await expect(face).toHaveAttribute("data-revealed", "false");
     const logo = face.getByTestId("card-network-wordmark-rupay").locator("img");
     await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
     expect(await logo.evaluate(el => { const box = el.getBoundingClientRect(), card = el.closest('[data-testid="wallet-card-face"]')!.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom; })).toBe(true);
@@ -1194,19 +1272,24 @@ for (const width of [320, 1440]) {
           const style = getComputedStyle(button);
           return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, height: box.height, cssHeight: Number.parseFloat(style.height), font: style.fontSize };
         });
-        return { qrRight: qr.right, right: el.getBoundingClientRect().right, actions };
+        return { qrWidth: qr.width, qrRight: qr.right, right: el.getBoundingClientRect().right, actions };
       });
       expect(geometry.actions).toHaveLength(4);
+      expect(geometry.qrWidth).toBeLessThanOrEqual(96);
       geometry.actions.forEach((action, i) => {
         expect(action.x).toBeGreaterThan(geometry.qrRight);
         expect(action.right).toBeLessThanOrEqual(geometry.right);
-        expect(action.right - action.x).toBeGreaterThanOrEqual(124);
+        expect(action.right - action.x).toBeGreaterThanOrEqual(76);
         // Rect subtraction can yield 43.99994px for a 44px control.
         // Keep the authored height strict and allow only numerical noise.
         expect(action.cssHeight).toBeGreaterThanOrEqual(44);
         expect(action.height).toBeGreaterThanOrEqual(44 - 0.001);
         expect(action.font).toBe("13px");
-        if (i) expect(action.y).toBeGreaterThanOrEqual(geometry.actions[i - 1].bottom);
+        if (i % 2 === 1) {
+          expect(action.y).toBeCloseTo(geometry.actions[i - 1].y, 0);
+          expect(action.x).toBeGreaterThanOrEqual(geometry.actions[i - 1].right);
+        }
+        if (i >= 2) expect(action.y).toBeGreaterThanOrEqual(geometry.actions[i - 2].bottom);
       });
       await expect(page.getByRole("button", { name: /^Rotate QR access/ })).toHaveCount(0);
       await qrActions.scrollIntoViewIfNeeded();

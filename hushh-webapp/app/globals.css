@@ -2360,6 +2360,15 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   height: 22px !important;
 }
 
+/* Details opened from Chats stay at their parent's leading edge. Keep the
+ * shared Profile material while matching the left sheet's entrance and exit. */
+[data-chat-detail-pane][data-app-side-pane] {
+  right: auto !important;
+  left: var(--app-side-pane-left-inset) !important;
+  --tw-enter-translate-x: calc(-100% - var(--app-side-pane-left-inset));
+  --tw-exit-translate-x: calc(-100% - var(--app-side-pane-left-inset));
+}
+
 /* Chat mirrors Profile at the leading edge. The card owns its material;
  * the inner sidebar only owns content and scrolling. */
 [data-agent-history-drawer],

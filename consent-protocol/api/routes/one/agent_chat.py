@@ -423,6 +423,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The person's unsent draft card, so a follow-up can revise it. Only an
     # unlocked owner turn keeps it; it never becomes conversation state.
     pending_email_draft = admit_pending_email_draft(forwarded)
+    # The owner's consented memory for this turn: Soul.md, then the bounded
+    # Live Mirror facts packet. Popped before the bridge can copy forwarded
+    # props; only an unlocked owner turn stores it (below).
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
@@ -443,6 +447,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         pending_email_draft = ""
         consume_request_secret(receipt_memory)
         receipt_memory = ""
+        # Without a vault-owner token the memory packet is dropped, never stored.
+        raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
@@ -470,7 +476,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -576,7 +582,7 @@ _intro_app = App(
     root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
-_session_service = EncryptedAdkSessionService()
+_session_service = EncryptedAdkSessionService(referral_usage_app_name=ONE_APP_NAME)
 _intro_session_service = InMemorySessionService()
 
 

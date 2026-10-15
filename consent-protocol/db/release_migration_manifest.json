@@ -310,7 +310,9 @@
     "342_live_memory_connector_journal.sql",
     "343_hosted_memory_pilot_review.sql",
     "344_hosted_memory_scoped_source_envelope.sql",
-    "345_live_memory_source_journal.sql"
+    "345_live_memory_source_journal.sql",
+    "346_one_location_recipient_feed_clear.sql",
+    "347_one_referral_dashboard_lifecycle.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -658,6 +660,8 @@
     "342_live_memory_connector_journal.sql": "rollback/342_live_memory_connector_journal.rollback.sql",
     "343_hosted_memory_pilot_review.sql": "rollback/343_hosted_memory_pilot_review.rollback.sql",
     "344_hosted_memory_scoped_source_envelope.sql": "rollback/344_hosted_memory_scoped_source_envelope.rollback.sql",
-    "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql"
+    "345_live_memory_source_journal.sql": "rollback/345_live_memory_source_journal.rollback.sql",
+    "346_one_location_recipient_feed_clear.sql": "rollback/346_one_location_recipient_feed_clear.rollback.sql",
+    "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql"
   }
 }

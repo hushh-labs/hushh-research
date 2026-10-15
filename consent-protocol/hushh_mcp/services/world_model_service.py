@@ -31,6 +31,7 @@ from hushh_mcp.services.world_model_preferences import (
     enroll_default,
     preferences,
 )
+from hushh_mcp.services.world_model_progress import derive_progress
 
 NAMESPACE = "one.personal_world_model.v1"
 # A finished model is prepared again once its latest run is this old.
@@ -143,6 +144,41 @@ async def offer(
 
 
 class WorldModelJobs(ProfileResearchJobs):
+    log_event = "one.pwm_"
+    search_slots = MAX_SEARCHES
+    #: Owners whose last-seen checkpoint revision this process remembers.
+    activity_capacity = 1024
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # user_id -> (revision, when this process first saw it). The store does
+        # not return a write time; this is the best per-process stand-in.
+        self.activity: dict[str, tuple[int, float]] = {}
+
+    def activity_at(self, user_id, state):
+        revision = state.get("revision")
+        seen = self.activity.get(user_id)
+        if seen is None or seen[0] != revision:
+            if len(self.activity) >= self.activity_capacity:
+                self.activity.pop(next(iter(self.activity)))
+            seen = self.activity[user_id] = (revision, self.clock())
+        return seen[1]
+
+    async def status(self, user_id, consent_token):
+        result = await super().status(user_id, consent_token)
+        if result["status"] not in {"pending", "paused"}:
+            self.activity.pop(user_id, None)
+            return result
+        # Progress is additive and derived from the sealed checkpoint only;
+        # the key that opens it is the same request-bound key as the status.
+        state = await self.store.get(user_id)
+        if state is None:
+            return result
+        progress = derive_progress(
+            state, now=self.clock(), revision_at=self.activity_at(user_id, state)
+        )
+        return {**result, "progress": progress}
+
     def committed(self):
         from hushh_mcp.services.world_model_notifications import world_model_notification_worker
 
@@ -157,14 +193,17 @@ class WorldModelJobs(ProfileResearchJobs):
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         # Research is on by default once setup disclosed it. An existing row,
         # including an explicit opt-out, is never changed here.
+        enrolled = False
         if (
             one_profile_research_enabled()
             and await preferences(user_id) is None
             and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
         ):
             await enroll_default(user_id, consent_token)
+            enrolled = True
         refused, _ = await admission(user_id, consent_token)
         if refused:
+            self.decision("ensure", "refused", refused, None)
             return refused
         consent = await preferences(user_id)
         state = await self.store.get(user_id)
@@ -186,13 +225,17 @@ class WorldModelJobs(ProfileResearchJobs):
         ):
             # The latest run finished recently and its draft aged out. A run the
             # retention purge removed before it finished is prepared again.
-            return {"status": "saved", "pkm_written": False}
+            result = {"status": "saved", "pkm_written": False}
+            self.decision("ensure", "recently_prepared", result, None)
+            return result
         if (
             state
             and state["status"] == "saved"
             and state.get("consent_generation") == str(consent["generation"])
         ):
+            self.decision("ensure", "saved", state["result"], state)
             return state["result"]
+        self.decision("ensure", "enrolled_start" if enrolled else "start", None, state)
         inputs = None if owner_decisions is None else {"owner_decisions": owner_decisions}
         return await self.start(user_id, consent_token, inputs=inputs)
 

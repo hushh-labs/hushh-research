@@ -131,7 +131,7 @@ def test_get_or_create_reward_round_returns_the_existing_round_for_the_same_cuto
         sql = str(query)
         if "one_referral_program_settings" in sql:
             return _Result([_settings_row()])
-        if "SELECT id, settings_version" in sql:
+        if "SELECT id, settings_version" in sql or "SELECT id,settings_version" in sql:
             return _Result([_round_row()])
         raise AssertionError(f"unexpected query (should not insert): {sql}")
 
@@ -155,8 +155,9 @@ def test_get_or_create_reward_round_recovers_from_a_concurrent_insert_race():
         if "one_referral_program_settings" in sql:
             return _Result([_settings_row()])
         if "INSERT INTO one_referral_reward_rounds" in sql:
-            raise RuntimeError("duplicate key value violates unique constraint")
-        if "SELECT id, settings_version" in sql:
+            assert "ON CONFLICT" in sql
+            return _Result([])
+        if "SELECT id, settings_version" in sql or "SELECT id,settings_version" in sql:
             calls["reads"] += 1
             if calls["reads"] == 1:
                 return _Result([])  # first read: nothing yet, so we attempt the insert

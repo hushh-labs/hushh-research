@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import { SoulMemoryDocument } from "@/components/profile/soul-memory-document";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { Input } from "@/components/ui/input";
@@ -116,13 +117,24 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
   };
 
   if (!verified) return <p role="status" className="py-4 text-sm text-muted-foreground">Reconnect your account to open memory.md.</p>;
-  if (failed && !editing) return <div role="status" className="space-y-3 py-4">
-    <p className="text-sm text-muted-foreground">memory.md couldn’t be opened.</p>
-    <Button variant="muted" onClick={() => setRetry(value => value + 1)}>Try again</Button>
+  // The same shared Live Mirror preview as Profile and One's sheet, above
+  // the Soul view. It stays out of the way while memory.md is being edited.
+  const livePreview = active && !editing ? <LiveMirrorPreview showOpenMemory={false} /> : null;
+  if (failed && !editing) return <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
+    {livePreview}
+    <div role="status" className="space-y-3 py-4">
+      <p className="text-sm text-muted-foreground">memory.md couldn’t be opened.</p>
+      <Button variant="muted" onClick={() => setRetry(value => value + 1)}>Try again</Button>
+    </div>
   </div>;
-  if (!current) return <p role="status" className="py-4 text-sm text-muted-foreground">Opening memory.md…</p>;
+  if (!current) return <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
+    {livePreview}
+    <p role="status" className="py-4 text-sm text-muted-foreground">Opening memory.md…</p>
+  </div>;
   const sync = peekMarkdownMemory(userId)?.syncStatus;
-  return <section aria-label="memory.md" className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6">
+  return <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
+    {livePreview}
+    <section aria-label="memory.md" className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">The memory One uses in every conversation.</p>
       {editing ? <div className="flex gap-2">
@@ -163,5 +175,6 @@ export function SoulMemoryPanel({ userId, vaultKey, vaultOwnerToken, tokenExpire
       {conflict ? <Button variant="muted" disabled={saving} onClick={() => { cancelEdit(); setRetry(value => value + 1); }}>Reload latest version</Button> : null}
     </div> : null}
     <SoulMemoryDocument markdown={editing ? current.draft : current.document.markdown} preview={editing} />
-  </section>;
+    </section>
+  </div>;
 }

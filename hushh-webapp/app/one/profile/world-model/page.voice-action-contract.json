@@ -223,7 +223,7 @@
     },
     {
       "action_id": "profile.world_model.research",
-      "label": "Use public sources",
+      "label": "Research public pages",
       "meaning": "Turn public research on or off. Off is an explicit opt-out that research respects.",
       "aliases": [],
       "search_keywords": [
@@ -389,47 +389,6 @@
       "speaker_persona": "one"
     },
     {
-      "action_id": "profile.world_model.open",
-      "label": "Open Personal World Model",
-      "meaning": "Open the dedicated Personal World Model page.",
-      "aliases": [],
-      "search_keywords": [
-        "personal world model"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/profile/world-model"
-        ],
-        "screens": [
-          "profile_world_model"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed in with a verified contact and unlocked vault."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
-        "intended_handler": "PersonalWorldModelPage"
-      },
-      "control_ids": [
-        "pwm_open_page"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "components/profile/personal-world-model-page.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
       "action_id": "profile.world_model.sources",
       "label": "Add a public source",
       "meaning": "Read independently supplied permitted public URLs for owner review.",
@@ -518,7 +477,7 @@
     {
       "action_id": "profile.world_model.invite",
       "label": "Invite someone",
-      "meaning": "Prepare and review a public professional preview, then create a contact-bound invitation. Explicit sharing uses the share sheet.",
+      "meaning": "Prepare and review a preview from one public professional page, then create an invitation addressed to their email or phone. Explicit sharing uses the share sheet.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -602,7 +561,7 @@
     },
     {
       "action_id": "profile.world_model.reject",
-      "label": "Reject invitation",
+      "label": "Decline invitation",
       "meaning": "Delete an unclaimed invitation addressed to the verified owner.",
       "aliases": [],
       "search_keywords": [

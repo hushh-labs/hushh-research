@@ -92,7 +92,7 @@ it("lets a verified recipient claim a previewless invitation without promising s
     />,
   );
   await waitFor(() => expect(mock.preview).toHaveBeenCalledWith(token));
-  expect(screen.getByText(/choose whether to claim or reject/)).toBeInTheDocument();
+  expect(screen.getByText(/Claim it to review it here, or decline/)).toBeInTheDocument();
   expect(screen.queryByText(/starting profile|source details above/i)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
   await waitFor(() =>
@@ -103,7 +103,7 @@ it("lets a verified recipient claim a previewless invitation without promising s
     ),
   );
   expect(
-    await screen.findByText(/you can now review your model here/i),
+    await screen.findByText(/Claimed\. Review your model below\. Nothing was shared back\./),
   ).toBeInTheDocument();
   expect(mock.replace).toHaveBeenCalledWith("/one/profile/world-model");
   expect(mock.reloadResearch).toHaveBeenCalled();
@@ -153,7 +153,7 @@ it.each([
   },
 );
 
-it("clears the handoff after the recipient rejects the invitation", async () => {
+it("clears the handoff after the recipient declines the invitation", async () => {
   mock.reject.mockResolvedValue({ rejected: true });
   render(
     <WorldModelClaimInvitation
@@ -162,13 +162,13 @@ it("clears the handoff after the recipient rejects the invitation", async () => 
       vaultOwnerToken="owner-token"
     />,
   );
-  await screen.findByRole("button", { name: "Reject invitation" });
-  fireEvent.click(screen.getByRole("button", { name: "Reject invitation" }));
+  await screen.findByRole("button", { name: "Decline" });
+  fireEvent.click(screen.getByRole("button", { name: "Decline" }));
   await waitFor(() => expect(mock.reject).toHaveBeenCalledWith(
     { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
     token,
   ));
-  expect(await screen.findByText("Invitation rejected.")).toBeInTheDocument();
+  expect(await screen.findByText("Invitation declined.")).toBeInTheDocument();
   expect(
     readWorldModelInvitationHandoff(
       new URL(window.location.href).searchParams.get("handoff")!,

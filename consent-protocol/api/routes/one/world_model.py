@@ -119,8 +119,11 @@ async def set_preferences(
         raise HTTPException(403, "Unlock your vault to continue.") from None
 
 
+# Paid work is bounded in the database (3 new runs an hour, a fixed search and
+# model-call budget per discovery, one lease per owner), not by this per-process
+# counter. One driver resuming 240 s slices on two devices needs ~30 an hour.
 @router.post("/ensure")
-@limiter.limit("30/hour")
+@limiter.limit("60/hour")
 async def ensure(
     request: Request,
     body: PreparationInput | None = None,
@@ -131,8 +134,14 @@ async def ensure(
         return JSONResponse(
             result, status_code=202 if result["status"] in {"pending", "paused"} else 200
         )
+    except HTTPException:
+        raise
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except Exception:
+        raise HTTPException(
+            503, "Research is temporarily unavailable.", headers={"Retry-After": "60"}
+        ) from None
 
 
 @router.delete("/jobs")

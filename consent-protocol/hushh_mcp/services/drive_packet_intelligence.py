@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
+from datetime import date
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -29,6 +31,7 @@ from hushh_mcp.services.drive_packet_contract import (
     PacketProposal,
     PacketRequestMatch,
     PacketVerificationProposal,
+    evidence_digest,
     validate_page_citations,
 )
 from hushh_mcp.services.drive_request_package_assessment import _interpret
@@ -37,6 +40,39 @@ MAX_INPUT_BYTES = 160 * 1024
 FACTS_SCHEMA_VERSION = "document-facts-v6-record-status"
 logger = logging.getLogger(__name__)
 MAX_VALIDATION_ATTEMPTS = 2
+MONTHS = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sept", "sep"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ),
+        start=1,
+    )
+    for name in names
+}
+_MONTH_WORD = "|".join(sorted(MONTHS, key=len, reverse=True))
+_YEAR = re.compile(r"\b(\d{4})\b")
+_NUMERIC_DATE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b")
+_ISO_MONTH = re.compile(r"\b(\d{4})[./-](\d{1,2})\b")
+_MONTH_YEAR = re.compile(r"\b(\d{1,2})[./-](\d{4})\b")
+_NAMED_MONTH_YEAR = re.compile(
+    rf"\b({_MONTH_WORD})\.?\s+(?:\d{{1,2}}(?:st|nd|rd|th)?,?\s+)?(\d{{4}})\b", re.I
+)
+_DAY_NAMED_MONTH_YEAR = re.compile(rf"\b\d{{1,2}}\s+({_MONTH_WORD})\.?,?\s+(\d{{4}})\b", re.I)
+_MONTH_NAME = re.compile(rf"\b({_MONTH_WORD})\b", re.I)
+ACCOUNT_MISMATCH = "Documents name different accounts"
+HOLDER_MISMATCH = "Documents name different account holders"
 
 
 class EvidenceValidationError(ValueError):
@@ -298,6 +334,109 @@ def _require_source_periods(periods, source_periods, *, citations=True):
                 raise ValueError("unsupported content period")
 
 
+def _quoted_dates(quote):
+    """(year, month) pairs, bare month names and bare years a quote states.
+
+    Other digits are not dates. A month name with a year beside it is a pair,
+    not a bare month, so last year's month cannot date this year's window.
+    """
+    pairs, dated_names = set(), set()
+    for match in _NUMERIC_DATE.finditer(quote):
+        first, second, year = (int(part) for part in match.groups())
+        year = year + (2000 if year < 70 else 1900) if year < 100 else year
+        pairs.update((year, part) for part in (first, second) if 1 <= part <= 12)
+    for pattern, year_group, month_group in ((_ISO_MONTH, 1, 2), (_MONTH_YEAR, 2, 1)):
+        for match in pattern.finditer(quote):
+            year, month = int(match.group(year_group)), int(match.group(month_group))
+            if 1 <= month <= 12:
+                pairs.add((year, month))
+    for pattern in (_NAMED_MONTH_YEAR, _DAY_NAMED_MONTH_YEAR):
+        for match in pattern.finditer(quote):
+            pairs.add((int(match.group(2)), MONTHS[match.group(1).casefold()]))
+            dated_names.add(match.span(1))
+    months = {
+        MONTHS[match.group(1).casefold()]
+        for match in _MONTH_NAME.finditer(quote)
+        if match.span(1) not in dated_names
+    }
+    years = {int(match.group(1)) for match in _YEAR.finditer(quote)}
+    return pairs, months, years
+
+
+def _period_dated(period):
+    """A quote dates a period when its month falls inside the window.
+
+    A window longer than one month is also dated by a quote stating one of
+    its years (a tax year, a quarter). One month is not: an edit-month window
+    citing a line dated in another month, or only a year, is undated.
+    """
+    start, end = (date.fromisoformat(period[key]) for key in ("start", "end"))
+    first, last = (start.year, start.month), (end.year, end.month)
+    span = (last[0] - first[0]) * 12 + last[1] - first[1]
+    for citation in period["citations"]:
+        pairs, months, years = _quoted_dates(citation["quote"])
+        if any(first <= pair <= last for pair in pairs):
+            return True
+        if any((month - first[1]) % 12 <= span for month in months):
+            return True
+        if span and any(first[0] <= year <= last[0] for year in years):
+            return True
+    return False
+
+
+def _require_dated_periods(periods):
+    """A Ready coverage window needs a quote dated inside it.
+
+    A period supported only by undated text (a title, an account line), or by
+    a line dated in another month, can come from the file's edit date instead
+    of the document. The feedback names the period and what it lacks.
+    """
+    issues = [
+        {"field": "periods", "item": index, "missing": "dated_citation"}
+        for index, period in enumerate(periods)
+        if not _period_dated(period)
+    ]
+    if issues:
+        raise EvidenceValidationError("model_period_invalid", issues=issues[:8])
+
+
+def _member_content_keys(item):
+    """What identifies a member's content: the provider's checksum of the
+    original bytes, and a digest of its full extracted facts (carried as
+    facts_digest when only compact evidence is supplied). Identical facts
+    count only when they identify a record (an account, a period or dated
+    evidence); a shared header alone cannot tell two originals apart, and
+    compact summaries are never compared because sparse extractions compact
+    alike. The model checker's own duplicate review still applies."""
+    keys = []
+    if item.get("content_digest"):
+        keys.append(("content", item["content_digest"]))
+    facts = item.get("facts")
+    evidence = facts if isinstance(facts, dict) else item
+    digest = evidence_digest(facts) if isinstance(facts, dict) else item.get("facts_digest")
+    if digest and any(evidence.get(key) for key in ("account", "periods", "date_evidence")):
+        keys.append(("facts", digest))
+    return keys
+
+
+def _require_distinct_member_content(documents, selected):
+    """Selected members with one content digest, or one set of extracted
+    facts, are one source. The feedback names them; the model keeps one and
+    excludes the others as its duplicates."""
+    groups = {}
+    for item in documents:
+        if item["document_id"] not in selected:
+            continue
+        for key in _member_content_keys(item):
+            groups.setdefault(key, []).append(item["document_id"])
+    duplicates = sorted({member for ids in groups.values() if len(ids) > 1 for member in ids})
+    if duplicates:
+        raise EvidenceValidationError(
+            "model_membership_invalid",
+            issues=[{"field": "selected_document_ids", "duplicate_content": duplicates[:8]}],
+        )
+
+
 def _requested_packet_copy(selected_facts):
     types = []
     for facts in selected_facts:
@@ -334,10 +473,18 @@ def _requested_packet_statuses(selected_facts):
     ]
 
 
+def _request_only_evidence(statuses, selected_facts):
+    return (
+        bool(statuses)
+        and len(statuses) == len(selected_facts)
+        and all(status in {"requested", "pending"} for status in statuses)
+    )
+
+
 def _normalize_requested_packet_copy(packet, selected_facts):
-    if not any(
-        status in {"requested", "pending"} for status in _requested_packet_statuses(selected_facts)
-    ):
+    """Every version of a request-only packet carries host-owned copy, Ready or not."""
+    statuses = _requested_packet_statuses(selected_facts)
+    if not _request_only_evidence(statuses, selected_facts):
         return
     copy = _requested_packet_copy(selected_facts)
     packet.title = copy["title"]
@@ -348,15 +495,18 @@ def _normalize_requested_packet_copy(packet, selected_facts):
 
 
 def _check_requested_event_claims(packet, selected_facts):
-    """Request-only evidence may be Ready only with host-owned visible claims."""
+    """Request-only evidence carries host-owned visible claims and no period, at any state."""
     statuses = _requested_packet_statuses(selected_facts)
     if not any(status in {"requested", "pending"} for status in statuses):
         return
-    if packet.temporal_scope != "no_period_claim":
+    request_only = _request_only_evidence(statuses, selected_facts)
+    if not request_only and packet.state != "ready":
+        # A completed record beside the request may evidence execution; only
+        # a Ready packet rejects the mix below.
+        return
+    if packet.temporal_scope not in {"no_period_claim", "unknown"}:
         raise ValueError("requested event is not a snapshot")
-    if len(statuses) != len(selected_facts) or any(
-        status not in {"requested", "pending"} for status in statuses
-    ):
+    if not request_only:
         raise ValueError("mixed requested packet evidence")
     copy = _requested_packet_copy(selected_facts)
     if (
@@ -367,6 +517,77 @@ def _check_requested_event_claims(packet, selected_facts):
         or packet.utility_rationale != copy["utility_rationale"]
     ):
         raise ValueError("requested packet wording mismatch")
+
+
+def _fact_value(facts, key):
+    """Read one extracted fact from full facts or the checker's compact evidence."""
+    value = facts.get(key) if isinstance(facts, dict) else None
+    if isinstance(value, dict):
+        value = value.get("value")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _account_identifier(value):
+    """The last four digits of a full or masked account number, else nothing."""
+    digits = re.findall(r"\d", value or "")
+    return "".join(digits[-4:]) if len(digits) >= 4 else None
+
+
+_NAME_CONNECTORS = frozenset({"and", "or", "of", "the"})
+
+
+def _holder_name(value):
+    words = re.sub(r"[\W_]+", " ", value or "").casefold().split()
+    return frozenset(words) - _NAME_CONNECTORS or None
+
+
+def _holders_agree(holders):
+    """One listing can name the others. A holder is named by a listing when
+    its words are a subset of it (a joint listing, a middle name) or share two
+    words with it (an initial beside a joint listing). A name sharing at most
+    one word with every listing is a different holder."""
+    return any(
+        all(holder <= listing or len(holder & listing) >= 2 for holder in holders)
+        for listing in holders
+    )
+
+
+def _account_mismatch(selected_facts):
+    """Read the extracted account facts deterministically; never guess which is right.
+
+    Members with no account fact are left to the model checker. The facts
+    contract carries no owner identity or aliases, so a holder name that no
+    listing names is reported, not reconciled.
+    """
+    accounts = [facts for facts in selected_facts if _fact_value(facts, "account")]
+    identifiers = {
+        identifier
+        for facts in accounts
+        if (identifier := _account_identifier(_fact_value(facts, "account")))
+    }
+    if len(identifiers) > 1:
+        return ACCOUNT_MISMATCH
+    holders = {
+        holder
+        for facts in (selected_facts if accounts else [])
+        if (holder := _holder_name(_fact_value(facts, "subject")))
+    }
+    if len(holders) > 1 and not _holders_agree(holders):
+        return HOLDER_MISMATCH
+    return None
+
+
+def _close_account_mismatch(packet, selected_facts):
+    """Ready cannot rest on the model checker when the sources disagree about the account.
+
+    The packet closes as Incomplete with the reason visible; the host does not
+    pick a member and the model is not asked to guess again.
+    """
+    reason = _account_mismatch(selected_facts)
+    if reason is None:
+        return
+    packet.state = "incomplete"
+    packet.gaps = [*packet.gaps, reason]
 
 
 async def consolidate_facts(
@@ -480,17 +701,17 @@ async def construct_packet(
             )
             if not (current_snapshot or prior_snapshot):
                 raise ValueError("unsupported snapshot scope")
+        # The owner sees an Incomplete version's copy too, so the request-only
+        # wording and period fences hold at every state, not only for Ready.
+        selected_facts = [item["facts"] for item in documents if item["document_id"] in selected]
+        _normalize_requested_packet_copy(result, selected_facts)
+        _check_requested_event_claims(result, selected_facts)
         if result.state == "ready":
-            selected_facts = [
-                item["facts"] for item in documents if item["document_id"] in selected
-            ]
-            _normalize_requested_packet_copy(result, selected_facts)
-            _check_requested_event_claims(
-                result,
-                selected_facts,
-            )
-        if result.state == "ready" and not complete:
-            raise ValueError("unfinished assembly cannot be ready")
+            _require_distinct_member_content(documents, selected)
+            _require_dated_periods([period.model_dump() for period in result.periods])
+            if not complete:
+                raise ValueError("unfinished assembly cannot be ready")
+            _close_account_mismatch(result, selected_facts)
 
     return await _ask(
         "canonical_packet",
@@ -537,12 +758,12 @@ async def verify_packet(
             proposal = PacketProposal.model_validate(
                 {key: value for key, value in packet.items() if key != "document_request"}
             )
+            selected_facts = [
+                item.get("facts") if isinstance(item.get("facts"), dict) else item
+                for item in documents
+                if item["document_id"] in set(selected)
+            ]
             if scope_mode in {"complete_compact_summary", "complete_current_request_packet"}:
-                selected_facts = [
-                    item.get("facts") if isinstance(item.get("facts"), dict) else item
-                    for item in documents
-                    if item["document_id"] in set(selected)
-                ]
                 _require_source_periods(
                     [period.model_dump() for period in proposal.periods],
                     [
@@ -559,6 +780,8 @@ async def verify_packet(
                 ):
                     raise ValueError("unsupported snapshot scope")
                 _check_requested_event_claims(proposal, selected_facts)
+                _require_distinct_member_content(documents, set(selected))
+                _require_dated_periods([period.model_dump() for period in proposal.periods])
                 if scope_mode == "complete_compact_summary" and not any(
                     facts.get("facts") or facts.get("periods") for facts in selected_facts
                 ):
@@ -566,6 +789,35 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
+            reason = _account_mismatch(selected_facts)
+            if reason is not None:
+                # A batch or final checker that certifies members naming different
+                # accounts is overruled by the extracted facts, with the reason kept.
+                result.state = "incomplete"
+                result.correct_subject_and_account = False
+                result.issues = [*result.issues, reason][:64]
+        if (
+            result.state != "ready"
+            and "selected_document_ids" in packet
+            and scope_mode in {"complete_compact_summary", "complete_current_request_packet"}
+        ):
+            selected_facts = [
+                item.get("facts") if isinstance(item.get("facts"), dict) else item
+                for item in documents
+                if item["document_id"] in set(selected or [])
+            ]
+            if any(
+                status in {"requested", "pending"}
+                for status in _requested_packet_statuses(selected_facts)
+            ):
+                # An Incomplete verdict still leaves this copy visible to the
+                # owner: the request-only fences hold whatever the verdict says.
+                _check_requested_event_claims(
+                    PacketProposal.model_validate(
+                        {key: value for key, value in packet.items() if key != "document_request"}
+                    ),
+                    selected_facts,
+                )
 
     return await _ask(
         "packet_verification",

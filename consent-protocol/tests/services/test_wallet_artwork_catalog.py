@@ -1,6 +1,8 @@
 import hashlib
+from io import BytesIO
 
 import pytest
+from PIL import Image, PngImagePlugin
 
 from hushh_mcp.services.wallet_artwork_catalog import (
     ArtworkAsset,
@@ -72,6 +74,9 @@ def test_exact_requires_authorized_product_and_variant_proof():
                 product_id="synthetic-product",
                 variant_id="blue",
                 product_verified=True,
+                variant_verified=True,
+                artwork_version="1",
+                evidence_reference="licensed-test-registry-entry",
             )
 
     result = resolve_artwork("42424200", 16, "visa", provider=Provider(), catalog=catalog(asset()))
@@ -123,7 +128,7 @@ def test_unsupported_rights_and_unverifiable_approvals_fail_closed(changes):
 
 
 def test_asset_is_local_bounded_digest_bound_and_revocation_is_immediate(tmp_path, monkeypatch):
-    data = bytes.fromhex("89504e470d0a1a0a") + b"synthetic owned raster"
+    data = raster()
     digest = hashlib.sha256(data).hexdigest()
     (tmp_path / "assets").mkdir()
     file = tmp_path / "assets" / (digest + ".png")
@@ -138,3 +143,321 @@ def test_asset_is_local_bounded_digest_bound_and_revocation_is_immediate(tmp_pat
     path.write_text(catalog(asset(digest=digest, status="revoked")).model_dump_json())
     with pytest.raises(FileNotFoundError):
         read_asset(digest)
+
+
+def raster(*, size=(160, 101), metadata=False, color="navy"):
+    output = BytesIO()
+    info = PngImagePlugin.PngInfo()
+    if metadata:
+        info.add_text("sample-cardholder", "synthetic-personalization-must-be-removed")
+    Image.new("RGB", size, color).save(output, format="PNG", pnginfo=info)
+    return output.getvalue()
+
+
+def test_product_and_country_proof_never_offer_unrelated_designs():
+    class Product:
+        def identify(self, **payload):
+            return ProviderMatch(
+                issuer_id="synthetic-issuer",
+                product_id="gold",
+                country="US",
+                product_verified=True,
+                evidence_reference="approved-registry-product",
+            )
+
+    result = resolve_artwork(
+        "424242",
+        16,
+        "visa",
+        provider=Product(),
+        catalog=catalog(
+            asset(product_id="gold"),
+            asset(asset_id="gold-red", product_id="gold", variant_id="red"),
+            asset(asset_id="silver", product_id="silver"),
+            asset(asset_id="other-country", product_id="gold", country="IN"),
+        ),
+    )
+    assert result["match"] == "ambiguous"
+    assert {row["assetId"] for row in result["variants"]} == {"synthetic-blue", "gold-red"}
+
+
+def test_product_proof_is_not_variant_or_generation_proof():
+    class Product:
+        def identify(self, **payload):
+            return ProviderMatch(
+                issuer_id="synthetic-issuer",
+                product_id="synthetic-product",
+                variant_id="blue",
+                product_verified=True,
+                evidence_reference="approved-product-only",
+            )
+
+    result = resolve_artwork("424242", 16, "visa", provider=Product(), catalog=catalog(asset()))
+    assert result["match"] == "ambiguous" and result["identification"] == "product"
+
+
+def test_malformed_provider_is_a_bounded_unavailable_result():
+    class Broken:
+        def identify(self, **payload):
+            return {"issuer_id": "synthetic-issuer", "full_pan": "must-not-be-accepted"}
+
+    result = resolve_artwork("424242", 16, "visa", provider=Broken(), catalog=catalog())
+    assert result["provider"] == "unavailable" and result["variants"] == []
+    assert "must-not-be-accepted" not in str(result)
+
+
+def test_saved_immutable_asset_survives_unrelated_catalog_update_but_not_revocation(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.services.wallet_artwork_catalog import validate_artwork_selections
+
+    path = tmp_path / "catalog.json"
+    monkeypatch.setenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", str(path))
+    row = asset()
+    selection = {
+        "assetId": row.asset_id,
+        "issuerId": row.issuer_id,
+        "productId": row.product_id,
+        "variantId": row.variant_id,
+        "digest": row.digest,
+        "catalogVersion": "previous-version",
+    }
+    path.write_text(catalog(row).model_dump_json())
+    assert not validate_artwork_selections([selection])[0]["approved"]
+    assert validate_artwork_selections([selection], purpose="saved")[0]["approved"]
+    path.write_text(catalog(row.model_copy(update={"status": "revoked"})).model_dump_json())
+    assert not validate_artwork_selections([selection], purpose="saved")[0]["approved"]
+
+
+@pytest.mark.parametrize(
+    "data,mime",
+    [
+        (bytes.fromhex("89504e470d0a1a0a") + b"not-an-image", "image/png"),
+        (raster(), "image/jpeg"),
+        (raster(size=(10, 10)), "image/png"),
+        (raster(size=(3000, 1900)), "image/png"),
+        (raster(metadata=True), "image/png"),
+    ],
+    ids=["corrupt", "mime-mismatch", "square", "oversized", "metadata"],
+)
+def test_real_decoder_rejects_corruption_mime_shape_dimensions_and_metadata(data, mime):
+    from hushh_mcp.services.wallet_artwork_images import inspect_artwork_image
+
+    with pytest.raises(ValueError):
+        inspect_artwork_image(data, mime)
+
+
+def test_approved_ingestion_strips_metadata_without_changing_pixels():
+    from hushh_mcp.services.wallet_artwork_images import (
+        inspect_artwork_image,
+        sanitize_approved_artwork,
+    )
+
+    source = raster(metadata=True)
+    cleaned, width, height = sanitize_approved_artwork(source, "image/png")
+    assert (width, height) == (160, 101)
+    assert inspect_artwork_image(cleaned, "image/png") == (160, 101)
+    with Image.open(BytesIO(source)) as before, Image.open(BytesIO(cleaned)) as after:
+        assert before.tobytes() == after.tobytes() and after.info == {}
+
+
+def test_static_webp_decoder_defaults_are_allowed_but_personal_metadata_and_animation_are_not():
+    from hushh_mcp.services.wallet_artwork_images import inspect_artwork_image
+
+    image = Image.new("RGB", (160, 101), "navy")
+    clean = BytesIO()
+    image.save(clean, format="WEBP", lossless=True)
+    assert inspect_artwork_image(clean.getvalue(), "image/webp") == (160, 101)
+    for options in [
+        {"xmp": b"synthetic-private-metadata"},
+        {
+            "save_all": True,
+            "append_images": [Image.new("RGB", (160, 101), "gold")],
+            "duration": 100,
+        },
+    ]:
+        output = BytesIO()
+        image.save(output, format="WEBP", **options)
+        with pytest.raises(ValueError):
+            inspect_artwork_image(output.getvalue(), "image/webp")
+
+
+def test_bank_browse_is_explicit_cosmetic_selection_with_network_country_and_approval_boundaries():
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    rows = [
+        asset(asset_id="blue", bank_design=True, issuer_name="Owned test bank"),
+        asset(asset_id="gold", variant_id="gold", bank_design=True, issuer_name="Owned test bank"),
+        asset(asset_id="revoked", bank_design=True, status="revoked"),
+        asset(asset_id="pending", bank_design=True, status="pending"),
+        asset(asset_id="unreviewed", bank_design=True, sanitized=False),
+        asset(asset_id="not-bank", bank_design=False),
+        asset(asset_id="retired", bank_design=True, selectable=False),
+    ]
+    value = catalog(*rows)
+    choices = bank_designs("visa", "US", catalog=value)
+    assert len(choices["banks"]) == 1 and choices["banks"][0]["designCount"] == 2
+    selected = bank_designs("visa", "US", choices["banks"][0]["bankKey"], catalog=value)
+    assert [row["assetId"] for row in selected["variants"]] == ["blue", "gold"]
+    assert selected["selectionBasis"] == "owner_selected_bank" and selected["requiresConfirmation"]
+    assert "match" not in selected and "product_verified" not in str(selected)
+    assert not bank_designs("mastercard", catalog=value)["banks"]
+    assert not bank_designs("visa", "IN", catalog=value)["banks"]
+    with pytest.raises(ValueError):
+        bank_designs("visa", "IN", choices["banks"][0]["bankKey"], catalog=value)
+
+
+def test_cosmetic_bank_design_cannot_be_promoted_to_exact_even_with_matching_provider_ids():
+    class MatchingProvider:
+        def identify(self, **_):
+            return ProviderMatch(
+                issuer_id="synthetic-issuer",
+                product_id="synthetic-product",
+                variant_id="blue",
+                product_verified=True,
+                variant_verified=True,
+                artwork_version="1",
+                evidence_reference="Owned registry evidence",
+            )
+
+    cosmetic = asset(bank_design=True)
+    assert (
+        resolve_artwork(
+            "424242", 16, "visa", provider=MatchingProvider(), catalog=catalog(cosmetic)
+        )["match"]
+        != "exact"
+    )
+    # Negative control: the same independent proof works for physical artwork.
+    physical = cosmetic.model_copy(update={"bank_design": False})
+    assert (
+        resolve_artwork(
+            "424242", 16, "visa", provider=MatchingProvider(), catalog=catalog(physical)
+        )["match"]
+        == "exact"
+    )
+
+
+def test_explicit_withdrawal_or_invalid_override_never_restores_the_bundled_catalog(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    path = tmp_path / "withdrawn.json"
+    path.write_text(ArtworkCatalog(version="withdrawn-1", assets=[]).model_dump_json())
+    monkeypatch.setenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", str(path))
+    assert bank_designs("visa")["banks"] == []
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        bank_designs("visa")
+
+
+def test_every_atlas_entry_has_reviewed_bounded_pixels_and_no_iin_evidence(monkeypatch):
+    import json
+    from pathlib import Path
+
+    from PIL import Image
+
+    from hushh_mcp.services.wallet_artwork_catalog import load_catalog
+    from hushh_mcp.services.wallet_bank_artwork import bank_designs
+
+    monkeypatch.delenv("HUSHH_WALLET_ARTWORK_CATALOG_PATH", raising=False)
+    source = Path(__file__).parents[3] / "docs/reference/one/wallet-card-atlas.manifest.json"
+    review = json.loads(source.read_text(encoding="utf-8"))
+    assert len(review["entries"]) == 100
+    assert all(row["review"]["status"] == "approved" for row in review["entries"])
+    entries = {
+        recipe["runtime"]["asset_id"]: recipe["runtime"]
+        for row in review["entries"]
+        for recipe in row["adaptations"]
+    }
+    assert len(entries) == 101
+    loaded, directory = load_catalog()
+    assert {row.asset_id for row in loaded.assets} == set(entries)
+    for row in loaded.assets:
+        entry = entries[row.asset_id]
+        assert not row.iin_prefixes and row.bank_design
+        data, mime = read_asset(row.digest)
+        assert mime == "image/webp" and len(data) <= 128 * 1024
+        assert hashlib.sha256(data).hexdigest() == entry["digest"]
+        with Image.open(directory / (row.digest + ".webp")) as image:
+            assert image.mode == "RGB" and max(image.size) <= 900
+            assert not any(key in image.info for key in ["exif", "xmp", "icc_profile"])
+            assert hashlib.sha256(image.tobytes()).hexdigest() == entry["pixel_sha256"]
+    assert resolve_artwork("424242", 16, "visa", catalog=loaded)["match"] == "unknown"
+    offered = set()
+    for network in {row.network for row in loaded.assets}:
+        for bank in bank_designs(network, catalog=loaded)["banks"]:
+            offset = 0
+            while offset is not None:
+                page = bank_designs(
+                    network, bank_key=bank["bankKey"], offset=offset, catalog=loaded
+                )
+                offered.update(row["assetId"] for row in page["variants"])
+                offset = page["nextOffset"]
+    assert offered == set(entries)  # Includes the explicitly labelled Other illustration.
+
+
+def test_atlas_extraction_refuses_a_substituted_pdf_before_parsing(tmp_path):
+    import runpy
+    from pathlib import Path
+
+    extractor = runpy.run_path(
+        str(Path(__file__).parents[2] / "scripts/extract_wallet_card_atlas.py")
+    )
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"not-the-reviewed-pdf")
+    with pytest.raises(ValueError, match="source_digest"):
+        extractor["extract"](source, tmp_path / "output", {"source_sha256": "a" * 64})
+    assert not (tmp_path / "output").exists()
+
+
+def test_adaptation_discards_transparent_rgb_and_replaces_all_reviewed_field_pixels():
+    import runpy
+    from pathlib import Path
+
+    from PIL import Image, ImageDraw
+
+    adapt = runpy.run_path(str(Path(__file__).parents[2] / "scripts/prepare_wallet_card_atlas.py"))[
+        "adapt"
+    ]
+    hidden = Image.new("RGBA", (40, 24), (3, 80, 120, 0))
+    assert set(adapt(hidden, {"masks": []}).getdata()) == {(255, 255, 255)}
+    visible = Image.new("RGBA", (40, 24), "white")
+    ImageDraw.Draw(visible).rectangle((12, 8, 25, 15), fill="black")
+    # This opaque field must disappear, not merely get a translucent overlay.
+    result = adapt(visible, {"masks": [[0.2, 0.2, 0.8, 0.8]]})
+    assert result.mode == "RGB" and set(result.getdata()) == {(255, 255, 255)}
+
+
+def test_extraction_parses_the_same_verified_snapshot_if_the_source_path_changes(
+    tmp_path, monkeypatch
+):
+    import io
+    import runpy
+    from contextlib import nullcontext
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import pdfplumber
+
+    extractor = runpy.run_path(
+        str(Path(__file__).parents[2] / "scripts/extract_wallet_card_atlas.py")
+    )["extract"]
+    source = tmp_path / "source.pdf"
+    snapshot = b"owned synthetic parser-boundary fixture"
+    source.write_bytes(snapshot)
+
+    def parse(value):
+        assert isinstance(value, io.BytesIO) and value.getvalue() == snapshot
+        source.write_bytes(b"substituted path")
+        return nullcontext(SimpleNamespace(pages=[]))
+
+    monkeypatch.setattr(pdfplumber, "open", parse)
+    assert (
+        extractor(
+            source,
+            tmp_path / "output",
+            {"source_sha256": hashlib.sha256(snapshot).hexdigest(), "entries": [], "page_count": 0},
+        )
+        == []
+    )

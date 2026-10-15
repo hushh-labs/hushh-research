@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 345,
+  "expected_migration_version": 347,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -84,7 +84,10 @@
     "erase_hosted_source_envelope_on_grant_change",
     "append_live_memory_source_hint",
     "capture_live_memory_source_hint",
-    "erase_live_memory_source_journal_on_root_delete"
+    "erase_live_memory_source_journal_on_root_delete",
+    "one_referral_bind_network",
+    "one_referral_record_completed_reply",
+    "one_referral_rebuild_network"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1862,6 +1865,47 @@
       "text_model",
       "created_at",
       "updated_at"
+    ],
+    "one_referral_activity_days": [
+      "user_id",
+      "activity_date",
+      "timezone",
+      "recorded_at"
+    ],
+    "one_referral_events": [
+      "scored_at"
+    ],
+    "one_referral_leaderboard_snapshots": [
+      "source_event_id"
+    ],
+    "one_referral_milestone_entitlements": [
+      "claimed_at"
+    ],
+    "one_referral_network_circles": [
+      "id",
+      "leader_user_id",
+      "created_at"
+    ],
+    "one_referral_network_members": [
+      "user_id",
+      "circle_id",
+      "parent_user_id",
+      "relationship_id",
+      "joined_at"
+    ],
+    "one_referral_policies": [
+      "required_product_event"
+    ],
+    "one_referral_reward_rounds": [
+      "started_at"
+    ],
+    "one_referral_score_events": [
+      "coins"
+    ],
+    "one_referral_streak_state": [
+      "last_activity_date",
+      "current_streak",
+      "longest_streak"
     ],
     "pkm_answer_deliveries": [
       "request_id",

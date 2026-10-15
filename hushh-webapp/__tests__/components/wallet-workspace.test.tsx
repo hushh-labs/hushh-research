@@ -89,6 +89,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       isEnabled: () => true,
       supportedCardNetworks: vi.fn().mockResolvedValue(["visa", "mastercard", "amex", "discover", "jcb", "diners", "unionpay", "maestro", "rupay", "elo", "mir", "other"]),
       resolveCardNetwork: vi.fn().mockResolvedValue({ network: "visa", source: "prefix", candidates: [] }),
+      resolveCardArtwork: vi.fn().mockResolvedValue({ catalogVersion: "empty-1", match: "unknown", provider: "unconfigured", issuerId: null, variants: [] }),
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
@@ -104,6 +105,7 @@ import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import * as walletDemoCards from "@/components/wallet/wallet-demo-cards";
 import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { WalletCardService, type WalletCardRecord } from "@/lib/services/wallet-card-service";
+import { WalletService, type WalletCardPresentation } from "@/lib/services/wallet-service";
 import * as walletCardArtwork from "@/lib/services/wallet-card-artwork-service";
 import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-decoder";
 
@@ -158,6 +160,24 @@ describe("WalletWorkspace at scale", () => {
     workspace.rerender(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Late owner A")).toBeNull();
+  });
+
+  it("hides cached catalog artwork while approval is unknown on resume and retains the card after revocation", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const row: WalletCardPresentation = { summary: { ...makeCards(1)[0]!, brand: "visa" }, cardholderName: "Synthetic Owner", artwork: { source: "catalog", version: 1, assetId: "owned", issuerId: "owned", productId: "test", variantId: "blue", catalogVersion: "owned-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" } };
+    let finish!: (rows: WalletCardPresentation[]) => void;
+    const pending = new Promise<WalletCardPresentation[]>(resolve => { finish = resolve; });
+    const load = vi.spyOn(WalletService, "listCardPresentations").mockResolvedValueOnce([row]).mockReturnValue(pending);
+    const view = render(<WalletWorkspace />);
+    await waitFor(() => expect(view.container.querySelector('[data-card-artwork="catalog"]')).not.toBeNull());
+    fireEvent.focus(window);
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    await act(async () => { finish([{ ...row, artwork: { source: "neutral", version: 1 } }]); });
+    expect(view.container.querySelector('[data-card-artwork="catalog"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Card 0", exact: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   });
   it("loads cards when the owner token arrives after the vault key", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
@@ -678,7 +698,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
 
-  it("shows the full number only in focused owner details and copies on request", async () => {
+  it("keeps owner details masked and decrypts the full number only on copy", async () => {
     serviceMock.getCard.mockResolvedValue({
       summary: makeCards(1)[0],
       secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Alex Rivera" },
@@ -690,10 +710,13 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("wallet-add-collection").textContent).not.toContain("4242 4242 4242 1000");
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000"));
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
-    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("4242424242421000"));
+    expect(document.body).not.toHaveTextContent("4242 4242 4242 1000");
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
-    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000");
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1000");
   });
 });

@@ -35,6 +35,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type GamificationState = {
+  balance: { points: number; coins: number } | null;
   leaderboard: LeaderboardPage | null;
   circleLeaderboard: CircleLeaderboardEntry[] | null;
   milestones: MilestoneProgress | null;
@@ -52,7 +53,12 @@ type LoadState = "loading" | "ready" | "error";
  * counts, the statuses and the link all arrive decided, because a referral
  * count the client could influence would not be worth showing.
  */
-export function ReferralsPanel({
+export function ReferralsPanel({ panePresentation = false }: { panePresentation?: boolean }) {
+  const { user } = useAuth();
+  return <ReferralsPanelContent key={user?.uid ?? "signed-out"} panePresentation={panePresentation} />;
+}
+
+function ReferralsPanelContent({
   panePresentation = false,
 }: {
   panePresentation?: boolean;
@@ -116,14 +122,16 @@ export function ReferralsPanel({
     engagement: null,
     circleSelection: null,
     handle: null,
+    balance: null,
   });
   const gamificationSeq = useRef(0);
 
   const loadGamification = useCallback(async () => {
     const seq = ++gamificationSeq.current;
     if (!user) return;
-    const idToken = await user.getIdToken();
-    const [leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle] =
+    let idToken: string;
+    try { idToken = await user.getIdToken(); } catch { return; }
+    const [leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle, balance] =
       await Promise.all([
         ReferralService.getLeaderboard({ idToken, limit: 10 }).catch(() => null),
         ReferralService.getCircleLeaderboard({ idToken })
@@ -135,9 +143,10 @@ export function ReferralsPanel({
         ReferralService.getHandle({ idToken })
           .then((res) => res.handle)
           .catch(() => null),
+        ReferralService.getPoints({ idToken }).catch(() => null),
       ]);
     if (!mounted.current || seq !== gamificationSeq.current) return;
-    setGamification({ leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle });
+    setGamification({ leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle, balance });
   }, [user]);
 
   useEffect(() => {
@@ -174,7 +183,8 @@ export function ReferralsPanel({
 
   // Live push. While this is connected the numbers arrive as they change, and
   // the timer below stands down.
-  const { connected } = useReferralStream(user, load);
+  const refreshAll = useCallback(() => { void load(); void loadGamification(); }, [load, loadGamification]);
+  const { connected } = useReferralStream(user, refreshAll);
 
   /**
    * Fallback only, for when the stream is not up.
@@ -192,7 +202,7 @@ export function ReferralsPanel({
    */
   useEffect(() => {
     const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") refreshAll();
     };
 
     const interval = connected
@@ -206,7 +216,7 @@ export function ReferralsPanel({
       document.removeEventListener("visibilitychange", refreshIfVisible);
       window.removeEventListener("focus", refreshIfVisible);
     };
-  }, [connected, load]);
+  }, [connected, refreshAll]);
 
   // Read out of state once. An optional chain inside a dependency array is
   // opaque to the React compiler, which then refuses to preserve the memo.
@@ -346,7 +356,7 @@ export function ReferralsPanel({
           icon={icons.success}
           iconTone="capability"
           title="Cumulative points"
-          trailing={<span data-testid="referral-cumulative-points">{viewerLeaderboardRow?.points ?? 0}</span>}
+          trailing={<span data-testid="referral-cumulative-points">{gamification.balance?.points ?? "—"}</span>}
           density="compact"
         />
         {gamification.circleSelection?.circle_id ? (
@@ -426,8 +436,8 @@ export function ReferralsPanel({
             <SettingsRow
               icon={icons.progress}
               iconTone="capability"
-              title="Referral streak"
-              description={`${gamification.engagement.streak.current_run_days} of ${gamification.engagement.streak.run_length_days} days`}
+              title="Daily app streak"
+              description={`${gamification.engagement.streak.current_run_days} consecutive days`}
               density="compact"
             />
           ) : null}
@@ -499,7 +509,7 @@ export function ReferralsPanel({
               icon={entry.is_viewer ? icons.success : icons.people}
               iconTone="capability"
               title={`#${entry.rank} ${entry.handle}`}
-              trailing={<span>{entry.points} pts</span>}
+              trailing={<span>{entry.points} coins</span>}
               density="compact"
             />
           ))}
@@ -508,7 +518,7 @@ export function ReferralsPanel({
               icon={icons.success}
               iconTone="capability"
               title={`#${gamification.leaderboard.viewer.rank} ${gamification.leaderboard.viewer.handle} (you)`}
-              trailing={<span>{gamification.leaderboard.viewer.points} pts</span>}
+              trailing={<span>{gamification.leaderboard.viewer.points} coins</span>}
               density="compact"
             />
           ) : null}
@@ -601,8 +611,8 @@ export function ReferralsPanel({
               key={`${row.started_on}:${index}`}
               icon={icons.join}
               iconTone="capability"
-              title="New member"
-              description={row.started_on}
+              title={row.display_name ?? "Member"}
+              description={`${row.started_on} · ${row.step}`}
               trailing={<span>{row.status}</span>}
               density="compact"
             />

@@ -132,3 +132,16 @@ it.each(["/one/profile/world-model", "/one/profile/world-model/"])("opens an ord
   expect(location.searchParams.get("profile_panel")).toBe("world-model");
   expect(location.searchParams.get("from")).toBe("/one/feed");
 });
+
+it("keeps a ready draft or invitation handoff when a model link opens in Profile", () => {
+  // The Feed item and the ready email link here; the pane shows the model.
+  const location = new URL(
+    proxy(request("/one/profile/world-model?draft_id=x&handoff=h1")).headers.get("location")!,
+  );
+  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
+  expect(location.searchParams.get("profile_pane")).toBe("1");
+  expect(location.searchParams.get("profile_panel")).toBe("world-model");
+  expect(location.searchParams.get("draft_id")).toBe("x");
+  expect(location.searchParams.get("handoff")).toBe("h1");
+  expect(location.searchParams.has("profile_detail")).toBe(false);
+});

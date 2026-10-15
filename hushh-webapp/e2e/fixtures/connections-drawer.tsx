@@ -6,7 +6,6 @@ import {
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
 import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
-import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
 
 declare const __ONE_PROFILE_TRIGGER_CLASS__: string;

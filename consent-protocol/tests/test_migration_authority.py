@@ -203,6 +203,80 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute("SELECT settings_version FROM synthetic_reward_reference")
             assert cursor.fetchall() == [(2,)]
 
+            # UAT 2026-10-15: migration 347 activated version 4 and retired 3,
+            # and every later replay of 289 failed on a hard "exactly one v3"
+            # pin. The published 347 settings block must leave 289 idempotent.
+            lifecycle_sql = (
+                Path(__file__).resolve().parents[1]
+                / "db/migrations/347_one_referral_dashboard_lifecycle.sql"
+            ).read_text(encoding="utf-8")
+            start = lifecycle_sql.index(
+                "DO $$\nDECLARE prior one_referral_program_settings%ROWTYPE;"
+            )
+            settings_v4_sql = lifecycle_sql[
+                start : lifecycle_sql.index("END $$;", start) + len("END $$;")
+            ]
+            cursor.execute(settings_v4_sql)
+            cursor.execute(settings_v4_sql)
+            cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
+            with_v4 = cursor.fetchall()
+            assert [row[0] for row in with_v4] == [1, 2, 3, 4]
+            cursor.execute(adapted_sql)
+            cursor.execute(adapted_sql)
+            cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
+            assert cursor.fetchall() == with_v4
+            # Migration 338 pinned the same "v3 stays active" assumption and
+            # failed the replay right after 289 was fixed (UAT run 38739715393).
+            catalogue_entry = build_manifest_entries(
+                Path(__file__).resolve().parents[1] / "db/migrations",
+                ("338_one_referral_usd_catalogue.sql",),
+            )[0]
+            adapted_catalogue_sql = _replay_sql(catalogue_entry)
+            assert catalogue_entry.sql != adapted_catalogue_sql
+            with pytest.raises(psycopg2.Error, match="does not match the active USD catalogue"):
+                cursor.execute(catalogue_entry.sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(adapted_catalogue_sql)
+            cursor.execute(adapted_catalogue_sql)
+            cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
+            assert cursor.fetchall() == with_v4
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"
+            )
+            with pytest.raises(psycopg2.Error, match="reviewed version 4 successor"):
+                cursor.execute(adapted_catalogue_sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 4"
+            )
+            # A lineage that ends without an active policy is still refused.
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"
+            )
+            with pytest.raises(psycopg2.Error, match="ending in one active policy"):
+                cursor.execute(adapted_sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 4"
+            )
+            # Version 4 is admitted only with the contents migration 347 authored.
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET milestones = '[]'::jsonb WHERE version = 4"
+            )
+            with pytest.raises(psycopg2.Error, match="version 4 contents differ"):
+                cursor.execute(adapted_sql)
+            cursor.execute("ROLLBACK")
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET milestones = %s::jsonb WHERE version = 4",
+                (json.dumps(with_v4[3][3]),),
+            )
+            cursor.execute("DELETE FROM one_referral_program_settings WHERE version = 4")
+            cursor.execute(
+                "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 3"
+            )
+            cursor.execute("SELECT * FROM one_referral_program_settings ORDER BY version")
+            assert cursor.fetchall() == before
+
             cursor.execute(
                 "UPDATE one_referral_program_settings SET points = '{}' WHERE version = 2"
             )
@@ -322,6 +396,50 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
                             writer_cursor.execute("ROLLBACK")
                     assert not thread.is_alive()
                     assert not replay_errors
+
+
+def test_referral_replay_admits_the_reviewed_version_4_lineage():
+    # UAT 2026-10-15: the adapter pinned "exactly one version 3" and every
+    # backend deploy rolled back once migration 347 activated version 4.
+    entry = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("289_one_referral_program_settings_v2.sql",),
+    )[0]
+    adapted_sql = _replay_sql(entry)
+    assert "successor_count NOT IN (1, 2)" in adapted_sql
+    assert "exactly one active, reviewed version 3 successor" not in adapted_sql
+    lifecycle_sql = (
+        Path(__file__).resolve().parents[1]
+        / "db/migrations/347_one_referral_dashboard_lifecycle.sql"
+    ).read_text(encoding="utf-8")
+    # The admitted version 4 is verified with the exact patches 347 authored.
+    for patch in (
+        '{"referral_in_progress_points":5,"referral_qualified_activity_total_points":15,'
+        '"agent_usage_points":10,"pkm_daily_points":15,"connection_created_points":5,'
+        '"referral_activity_policy":"upgrade"}',
+        '{"activity_source":"app_open"}',
+        '{"individual":"coins_desc_first_earned_asc_user_id_asc",'
+        '"circle":"qualified_referrals_desc_created_at_asc_id_asc"}',
+    ):
+        assert patch in lifecycle_sql
+        assert patch in adapted_sql
+
+
+def test_referral_catalogue_replay_admits_the_reviewed_version_4_lineage():
+    # UAT 2026-10-15 run 38739715393: 338 raised "existing v3 does not match
+    # the active USD catalogue" because migration 347 had retired version 3.
+    entry = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("338_one_referral_usd_catalogue.sql",),
+    )[0]
+    adapted_sql = _replay_sql(entry)
+    assert adapted_sql != entry.sql
+    assert "retired v3 requires the reviewed version 4 successor" in adapted_sql
+    assert "existing v3 does not match the active USD catalogue" not in adapted_sql
+    # Every authored v3 value is still verified; only the "still active" pin moved.
+    assert "IS DISTINCT FROM expected THEN" in adapted_sql
+    with pytest.raises(MigrationAuthorityError, match="checksum changed"):
+        _replay_sql(replace(entry, sql=entry.sql + "\n-- changed"))
 
 
 def test_referral_replay_rejects_changed_published_source():

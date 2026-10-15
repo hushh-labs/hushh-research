@@ -17,6 +17,7 @@ import time
 import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager, nullcontext
+from datetime import datetime, timezone
 from typing import Any
 
 from google.adk.events import Event
@@ -32,6 +33,8 @@ from db.query_telemetry import record_query
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
+from hushh_mcp.one_adk.queued_input import current_run, registry
+from hushh_mcp.one_adk.turn_completion import successful_answer_completion
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -295,8 +298,81 @@ class EncryptedSessionCheckpointStore:
 class EncryptedAdkSessionService(BaseSessionService):
     """Persist one encrypted Session document with optimistic concurrency."""
 
-    def __init__(self, cipher: ChatCipher | None = None) -> None:
+    def __init__(
+        self, cipher: ChatCipher | None = None, *, referral_usage_app_name: str | None = None
+    ) -> None:
         self._cipher = cipher or ChatCipher()
+        self._referral_usage_app_name = referral_usage_app_name
+
+    async def _execute_event(
+        self, session: Session, event: Event, sql: str, params: dict[str, Any]
+    ):
+        """Commit a content-free usage outbox with the successful session CAS."""
+        qualifies = (
+            self._referral_usage_app_name is not None
+            and session.app_name == self._referral_usage_app_name
+            and bool(event.id and event.invocation_id)
+            and successful_answer_completion(event, session.events)
+            and any(
+                prior.author == "user"
+                and prior.invocation_id == event.invocation_id
+                and prior.timestamp <= event.timestamp
+                for prior in reversed(session.events)
+            )
+        )
+        if qualifies:
+            run = current_run()
+            if (
+                run is not None
+                and run.owner_id == session.user_id
+                and run.conversation_id == session.id
+                and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id)
+            ):
+                qualifies = False
+        if qualifies:
+            # Never decrypt in SQL or copy a prompt, answer, key or session state.
+            sql = """WITH persisted AS (
+                UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
+                       payload_iv = :iv, payload_tag = :tag,
+                       payload_algorithm = :algorithm, revision = revision + 1,
+                       updated_at = NOW()
+                 WHERE app_name = :app AND user_id = :user AND session_id = :session
+                   AND revision = :revision AND payload_ciphertext LIKE :chat_marker
+                RETURNING revision
+            ), usage AS (
+                INSERT INTO one_referral_events(user_id,event_type,idempotency_key,server_timestamp,metadata)
+                SELECT :user,'product_usage',:usage_key,:usage_at,CAST(:usage_metadata AS JSONB)
+                  FROM persisted
+                ON CONFLICT(idempotency_key) DO NOTHING
+            ) SELECT revision FROM persisted"""
+            params.update(
+                {
+                    "usage_key": f"adk_reply:{session.app_name}:{session.id}:{event.invocation_id}",
+                    "usage_at": datetime.fromtimestamp(event.timestamp, timezone.utc),
+                    "usage_metadata": json.dumps(
+                        {
+                            "source": "adk_chat",
+                            "session_id": session.id,
+                            "event_id": event.id,
+                            "message_id": event.id,
+                        }
+                    ),
+                }
+            )
+        result = await self._execute(sql, params)
+        if qualifies and result.data:
+            try:
+                from hushh_mcp.services.one_referral_activity_service import (
+                    reconcile_product_activity,
+                )
+
+                await asyncio.to_thread(reconcile_product_activity, session.user_id, event.id)
+            except Exception as exc:
+                # The committed outbox is recovered by the bounded scheduler.
+                logger.warning(
+                    "one_adk_session.referral_reconcile_deferred type=%s", type(exc).__name__
+                )
+        return result
 
     @staticmethod
     def _set_revision(session: Session, revision: int) -> None:
@@ -705,7 +781,9 @@ class EncryptedAdkSessionService(BaseSessionService):
             persistence_started_at = time.perf_counter()
             try:
                 encoded = self._encode(session)
-                result = await self._execute(
+                result = await self._execute_event(
+                    session,
+                    event,
                     """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
                           payload_iv = :iv, payload_tag = :tag,
                           payload_algorithm = :algorithm, revision = revision + 1,

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { useEffect } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
@@ -36,7 +36,7 @@ vi.mock("embla-carousel-react", () => ({
         scrollTo: embla.scrollTo,
         reInit: embla.reInit,
         rootNode: () => embla.rootNode ?? document.body,
-        ...(embla.engine ? { internalEngine: () => embla.engine } : {}),
+        get internalEngine() { return embla.engine ? () => embla.engine : undefined; },
         on: (event: string, listener: () => void) => {
           const handlers = embla.registrations.get(event) ?? new Set<() => void>();
           handlers.add(listener);
@@ -59,6 +59,49 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it("retargets a click to a pane already passing the viewport", () => {
+    const options = [...OPTIONS, { value: "third", label: "Third" }];
+    const target = { get: () => -800, set: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800], limit: { min: -800, max: 0 },
+      offsetLocation: { get: () => -400 }, target, animation: { start: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={options} tabSetId="retarget" activeValue="third"><div>First</div><div>Second</div><div>Third</div></SwipeViews>);
+    view.rerender(<SwipeViews options={options} tabSetId="retarget" activeValue="second"><div>First</div><div>Second</div><div>Third</div></SwipeViews>);
+    expect(embla.scrollTo).toHaveBeenCalledExactlyOnceWith(1);
+    expect(target.set).toHaveBeenCalledWith(-400);
+  });
+
+  it("does not restart a swipe when the active value follows its destination", () => {
+    let destination = 0;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }],
+      target: { get: () => destination }, offsetLocation: { get: () => -100 },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="swipe-echo" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    destination = -400;
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="swipe-echo" activeValue="second"><div>First</div><div>Second</div></SwipeViews>);
+    expect(embla.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("restores drag physics after a programmatic tab snap", () => {
+    const scrollBody = {
+      useDuration: vi.fn(), useFriction: vi.fn(),
+      useBaseDuration: vi.fn(), useBaseFriction: vi.fn(),
+    };
+    for (const method of Object.values(scrollBody)) method.mockReturnValue(scrollBody);
+    embla.engine = { scrollBody } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const view = render(<SwipeViews options={OPTIONS} tabSetId="snap-physics" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="snap-physics" activeValue="second"><div>First</div><div>Second</div></SwipeViews>);
+    expect(scrollBody.useFriction).toHaveBeenCalled();
+    expect(scrollBody.useBaseFriction).not.toHaveBeenCalled();
+    embla.selectedIndex = 1;
+    embla.listeners.get("settle")?.();
+    expect(scrollBody.useBaseDuration).toHaveBeenCalled();
+    expect(scrollBody.useBaseFriction).toHaveBeenCalledOnce();
+  });
+
   it("updates a retained drag guard when a loading workspace becomes ready", () => {
     const view = render(<SwipeViews disabled options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
     const watchDrag = embla.options!.watchDrag as (api: unknown, event: Event) => boolean;
@@ -283,9 +326,11 @@ describe("SwipeViews", () => {
     };
     const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
     const translate = { to: vi.fn() };
-    const scrollBody = { useDuration: vi.fn(), seek: vi.fn(), useBaseDuration: vi.fn() };
+    const scrollBody = { useDuration: vi.fn(), seek: vi.fn(), useBaseDuration: vi.fn(), useBaseFriction: vi.fn() };
     scrollBody.useDuration.mockReturnValue(scrollBody);
     scrollBody.seek.mockReturnValue(scrollBody);
+    scrollBody.useBaseDuration.mockReturnValue(scrollBody);
+    scrollBody.useBaseFriction.mockReturnValue(scrollBody);
     embla.engine = {
       slideRects: [{ width: 400 }, { width: 400 }], scrollSnaps: [0, -400],
       target, location, previousLocation, offsetLocation, translate, scrollBody,
@@ -725,6 +770,33 @@ describe("SwipeViews", () => {
   });
 
   describe("heightMode='active'", () => {
+    it("keeps pager ownership and the outgoing height through a swipe selection echo", () => {
+      const heights = vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) {
+        return this.id.endsWith("-first") ? 1200 : 400;
+      });
+      try {
+        const ownership = renderHook(() => useTopShellTabSwipeState("height-echo"));
+        let destination = 0, rendered = 0;
+        embla.engine = {
+          slideRects: [{ width: 400 }, { width: 400 }],
+          target: { get: () => destination }, offsetLocation: { get: () => rendered },
+        } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+        const view = render(<SwipeViews options={OPTIONS} tabSetId="height-echo" activeValue="first" heightMode="active"><div>First</div><div>Second</div></SwipeViews>);
+        act(() => { embla.listeners.get("pointerDown")?.(); });
+        destination = -400; rendered = -100;
+        act(() => { embla.listeners.get("scroll")?.(); });
+        view.rerender(<SwipeViews options={OPTIONS} tabSetId="height-echo" activeValue="second" heightMode="active"><div>First</div><div>Second</div></SwipeViews>);
+        const viewport = view.container.querySelector('[data-swipe-views-root="true"]');
+        expect(ownership.result.current.pagerOwned).toBe(true);
+        expect(viewport).toHaveStyle({ height: "1200px" });
+        rendered = -400;
+        act(() => { embla.listeners.get("scroll")?.(); });
+        expect(viewport).toHaveStyle({ height: "400px" });
+      } finally {
+        heights.mockRestore();
+      }
+    });
+
     // Regression for the Analysis workspace (Debate / Summary / Detailed
     // View) rendering two panes partially overlapped: the outgoing pane was
     // immediately clamped to the incoming pane's (often shorter) height while

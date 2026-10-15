@@ -23,8 +23,10 @@ import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 import {
   LIVING_SOURCE_DOMAIN,
+  LivingSourcesIncompleteError,
   syncLivingSources,
 } from "@/lib/pkm/living-source-sync";
+import { clearLivingSourceSessionVerification } from "@/lib/pkm/living-source-session-verification";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 /** Continuous unlocked-session updates only. Closed/locked operation requires
@@ -40,6 +42,9 @@ export function LivingMemoryBridge() {
     let running = false;
     let pending = false;
     let sourceDirty = true;
+    // Rebuild the mirror on the next build. A store that only renewed
+    // verification stays quiet; one that changed records shows "Updating".
+    let rebuildDocument = false;
     let connectionHintVersion = 0;
     let scannedConnectionVersion = 0;
     let payoutHintVersion = 0;
@@ -77,18 +82,32 @@ export function LivingMemoryBridge() {
             const requestPaymentVersion = requestPaymentHintVersion;
             const connectorVersion = connectorHintVersion;
             if (!stopped && isVaultSessionEpochCurrent(epoch)) {
-              await syncLivingSources({
-                userId,
-                vaultKey,
-                vaultOwnerToken,
-                idToken,
-                forceConnections: connectionVersion > scannedConnectionVersion,
-                forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
-                forcePayoutActivity: activityVersion > scannedActivityVersion,
-                forceConsent: consentVersion > scannedConsentVersion,
-                forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
-                forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
-              });
+              try {
+                const sync = await syncLivingSources({
+                  userId,
+                  vaultKey,
+                  vaultOwnerToken,
+                  idToken,
+                  forceConnections: connectionVersion > scannedConnectionVersion,
+                  forceDocumentEarnings: payoutVersion > scannedPayoutVersion,
+                  forcePayoutActivity: activityVersion > scannedActivityVersion,
+                  forceConsent: consentVersion > scannedConsentVersion,
+                  forceDocumentRequestPayments: requestPaymentVersion > scannedRequestPaymentVersion,
+                  forceCuratedConnectors: connectorVersion > scannedConnectorVersion,
+                });
+                // A discovered change shows "Updating" until the rebuild lands,
+                // so the cached mirror never reads current with old values.
+                if (sync?.recordsChanged) markMemoryRefreshPending(userId);
+                if (sync?.stored) rebuildDocument = true;
+              } catch (error) {
+                if (!(error instanceof LivingSourcesIncompleteError)) throw error;
+                // The verified sources were stored. Each forced read got its
+                // attempt; a failed source stays pending and is retried on a
+                // later wake. Still refresh, so the mirror shows what was checked.
+                if (error.recordsChanged) markMemoryRefreshPending(userId);
+                sourceDirty = true;
+                rebuildDocument = true;
+              }
               scannedConnectionVersion = connectionVersion;
               scannedPayoutVersion = payoutVersion;
               scannedActivityVersion = activityVersion;
@@ -112,7 +131,10 @@ export function LivingMemoryBridge() {
           // the 60s interval, every consent mutation -- re-fetched domains
           // that will legitimately 404 forever (never created) on every one
           // of those triggers: tens of identical requests in one short
-          // session. Let its own freshness check decide.
+          // session. Let its own freshness check decide, unless this build
+          // stored new source data, whose derived write it deliberately ignores.
+          const force = rebuildDocument;
+          rebuildDocument = false;
           await refreshMemoryDocument({
             userId,
             vaultKey,
@@ -120,7 +142,7 @@ export function LivingMemoryBridge() {
             domains: (metadata.domains ?? [])
               .map((domain) => domain.key)
               .filter(Boolean),
-            force: false,
+            force,
           });
         } catch {
           sourceDirty = true;
@@ -129,10 +151,17 @@ export function LivingMemoryBridge() {
       } while (pending && !stopped);
       running = false;
     };
+    // A routine wake (timer, focus, online, visible tab) re-verifies sources
+    // quietly. A committed owner change, or a record change the sync finds,
+    // marks the mirror as updating.
     const refreshSources = (event?: Event) => {
       const owner = (event as CustomEvent<{ userId?: string }> | undefined)
         ?.detail?.userId;
       if (owner && owner !== userId) return;
+      sourceDirty = true;
+      void build();
+    };
+    const refreshForChange = () => {
       sourceDirty = true;
       markMemoryRefreshPending(userId);
       void build();
@@ -161,7 +190,7 @@ export function LivingMemoryBridge() {
         ]);
         if (signature !== identitySignature) {
           identitySignature = signature;
-          refreshSources();
+          refreshForChange();
         }
       }
     });
@@ -172,19 +201,19 @@ export function LivingMemoryBridge() {
       // Committed payment ready, paid and refund document events use this
       // request-scoped feed signal. The snapshot remains the authority.
       requestPaymentHintVersion++;
-      refreshSources();
+      refreshForChange();
     };
     const onNativeConnectorReturn = (event: Event) => {
       if ((event as CustomEvent<NativeConnectorReturn>).detail?.outcome !== "ready") return;
       connectorHintVersion++;
-      refreshSources();
+      refreshForChange();
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     window.addEventListener(NATIVE_CONNECTOR_RETURN_EVENT, onNativeConnectorReturn);
     const stopConnectionChanges = subscribeToConnectionGraphChanges((detail) => {
       if (detail.userId === userId) {
         connectionHintVersion++;
-        refreshSources();
+        refreshForChange();
       }
     });
     const stopPayoutChanges = subscribePayoutStateChanged((detail) => {
@@ -197,7 +226,7 @@ export function LivingMemoryBridge() {
         activityHintVersion++;
         changed = true;
       }
-      if (changed) refreshSources();
+      if (changed) refreshForChange();
     });
     window.addEventListener(
       AGENT_CHAT_HISTORY_INVALIDATED_EVENT,
@@ -205,6 +234,12 @@ export function LivingMemoryBridge() {
     );
     window.addEventListener("online", refreshSources);
     window.addEventListener("focus", refreshSources);
+    // Browsers throttle timers in hidden tabs, so check again as soon as the
+    // app is visible. Hiding it never starts a read.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshSources();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     const timer = window.setInterval(refreshSources, 60_000);
     void build();
     return () => {
@@ -223,7 +258,9 @@ export function LivingMemoryBridge() {
       );
       window.removeEventListener("online", refreshSources);
       window.removeEventListener("focus", refreshSources);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       clearMemoryDocument(userId);
+      clearLivingSourceSessionVerification(userId);
     };
   }, [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   return null;

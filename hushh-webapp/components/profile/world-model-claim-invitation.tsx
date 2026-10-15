@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
-import { HelperText } from "@/components/app-ui/typography";
+import { HelperText, RowDescription } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useWorldModelResearch } from "./world-model-provider";
 import { useWorldModelOwnerAction } from "./world-model-invitations";
@@ -18,7 +18,7 @@ import {
   worldModelInvitationHandoffRoute,
 } from "@/lib/world-model/invitation-handoff";
 
-/** Recipient side of an invitation: claim or reject a contact-bound handoff. */
+/** Recipient side of an invitation: claim or decline a handoff addressed to their verified contact. */
 export function WorldModelClaimInvitation({
   ownerId,
   vaultKey,
@@ -87,8 +87,8 @@ export function WorldModelClaimInvitation({
     <SettingsGroup title="Invitation">
       <div className="space-y-3 px-4 py-3">
         {accountSwitchHandoff && (
-          <div className="space-y-2 text-[13px]">
-            <p>This invitation was opened with another account.</p>
+          <div className="space-y-2">
+            <RowDescription>This invitation was opened with another account.</RowDescription>
             <Button
               size="compact"
               onClick={() =>
@@ -101,19 +101,18 @@ export function WorldModelClaimInvitation({
         )}
         {claimToken && (
           <div className="space-y-2">
-            <p className="text-[13px] break-words">
-              You’ve been invited to claim a Personal World Model. Verify the
-              invited contact, then choose whether to claim or reject the
-              invitation. Claiming shares nothing back.
-            </p>
+            <RowDescription className="break-words [overflow-wrap:anywhere]">
+              Someone prepared a Personal World Model for you. Claim it to
+              review it here, or decline. Nothing is shared back with them.
+            </RowDescription>
             {receivedPreview && (
-              <div className="space-y-2 text-xs break-words">
-                <p>{receivedPreview.introduction}</p>
-                <p>Prepared by the inviter</p>
+              <div className="space-y-2 break-words [overflow-wrap:anywhere]">
+                <RowDescription>{receivedPreview.introduction}</RowDescription>
+                <RowDescription>Prepared by the person who invited you</RowDescription>
                 {receivedPreview.report.sections.map((section) => (
                   <ul key={section.kind} className="space-y-2">
                     {section.facts.map((fact, index) => (
-                      <li key={index}>
+                      <RowDescription as="li" key={index}>
                         {fact.statement}
                         <div>
                           {fact.sources.map((source) => (
@@ -128,19 +127,21 @@ export function WorldModelClaimInvitation({
                             </a>
                           ))}
                         </div>
-                      </li>
+                      </RowDescription>
                     ))}
                   </ul>
                 ))}
               </div>
             )}
             {offerResearch ? (
-              <label className="flex min-h-11 items-center gap-3 text-xs">
+              <label className="flex min-h-11 items-center gap-3">
                 <Checkbox
                   checked={researchConsent}
                   onCheckedChange={(v) => setResearchConsent(v === true)}
                 />
-                Turn public research back on after claiming
+                <RowDescription as="span">
+                  Turn public research back on after claiming
+                </RowDescription>
               </label>
             ) : null}
             <div className="flex flex-wrap gap-2">
@@ -160,7 +161,7 @@ export function WorldModelClaimInvitation({
                     await capture.assertCurrent();
                     clearWorldModelInvitationHandoffsForToken(claimToken);
                     setMessage(
-                      "Claimed. You can now review your model here. Nothing has been shared back.",
+                      "Claimed. Review your model below. Nothing was shared back.",
                     );
                     setClaimToken(null);
                     reloadResearch();
@@ -189,11 +190,11 @@ export function WorldModelClaimInvitation({
                     setClaimToken(null);
                     setReceivedPreview(null);
                     router.replace(ROUTES.PROFILE_WORLD_MODEL);
-                    setMessage("Invitation rejected.");
+                    setMessage("Invitation declined.");
                   })
                 }
               >
-                Reject invitation
+                Decline
               </Button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 // Connection/OAuth owner tests use the workspace composition seam; its real
 // event, keyboard and attendance behavior is covered in the connected suite.
 vi.mock("@/components/calendar/calendar-connected-workspace", () => ({
-  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
+  CalendarConnectedWorkspace: ({ status, busy, onChat, onDisconnect }: { status: { connected: boolean; google_email?: string }; busy: boolean; onChat: (prompt?: string, slot?: CalendarSlotHandoff) => void; onDisconnect: () => void }) => <main><h1>Calendar</h1><p>{status.google_email}</p>{status.connected && <p>Connected</p>}<p>{mocks.vaultOwnerToken ? "Calendar reads authorized" : "Calendar session unavailable"}</p><button disabled={busy} onClick={() => onChat()}>Try Calendar Agent with One</button><button disabled={busy} onClick={() => onChat("Find free time on 2026-10-15 from 10:00 to 16:00 in Asia/Kolkata for 30 minutes.")}>Ask with current window</button><button onClick={() => onChat(undefined, { ownerId: "calendar-user", accountEmail: "calendar-user@example.com", date: "2030-10-15", windowStart: "2030-10-15T10:00:00Z", windowEnd: "2030-10-15T12:00:00Z", durationMinutes: 60, timeZone: "Europe/London" })}>Select free window</button><button disabled={busy} onClick={onDisconnect}>Disconnect Calendar</button></main>,
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -567,6 +568,17 @@ describe("CalendarAgentPage", () => {
       { route_id: "one_calendar", action: "connected", result: "expected_error" },
     ));
     expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
+  });
+
+  it("preserves the structured free-window selection in the existing chat handoff", async () => {
+    mocks.status.mockResolvedValue({ configured: true, connected: true, status: "connected", access_level: "manage", scope_csv: "calendar.events" });
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Select free window" }));
+    expect(useOneConversationSession.getState().pendingHandoff).toMatchObject({
+      reason: "user_requested", calendarSlot: { date: "2030-10-15", durationMinutes: 60, timeZone: "Europe/London", ownerId: "calendar-user", windowStart: "2030-10-15T10:00:00Z", windowEnd: "2030-10-15T12:00:00Z" },
+    });
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
   });
 
   it("opens chat instead of starting a native scheduling upgrade for read-only Calendar", async () => {

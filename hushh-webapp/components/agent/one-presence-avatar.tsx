@@ -23,11 +23,11 @@ const portrait = {
   connected: "/one-presence/profile-hd.png",
   working: "/one-presence/drafting-hd.png",
   thinking: "/one-presence/thinking-hd.png",
-  answering: "/one-presence/thinking-hd.png",
+  answering: "/one-presence/answering-poster.png",
 } satisfies Record<OnePresenceState, string>;
 
 // Every embedded animation image is 128px; larger backing buffers add work,
-// not image detail. The HD loading/reduced-motion portraits remain separate.
+// not image detail. The loading/reduced-motion portraits remain separate.
 const nativeFrameSize = 128;
 
 /** Native Rive Solo timelines preserve the authored 72-frame, 24 FPS loops. */
@@ -100,6 +100,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
   onReady?: (request: PresenceRequest) => void;
 }) {
   const state = request.state;
+  const portraitSize = state === "answering" ? 128 : 1254;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const posterRef = useRef<HTMLImageElement>(null);
   const onReadyRef = useRef({ request, onReady });
@@ -121,6 +122,8 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     let instance: Rive | null = null;
     let firstFrame: number | null = null;
     let presented = false;
+    let posterDecoded = false;
+    let decodingPoster = false;
     let notifiedRequest: PresenceRequest | null = null;
     let fallback = false;
     const paintProbe = document.createElement("canvas");
@@ -130,7 +133,10 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     const notifyReady = () => {
       const next = onReadyRef.current;
       const painted = presented && canvas.style.visibility === "visible";
-      const posterReady = fallback && poster.style.visibility === "visible" && poster.complete && poster.naturalWidth > 0;
+      // A decoded portrait is a complete presentation of this activity while
+      // its larger Rive file loads. Waiting only for Rive can hide an entire
+      // short-lived activity behind the previous pose on a slow connection.
+      const posterReady = poster.style.visibility === "visible" && posterDecoded;
       if (!next.onReady || notifiedRequest === next.request || (!painted && !posterReady)) return;
       notifiedRequest = next.request;
       next.onReady(next.request);
@@ -139,11 +145,24 @@ function OnePresencePlayback({ request, presentation, onReady }: {
 
     const showPoster = () => {
       // Keep a painted frame frozen if the HD fallback is still loading.
-      const usePoster = !presented || (poster.complete && poster.naturalWidth > 0);
+      const usePoster = !presented || posterDecoded;
       canvas.style.visibility = usePoster ? "hidden" : "visible";
       poster.style.visibility = usePoster ? "visible" : "hidden";
     };
-    const onPosterLoad = () => { if (fallback) { showPoster(); notifyReady(); } };
+    const onPosterLoad = () => {
+      if (!poster.complete || !poster.naturalWidth || posterDecoded || decodingPoster) return;
+      decodingPoster = true;
+      // In WebKit an async image can report complete before it is drawable.
+      // Promote only decoded pixels, including for a cached portrait.
+      const decoded = typeof poster.decode === "function" ? poster.decode() : Promise.resolve();
+      void decoded.then(() => {
+        decodingPoster = false;
+        if (disposed) return;
+        posterDecoded = true;
+        if (fallback) showPoster();
+        notifyReady();
+      }, () => { decodingPoster = false; });
+    };
     const canPlay = () => visible && !document.hidden && !motion.matches && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const resizePlayback = () => {
       if (!instance || !ready) return;
@@ -287,6 +306,7 @@ function OnePresencePlayback({ request, presentation, onReady }: {
     motion.addEventListener("change", sync);
     const unsubscribeLifecycle = appInteractionCoordinator.subscribeLifecycle(sync);
     sync();
+    onPosterLoad();
     return () => {
       disposed = true;
       notifyRef.current = null;
@@ -304,9 +324,9 @@ function OnePresencePlayback({ request, presentation, onReady }: {
 
   return (
     <>
-      <NextImage ref={posterRef} src={portrait[state]} alt="" width={1254} height={1254}
+      <NextImage ref={posterRef} src={portrait[state]} alt="" width={portraitSize} height={portraitSize}
         unoptimized loading="eager" decoding="async" className="absolute inset-0 size-full object-contain" />
-      <canvas ref={canvasRef} width={128} height={128} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
+      <canvas ref={canvasRef} className="absolute inset-0 size-full" style={{ visibility: "hidden" }} />
     </>
   );
 }

@@ -33,16 +33,16 @@ export type WorldModelFactActions = {
 
 const MAX_STATEMENT_CHARS = 600;
 const CERTAINTY = {
-  supported: "Supported by sources",
-  uncertain: "Unsure – limited or indirect evidence",
-  conflicting: "Sources disagree",
+  supported: "Backed by the sources above",
+  uncertain: "Possible match. The sources only hint at this.",
+  conflicting: "The sources disagree. Check before you say yes.",
 } as const;
 
-/** Matches the row's Unsure tag: an uncertain match outranks source confidence. */
+/** Matches the row's Possible match tag: an uncertain match outranks source confidence. */
 function certainty(fact: WorldModelDraftFact): string {
   return fact.matchStatus === "matched"
     ? CERTAINTY[fact.confidence]
-    : "Unsure – this may be about someone else with your name";
+    : "Possible match. This may be about someone else with your name.";
 }
 
 /** Sources, certainty and owner choices for one statement; closes only after a committed write. */
@@ -127,7 +127,7 @@ export function WorldModelFactSheet({
             </section>
             {fact.reason ? (
               <section className="space-y-1">
-                <SectionLabel as="h3" compact>Why we think this is you</SectionLabel>
+                <SectionLabel as="h3" compact>Why this may be you</SectionLabel>
                 <RowDescription className="break-words [overflow-wrap:anywhere]">{fact.reason}</RowDescription>
               </section>
             ) : null}

@@ -1,15 +1,10 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { SafeMarkdown } from "@/components/profile/safe-markdown";
 
 /** The same plain document is read by One and edited by its owner. */
 export function SoulMemoryDocument({ markdown, preview = false }: { markdown: string; preview?: boolean }) {
   return <div aria-label={preview ? "memory.md preview" : "memory.md contents"} className="soul-memory-document">
-    {markdown.trim() ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-      img: ({ alt }) => <span>{alt || "Image"}</span>,
-      a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
-      table: ({ children }) => <div data-swipe-views-horizontal-scroll className="overflow-x-auto"><table className="w-full [&_td]:border [&_td]:p-2 [&_th]:border [&_th]:p-2">{children}</table></div>,
-    }}>{markdown}</ReactMarkdown> : <p className="text-muted-foreground">memory.md is empty. Add something you’d like One to remember.</p>}
+    {markdown.trim() ? <SafeMarkdown markdown={markdown} /> : <p className="text-muted-foreground">memory.md is empty. Add something you’d like One to remember.</p>}
   </div>;
 }
