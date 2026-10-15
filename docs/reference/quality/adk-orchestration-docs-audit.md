@@ -21,11 +21,28 @@ Existing owners retain their resources and selected configuration.
 
 ## Current implementation slice — Azure AI and Shared Files
 
-**2026-10-14; application deployed, Shared Files activation pending.** Exact `5c2d1483aa` passed the core mirror (615 s), [full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38560243913) and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38563449251). Verified ADC readback confirms backend `00172-7q4` and frontend `00146-l8q`, both 100% traffic; schema guard reports zero violations. The original failed helper-upload deployment remains retained. Frozen ADK `3501811eb6b` and concurrent root work are preserved. Owner pods retain their separately verified installed images.
+**Serving:** dev remains at `5c2d1483aa`, backend `00172-7q4` and frontend
+`00146-l8q`, both 100% traffic. The [15 October deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38709401259)
+passed schema 355 but refused misplaced optional Cloud Build defaults; governed
+rollback retained the prior application. Files 959 is applied; history cleanup
+249 stays deferred. No owner image changed.
 
-The continuation implements provider-neutral AI labels and encrypted resumable-upload custody with owner/lease/recovery fences. Focused SQL, AI and reviewer checks passed. [Candidate `a2b1e87d6e` hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/38684157859) passed every lane except Linux History motion timing. The replacement preserves the 100 ms onset and 360/260 ms windows in the mandatory macOS performance lane; Linux retains geometry, stationary chat and gesture cancellation. The isolated motion case passes both engines (6.6 s total), and disabling transitions fails its original assertions. New exact-SHA CI remains required; earlier timing failures under host contention remain retained.
+**Candidate:** the configuration repair composes main `6baa14e0c1` and concurrent
+branch `d46a9327e6`, preserving placement, owner/vault fences and native navigation.
+The prior [exact `15d83d5bab` passed all 25 hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993).
+The replacement passes governance, all 461 Back cases, affected authority/UI
+checks and the production web build. Drive authority regressions fail their
+broken-code controls and pass after repair. A Mac restart interrupted the final
+backend run at 42% without a terminal result; that run is not a pass. Remaining
+canonical stages and new exact-head hosted validation are required. Earlier
+failed attempts remain recorded; unrelated root/ADK/PDF work is preserved.
 
-**15 October release:** [exact `15d83d5bab` passed all 25 hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38705983993), including full web, browser, backend, native and performance lanes. The [dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/38709401259) passed its migration/schema gate but refused a Cloud Build configuration with two optional SSO defaults under the wrong YAML block. Governed rollback and ADC readback confirm both services still serve `5c2d1483aa` at 100%. The two-default correction passes 45 focused checks and the installed gcloud parser; the exact failed configuration is rejected as a negative control. A replacement exact-SHA validation and deployment remain required. Files 959 is applied; history cleanup 249 stays deferred. Shared Files owner acceptance is prepared but unperformed. Owner images and concurrent root/ADK/PDF work remain unchanged. The replacement composes main `6baa14e0c1` (Calendar/Wallet, Live Mirror and bounded Drive workers) and concurrent branch `d46a9327e6`; private placement, owner/vault fences, closed communication preferences and native Back behavior are retained. Focused checks pass: 348 Calendar, 96 earlier UI, 166 deployment/backend, 65 PWM/preparation UI, 20 reviewer guards and 111 Live Mirror/UI cases across retained runs. The latest backend selection passed 587 cases with 73 explicit skips; its three fixture/inventory failures are repaired in 13 focused passes. Drive queue and post-read authority regressions fail their broken-code controls and pass after repair. Initial Back failures and unchanged-timeout serial recovery remain recorded; final combined core/CI are required. This Shared Files release keeps the qualified Dev 19 image pin; it does not publish an unqualified new pod compatibility offer.
+**Pod offer:** Dev 19's qualified executable lacks the new Azure custom-key
+adapter. Dev 20 therefore builds a new immutable dev image with **no supported
+upgrade predecessors**. Isolated exact-image recovery must pass before adding a
+predecessor; publishing never installs it. The documented verified-image reuse
+path can later publish qualified metadata without rebuilding that executable.
+Shared Files owner acceptance remains unperformed.
 
 | Journey | Source / local evidence | Dev / release status |
 | --- | --- | --- |

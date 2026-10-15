@@ -1,23 +1,20 @@
 {
-  "version": "2026.10-dev.19",
+  "version": "2026.10-dev.20",
   "channel": "dev",
-  "summary": "Smoother reconnects and clearer private-agent progress.",
+  "summary": "Cloud-aware AI setup and encrypted Files.",
   "notes": {
     "improvements": [
-      "Returning to a conversation restores its recorded outcome without resending the turn.",
-      "Files activity follows existing organization jobs while the workspace is open."
+      "AI setup matches the selected cloud, with a private Azure key connection on supported agents.",
+      "Shared Files encrypts contents and names in the browser; selected analysis requires consent."
     ],
     "fixes": [
-      "Closing chat preserves admitted work within its original authorization lifetime.",
-      "Stop requests cancellation on the private agent and reports an unconfirmed outcome.",
-      "Returning from cloud sign-in recovers a stalled background tab."
+      "Private memory and parallel Drive work recheck current owner authority.",
+      "Hosting choices and native controls remain consistent when returning to the app."
     ],
     "security": [
-      "Reconnect does not renew authorization or replace exact owner approval.",
-      "Long-running jobs retain their existing authenticated queues; Computer Use stays disabled."
+      "Existing private agents require qualified compatibility and exact owner approval before installing.",
+      "Computer Use and unqualified hosting moves remain unavailable."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:47bb9a718063c679f797dc93ca6c37eaa5e5ce7cab5431e66e4d9edc4ef45f97"
-  ]
+  "supportedUpgradeDigests": []
 }
