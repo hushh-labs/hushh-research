@@ -127,23 +127,30 @@ def plan_batch(
         files_in[stratum] += len(rows)
     target_files = n_clusters * per_cluster + n_loose
     cap_files = max(per_cluster, int(folder_cap * target_files))
-    allocation = _largest_remainder(
-        n_clusters, dict(files_in), {key: len(value) for key, value in strata.items()}
-    )
 
-    sample: list[SampledItem] = []
-    realized: dict[str, int] = {}
-    for stratum in sorted(strata):
-        ordered = sorted(strata[stratum], key=lambda key: _order(seed, key))
+    def under_cap(stratum: str, limit: int | None = None) -> list[str]:
+        """Seed-ordered clusters of one stratum that fit under the folder cap."""
         chosen, taken = [], 0
-        for key in ordered:
-            if len(chosen) >= allocation.get(stratum, 0):
+        for key in sorted(strata[stratum], key=lambda key: _order(seed, key)):
+            if limit is not None and len(chosen) >= limit:
                 break
             size = min(per_cluster, len(clustered[key]))
             if taken + size > cap_files:
                 continue
             chosen.append(key)
             taken += size
+        return chosen
+
+    # Capacity is what fits under the cap, so draws a capped folder cannot use
+    # are reallocated to the other strata instead of being lost.
+    allocation = _largest_remainder(
+        n_clusters, dict(files_in), {key: len(under_cap(key)) for key in strata}
+    )
+
+    sample: list[SampledItem] = []
+    realized: dict[str, int] = {}
+    for stratum in sorted(strata):
+        chosen = under_cap(stratum, allocation.get(stratum, 0))
         if not chosen:
             continue
         realized[stratum] = len(chosen)

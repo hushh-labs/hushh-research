@@ -15,10 +15,12 @@ import asyncio
 import functools
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +39,34 @@ ROOT = Path(__file__).resolve().parents[2]
 MAX_FACT_ATTEMPTS = 2
 MAX_PACKET_ATTEMPTS = 2
 OWNER = "eval-replay-owner"
+
+
+class RuntimeCodes(logging.Handler):
+    """Count the runtime's own validation and failure codes (codes only, no text)."""
+
+    PATTERN = re.compile(r"^(drive_\w+) (?:mode|stage)=(\w+) code=(\w+) attempt=(\d+)")
+    LOGGERS = (
+        "hushh_mcp.services.drive_packet_intelligence",
+        "hushh_mcp.services.drive_packet_worker",
+    )
+
+    def __init__(self):
+        super().__init__(level=logging.INFO)
+        self.counts: Counter = Counter()
+
+    def emit(self, record):
+        match = self.PATTERN.match(record.getMessage())
+        if match:
+            self.counts[":".join(match.groups())] += 1
+
+    def __enter__(self):
+        for name in self.LOGGERS:
+            logging.getLogger(name).addHandler(self)
+        return self
+
+    def __exit__(self, *_exc):
+        for name in self.LOGGERS:
+            logging.getLogger(name).removeHandler(self)
 
 
 class MixedRuntimeError(RuntimeError):
@@ -441,6 +471,7 @@ class ReplayResult:
     usage: list[dict]
     budget_exhausted: bool
     heads: list[dict] = field(default_factory=list)
+    runtime_codes: dict = field(default_factory=dict)
 
 
 class ReplayRunner:
@@ -491,18 +522,10 @@ class ReplayRunner:
                     await worker.run_facts_one(user_id=OWNER, document_ids=[case.document_uuid])
                 timings[case.case_id] = round((time.monotonic() - started) * 1000)
 
-        await asyncio.gather(*(facts_for(case) for case in cases))
+        codes = RuntimeCodes()
+        with codes:
+            await self._phases(worker, facts_store, cases, facts_for)
 
-        heads = facts_store.packets.heads
-
-        async def packet_lane():
-            while not self.metered.exhausted and any(
-                head["status"] == "dirty" and head["members"] for head in heads.values()
-            ):
-                if await worker.run_packet_one(user_id=OWNER) == "idle":
-                    await asyncio.sleep(0.02)
-
-        await asyncio.gather(*(packet_lane() for _ in range(self.concurrency)))
         observations = []
         for case in cases:
             document = facts_store.documents[case.document_uuid]
@@ -551,7 +574,21 @@ class ReplayRunner:
             usage=self.metered.usage,
             budget_exhausted=self.metered.exhausted,
             heads=list(facts_store.packets.heads.values()),
+            runtime_codes=dict(codes.counts),
         )
+
+    async def _phases(self, worker, facts_store, cases, facts_for):
+        await asyncio.gather(*(facts_for(case) for case in cases))
+        heads = facts_store.packets.heads
+
+        async def packet_lane():
+            while not self.metered.exhausted and any(
+                head["status"] == "dirty" and head["members"] for head in heads.values()
+            ):
+                if await worker.run_packet_one(user_id=OWNER) == "idle":
+                    await asyncio.sleep(0.02)
+
+        await asyncio.gather(*(packet_lane() for _ in range(self.concurrency)))
 
 
 def packet_row(

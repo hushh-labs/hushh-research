@@ -62,8 +62,13 @@ class PrivateWorkdir:
         target = self.path.joinpath(*parts)
         if not target.resolve().is_relative_to(self.path.resolve()):
             raise PrivacyError("path_outside_workdir")
-        target.mkdir(mode=0o700, parents=True, exist_ok=True)
-        target.chmod(0o700)
+        current = self.path
+        for part in parts:
+            # Every component, not only the leaf: mkdir(parents=True) would
+            # create intermediate directories with the process umask.
+            current = current / part
+            current.mkdir(mode=0o700, exist_ok=True)
+            current.chmod(0o700)
         return target
 
     def write_bytes(self, target: Path, content: bytes) -> Path:

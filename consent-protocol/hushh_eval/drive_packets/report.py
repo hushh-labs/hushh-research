@@ -62,17 +62,23 @@ def founder_report(scorecard: dict, gate: dict) -> str:
         "the rest by two AI judges and fixed rules.",
         f"Not decided yet: {unknown:,} Ready packets (counted as not passed).",
         f"Files read right: {_xn(_metric(scorecard, 'extraction_accuracy'))}.",
-        f"Facts right: {_xn(facts)}; wrong claims: "
+        f"Facts that match the labels: {_xn(facts)}; facts that contradict them: "
         + (
             f"{wrong_claims['successes']:,} of {wrong_claims['trials']:,}."
             if wrong_claims.get("trials")
             else "none measured."
         ),
-        f"Dates right: {_xn(dates)}; dates taken from file edit time: "
+        f"Dates that match the labels: {_xn(dates)}; dates taken from file edit time: "
         + (
             f"{trap['successes']:,} of {trap['trials']:,}."
             if trap.get("trials")
             else "not measured yet."
+        ),
+        "Labels: "
+        + (
+            "made by AI and fixed rules; no person has checked them yet."
+            if not scorecard.get("human_labels")
+            else f"{scorecard['human_labels']:,} checked by a person, the rest by AI and fixed rules."
         ),
         f"Buyer search finds it in the top 5: {_xn(search)}.",
         f"Prices make sense: {_xn(price)}.",

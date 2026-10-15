@@ -138,6 +138,7 @@ def cmd_plan(args) -> int:
     batch = ops.Batch(workdir, args.batch_id)
     from hushh_eval.drive_packets.replay import runtime_provenance
 
+    eligible_keys = None
     if args.source == "fixture":
         from hushh_eval.drive_packets.sources import FixtureSource
 
@@ -154,7 +155,14 @@ def cmd_plan(args) -> int:
     else:
         _live_required(args)
         frame_id = args.frame_id or asyncio.run(_uat_frame(args, workdir))
-        rows, _ = ops.load_frame(workdir, frame_id)
+        rows, crosswalk = ops.load_frame(workdir, frame_id)
+        if args.eligibility == "supported":
+            from hushh_mcp.services.google_drive_adapter import LIVE_EXPORTS, SUPPORTED_TYPES
+
+            supported = set(SUPPORTED_TYPES) | set(LIVE_EXPORTS)
+            eligible_keys = {
+                key for key, entry in crosswalk.items() if entry.get("mime_type") in supported
+            }
         plan_source = {"kind": "uat", "db_port": args.db_port}
         runtime = {"interpret": "runtime", **runtime_provenance(model=args.runtime_model)}
         judge = ops.plan_judge_config(
@@ -182,6 +190,7 @@ def cmd_plan(args) -> int:
         judge=judge,
         budget_usd=args.budget_usd,
         source=plan_source,
+        eligible_keys=eligible_keys,
     )
     result = ops.write_plan(batch, plan)
     summary = workdir.path / "frames" / frame_id / "summary.json"
@@ -280,7 +289,12 @@ async def _run(args) -> int:
             if observation.stage == "facts"
         },
     )
+    runtime_codes = dict(result.runtime_codes)
+    if anchored:
+        for key, value in anchor_result.runtime_codes.items():
+            runtime_codes[f"anchor:{key}"] = value
     usage = {
+        "runtime_codes": runtime_codes,
         "calls": len(result.usage),
         "estimated_cost_usd": round(budget.spent_usd, 4),
         "estimated": True,
@@ -701,6 +715,12 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--per-cluster", type=int, default=15)
     plan.add_argument("--n-loose", type=int, default=60)
     plan.add_argument("--folder-cap", type=float, default=0.10)
+    plan.add_argument(
+        "--eligibility",
+        choices=("all", "supported"),
+        default="all",
+        help="all files, or only formats the product can read (uat source)",
+    )
     plan.add_argument("--anchors", help="Private anchor expectations (dpe.anchor.v1)")
     plan.add_argument("--budget-usd", type=float, default=100.0)
     plan.add_argument("--runtime-model", default=RUNTIME_MODEL)

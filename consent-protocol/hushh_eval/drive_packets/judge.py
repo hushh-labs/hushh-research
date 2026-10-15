@@ -23,7 +23,7 @@ from hushh_eval.drive_packets.contracts import JudgmentRow, QueueRow
 from hushh_eval.drive_packets.deterministic import Finding, worst
 
 JUDGE_SEED = 20261015
-RUBRIC_VERSION = "dpe.judge-rubric.v1"
+RUBRIC_VERSION = "dpe.judge-rubric.v2"
 FailedCheck = Literal[
     "wrong_person",
     "wrong_account",
@@ -53,9 +53,10 @@ out without an explanation; the wording does not overclaim; and the packet state
 Otherwise return "fail" with failed_checks and severity: S1 = wrong person, account
 or period, or a request shown as executed; S2 = claimed complete but incomplete,
 duplicate, missing or unrelated member, unsupported citation; S3 = wording only.
-Use severity "none" for pass. Support your verdict with exact quotes copied verbatim
-from the pages (document_ref, page, quote). Return "unknown" if the pages do not let
-you decide."""
+Use severity "none" for pass. Support your verdict with at most three short quotes
+(document_ref, page, quote). Copy each quote character for character from one page:
+same case, spacing, line breaks and punctuation; never paraphrase or join pages.
+Return "unknown" if the pages do not let you decide."""
 
 
 class JudgeCitation(BaseModel):

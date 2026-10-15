@@ -117,3 +117,20 @@ def test_a_changed_plan_is_refused():
     tampered["sample"] = tampered["sample"][1:]
     with pytest.raises(PlanError, match="plan_changed_after_preregistration"):
         verify_plan(PlanRow.model_validate(tampered))
+
+
+def test_draws_a_capped_folder_cannot_use_go_to_other_folders():
+    rows = []
+    for folder in range(50):
+        rows += [row(f"aa{folder:03d}{i:03d}", f"big-{folder}", "big") for i in range(20)]
+    for top in range(10):
+        for folder in range(2):
+            rows += [
+                row(f"b{top:02d}{folder}{i:03d}", f"small-{top}-{folder}", f"small-{top}")
+                for i in range(20)
+            ]
+    result = plan(rows, n_clusters=12, n_loose=0, per_cluster=15, folder_cap=0.10)
+    clusters = {item.cluster_key for item in result.sample}
+    # cap = 10% of 180 = 18 files: one 15-file cluster per top folder, 11 top folders.
+    assert len(clusters) == 11
+    assert sum(item.design_stratum == "top:big" for item in result.sample) == 15

@@ -138,7 +138,13 @@ def make_plan(
     judge: dict,
     budget_usd: float,
     source: dict,
+    eligible_keys: set[str] | None = None,
 ) -> PlanRow:
+    from hushh_eval.drive_packets.sampling import default_eligible
+
+    def eligible(row: FrameRow) -> bool:
+        return default_eligible(row) and (eligible_keys is None or row.file_key in eligible_keys)
+
     plan = plan_batch(
         frame,
         batch_id=batch.batch_id,
@@ -154,8 +160,10 @@ def make_plan(
         judge=judge,
         runtime=runtime,
         budget_usd=budget_usd,
+        eligible=eligible,
     )
     plan.design["source"] = source
+    plan.design["eligibility"] = "all_files" if eligible_keys is None else "supported_formats"
     from hushh_eval.drive_packets.sampling import plan_sha256
 
     return plan.model_copy(update={"plan_sha256": plan_sha256(plan)})
@@ -205,15 +213,15 @@ async def materialize(batch: Batch, cases: list[CaseRow], source, *, kind: str, 
     replay_cases, observations, details = [], [], {}
     drive = source.drive() if kind == "uat" else None
     try:
-        for case in cases:
+
+        async def one(case):
             started = datetime.now(UTC)
             record = {"status": "completed", "error_code": None}
             content, mime, metadata, pages_info = None, None, {}, None
             try:
                 if kind == "fixture":
                     mime, content, metadata = source.original(case.file_key)
-                    with native_text_only():
-                        pages_info = await extract_local(content, mime)
+                    pages_info = await extract_local(content, mime)
                     pages_info["source"] = "local"
                     source_version = source.source_version(case.file_key)
                 else:
@@ -313,6 +321,24 @@ async def materialize(batch: Batch, cases: list[CaseRow], source, *, kind: str, 
                         metadata=metadata,
                     )
                 )
+
+        # Drive GETs and served-page reads overlap (Drive concurrency 4; the
+        # single read-only DB connection serializes queries). Fixture runs stay
+        # sequential so the no-OCR switch is never toggled mid-extraction.
+        lanes = asyncio.Semaphore(4 if kind == "uat" else 1)
+
+        async def bounded(case):
+            async with lanes:
+                await one(case)
+
+        if kind == "fixture":
+            with native_text_only():
+                await asyncio.gather(*(bounded(case) for case in cases))
+        else:
+            await asyncio.gather(*(bounded(case) for case in cases))
+        order = {case.case_id: index for index, case in enumerate(cases)}
+        replay_cases.sort(key=lambda item: order[item.case_id])
+        observations.sort(key=lambda item: order[item.case_id])
     finally:
         if drive is not None:
             await drive.aclose()
@@ -347,7 +373,8 @@ def scorecard(batch: Batch) -> dict:
     observations = read_rows(batch.file("observations.jsonl"), ObservationRow)
     packets = read_rows(batch.file("packets.jsonl"), PacketRow)
     judgments = read_rows(batch.file("judgments.jsonl"), JudgmentRow)
-    labels = resolved(read_rows(batch.file("labels.jsonl"), LabelRow))
+    label_rows = read_rows(batch.file("labels.jsonl"), LabelRow)
+    labels = resolved(label_rows)
     details = batch.private_json("details.json", {})
     sampled = [case for case in cases.values() if not case.anchor]
     by_stage = defaultdict(dict)
@@ -356,7 +383,8 @@ def scorecard(batch: Batch) -> dict:
 
     def label(case_id, field):
         row = labels.get((case_id, field))
-        return row.value if row else None
+        # A labeler's "unknown" is an abstention, not a gold value.
+        return None if row is None or row.value in ("unknown", "") else row.value
 
     extraction_rows, fact_rows, period_rows = [], [], []
     for case in sampled:
@@ -476,6 +504,7 @@ def scorecard(batch: Batch) -> dict:
         "files": len(sampled),
         "bars": {"n95": zero_failure_sample_size(0.95), "n999": zero_failure_sample_size(0.999)},
         "human_confirmed_ready": sum(1 for key in ready_keys if key in human),
+        "human_labels": len({row.subject for row in label_rows if row.source == "human"}),
         "scores": scores,
         "packets": {
             "total": len(packet_rows),
@@ -489,12 +518,14 @@ def scorecard(batch: Batch) -> dict:
 def plan_judge_config(*, runtime_model: str, j1: str, j2: str, fake: bool) -> dict:
     if not fake:
         require_independent(runtime_model=runtime_model, j1=j1, j2=j2)
+    from hushh_eval.drive_packets.judge import JUDGE_SEED, RUBRIC_VERSION
+
     return {
         "j1": j1,
         "j2": j2,
         "runtime_model": runtime_model,
-        "rubric": "dpe.judge-rubric.v1",
-        "seed": 20261015,
+        "rubric": RUBRIC_VERSION,
+        "seed": JUDGE_SEED,
     }
 
 

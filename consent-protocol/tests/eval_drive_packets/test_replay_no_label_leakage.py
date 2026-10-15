@@ -129,3 +129,30 @@ def test_vertex_concurrency_is_capped_at_eight():
         ReplayRunner(
             interpret=replay.FakeInterpret(), model="m", budget=Budget(max_usd=1), concurrency=9
         )
+
+
+async def test_runtime_validation_retries_are_counted_as_codes_only():
+    class FlakyOnce(replay.FakeInterpret):
+        def __init__(self):
+            super().__init__()
+            self.failed = False
+
+        async def __call__(self, *, prompt, user_id, output_schema):
+            if not self.failed and json.loads(prompt).get("package_mode") == "page_facts":
+                self.failed = True
+                return {"pages": "not-a-list"}
+            return await super().__call__(
+                prompt=prompt, user_id=user_id, output_schema=output_schema
+            )
+
+    runner = ReplayRunner(
+        interpret=FlakyOnce(), model="fixture-interpret", budget=Budget(max_usd=50)
+    )
+    result = await runner.run_owner_path(batch_id="B", cases=cases(1), runtime=RUNTIME)
+    assert result.observations[0].status == "completed"
+    # The runtime regenerated once; the retry is visible as a code, never as text.
+    [(code, count)] = result.runtime_codes.items()
+    assert code.startswith("drive_packet_model_validation:page_facts:model_") and code.endswith(
+        ":1"
+    )
+    assert count == 1
