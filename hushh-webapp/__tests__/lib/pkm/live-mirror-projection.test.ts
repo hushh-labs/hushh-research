@@ -375,6 +375,11 @@ describe("Live Mirror presentation", () => {
       expect(routes.has(route!.href.split("?")[0]!), `${kind} -> ${route!.href}`).toBe(true);
       expect(route!.label, kind).toMatch(/^[A-Z][a-z]+(?: [a-z]+){0,2}$/);
     }
+    // A label names what the owner lands on: the consent center's "Sent
+    // documents" toggle, and the panel titled "Payouts".
+    expect(liveMirrorSourceRoute("document_request_payment")?.label).toBe("Open sent documents");
+    expect(liveMirrorSourceRoute("document_earning")?.label).toBe("Open payouts");
+    expect(liveMirrorSourceRoute("payout_activity")?.label).toBe("Open payouts");
     // Negative control: a name that is not a source kind has no route.
     expect(liveMirrorSourceRoute("__proto__" as LiveMirrorKind)).toBeNull();
   });

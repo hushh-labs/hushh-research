@@ -416,7 +416,7 @@ export function liveMirrorPreviewRows(facts: readonly LiveMirrorFact[]): LiveMir
  * step back), consents and connections have their own workspaces, Connectors
  * is a Profile section, earnings and wallet activity are managed under
  * Payouts (/one/wallet holds payment cards, not earnings), and paid document
- * requests are the consent center's sent requests. Every kind has a surface.
+ * requests are the consent center's Sent documents. Every kind has a surface.
  */
 const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
   profile: { href: buildProfileRoute({ panel: "account" }), label: "Edit profile" },
@@ -425,7 +425,7 @@ const SOURCE_ROUTES: Readonly<Record<LiveMirrorKind, LiveMirrorSourceRoute>> = {
   curated_oauth_connector: { href: buildProfileRoute({ panel: "connectors" }), label: "Open connectors" },
   document_earning: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
   payout_activity: { href: buildProfileRoute({ panel: "payouts" }), label: "Open payouts" },
-  document_request_payment: { href: buildConsentCenterHref("pending", { requestView: "sent" }), label: "Open sent requests" },
+  document_request_payment: { href: buildConsentCenterHref("pending", { requestView: "sent" }), label: "Open sent documents" },
 };
 
 /**
