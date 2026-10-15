@@ -166,6 +166,28 @@ test("system Back closes message search before returning from a People thread", 
   expect(await systemBack()).toBe(false);
 });
 
+test("New chat opens a private conversation and sends two distinct emoji selections", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await mount(page, false, false, true);
+  await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+  const picker = page.getByRole("dialog", { name: "New chat" });
+  await expect(picker).toHaveAttribute("aria-modal", "true");
+  await picker.getByRole("searchbox", { name: "Search connections" }).fill("Maya");
+  await picker.getByRole("button", { name: "Message Maya Rao" }).click();
+  await expect(picker).toHaveCount(0);
+  const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+  await expect(composer).toBeEnabled();
+  for (const emoji of ["😀", "🐱"]) {
+    await page.getByRole("button", { name: "Choose emoji", exact: true }).click();
+    await page.getByPlaceholder("Search emoji").fill(emoji);
+    await page.getByRole("button", { name: `Use ${emoji}`, exact: true }).first().click();
+  }
+  await expect(composer).toHaveValue("😀🐱");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(transcript(page).getByText("😀🐱", { exact: true })).toBeVisible();
+  await expect(composer).toBeEmpty();
+});
+
 test("system Back closes the New chat picker before leaving the inbox", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
