@@ -138,6 +138,7 @@ function flagsForSource(source) {
       source.includes("AgentRealtimeClient") ||
       source.includes("streamAgent") ||
       source.includes("apiFetchStream") ||
+      source.includes("useReferralStream") ||
       source.includes("streamPortfolio"),
     native_beacon:
       source.includes("NativeRouteMarker") ||
@@ -236,6 +237,7 @@ function cachePolicyFor(route, screenClass, flags) {
 }
 
 function routeCacheKeys(route) {
+  if (route === "/one/referrals") return ["referral_dashboard_{user}_{resource}"];
   if (isFeedRoute(route)) {
     return [
       "FEED_LIST",
@@ -295,6 +297,7 @@ function routeCacheKeys(route) {
 }
 
 function resourceClassesFor(route, screenClass) {
+  if (route === "/one/referrals") return ["user_metadata", "realtime_stream"];
   if (screenClass === "public/static") return ["public_static"];
   if (screenClass === "public/auth-split") {
     return ["realtime_stream", "pkm_metadata"];
@@ -344,7 +347,8 @@ function sensitivityClassFor(screenClass, resourceClasses) {
   }
   if (
     resourceClasses.includes("vault_metadata") ||
-    resourceClasses.includes("pkm_metadata")
+    resourceClasses.includes("pkm_metadata") ||
+    resourceClasses.includes("user_metadata")
   ) {
     return "user-metadata";
   }
@@ -408,6 +412,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 }
 
 function ttlClassFor(route, screenClass) {
+  if (route === "/one/referrals") return "0ms; retain memory while revalidating on navigation and signals";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
   if (screenClass === "public/auth-split")

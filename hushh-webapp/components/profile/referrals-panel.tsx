@@ -355,8 +355,8 @@ function ReferralsPanelContent({
         <SettingsRow
           icon={icons.success}
           iconTone="capability"
-          title="Cumulative points"
-          trailing={<span data-testid="referral-cumulative-points">{gamification.balance?.points ?? "—"}</span>}
+          title="Coins"
+          trailing={<span data-testid="referral-cumulative-points">{gamification.balance?.coins ?? "—"}</span>}
           density="compact"
         />
         {gamification.circleSelection?.circle_id ? (
@@ -412,7 +412,7 @@ function ReferralsPanelContent({
             <SettingsRow
               icon={icons.success}
               iconTone="capability"
-              title="Every reward earned"
+              title="All milestones reached"
               density="compact"
             />
           )}
@@ -436,7 +436,7 @@ function ReferralsPanelContent({
             <SettingsRow
               icon={icons.progress}
               iconTone="capability"
-              title="Daily app streak"
+              title="Dashboard streak"
               description={`${gamification.engagement.streak.current_run_days} consecutive days`}
               density="compact"
             />
@@ -446,7 +446,7 @@ function ReferralsPanelContent({
               icon={icons.success}
               iconTone="capability"
               title="Flash bonus is live"
-              description="Referrals qualifying now earn double points"
+              description="Referrals qualifying now earn the configured coin boost"
               density="compact"
             />
           ) : null}

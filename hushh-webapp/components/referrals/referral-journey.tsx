@@ -61,13 +61,13 @@ export function ReferralJourney({ policy }: ReferralJourneyProps) {
           </header>
           <div className={styles.rewardList}>
             {[
-              { id: "streak", title: "Keep your streak", description: `Open the app on ${policy.streak_rules.run_length_days} consecutive days`, amount: policy.streak_rules.bonus_points, unit: "coins", icon: Flame },
+              { id: "streak", title: "Keep your streak", description: `View your referral dashboard on ${policy.streak_rules.run_length_days} consecutive days`, amount: policy.streak_rules.bonus_points, unit: "coins", icon: Flame },
               { id: "flash", title: "Flash boost", description: `Replaces ${policy.points.qualified_referral_points} coins when active`, amount: policy.points.flash_window_total_points, unit: "coins", icon: Zap },
-              { id: "referral", title: "Referral activity", description: `Join: ${policy.points.referral_in_progress_points ?? 0} points; qualified: ${policy.points.referral_qualified_activity_total_points ?? 0} total activity points`, amount: policy.points.referral_qualified_activity_total_points ?? 0, unit: "points", icon: Users },
-              { id: "pkm", title: "PKM Master", description: "Save memory once per day", amount: policy.points.pkm_daily_points ?? 0, unit: "points", icon: Brain },
-              { id: "connections", title: "Connection Builder", description: "Each new connection", amount: policy.points.connection_created_points ?? 0, unit: "points", icon: Users },
-              { id: "agents", title: "Agent usage", description: "Each completed private-agent reply", amount: policy.points.agent_usage_points ?? 0, unit: "points", icon: MessageCircle },
-            ].map(({ id, title, description, amount, unit, icon: Icon }) => (
+              { id: "referral", title: "Referral activity", description: `Join: ${policy.points.referral_in_progress_points ?? 0} coins; qualified: ${policy.points.referral_qualified_activity_total_points ?? 0} total activity coins`, amount: policy.points.referral_qualified_activity_total_points ?? 0, unit: "coins", icon: Users },
+              { id: "pkm", title: "Memory updates", description: "Save memory once per day", amount: policy.points.pkm_daily_points ?? 0, unit: "coins", icon: Brain },
+              { id: "connections", title: "Connection Builder", description: "Each new connection", amount: policy.points.connection_created_points ?? 0, unit: "coins", icon: Users },
+              { id: "agents", title: "Agent usage", description: "Each completed private-agent reply", amount: policy.points.agent_usage_points ?? 0, unit: "coins", icon: MessageCircle },
+            ].filter(({ amount, id }) => amount > 0 && (id !== "flash" || policy.flash_bonus_enabled !== false)).map(({ id, title, description, amount, unit, icon: Icon }) => (
               <article key={id} className={styles.rewardRow} data-earning={id}>
                 <span className={styles.earningIcon} aria-hidden="true"><Icon weight="regular" /></span>
                 <div className={styles.earningCopy}>

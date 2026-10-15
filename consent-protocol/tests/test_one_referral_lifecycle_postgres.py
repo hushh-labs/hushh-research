@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 
+from db.migration_authority import _replay_sql, build_manifest_entries
 from hushh_mcp.services import one_referral_activity_service as activity
 from hushh_mcp.services import one_referral_challenge_service as challenge
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard
@@ -48,9 +49,11 @@ def db(monkeypatch):
               CREATE TABLE one_location_circles(id UUID PRIMARY KEY,name TEXT);
               CREATE TABLE one_location_circle_members(circle_id UUID,user_id TEXT,status TEXT);
               CREATE TABLE pkm_data(user_id TEXT PRIMARY KEY,encrypted_data_ciphertext TEXT);
+              CREATE TABLE pkm_events(id BIGSERIAL PRIMARY KEY,user_id TEXT NOT NULL,domain TEXT NOT NULL,
+                operation_type TEXT NOT NULL,metadata JSONB NOT NULL DEFAULT '{}');
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT DEFAULT 'active');
             """)
-            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347):
+            for number in (55, 165, 184, 270, 271, 272, 273, 274, 289, 338, 347, 348, 349):
                 path = next((ROOT / "db/migrations").glob(f"{number:03d}_*.sql"))
                 conn.connection.cursor().execute(path.read_text(encoding="utf-8"))
 
@@ -320,8 +323,8 @@ async def test_current_adk_chat_reply_qualifies_atomically_without_plaintext(
     )
     assert referrals.get_referral_summary("alice")["qualified_count"] == 1
     assert len(_settle()) == 1
-    assert activity.get_balances("alice") == {"points": 115, "coins": 100}
-    assert activity.get_balances("bob") == {"points": 10, "coins": 0}
+    assert activity.get_balances("alice") == {"points": 115, "coins": 115}
+    assert activity.get_balances("bob") == {"points": 10, "coins": 10}
     with db.connect() as conn:
         rows = (
             conn.execute(
@@ -357,26 +360,28 @@ def test_referral_journey_and_replay_awards(db):
     assert referrals.get_referral_summary("alice")["qualified_count"] == 1
     history = activity.get_transaction_history("alice")
     assert sorted(row["points"] for row in history["entries"]) == [5, 10, 100]
-    assert sum(row["coins"] for row in history["entries"]) == 100
+    assert sum(row["coins"] for row in history["entries"]) == 115
     assert scoring.get_cumulative_score("alice") == 115
     assert scoring.get_cumulative_score("bob") == 10
     scoring.publish_leaderboard_snapshot()
     assert (
         leaderboard.get_individual_leaderboard(viewer_user_id="alice")["entries"][0]["points"]
-        == 100
+        == 115
     )
     # Historical coin migration must not turn activity points into coins on replay.
     with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         try:
             conn.connection.cursor().execute(
-                (ROOT / "db/migrations/347_one_referral_dashboard_lifecycle.sql").read_text(
-                    encoding="utf-8"
+                _replay_sql(
+                    build_manifest_entries(
+                        ROOT / "db/migrations", ("347_one_referral_dashboard_lifecycle.sql",)
+                    )[0]
                 )
             )
         except Exception:
             conn.connection.cursor().execute("ROLLBACK")
             raise
-    assert sum(row["coins"] for row in activity.get_transaction_history("alice")["entries"]) == 100
+    assert sum(row["coins"] for row in activity.get_transaction_history("alice")["entries"]) == 115
 
 
 def test_concurrent_bind_preserves_single_parent_and_tree(db):
@@ -482,6 +487,44 @@ def test_product_rewards_follow_trusted_writes(db):
     _actor(db, "alice")
     _actor(db, "bob")
     with db.begin() as conn:
+        # Current atomic Memory saves emit confirmed content_write events;
+        # projections, upgrades and unconfirmed writes must not earn points.
+        for operation, provenance in (
+            (
+                "decision_projection",
+                '{"mutation_plan_id":"plan","confirmation_receipt_id":"receipt"}',
+            ),
+            ("content_write", '{"upgrade_claim":{"claim_id":"upgrade"}}'),
+            ("content_write", '{"mutation_plan_id":"plan","confirmation_receipt_id":" "}'),
+            ("content_write", "{}"),
+        ):
+            conn.execute(
+                text("""
+              INSERT INTO pkm_events(user_id,domain,operation_type,metadata)
+              VALUES('alice','financial',:operation,jsonb_build_object('provenance',CAST(:provenance AS JSONB)))
+            """),
+                {"operation": operation, "provenance": provenance},
+            )
+        assert (
+            conn.execute(
+                text(
+                    "SELECT COALESCE(SUM(points),0) FROM one_referral_score_events WHERE user_id='alice'"
+                )
+            ).scalar_one()
+            == 0
+        )
+        for domain in ("financial", "personal"):
+            conn.execute(
+                text("""
+              INSERT INTO pkm_events(user_id,domain,operation_type,metadata)
+              VALUES('alice',:domain,'content_write',
+                '{"provenance":{"mutation_plan_id":"plan","confirmation_receipt_id":"receipt"}}')
+            """),
+                {"domain": domain},
+            )
+    assert scoring.get_cumulative_score("alice") == 15
+    with db.begin() as conn:
+        # Legacy compatibility shares the same once-per-owner/day key.
         conn.execute(text("INSERT INTO pkm_data VALUES('alice','ciphertext')"))
         conn.execute(text("UPDATE pkm_data SET encrypted_data_ciphertext='new_ciphertext'"))
         conn.execute(text("INSERT INTO connections(user_a_id,user_b_id) VALUES('alice','bob')"))
@@ -489,7 +532,69 @@ def test_product_rewards_follow_trusted_writes(db):
         conn.execute(text("UPDATE connections SET status='active'"))
     assert scoring.get_cumulative_score("alice") == 20
     assert scoring.get_cumulative_score("bob") == 5
-    assert all(row["coins"] == 0 for row in activity.get_transaction_history("alice")["entries"])
+    assert all(
+        row["coins"] == row["points"]
+        for row in activity.get_transaction_history("alice")["entries"]
+    )
+
+
+def test_reviewed_policy_history_replays_after_lifecycle_activation(db):
+    """A repeated release preserves v4, historical policies and earned awards."""
+    _actor(db, "alice")
+    with db.begin() as conn:
+        activity.record_score(
+            conn,
+            user_id="alice",
+            event_type="agent_usage",
+            points=10,
+            coins=0,
+            version=4,
+            key="earned-before-replay",
+        )
+    entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        (
+            "289_one_referral_program_settings_v2.sql",
+            "338_one_referral_usd_catalogue.sql",
+            "347_one_referral_dashboard_lifecycle.sql",
+            "348_one_referral_confirmed_memory_reward.sql",
+            "349_one_referral_dashboard_truth.sql",
+        ),
+    )
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        before = conn.exec_driver_sql(
+            "SELECT * FROM one_referral_program_settings ORDER BY version"
+        ).all()
+        for _ in range(2):
+            for entry in entries:
+                conn.connection.cursor().execute(_replay_sql(entry))
+        assert (
+            conn.exec_driver_sql(
+                "SELECT * FROM one_referral_program_settings ORDER BY version"
+            ).all()
+            == before
+        )
+    assert scoring.get_cumulative_score("alice") == 10
+
+
+@pytest.mark.parametrize(
+    "migration", ("289_one_referral_program_settings_v2.sql", "338_one_referral_usd_catalogue.sql")
+)
+@pytest.mark.parametrize(
+    "drift",
+    (
+        "UPDATE one_referral_program_settings SET points='{}' WHERE version=4",
+        "UPDATE one_referral_program_settings SET activated_at=activated_at+INTERVAL '1 second' WHERE version=5",
+        "UPDATE one_referral_program_settings SET version=6 WHERE version=5",
+    ),
+)
+def test_policy_replay_rejects_unreviewed_successor(db, migration, drift):
+    entry = build_manifest_entries(ROOT / "db/migrations", (migration,))[0]
+    with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(drift)
+        with pytest.raises(Exception, match="reviewed|lineage|does not match"):
+            conn.connection.cursor().execute(_replay_sql(entry))
+        conn.exec_driver_sql("ROLLBACK")
 
 
 def test_job_backoff_stale_lease_and_terminal_retry(db):
@@ -541,7 +646,7 @@ def test_network_cycle_and_cross_owner_product_events_are_rejected(db):
     assert network.get_network_circle("alice")["member_count"] == 3
 
 
-def test_leaderboard_pagination_and_point_only_activity_cannot_change_coin_rank(db):
+def test_leaderboard_pagination_uses_lifetime_earned_coins(db):
     _actor(db, "point_only")
     now = datetime.now(timezone.utc)
     with db.begin() as conn:
@@ -567,10 +672,10 @@ def test_leaderboard_pagination_and_point_only_activity_cannot_change_coin_rank(
                 key=uid,
                 occurred_at=now,
             )
-    assert scoring.publish_leaderboard_snapshot().entry_count == 502
+    assert scoring.publish_leaderboard_snapshot().entry_count == 503
     page = leaderboard.get_individual_leaderboard(limit=2, viewer_user_id="scored0501")
     assert [entry["rank"] for entry in page["entries"]] == [1, 2]
-    assert page["viewer"]["rank"] == 502
+    assert page["viewer"]["rank"] == 503
     continuation = leaderboard.get_individual_leaderboard(
         limit=2, after_rank=2, snapshot_id=page["snapshot_id"]
     )
@@ -682,7 +787,7 @@ def test_authenticated_api_uses_real_owner_storage_and_forbids_circle_changes(db
     client = TestClient(app)
     assert client.get("/api/one/referrals/points").status_code == 401
     app.dependency_overrides[routes.require_firebase_auth] = lambda: "alice"
-    assert client.get("/api/one/referrals/points?user_id=bob").json() == {"points": 5, "coins": 0}
+    assert client.get("/api/one/referrals/points?user_id=bob").json() == {"points": 5, "coins": 5}
     assert client.post("/api/one/referrals/points", json={"points": 99999}).status_code == 405
     assert (
         client.post(
@@ -699,9 +804,23 @@ def test_authenticated_api_uses_real_owner_storage_and_forbids_circle_changes(db
     )
     assert (
         client.post("/api/one/referrals/circle", json={"circle_id": str(uuid4())}).status_code
-        == 403
+        == 409
     )
-    assert activity.get_balances("alice") == {"points": 5, "coins": 0}
+    assert activity.get_balances("alice") == {"points": 5, "coins": 5}
+    assert client.post("/api/one/referrals/app-open").json()["recorded"] is False
+    assert activity.get_daily_streak("alice", "Asia/Kolkata")["current_run_days"] == 0
+    assert (
+        client.post("/api/one/referrals/app-open", json={"surface": "referral_dashboard"}).json()[
+            "current_run_days"
+        ]
+        == 1
+    )
+    assert (
+        client.post(
+            "/api/one/referrals/app-open", json={"surface": "referral_dashboard", "coins": 999}
+        ).status_code
+        == 422
+    )
 
 
 def test_qualification_window_expires_without_fake_usage(db):
@@ -723,8 +842,175 @@ def test_rollback_preserves_awards_and_claim_history(db):
     with db.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.connection.cursor().execute(
             (
-                ROOT / "db/migrations/rollback/347_one_referral_dashboard_lifecycle.rollback.sql"
+                ROOT / "db/migrations/rollback/349_one_referral_dashboard_truth.rollback.sql"
             ).read_text(encoding="utf-8")
         )
+        entry = build_manifest_entries(
+            ROOT / "db/migrations", ("349_one_referral_dashboard_truth.sql",)
+        )[0]
+        conn.connection.cursor().execute(_replay_sql(entry))
     assert activity.get_balances("alice") == earned
-    assert settings.get_active_program_settings().version == 3
+    assert settings.get_active_program_settings().version == 5
+
+
+def test_legacy_score_is_coins_and_live_rank_without_scheduler(db):
+    _actor(db, "legacy_owner")
+    with db.begin() as conn:
+        activity.record_score(
+            conn,
+            user_id="legacy_owner",
+            event_type="agent_usage",
+            points=50,
+            coins=0,
+            version=4,
+            key="historical-score",
+        )
+    assert activity.get_balances("legacy_owner") == {"points": 50, "coins": 50}
+    board = leaderboard.get_individual_leaderboard(viewer_user_id="legacy_owner")
+    assert [(r["rank"], r["points"], r["is_viewer"]) for r in board["entries"]] == [(1, 50, True)]
+    assert activity.get_transaction_history("legacy_owner")["entries"][0]["coins"] == 50
+
+
+def test_joined_progress_excludes_open_links_and_survives_qualification(db):
+    _actor(db, "alice")
+    code = referrals.get_or_create_referral_code("alice", referrals.get_active_policy())
+    referrals.resolve_slug_for_attribution(code["slug"], user_agent="Mozilla/5.0")
+    assert referrals.get_referral_summary("alice")["joined_count"] == 0
+    _invite(db, "alice", "bob")
+    _invite(db, "alice", "carol")
+    summary = referrals.get_referral_summary("alice")
+    assert summary["joined_count"] == summary["total_count"] == 2
+    assert summary["qualified_count"] == 0
+    assert [r["status"] for r in summary["referrals"]] == ["In progress", "In progress"]
+    progress = leaderboard.get_milestone_progress(
+        "alice", settings_milestones=settings.get_active_program_settings().milestones
+    )
+    assert progress["next_milestone"]["progress"] == 2
+    assert progress["next_milestone"]["threshold"] == 10
+    assert progress["earned"] == []
+    activity.reconcile_product_activity("bob", _reply(db, "bob"))
+    _settle()
+    before = activity.get_balances("alice")
+    activity.reconcile_product_activity("bob")
+    _settle()
+    assert activity.get_balances("alice") == before
+    assert referrals.get_referral_summary("alice")["joined_count"] == 2
+    assert referrals.get_referral_summary("alice")["qualified_count"] == 1
+
+
+def test_zero_coin_registered_participant_is_ranked_and_invitation_is_not(db):
+    _actor(db, "alice")
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE one_referral_program_settings SET points=points || jsonb_build_object('referral_in_progress_points',0) WHERE version=5"
+            )
+        )
+    # Publish an empty board before a zero-award signup; membership must invalidate it.
+    assert leaderboard.get_individual_leaderboard()["entries"] == []
+    _invite(db, "alice", "bob")
+    board = leaderboard.get_individual_leaderboard(viewer_user_id="alice")
+    assert [(r["rank"], r["points"], r["is_viewer"]) for r in board["entries"]] == [(1, 0, True)]
+
+
+def test_dashboard_attendance_does_not_fabricate_app_history_and_crosses_monday(db, monkeypatch):
+    _actor(db, "alice")
+
+    class Clock(datetime):
+        value = datetime(2026, 10, 11, 18, 29, 59, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+
+    monkeypatch.setattr(activity, "datetime", Clock)
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_referral_streak_state(user_id,current_streak,longest_streak,last_activity_date) VALUES('alice',9,9,'2026-10-11')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_referral_activity_days(user_id,activity_date,timezone) VALUES('alice','2026-10-11','Asia/Kolkata')"
+            )
+        )
+    assert activity.get_daily_streak("alice", "UTC")["current_run_days"] == 0
+    assert activity.record_app_open("alice")["current_run_days"] == 1
+    before = activity.get_balances("alice")
+    Clock.value += timedelta(seconds=1)
+    assert activity.record_app_open("alice")["current_run_days"] == 2
+    assert activity.get_balances("alice") == before
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT current_streak FROM one_referral_streak_state WHERE user_id='alice'")
+            ).scalar()
+            == 9
+        )
+
+
+def test_forward_catalogue_preserves_old_entitlement_and_preview_has_no_team_authority(db):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from tests.test_one_referral_dashboard_routes import routes
+
+    _actor(db, "alice")
+    _invite(db, "alice", "bob")
+    with db.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_referral_milestone_entitlements(user_id,milestone_key,threshold,reward,settings_version) VALUES('alice','airpods_500',500,'Apple Watch',4)"
+            )
+        )
+    cfg = settings.get_active_program_settings()
+    assert cfg.version == 5 and not cfg.feature_active
+    assert next(r for r in cfg.milestones if r["threshold"] == 500)["reward"] == "Apple AirPods"
+    assert (
+        leaderboard.get_milestone_progress("alice", settings_milestones=cfg.milestones)["earned"][
+            0
+        ]["reward"]
+        == "Apple Watch"
+    )
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes.require_firebase_auth] = lambda: "alice"
+    client = TestClient(app)
+    before = network.get_network_circle("alice")
+    assert client.get("/api/one/referrals/circle").json() == {
+        "circle_id": None,
+        "status": "preview",
+        "competition_active": False,
+    }
+    assert client.get("/api/one/referrals/circles/leaderboard").json()["teams"] == []
+    assert (
+        client.post(
+            "/api/one/referrals/circle", json={"circle_id": before["circle_id"]}
+        ).status_code
+        == 409
+    )
+    assert network.get_network_circle("alice") == before
+
+
+def test_deleted_participants_and_zero_score_cohort_refresh_rank_immediately(db):
+    for uid, score in (("leader", 100), ("viewer", 50)):
+        _actor(db, uid)
+        with db.begin() as conn:
+            activity.record_score(
+                conn,
+                user_id=uid,
+                event_type="agent_usage",
+                points=score,
+                coins=0,
+                version=5,
+                key=uid,
+            )
+    before = leaderboard.get_individual_leaderboard(viewer_user_id="viewer")
+    assert next(r for r in before["entries"] if r["is_viewer"])["rank"] == 2
+    # Deleting the non-max event owner must still close the rank gap immediately.
+    with db.begin() as conn:
+        conn.execute(text("DELETE FROM actor_profiles WHERE user_id='leader'"))
+    after = leaderboard.get_individual_leaderboard(viewer_user_id="viewer")
+    assert next(r for r in after["entries"] if r["is_viewer"])["rank"] == 1
+    assert after["snapshot_id"] != before["snapshot_id"]

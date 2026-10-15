@@ -459,4 +459,4 @@ def test_publish_leaderboard_snapshot_ranks_by_points_then_earliest_event(monkey
         result = scoring_service.publish_leaderboard_snapshot()
     assert result.snapshot_id == "snap-1"
     assert result.entry_count == 2
-    assert len(writes) == 1 and "SUM(coins)" in writes[0] and "ROW_NUMBER()" in writes[0]
+    assert len(writes) == 1 and "SUM(points)" in writes[0] and "ROW_NUMBER()" in writes[0]

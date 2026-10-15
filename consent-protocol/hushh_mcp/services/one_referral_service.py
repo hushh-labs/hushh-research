@@ -229,6 +229,9 @@ def get_referral_summary(user_id: str, *, offset: int = 0, limit: int = 50) -> d
     required_minutes = 0
 
     with get_db_connection() as connection:
+        from hushh_mcp.services.one_referral_rewards_service import lifetime_joined_count
+
+        joined = lifetime_joined_count(connection, user_id)
         opens = connection.execute(
             text(
                 """
@@ -317,7 +320,8 @@ def get_referral_summary(user_id: str, *, offset: int = 0, limit: int = 50) -> d
         if opens and opens.last_opened_at
         else None,
         "qualified_count": qualified,
-        "total_count": qualified + in_progress + under_review,
+        "joined_count": joined,
+        "total_count": joined,
         "next_offset": offset + limit
         if offset + limit < sum(row.total for row in all_statuses)
         else None,
