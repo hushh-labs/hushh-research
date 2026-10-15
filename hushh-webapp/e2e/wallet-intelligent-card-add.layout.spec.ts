@@ -187,6 +187,7 @@ test("exact artwork selects automatically; an unavailable provider keeps saving 
   record = null; wire.length = 0; artworkMode = "exact"; await page.goto(origin); await enterOwnedCard(page);
   await expect(page.getByRole("button", { name: "Test Blue", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Use a simple design" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Choose your card design" })).toHaveCount(0);
   artworkMode = "outage"; await page.reload();
   const unavailable = page.waitForResponse(response => response.url().endsWith("/artwork/resolve") && response.status() === 503);
   await enterOwnedCard(page); await unavailable;

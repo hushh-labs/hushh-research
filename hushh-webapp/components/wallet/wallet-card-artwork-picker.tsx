@@ -11,12 +11,13 @@ import type { CardImageBox, CardPoint } from "@/lib/wallet/card-scan-image";
 import { WalletCardArtworkTile } from "./wallet-card-artwork-tile";
 
 /** Picker receives only an allowed IIN, never a complete card or vault key. */
-export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange, showSimpleDesign = true }: {
+export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange, showSimpleDesign = true, compact = false }: {
   context: WalletNetworkContext | null; prefix: string; panLength: number;
   active: boolean; sanitized?: Blob; candidate?: Blob; onChange: (artwork: WalletCardArtwork) => void;
   onBusyChange?: (busy: boolean) => void;
   value?: WalletCardArtwork;
   showSimpleDesign?: boolean;
+  compact?: boolean;
 }) {
   const [resolution, setResolution] = useState<WalletArtworkResolution | null>(null);
   const [notice, setNotice] = useState("");
@@ -79,8 +80,8 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
   };
   if (!active || (!showSimpleDesign && !resolution?.variants.length && !visiblePreview)) return null;
   return <section aria-label="Card design" className="flex flex-col gap-3">
-    <h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
-    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p>
+    {!compact ? <><h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
+    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p></> : null}
     {resolution?.metadata && Object.values(resolution.metadata).some(Boolean) ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{[resolution.metadata.issuerName, resolution.metadata.productFamily, resolution.metadata.cardType, resolution.metadata.tier, resolution.metadata.country].filter(Boolean).join(" · ")}</p> : null}
     {showSimpleDesign && resolution?.match === "unknown" ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Original design unavailable. You can use a neutral design.</p> : null}
     {resolution && resolution.variants.length ? <>

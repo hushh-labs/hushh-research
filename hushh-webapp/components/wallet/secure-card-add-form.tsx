@@ -336,7 +336,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, getNetworkContext, compa
       </fieldset>
       {artworkEnabled ? <>
         <WalletBankDesignPicker key={bankContextKey} context={context} network={bankNetwork} country={issuingRegion || undefined} active={draftVisible && !submitting && !scanning && Boolean(currentReply?.result || (networkReply?.key === lookupKey && networkReply.result))} draftRevision={bankDraftRevision} onChange={setArtwork} onModeChange={enabled => setBankSelection(enabled ? bankContextKey : null)} suggest={suggestBankDesign ? (variants, signal) => suggestBankDesign(digits, variants, signal) : undefined} hasPhoto={Boolean(scanReading?.sanitized || scanReading?.candidate)} />
-        <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} showSimpleDesign={false} />
+        <WalletCardArtworkPicker compact context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} showSimpleDesign={false} />
       </> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">

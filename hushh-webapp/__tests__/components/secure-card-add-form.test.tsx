@@ -61,7 +61,8 @@ it("keeps Add available during an exact-design download and ignores a stale toke
   const getContext = () => ({ userId: "owner", vaultOwnerToken: token });
   const view = render(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />); fillRequired();
   await waitFor(() => expect(networkApi.select).toHaveBeenCalledOnce());
-  expect(screen.getByRole("heading", { name: "Choose your card design" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Choose your card design" })).toBeNull();
+  expect(screen.queryByText("Select the design that matches your card.")).toBeNull();
   expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled();
   expect(screen.queryByRole("button", { name: "Use a simple design" })).toBeNull();
   token = "renewed-consent"; view.rerender(<SecureCardAddForm onSubmit={onSubmit} getNetworkContext={getContext} />);
