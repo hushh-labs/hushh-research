@@ -12,6 +12,49 @@ production acceptance are not established by isolated fixtures. Read the
 [readiness memo](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
+## Visual Map
+
+Files uses encrypted objects in an isolated `files/v1` prefix beneath the owner's
+existing pod bucket prefix. It does not mount GCS as a filesystem. Recovery logs
+and PKM keep their existing prefixes and authority. The storage adapter verifies
+bucket ownership, default KMS encryption, uniform access and public-access prevention;
+its observed retention settings are shown in Files.
+
+Each file has an opaque stable identifier, an encrypted manifest, immutable encrypted
+4 MiB chunks, and a rolling content digest. Names, folders, revisions, undo and
+analysis preferences are encrypted. Folder indexes contain opaque identifiers and
+are rebuildable hints; readers validate the authoritative manifest. Directory and
+repair requests process at most 100 entries, with no whole-library startup replay.
+
+The browser sends content directly through its admitted owner-pod session. The hub
+publishes public verification keys and signed endpoint/binding metadata. Both the
+browser and Puppy verify signatures before contacting the pod or signing a challenge.
+An endpoint becomes pinned only after admission. An existing valid admission may
+reconnect during a hub outage; new or expired grants require the control plane.
+
+```mermaid
+flowchart LR
+  H["Hussh control plane<br/>identity, consent, signed metadata"]
+  B["Owner browser<br/>verify then admit"]
+  D["Trusted Puppy device<br/>verify then admit"]
+  subgraph OWNER["Owner Google Cloud project — Files rollout gated"]
+    P["Private pod<br/>One and Files ADK task"]
+    G["Encrypted Files objects<br/>isolated prefix"]
+    Q["Cloud Tasks<br/>identifiers only"]
+    V["Owner-project Vertex AI<br/>analysis opt-in required"]
+    P -->|"bounded encrypted writes / reads"| G
+    P -->|"durable job + delivery identity"| Q
+    Q -->|"OIDC: exact worker route"| P
+    P -->|"consented bounded text"| V
+  end
+  DEV["Explicit dev Vertex AI bridge<br/>dev only, exact project approved"]
+  P -.->|"optional dev analysis configuration"| DEV
+  H -->|"signed owner / device / pod binding"| B
+  H -->|"binding and metadata wake hint"| D
+  B -->|"HTTPS: scoped app session"| P
+  D <-->|"WSS: sealed inference frames"| P
+```
+
 ## Shared Files — source pilot, not deployed acceptance
 
 Shared reuses this explorer and `agent_files`, with encryption in the unlocked
@@ -117,48 +160,6 @@ flowchart LR
   G["Disabled until dev privacy and lifecycle acceptance"] -.-> H
 ```
 
-## Visual Map
-
-Files uses encrypted objects in an isolated `files/v1` prefix beneath the owner's
-existing pod bucket prefix. It does not mount GCS as a filesystem. Recovery logs
-and PKM keep their existing prefixes and authority. The storage adapter verifies
-bucket ownership, default KMS encryption, uniform access and public-access prevention;
-its observed retention settings are shown in Files.
-
-Each file has an opaque stable identifier, an encrypted manifest, immutable encrypted
-4 MiB chunks, and a rolling content digest. Names, folders, revisions, undo and
-analysis preferences are encrypted. Folder indexes contain opaque identifiers and
-are rebuildable hints; readers validate the authoritative manifest. Directory and
-repair requests process at most 100 entries, with no whole-library startup replay.
-
-The browser sends content directly through its admitted owner-pod session. The hub
-publishes public verification keys and signed endpoint/binding metadata. Both the
-browser and Puppy verify signatures before contacting the pod or signing a challenge.
-An endpoint becomes pinned only after admission. An existing valid admission may
-reconnect during a hub outage; new or expired grants require the control plane.
-
-```mermaid
-flowchart LR
-  H["Hussh control plane<br/>identity, consent, signed metadata"]
-  B["Owner browser<br/>verify then admit"]
-  D["Trusted Puppy device<br/>verify then admit"]
-  subgraph OWNER["Owner Google Cloud project — Files rollout gated"]
-    P["Private pod<br/>One and Files ADK task"]
-    G["Encrypted Files objects<br/>isolated prefix"]
-    Q["Cloud Tasks<br/>identifiers only"]
-    V["Owner-project Vertex AI<br/>analysis opt-in required"]
-    P -->|"bounded encrypted writes / reads"| G
-    P -->|"durable job + delivery identity"| Q
-    Q -->|"OIDC: exact worker route"| P
-    P -->|"consented bounded text"| V
-  end
-  DEV["Explicit dev Vertex AI bridge<br/>dev only, exact project approved"]
-  P -.->|"optional dev analysis configuration"| DEV
-  H -->|"signed owner / device / pod binding"| B
-  H -->|"binding and metadata wake hint"| D
-  B -->|"HTTPS: scoped app session"| P
-  D <-->|"WSS: sealed inference frames"| P
-```
 
 ## Upload, download and retention
 
