@@ -471,10 +471,18 @@ def _requested_packet_statuses(selected_facts):
     ]
 
 
+def _request_only_evidence(statuses, selected_facts):
+    return (
+        bool(statuses)
+        and len(statuses) == len(selected_facts)
+        and all(status in {"requested", "pending"} for status in statuses)
+    )
+
+
 def _normalize_requested_packet_copy(packet, selected_facts):
-    if not any(
-        status in {"requested", "pending"} for status in _requested_packet_statuses(selected_facts)
-    ):
+    """Every version of a request-only packet carries host-owned copy, Ready or not."""
+    statuses = _requested_packet_statuses(selected_facts)
+    if not _request_only_evidence(statuses, selected_facts):
         return
     copy = _requested_packet_copy(selected_facts)
     packet.title = copy["title"]
@@ -485,15 +493,18 @@ def _normalize_requested_packet_copy(packet, selected_facts):
 
 
 def _check_requested_event_claims(packet, selected_facts):
-    """Request-only evidence may be Ready only with host-owned visible claims."""
+    """Request-only evidence carries host-owned visible claims and no period, at any state."""
     statuses = _requested_packet_statuses(selected_facts)
     if not any(status in {"requested", "pending"} for status in statuses):
         return
-    if packet.temporal_scope != "no_period_claim":
+    request_only = _request_only_evidence(statuses, selected_facts)
+    if not request_only and packet.state != "ready":
+        # A completed record beside the request may evidence execution; only
+        # a Ready packet rejects the mix below.
+        return
+    if packet.temporal_scope not in {"no_period_claim", "unknown"}:
         raise ValueError("requested event is not a snapshot")
-    if len(statuses) != len(selected_facts) or any(
-        status not in {"requested", "pending"} for status in statuses
-    ):
+    if not request_only:
         raise ValueError("mixed requested packet evidence")
     copy = _requested_packet_copy(selected_facts)
     if (
@@ -617,15 +628,12 @@ async def construct_packet(
             )
             if not (current_snapshot or prior_snapshot):
                 raise ValueError("unsupported snapshot scope")
+        # The owner sees an Incomplete version's copy too, so the request-only
+        # wording and period fences hold at every state, not only for Ready.
+        selected_facts = [item["facts"] for item in documents if item["document_id"] in selected]
+        _normalize_requested_packet_copy(result, selected_facts)
+        _check_requested_event_claims(result, selected_facts)
         if result.state == "ready":
-            selected_facts = [
-                item["facts"] for item in documents if item["document_id"] in selected
-            ]
-            _normalize_requested_packet_copy(result, selected_facts)
-            _check_requested_event_claims(
-                result,
-                selected_facts,
-            )
             _require_distinct_member_content(documents, selected)
             _require_dated_periods([period.model_dump() for period in result.periods])
         if result.state == "ready" and not complete:
@@ -707,6 +715,28 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
+        if (
+            result.state != "ready"
+            and "selected_document_ids" in packet
+            and scope_mode in {"complete_compact_summary", "complete_current_request_packet"}
+        ):
+            selected_facts = [
+                item.get("facts") if isinstance(item.get("facts"), dict) else item
+                for item in documents
+                if item["document_id"] in set(selected or [])
+            ]
+            if any(
+                status in {"requested", "pending"}
+                for status in _requested_packet_statuses(selected_facts)
+            ):
+                # An Incomplete verdict still leaves this copy visible to the
+                # owner: the request-only fences hold whatever the verdict says.
+                _check_requested_event_claims(
+                    PacketProposal.model_validate(
+                        {key: value for key, value in packet.items() if key != "document_request"}
+                    ),
+                    selected_facts,
+                )
 
     return await _ask(
         "packet_verification",

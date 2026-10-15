@@ -847,6 +847,145 @@ async def test_requested_wire_date_cannot_become_a_ready_snapshot_or_completed_t
     ).state == "ready"
 
 
+async def test_request_only_packet_keeps_bounded_copy_and_no_period_claim_at_every_state():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    facts = page_facts()
+    facts.pop("pages")
+    facts["document_type"] = {
+        "value": "Wire transfer request form",
+        "citations": [{"page": 1, "quote": "Wire transfer request form"}],
+    }
+    # The earlier model mislabeled the requested date as_of; the fence cannot rely on it.
+    facts["date_evidence"] = [dated_evidence("as_of")]
+    facts["record_status"] = {
+        "status": "requested",
+        "evidence_basis": "documentary_form",
+        "explanation": "The source is a transfer request, with no completion evidence.",
+        "citations": [{"page": 1, "quote": "Wire transfer request form"}],
+    }
+    facts["facts"] = [
+        {"value": "A transfer was requested", "citations": [{"page": 1, "quote": "Amount"}]}
+    ]
+    source = {"document_id": "selected", "source_version": "v1", "complete": True, "facts": facts}
+    bounded = {
+        "title": "Wire transfer requests",
+        "description": "Documents requesting a wire transfer; execution is unverified.",
+        "coverage_summary": "Request records only; no completed action or reporting period verified.",
+        "utility_rationale": "Request documents are useful as records; completion is unverified.",
+    }
+    proposal = packet([])
+    proposal.update(
+        state="incomplete",
+        gaps=["The bank confirmation page is missing."],
+        title="Executed wire transfer",
+        description="Requested transfer was executed",
+        coverage_summary="Bank debited the account",
+        utility_rationale="Settlement confirmed",
+    )
+    proposal["pricing"].update(
+        coverage="partial", quality="limited", rationale="Payment went through"
+    )
+    verdict = dict(
+        state="incomplete",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=False,
+        correct_standalone_value=True,
+        correct_coverage=False,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=["Completion is not evidenced."],
+    )
+
+    # An unfinished assembly is never Ready, but the owner still sees its copy.
+    for complete in (False, True):
+        normalized = await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=complete,
+            documents=[source],
+            interpret=AsyncMock(return_value=proposal),
+        )
+        assert normalized.state == "incomplete"
+        assert normalized.gaps == proposal["gaps"]
+        assert {key: getattr(normalized, key) for key in bounded} == bounded
+        assert normalized.pricing.rationale == (
+            "Estimate for request documents only; completion is unverified."
+        )
+        assert "executed" not in normalized.model_dump_json()
+
+    # The final checker refuses the model's wording whatever its own verdict.
+    with pytest.raises(EvidenceValidationError, match="model_readiness_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet=proposal,
+            documents=[compact_evidence(source)],
+            complete=False,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+    checked = await verify_packet(
+        user_id="owner",
+        packet=normalized.model_dump(),
+        documents=[compact_evidence(source)],
+        complete=False,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=AsyncMock(return_value=verdict),
+    )
+    assert checked.state == "incomplete"
+
+    # A request date is no snapshot or period for an Incomplete version either.
+    proposal["temporal_scope"] = "as_of_snapshot"
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=False,
+            documents=[source],
+            interpret=AsyncMock(return_value=proposal),
+        )
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet={**normalized.model_dump(), "temporal_scope": "as_of_snapshot"},
+            documents=[compact_evidence(source)],
+            complete=False,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+    # An undecided scope claims nothing; the bounded copy still applies.
+    proposal["temporal_scope"] = "unknown"
+    undecided = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=False,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert undecided.temporal_scope == "unknown"
+    assert undecided.title == bounded["title"]
+
+    # A completed record beside the request may evidence execution: the mix is
+    # not request-only, so an Incomplete version keeps the model's own copy.
+    posted = {
+        **source,
+        "document_id": "posted",
+        "facts": {**facts, "record_status": {**facts["record_status"], "status": "completed"}},
+    }
+    proposal.update(temporal_scope="no_period_claim", selected_document_ids=["selected", "posted"])
+    mixed = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source, posted],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert mixed.state == "incomplete"
+    assert mixed.title == "Executed wire transfer"
+
+
 async def test_final_checker_cannot_certify_event_as_document_period():
     event = dated_evidence()
     proposal = packet(
