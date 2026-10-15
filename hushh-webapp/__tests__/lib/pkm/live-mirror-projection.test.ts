@@ -4,13 +4,26 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { describe, expect, it } from "vitest";
 import routeLayout from "@/lib/navigation/app-route-layout.contract.json";
-import { LIVE_MIRROR_KINDS, type LiveMirrorKind } from "@/lib/pkm/live-mirror-contract";
+import {
+  LIVE_MIRROR_HIDDEN_PREDICATES,
+  LIVE_MIRROR_KINDS,
+  type LiveMirrorClaim,
+  type LiveMirrorConflict,
+  type LiveMirrorKind,
+  type LiveMirrorProjection,
+} from "@/lib/pkm/live-mirror-contract";
 import {
   applyLiveMirrorReadTime,
   buildLiveMirrorProjection,
   type BuildLiveMirrorProjectionParams,
 } from "@/lib/pkm/live-mirror-projection";
-import { formatLiveMirrorValue, liveMirrorHistoryDetail, liveMirrorSourceRoute } from "@/lib/pkm/live-mirror-presentation";
+import {
+  formatLiveMirrorValue,
+  liveMirrorClaimRoute,
+  liveMirrorClaimText,
+  liveMirrorHistoryDetail,
+  liveMirrorSourceRoute,
+} from "@/lib/pkm/live-mirror-presentation";
 import {
   appendVerifiedLivingSourceChanges,
   reconcileLivingSources,
@@ -195,17 +208,23 @@ describe("Live Mirror projection", () => {
     const current = `${JSON.stringify([projection.facts, projection.history])}${projection.markdown.replaceAll("\\", "")}`;
     expect(current).not.toMatch(/NAME_A|NAME_X|SCOPE_A|SCOPE_X|1111|2222|11\.11|22\.22/);
     expect(projection.markdown).toContain("| Earning 1 · Needs review | — | — | — |");
-    // Every side is a claim naming its record and revision, one conflict per
-    // field in display order. Agreeing fields, other people's identifiers and
-    // the photo URL never become claims.
-    const claim = (source: LiveMirrorKind, label: string, value: unknown) =>
-      ({ source, label, value, revision: 1, sourceUpdatedAt: T0, verifiedAt: T1 });
-    expect(projection.conflicts).toEqual([
-      { predicate: "profile.name", label: "Name", claims: [claim("profile", "Profile", "NAME_A"), claim("profile", "Profile", "NAME_X")] },
-      { predicate: "profile.photo", label: "Photo", claims: [claim("profile", "Profile", true), claim("profile", "Profile", false)] },
-      { predicate: "consent.scope", label: "Scope", claims: [claim("consent", "Consent 1", "SCOPE_A"), claim("consent", "Consent 1", "SCOPE_X")] },
-      { predicate: "document_earning.grossCents", label: "Gross",
-        claims: [claim("document_earning", "Earning 1", 1_111), claim("document_earning", "Earning 1", 2_222)] },
+    // Every side is a claim naming its record's copy and revision, one conflict
+    // per field in display order. Agreeing fields, other people's identifiers
+    // and the photo URL never become claims. Only a money side has a currency
+    // key: its copy's own, null here because an earning names none.
+    const claim = (source: LiveMirrorKind, label: string, value: unknown, money: object = {}) =>
+      ({ source, origin: "record", label, value, revision: 1, sourceUpdatedAt: T0, verifiedAt: T1, ...money });
+    expect(projection.conflicts).toStrictEqual([
+      { predicate: "profile.name", label: "Name",
+        claims: [claim("profile", "Profile, copy 1", "NAME_A"), claim("profile", "Profile, copy 2", "NAME_X")] },
+      { predicate: "profile.photo", label: "Photo",
+        claims: [claim("profile", "Profile, copy 1", true), claim("profile", "Profile, copy 2", false)] },
+      { predicate: "consent.scope", label: "Scope",
+        claims: [claim("consent", "Consent 1, copy 1", "SCOPE_A"), claim("consent", "Consent 1, copy 2", "SCOPE_X")] },
+      { predicate: "document_earning.grossCents", label: "Gross", claims: [
+        claim("document_earning", "Earning 1, copy 1", 1_111, { currency: null }),
+        claim("document_earning", "Earning 1, copy 2", 2_222, { currency: null }),
+      ] },
     ]);
     expect(JSON.stringify(projection.conflicts)).not.toMatch(/OTHER_PERSON|private-photo|status/);
     expect(projection.nameConflict).toBe(false);
@@ -221,9 +240,9 @@ describe("Live Mirror projection", () => {
     ] });
     const projection = build({ inventory, history, document, nameConflict: true, nameClaims: { soul: ["Ankit K"], profile: "Ankit" } });
     expect(projection.nameConflict).toBe(true);
-    expect(projection.conflicts).toEqual([{ predicate: "profile.name", label: "Name", claims: [
-      { source: "soul", label: "Memory (you wrote)", value: "Ankit K", revision: 9, sourceUpdatedAt: T0, verifiedAt: null },
-      { source: "profile", label: "Profile", value: "Ankit", revision: 1, sourceUpdatedAt: T0, verifiedAt: T1 },
+    expect(projection.conflicts).toStrictEqual([{ predicate: "profile.name", label: "Name", claims: [
+      { source: "soul", origin: "named", label: "Your memory", value: "Ankit K", revision: 9, sourceUpdatedAt: T0, verifiedAt: null },
+      { source: "profile", origin: "named", label: "Profile", value: "Ankit", revision: 1, sourceUpdatedAt: T0, verifiedAt: T1 },
     ] }]);
     // The verified fact stays as it is: nothing is overwritten by the review.
     expect(projection.facts.find(fact => fact.predicate === "profile.name")).toMatchObject({ value: "Ankit", state: "verified" });
@@ -396,5 +415,158 @@ describe("Live Mirror presentation", () => {
     expect(formatLiveMirrorValue("consent.active", false)).toBe("No");
     // Owner text is never relabelled as a state.
     expect(formatLiveMirrorValue("profile.name", "test")).toBe("test");
+  });
+});
+
+describe("Live Mirror conflict claims", () => {
+  const payment = (value: Record<string, unknown>): LivingSourceInput => ({
+    kind: "document_request_payment", id: "r1", createdAt: T0, updatedAt: T0,
+    value: { counterpartRef: "OTHER_REF", mode: "live", status: "paid", paidAt: T0, ...value },
+  });
+  /** One verified record and a second copy of it at the same revision, as two racing writes leave it. */
+  const twoCopies = (input: LivingSourceInput, change: Record<string, unknown>, updatedAt = input.updatedAt) => {
+    const { inventory, history } = sync([{ inputs: [input], kinds: [input.kind], now: T1 }]);
+    const record = inventory.records.find(each => each.kind === input.kind)!;
+    return { history, inventory: { ...inventory, records: [record, { ...record, updatedAt, value: { ...record.value, ...change } }] } };
+  };
+  const conflictOf = (projection: LiveMirrorProjection, predicate: string) =>
+    projection.conflicts?.find(each => each.predicate === predicate);
+  /** The expected text, from Intl itself rather than the formatter under test. */
+  const money = (currency: string, majorUnits: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency }).format(majorUnits);
+  const amountText = (claims: readonly LiveMirrorClaim[]) =>
+    claims.map(claim => liveMirrorClaimText(claim, "document_request_payment.amountCents", T2).value);
+
+  it("carries each money copy's own currency and words the amount in it", () => {
+    const projection = build(twoCopies(payment({ amountCents: 1_200, currency: "EUR" }), { amountCents: 3_400, status: "refunded" }, T1));
+    const side = (copy: number, value: number, sourceUpdatedAt: string) => ({
+      source: "document_request_payment", origin: "record", label: `Document payment 1, copy ${copy}`, value,
+      revision: 1, sourceUpdatedAt, verifiedAt: T1, currency: "EUR",
+    });
+    const amount = conflictOf(projection, "document_request_payment.amountCents")!;
+    expect(amount).toStrictEqual({ predicate: "document_request_payment.amountCents", label: "Amount",
+      claims: [side(1, 1_200, T0), side(2, 3_400, T1)] });
+    expect(amountText(amount.claims)).toEqual([money("EUR", 12), money("EUR", 34)]);
+    // Negative controls: a side that is not money has no currency key at all,
+    // and copies that agree on the currency raise no currency disagreement.
+    const status = conflictOf(projection, "document_request_payment.status")!;
+    expect(status.claims.map(claim => [claim.value, Object.hasOwn(claim, "currency")])).toEqual([["paid", false], ["refunded", false]]);
+    expect(conflictOf(projection, "document_request_payment.currency")).toBeUndefined();
+    // A money copy whose record names no currency carries null and reads as US dollars.
+    const earning: LivingSourceInput = { kind: "document_earning", id: "e1", createdAt: T0, updatedAt: T0,
+      value: { stripeMode: "live", status: "succeeded", grossCents: 1_111, createdAt: T0 } };
+    const gross = conflictOf(build(twoCopies(earning, { grossCents: 2_222 })), "document_earning.grossCents")!;
+    expect(gross.claims.map(claim => [claim.value, claim.currency])).toStrictEqual([[1_111, null], [2_222, null]]);
+    expect(gross.claims.map(claim => liveMirrorClaimText(claim, gross.predicate, T2).value))
+      .toEqual([money("USD", 11.11), money("USD", 22.22)]);
+  });
+
+  it("keeps the same amount in two currencies apart, and yen has no minor unit", () => {
+    const projection = build(twoCopies(payment({ amountCents: 1_500, currency: "EUR" }), { currency: "JPY" }));
+    // One stored amount, two currencies: two claims, never one merged side.
+    const amount = conflictOf(projection, "document_request_payment.amountCents")!;
+    expect(amount.claims.map(claim => [claim.label, claim.value, claim.currency])).toEqual([
+      ["Document payment 1, copy 1", 1_500, "EUR"], ["Document payment 1, copy 2", 1_500, "JPY"],
+    ]);
+    // 1,500 stored yen is ¥1,500, not ¥15.
+    expect(amountText(amount.claims)).toEqual([money("EUR", 15), money("JPY", 1_500)]);
+    // The currency field disagrees too, and it is not money.
+    expect(conflictOf(projection, "document_request_payment.currency")!.claims
+      .map(claim => [claim.value, Object.hasOwn(claim, "currency")])).toEqual([["EUR", false], ["JPY", false]]);
+  });
+
+  it("numbers a record's copies the same on every field, whatever order the inventory lists them in", () => {
+    // A tie on change time is settled by value; otherwise the earlier copy is copy 1.
+    for (const updatedAt of [T0, T1]) {
+      const { inventory, history } = twoCopies(payment({ amountCents: 1_200, currency: "EUR" }), { amountCents: 3_400, status: "refunded" }, updatedAt);
+      const forward = build({ inventory, history }).conflicts!;
+      const reversed = build({ inventory: { ...inventory, records: [...inventory.records].reverse() }, history }).conflicts;
+      expect(reversed, updatedAt).toStrictEqual(forward);
+      expect(forward.map(each => each.claims.map(claim => `${claim.label}: ${claim.value}`)), updatedAt).toEqual([
+        ["Document payment 1, copy 1: paid", "Document payment 1, copy 2: refunded"],
+        ["Document payment 1, copy 1: 1200", "Document payment 1, copy 2: 3400"],
+      ]);
+      expect(forward.flatMap(each => each.claims).every(claim => claim.origin === "record"), updatedAt).toBe(true);
+    }
+  });
+
+  it("leaves memory's name out when the profile's own copies disagree on the name", () => {
+    const { inventory, history } = sync([{ inputs: [profile("NAME_A")], kinds: ["profile"], now: T1 }]);
+    const [record] = inventory.records;
+    const split = (change: Record<string, unknown>) =>
+      ({ ...inventory, records: [record!, { ...record!, value: { ...record!.value, ...change } }] });
+    const named = { history, nameConflict: true, nameClaims: { soul: ["Ankit K"], profile: "NAME_A" } };
+    // No verified name is left to compare memory with: the copies are the only sides.
+    const byName = build({ ...named, inventory: split({ name: "NAME_X" }) });
+    expect(conflictOf(byName, "profile.name")!.claims.map(claim => [claim.source, claim.origin, claim.label, claim.value])).toEqual([
+      ["profile", "record", "Profile, copy 1", "NAME_A"], ["profile", "record", "Profile, copy 2", "NAME_X"],
+    ]);
+    expect(JSON.stringify(byName.conflicts)).not.toContain("Ankit K");
+    // Negative control: copies that agree on the name keep memory's comparison, tagged as named.
+    const byEmail = build({ ...named, inventory: split({ email: "other@example.test" }) });
+    expect(conflictOf(byEmail, "profile.name")!.claims.map(claim => [claim.source, claim.origin, claim.value])).toEqual([
+      ["soul", "named", "Ankit K"], ["profile", "named", "NAME_A"],
+    ]);
+  });
+
+  it("drops a disagreement over another person's identifier at read time and keeps every other", () => {
+    const { inventory, history } = sync([{ inputs: [profile("Ankit"), consent("c1", "attr.food.*")], kinds: ["profile", "consent"], now: T1 }]);
+    // As an older cached projection, or one altered in memory, could still carry them.
+    const hidden = LIVE_MIRROR_HIDDEN_PREDICATES.map((predicate): LiveMirrorConflict => {
+      const side = (value: string, copy: number): LiveMirrorClaim => ({
+        source: predicate.slice(0, predicate.indexOf(".")) as LiveMirrorKind, origin: "record", label: `Record 1, copy ${copy}`,
+        value, revision: 1, sourceUpdatedAt: T0, verifiedAt: T1,
+      });
+      return { predicate, label: "Person", claims: [side("OTHER_PERSON_A", 1), side("OTHER_PERSON_B", 2)] };
+    });
+    const alone = applyLiveMirrorReadTime({ ...build({ inventory, history }), conflicts: hidden }, T2, "current");
+    expect(alone).toMatchObject({ conflicts: [], overall: "current" });
+    expect(JSON.stringify(alone)).not.toContain("OTHER_PERSON");
+    const named = build({ inventory, history, nameConflict: true, nameClaims: { soul: ["Ankit K"], profile: "Ankit" } });
+    const mixed = applyLiveMirrorReadTime({ ...named, conflicts: [...hidden, ...named.conflicts!] }, T2, "current");
+    expect(mixed.conflicts).toStrictEqual(named.conflicts);
+    expect(mixed.conflicts).toHaveLength(1);
+    expect(mixed.overall).toBe("conflict");
+  });
+
+  it("words each side the same way on every surface and routes it to where it is fixed", () => {
+    // Times in UTC; a narrow no-break space some ICU builds put before AM reads as a space.
+    const text = (claim: LiveMirrorClaim, predicate: string) => {
+      const { label, value, detail } = liveMirrorClaimText(claim, predicate, T2, "UTC");
+      return { label, value, detail: detail === null ? null : detail.replace(/\s/g, " ") };
+    };
+    const { inventory, history } = sync([{ inputs: [profile("Ankit")], kinds: ["profile"], now: T1 }]);
+    const document = doc({ freshness: [
+      { domain: "one_memory", title: "Identity facts", status: "conflicted", contentRevision: 9, updatedAt: T0, cardCount: 1 },
+    ] });
+    const nameClaims = { soul: ["Ankit K"], profile: "Ankit" };
+    const [soul, verified] = conflictOf(build({ inventory, history, document, nameConflict: true, nameClaims }), "profile.name")!.claims;
+    // Memory is never checked against a source, so it says when it changed.
+    expect(text(soul!, "profile.name")).toEqual({ label: "Your memory", value: "Ankit K", detail: "Changed Oct 15, 2026, 10:00 AM · Version 9" });
+    expect(liveMirrorClaimRoute(soul!, "profile.name")).toEqual({ href: "/one/pkm", label: "Edit memory.md" });
+    // The verified profile says when it was last checked.
+    expect(text(verified!, "profile.name")).toEqual({ label: "Profile", value: "Ankit", detail: "Checked 1 min ago · Version 1" });
+    expect(liveMirrorClaimRoute(verified!, "profile.name")).toEqual({ href: "/one/profile/account", label: "Edit profile" });
+    // A side that is not known reads "Not set", with nothing to date it.
+    const [unknown] = conflictOf(build({ inventory, history, nameConflict: true }), "profile.name")!.claims;
+    expect(text(unknown!, "profile.name")).toEqual({ label: "Your memory", value: "Not set", detail: null });
+
+    // A record's copies share one check, so each says when it changed, even though it was verified.
+    const amount = "document_request_payment.amountCents";
+    const [first, second] = conflictOf(build(twoCopies(payment({ amountCents: 1_200, currency: "EUR" }), { amountCents: 3_400 }, T1)), amount)!.claims;
+    expect(second!.verifiedAt).toBe(T1);
+    expect(text(first!, amount)).toEqual({ label: "Document payment 1, copy 1", value: money("EUR", 12), detail: "Changed Oct 15, 2026, 10:00 AM · Version 1" });
+    expect(text(second!, amount)).toEqual({ label: "Document payment 1, copy 2", value: money("EUR", 34), detail: "Changed Oct 15, 2026, 10:01 AM · Version 1" });
+    expect(liveMirrorClaimRoute(second!, amount)).toEqual({ href: "/one/consent?tab=pending&requestView=sent", label: "Open sent documents" });
+    // A removed copy claims no value and no currency.
+    const paid = sync([{ inputs: [payment({ amountCents: 1_200, currency: "EUR" })], kinds: ["document_request_payment"], now: T1 }]);
+    const [live] = paid.inventory.records;
+    const removed = { ...live!, updatedAt: T1, deletedAt: T1, value: {} };
+    const [, gone] = conflictOf(build({ history: paid.history, inventory: { ...paid.inventory, records: [live!, removed] } }), amount)!.claims;
+    expect(gone!.currency).toBeNull();
+    expect(text(gone!, amount)).toEqual({ label: "Document payment 1, copy 2", value: "Not set", detail: "Changed Oct 15, 2026, 10:01 AM · Version 1" });
+    // Negative control: a predicate that names no source kind has nowhere to go.
+    expect(liveMirrorClaimRoute(second!, "wallet.balance")).toBeNull();
+    expect(liveMirrorClaimRoute(second!, "__proto__.amountCents")).toBeNull();
   });
 });

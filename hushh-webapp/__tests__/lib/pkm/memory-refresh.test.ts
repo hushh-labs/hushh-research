@@ -365,9 +365,9 @@ describe("persisted source-linked Profile memory.md", () => {
     const mirror = peekLiveMirror(USER)!;
     expect(mirror.overall).toBe("conflict");
     expect(mirror.nameConflict).toBe(true);
-    const profileClaim = expect.objectContaining({ source: "profile", label: "Profile", value: "Synthetic Ava", revision: 2 });
+    const profileClaim = expect.objectContaining({ source: "profile", origin: "named", label: "Profile", value: "Synthetic Ava", revision: 2 });
     expect(mirror.conflicts).toEqual([{ predicate: "profile.name", label: "Name", claims: [
-      { source: "soul", label: "Memory (you wrote)", value: "Ava S", revision: 9, sourceUpdatedAt: null, verifiedAt: null },
+      { source: "soul", origin: "named", label: "Your memory", value: "Ava S", revision: 9, sourceUpdatedAt: null, verifiedAt: null },
       profileClaim,
     ] }]);
     expect(mirror.facts.find(fact => fact.predicate === "profile.name")).toMatchObject({ value: "Synthetic Ava", state: "verified" });
