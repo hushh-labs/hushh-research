@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { IDENTITY_REQUIRED, fileRequestError } from "@/components/consent/document-file-request";
+import { IDENTITY_REQUIRED, fileRequestError } from "@/components/consent/file-request-errors";
 import { useAuth } from "@/hooks/use-auth";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
