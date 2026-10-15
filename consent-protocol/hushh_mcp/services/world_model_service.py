@@ -143,6 +143,9 @@ async def offer(
 
 
 class WorldModelJobs(ProfileResearchJobs):
+    log_event = "one.pwm_"
+    search_slots = MAX_SEARCHES
+
     def committed(self):
         from hushh_mcp.services.world_model_notifications import world_model_notification_worker
 
@@ -157,14 +160,17 @@ class WorldModelJobs(ProfileResearchJobs):
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         # Research is on by default once setup disclosed it. An existing row,
         # including an explicit opt-out, is never changed here.
+        enrolled = False
         if (
             one_profile_research_enabled()
             and await preferences(user_id) is None
             and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
         ):
             await enroll_default(user_id, consent_token)
+            enrolled = True
         refused, _ = await admission(user_id, consent_token)
         if refused:
+            self.decision("ensure", "refused", refused, None)
             return refused
         consent = await preferences(user_id)
         state = await self.store.get(user_id)
@@ -186,13 +192,17 @@ class WorldModelJobs(ProfileResearchJobs):
         ):
             # The latest run finished recently and its draft aged out. A run the
             # retention purge removed before it finished is prepared again.
-            return {"status": "saved", "pkm_written": False}
+            result = {"status": "saved", "pkm_written": False}
+            self.decision("ensure", "recently_prepared", result, None)
+            return result
         if (
             state
             and state["status"] == "saved"
             and state.get("consent_generation") == str(consent["generation"])
         ):
+            self.decision("ensure", "saved", state["result"], state)
             return state["result"]
+        self.decision("ensure", "enrolled_start" if enrolled else "start", None, state)
         inputs = None if owner_decisions is None else {"owner_decisions": owner_decisions}
         return await self.start(user_id, consent_token, inputs=inputs)
 

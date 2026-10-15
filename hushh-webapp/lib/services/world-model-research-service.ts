@@ -190,6 +190,139 @@ function whenVisible(signal: AbortSignal) {
     if (signal.aborted) abort();
   });
 }
+/** A POST may start paid research; automatic retries never come faster. */
+const MIN_POST_INTERVAL_MS = 60_000;
+/** Without a usable Retry-After, a refused POST waits this long. */
+const RATE_LIMITED_POST_MS = 600_000;
+/** A refused read slows to this cadence. */
+const RATE_LIMITED_READ_MS = 60_000;
+const DRIVER_POLL_MS = 5_000;
+/** Tabs that are not driving research only read, and only this often. */
+const FOLLOWER_POLL_MS = 15_000;
+const POLL_BUDGET_MS = 3_600_000;
+const MAX_FAILURES = 5;
+
+type Step = { path: "ensure" | "jobs"; method: "GET" | "POST" };
+type Observation = PwmAuthority & {
+  signal: AbortSignal;
+  onResult: (result: PwmResult) => void;
+  ownerDecisions?: PwmOwnerDecisions;
+};
+type Session = {
+  next: Step;
+  deadline: number;
+  lastPostAt: number;
+  postBlockedUntil: number;
+  failures: number;
+};
+type ResearchLocks = {
+  request<T>(
+    name: string,
+    options: { ifAvailable: true },
+    callback: (lock: unknown) => Promise<T>,
+  ): Promise<T>;
+};
+
+/** Web Locks keep one research driver per owner across this browser's tabs. */
+function researchLocks(): ResearchLocks | null {
+  const locks =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as { locks?: Partial<ResearchLocks> }).locks;
+  return locks && typeof locks.request === "function"
+    ? (locks as ResearchLocks)
+    : null;
+}
+
+/** Seconds from a typed 429 body, when the server sends one. */
+function retryAfterMs(error: ApiError, fallback: number) {
+  const payload = error.payload as
+    | { retry_after?: unknown; detail?: { retry_after?: unknown } }
+    | undefined;
+  const seconds = Number(payload?.retry_after ?? payload?.detail?.retry_after);
+  return Number.isFinite(seconds) && seconds > 0
+    ? Math.max(fallback, Math.min(seconds * 1000, 3_600_000))
+    : fallback;
+}
+
+/**
+ * One request. Returns "done" on a final result, otherwise the delay before
+ * the next one. A read-only step never POSTs, and no POST is sent sooner than
+ * MIN_POST_INTERVAL_MS after the last, or while the server is refusing them.
+ */
+async function step(
+  input: Observation,
+  session: Session,
+  readOnly: boolean,
+): Promise<"done" | number> {
+  let { path, method } = session.next;
+  const now = Date.now();
+  if (
+    method === "POST" &&
+    (readOnly ||
+      now < session.postBlockedUntil ||
+      now < session.lastPostAt + MIN_POST_INTERVAL_MS)
+  ) {
+    path = "jobs";
+    method = "GET";
+  }
+  try {
+    if (method === "POST") session.lastPostAt = now;
+    const result = pwmResultSchema.parse(
+      await request(
+        input,
+        path,
+        method,
+        method === "POST" && input.ownerDecisions
+          ? { owner_decisions: input.ownerDecisions }
+          : undefined,
+      ),
+    );
+    session.failures = 0;
+    input.onResult(result);
+    if (result.status !== "pending" && result.status !== "paused")
+      return "done";
+    session.next = result.restart_required
+      ? { path: "ensure", method: "POST" }
+      : { path: "jobs", method: "GET" };
+    return DRIVER_POLL_MS;
+  } catch (error) {
+    if (input.signal.aborted) throw error;
+    if (error instanceof ApiError && error.status === 429) {
+      // Rate limits are not failures: keep reading, never give up on them.
+      if (method === "POST") {
+        session.postBlockedUntil =
+          Date.now() + retryAfterMs(error, RATE_LIMITED_POST_MS);
+        return DRIVER_POLL_MS;
+      }
+      return retryAfterMs(error, RATE_LIMITED_READ_MS);
+    }
+    if (error instanceof ApiError && error.status < 500) throw error;
+    if (++session.failures >= MAX_FAILURES) throw error;
+    // A lost response can already have started research; read before retrying.
+    session.next = { path: "jobs", method: "GET" };
+    return Math.min(30_000, 3000 * 2 ** session.failures);
+  }
+}
+
+/** Time away from the tab does not spend the one-hour polling budget. */
+async function whenVisibleWithinBudget(input: Observation, session: Session) {
+  const hiddenSince = Date.now();
+  await whenVisible(input.signal);
+  session.deadline += Date.now() - hiddenSince;
+}
+
+/** Drive while visible; a hidden tab hands the lock to a visible one. */
+async function drive(input: Observation, session: Session) {
+  while (Date.now() < session.deadline) {
+    const delay = await step(input, session, false);
+    if (delay === "done") return "done" as const;
+    await pause(input.signal, delay);
+    if (typeof document !== "undefined" && document.hidden) break;
+  }
+  return "yield" as const;
+}
+
 export const WorldModelResearchService = {
   async preferences(input: PwmAuthority) {
     return pwmPreferencesSchema.parse(await request(input, "preferences"));
@@ -217,57 +350,41 @@ export const WorldModelResearchService = {
       );
   },
   async observe(
-    input: PwmAuthority & {
-      signal: AbortSignal;
-      onResult: (result: PwmResult) => void;
+    input: Observation & {
       refresh?: boolean;
       /** Past owner decisions, so research does not propose them again. */
       ownerDecisions?: PwmOwnerDecisions;
+      /**
+       * Owner account id. With it, only one tab per owner drives research;
+       * other tabs only read. Without it, every observer drives.
+       */
+      ownerId?: string;
     },
   ) {
-    let path = input.refresh ? "jobs" : "ensure",
-      method = "POST",
-      failures = 0,
-      deadline = Date.now() + 3_600_000;
-    while (Date.now() < deadline) {
+    const session: Session = {
+      next: { path: input.refresh ? "jobs" : "ensure", method: "POST" },
+      deadline: Date.now() + POLL_BUDGET_MS,
+      lastPostAt: -Infinity,
+      postBlockedUntil: 0,
+      failures: 0,
+    };
+    const locks = input.ownerId ? researchLocks() : null;
+    const lockName = `pwm-research:${input.ownerId}`;
+    while (Date.now() < session.deadline) {
       if (input.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      try {
-        const result = pwmResultSchema.parse(
-          await request(
-            input,
-            path,
-            method,
-            method === "POST" && input.ownerDecisions
-              ? { owner_decisions: input.ownerDecisions }
-              : undefined,
-          ),
-        );
-        failures = 0;
-        input.onResult(result);
-        if (result.status !== "pending" && result.status !== "paused") return;
-        path = result.restart_required ? "ensure" : "jobs";
-        method = result.restart_required ? "POST" : "GET";
-      } catch (error) {
-        if (input.signal.aborted) throw error;
-        if (
-          error instanceof ApiError &&
-          error.status < 500 &&
-          error.status !== 429
-        )
-          throw error;
-        if (++failures >= 5) throw error;
-        // A lost response can already have started research; read before retrying.
-        path = "jobs";
-        method = "GET";
+      // ifAvailable cannot be combined with an abort signal; it never waits.
+      const role = locks
+        ? await locks.request(lockName, { ifAvailable: true }, (lock) =>
+            lock ? drive(input, session) : Promise.resolve("follow" as const),
+          )
+        : await drive(input, session);
+      if (role === "done") return;
+      if (role === "follow") {
+        const delay = await step(input, session, true);
+        if (delay === "done") return;
+        await pause(input.signal, Math.max(delay, FOLLOWER_POLL_MS));
       }
-      await pause(
-        input.signal,
-        failures ? Math.min(30_000, 3000 * 2 ** failures) : 5000,
-      );
-      const hiddenSince = Date.now();
-      await whenVisible(input.signal);
-      // Time away from the tab does not spend the one-hour polling budget.
-      deadline += Date.now() - hiddenSince;
+      await whenVisibleWithinBudget(input, session);
     }
     input.onResult({
       status: "paused",

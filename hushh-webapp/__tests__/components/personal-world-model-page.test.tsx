@@ -10,10 +10,11 @@ const mock = vi.hoisted(() => ({
   reject: vi.fn(),
   edit: vi.fn(),
   remove: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: mock.push, replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/one/profile/world-model",
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -140,6 +141,25 @@ beforeEach(() => {
 });
 
 describe("Personal World Model page", () => {
+  it("waits calmly for the app-level reader instead of linking to its own route", async () => {
+    // proxy.ts presents /one/profile/world-model as the Profile pane, so a
+    // link to it from the pane would only reopen the pane.
+    mock.research = {
+      mounted: false,
+      result: null,
+      preferences: null,
+      failed: false,
+      reload: vi.fn(),
+      refresh: vi.fn(),
+    };
+    render(<PersonalWorldModelPage embedded />);
+    expect(screen.getByRole("status")).toHaveTextContent("Checking your model…");
+    expect(screen.queryByText("Open Personal World Model")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(mock.push).not.toHaveBeenCalled();
+    expect(mock.load).not.toHaveBeenCalled();
+  });
+
   it("shows a Yes only as saved after the encrypted memory write resolves", async () => {
     research(offered([{ statement: "Works at Hushh", kind: "career" }]));
     const saved = await claim("Works at Hushh");
