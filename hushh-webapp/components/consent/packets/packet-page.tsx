@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
@@ -39,13 +40,16 @@ export type PacketPageAction = {
   id: string;
   /** Says what happens: "List for $12.34", "Buy for $12.34". */
   label: string;
-  onSelect: () => void;
   /** primary (default): the page's main step; secondary: the alternative; plain: a light step. */
   emphasis?: "primary" | "secondary" | "plain";
   disabled?: boolean;
   /** For an action that shows or hides part of the page. */
   expanded?: boolean;
-};
+} & (
+  | { onSelect: () => void; href?: never }
+  /** Goes somewhere instead, e.g. "View request": a link, not a button. */
+  | { href: string; onSelect?: never }
+);
 
 export type PacketPageProps = {
   open: boolean;
@@ -63,10 +67,11 @@ export type PacketPageProps = {
 
 function ActionButton({ action }: { action: PacketPageAction }) {
   const emphasis = action.emphasis ?? "primary";
+  const look = { size: emphasis === "plain" ? "standard" : "prominent", variant: emphasis === "primary" ? "blue" : "none",
+    effect: emphasis === "plain" ? "fade" : "fill" } as const;
+  if (action.href !== undefined) return <Button asChild {...look}><Link href={action.href}>{action.label}</Link></Button>;
   return (
-    <Button type="button" size={emphasis === "plain" ? "standard" : "prominent"}
-      variant={emphasis === "primary" ? "blue" : "none"} effect={emphasis === "plain" ? "fade" : "fill"}
-      disabled={action.disabled} aria-expanded={action.expanded} onClick={action.onSelect}>
+    <Button type="button" {...look} disabled={action.disabled} aria-expanded={action.expanded} onClick={action.onSelect}>
       {action.label}
     </Button>
   );

@@ -105,3 +105,35 @@ export function ownerPacketPrice(packet: DrivePacket): number | null {
 export function checkedDate(value: string): string {
   return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+
+/** What a buyer's own request for one packet version did, in this session. */
+export type BuyerPacketRequest = { requestId: string; existingAccess: boolean };
+
+/** A buyer's one line for a packet: "3 documents · January to June 2026", or where their request stands. */
+export function buyerPacketStatus(packet: DrivePacket, request: BuyerPacketRequest | null, ownerName: string): { line: string; tone: PacketTone } {
+  if (request?.existingAccess) return { line: "You have these files", tone: "listed" };
+  if (request) return { line: `Requested · Waiting for ${ownerName}`, tone: "waiting" };
+  if (!packet.canRequest) return { line: "Not available right now", tone: "paused" };
+  return { line: [documentCount(packet.documentCount), buyerSummary(packet)].filter(Boolean).join(" · "), tone: "ready" };
+}
+
+// The server's note on a packet from a Drive that is not fully read yet.
+const PARTIAL_DRIVE = "this is not a complete inventory of matching records.";
+
+/** What a packet may leave out, in plain words, for its buyers and for its owner's "What buyers see". */
+export function buyerNotes(packet: DrivePacket): string[] {
+  return packet.description.includes(PARTIAL_DRIVE) ? ["It may not include every matching file."] : [];
+}
+
+const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const DAY_YEAR = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+/** A file request's exact dates: "Sep 29 – Oct 1, 2026", "Dec 30, 2025 – Jan 2, 2026" or "Sep 29, 2026". */
+export function dayRangeLabel(start: string | null, end: string | null): string | null {
+  if (!start || !end) return null;
+  const first = new Date(`${start}T00:00:00Z`), last = new Date(`${end}T00:00:00Z`);
+  if (!Number.isFinite(first.getTime()) || !Number.isFinite(last.getTime())) return null;
+  if (start === end) return DAY_YEAR.format(first);
+  return first.getUTCFullYear() === last.getUTCFullYear()
+    ? `${DAY.format(first)} – ${DAY_YEAR.format(last)}` : `${DAY_YEAR.format(first)} – ${DAY_YEAR.format(last)}`;
+}

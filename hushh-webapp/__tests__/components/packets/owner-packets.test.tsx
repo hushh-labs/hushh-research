@@ -121,6 +121,22 @@ describe("owner packets as a history list", () => {
     expect(row("Example Bank statements")).toBeInTheDocument();
   });
 
+  it("shows the owner the same plain note buyers see when the Drive is not fully read", async () => {
+    // The server's note for a Drive that is not fully read yet; buyers read it in plain words.
+    const partial = { ...ready, description: `${ready.description} Covers only its verified documents and stated span. ` +
+      "Other Drive files remain unverified; this is not a complete inventory of matching records." };
+    state.packets.mockResolvedValue({ packets: [partial, listed], nextCursor: null });
+    render(<DrivePacketCatalog />);
+    let page = await openPacket("Example Bank statements");
+    expect(within(section(page, "What buyers see")).getAllByTestId("settings-row").map(item => item.textContent))
+      .toEqual(["Example Bank statementsJanuary to June 2026", "It may not include every matching file."]);
+    expect(page.textContent).not.toMatch(/inventory|verified documents/i);
+    fireEvent.click(within(page).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    page = await openPacket("Example Utility bills");
+    expect(within(section(page, "What buyers see")).getAllByTestId("settings-row")).toHaveLength(1);
+  });
+
   it("lists, re-prices and unlists through the same listing service, with the same price bounds", async () => {
     render(<DrivePacketCatalog />);
     let page = await openPacket("Example Bank statements");

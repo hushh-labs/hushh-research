@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -12,15 +11,14 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
 import { PacketPage, type PacketPageAction, type PacketPageRow, type PacketPageSection } from "@/components/consent/packets/packet-page";
 import { PacketRows } from "@/components/consent/packets/packet-rows";
+import { BuyerPacketPage, BuyerPacketRows, useBuyerPacketRequests } from "@/components/consent/packets/buyer-packets";
 import {
-  buyerSummary, checkedDate, documentCount, documentLine, ownerPacketPrice, ownerPacketStatus, ownerPacketTitle,
+  buyerNotes, buyerSummary, checkedDate, documentCount, documentLine, ownerPacketPrice, ownerPacketStatus, ownerPacketTitle,
   ownerStatusLine, packetGaps, periodLabel, sortedDocuments,
 } from "@/components/consent/packets/packet-copy";
 import { useOpenerFocus } from "@/components/consent/payouts/receipts/receipt-ui";
 import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
-import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { DrivePacketService, type DrivePacket, type PacketGuard } from "@/lib/services/drive-packet-service";
-import { AuthService } from "@/lib/services/auth-service";
 
 export function useDrivePacketSession(scope: string) {
   const { user } = useAuth();
@@ -43,15 +41,22 @@ export function useDrivePacketSession(scope: string) {
   return { key, guard, token: isVaultUnlocked && userId ? vaultOwnerToken : null };
 }
 
-export function DrivePacketCatalog({ ownerPersonRef, refreshKey = 0, preparationPaused = false }: { ownerPersonRef?: string; refreshKey?: number; preparationPaused?: boolean }) {
+/**
+ * The owner's own packets, or with `ownerPersonRef` the packets that person
+ * listed, as a buyer sees them. `ownerName` names the seller in a buyer's
+ * words ("You pay after Avery approves.").
+ */
+export function DrivePacketCatalog({ ownerPersonRef, ownerName = "the owner", refreshKey = 0, preparationPaused = false }: {
+  ownerPersonRef?: string; ownerName?: string; refreshKey?: number; preparationPaused?: boolean;
+}) {
   const session = useDrivePacketSession(ownerPersonRef ?? "owner-packets");
   if (!session.token) return null;
   return <PacketList key={session.key} token={session.token} guard={session.guard}
-    ownerPersonRef={ownerPersonRef} refreshKey={refreshKey} preparationPaused={preparationPaused} />;
+    ownerPersonRef={ownerPersonRef} ownerName={ownerName} refreshKey={refreshKey} preparationPaused={preparationPaused} />;
 }
 
-function PacketList({ token, guard, ownerPersonRef, refreshKey, preparationPaused }: {
-  token: string; guard: PacketGuard; ownerPersonRef?: string; refreshKey: number; preparationPaused: boolean;
+function PacketList({ token, guard, ownerPersonRef, ownerName, refreshKey, preparationPaused }: {
+  token: string; guard: PacketGuard; ownerPersonRef?: string; ownerName: string; refreshKey: number; preparationPaused: boolean;
 }) {
   const [packets, setPackets] = useState<DrivePacket[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -72,22 +77,31 @@ function PacketList({ token, guard, ownerPersonRef, refreshKey, preparationPause
     finally { try { current(); setBusy(false); } catch { /* Superseded private view. */ } }
   }, [guard, ownerPersonRef, token]);
   useEffect(() => { void load(); return () => { serial.current += 1; }; }, [load, refreshKey]);
-  // The owner's packets read like Payouts history: a row opens its page, and Back returns focus to that row.
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Packets read like Payouts history: a row opens its page, and Back returns focus to that row.
+  const [opened, setOpened] = useState<DrivePacket | null>(null);
   const opener = useOpenerFocus();
-  const openPacket = !ownerPersonRef && openId ? packets.find(packet => packet.packetId === openId) ?? null : null;
+  const open = (packet: DrivePacket) => { opener.remember(); setOpened(packet); };
+  const close = () => { setOpened(null); opener.restore(); };
+  const live = opened ? packets.find(packet => packet.packetId === opened.packetId) ?? null : null;
+  const requests = useBuyerPacketRequests();
+  // A reload starts from the first page. A buyer's open packet may sit further on: load on until it is found or the list ends.
+  useEffect(() => {
+    if (ownerPersonRef && opened && !live && cursor && !busy && !error) void load(cursor);
+  }, [busy, cursor, error, live, load, opened, ownerPersonRef]);
   return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"} onClickCapture={opener.capture}>
     <SettingsGroup density="compact" title={ownerPersonRef ? "Available packets" : "Packets"}>
-    {ownerPersonRef ? packets.map(packet => <PacketCard key={`${packet.packetId}:${packet.version}:${packet.listingRevision}`} packet={packet}
-      token={token} guard={guard} onChanged={() => void load()} />)
-      : <OwnerPacketRows packets={packets} onOpen={packet => { opener.remember(); setOpenId(packet.packetId); }} />}
-    {loaded && !packets.length && !error && <SettingsRow title={ownerPersonRef ? "No packets available yet" : preparationPaused ? "Preparation paused" : "Agent One is preparing your packets."} />}
-    {error && <SettingsRow title="Couldn’t load packets." trailing={<Button variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry packets</Button>} />}
+    {ownerPersonRef ? <BuyerPacketRows packets={packets} requests={requests} ownerName={ownerName} onOpen={open} />
+      : <OwnerPacketRows packets={packets} onOpen={open} />}
+    {loaded && !packets.length && !error && <SettingsRow title={ownerPersonRef ? "No packets yet" : preparationPaused ? "Preparation paused" : "Agent One is preparing your packets."} />}
+    {error && <SettingsRow title="Couldn’t load packets." trailing={<Button variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry</Button>} />}
     {busy && !loaded && <SettingsRow title="Loading packets…" />}
-    {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>More packets</Button>}
+    {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>Load more</Button>}
     </SettingsGroup>
-    {openPacket && <OwnerPacketPage key={openPacket.packetId} packet={openPacket} token={token} guard={guard}
-      onChanged={() => void load()} onClose={() => { setOpenId(null); opener.restore(); }} />}
+    {!ownerPersonRef && live && <OwnerPacketPage key={live.packetId} packet={live} token={token} guard={guard}
+      onChanged={() => void load()} onClose={close} />}
+    {/* A buyer's page outlives its row: missing from the whole list, the packet can't be bought now. */}
+    {ownerPersonRef && opened && <BuyerPacketPage key={opened.packetId} packet={live ?? (cursor ? opened : { ...opened, canRequest: false })}
+      ownerName={ownerName} token={token} guard={guard} requests={requests} onChanged={() => void load()} onClose={close} />}
   </section>;
 }
 
@@ -150,7 +164,8 @@ function OwnerPacketPage({ packet, token, guard, onChanged, onClose }: {
   const shownPrice = ownerPacketPrice(packet) === null ? null : formatDocumentRequestPrice(amount ?? packet.priceCents);
   const sections: PacketPageSection[] = [
     { id: "inside", title: "What’s inside", rows: inside },
-    ...summary === null ? [] : [{ id: "buyers", title: "What buyers see", rows: [{ id: "listing", title: packet.title, description: summary }] }],
+    ...summary === null ? [] : [{ id: "buyers", title: "What buyers see", rows: [{ id: "listing", title: packet.title, description: summary },
+      ...buyerNotes(packet).map((note, index) => ({ id: `note-${index}`, title: note }))] }],
     ...shownPrice === null ? [] : [{ id: "price", title: "Price", rows: [{ id: "price", title: "Price", value: shownPrice }],
       children: editingPrice ? <div className="space-y-1.5 px-4 pb-3 pt-1">
         <label htmlFor={fieldId} className="block text-xs font-semibold text-muted-foreground">New price</label>
@@ -174,64 +189,4 @@ function OwnerPacketPage({ packet, token, guard, onChanged, onClose }: {
     emphasis: "plain", disabled: busy, expanded: editingPrice });
   return <PacketPage open onOpenChange={next => { if (!next) onClose(); }} title={ownerPacketTitle(packet)}
     description={ownerStatusLine(packet)} sections={sections} actions={actions} message={message || undefined} />;
-}
-
-function PacketCard({ packet, token, guard, onChanged }: {
-  packet: DrivePacket; token: string; guard: PacketGuard; onChanged: () => void;
-}) {
-  const { user } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [needsGoogle, setNeedsGoogle] = useState(false);
-  const [request, setRequest] = useState<{ requestId: string; existingAccess: boolean } | null>(null);
-  const attemptId = useRef<string | null>(null);
-  const lock = useRef(false);
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const current = () => { guard(); if (!alive.current) throw new Error("unmounted"); };
-  const act = async () => {
-    if (lock.current) return;
-    try { current(); } catch { return; }
-    lock.current = true; setBusy(true); setMessage("");
-    try {
-      attemptId.current ??= crypto.randomUUID();
-      const isCurrent = () => { try { current(); return true; } catch { return false; } };
-      const firebaseToken = await (needsGoogle
-        ? AuthService.linkGoogleIdentity(user?.uid ?? "", isCurrent)
-        : AuthService.documentRequestIdentityToken(user?.uid ?? "", isCurrent));
-      current(); setNeedsGoogle(false);
-      const result = await DrivePacketService.request(token, firebaseToken, packet, attemptId.current, current);
-      current(); setRequest(result);
-    } catch (cause) { try {
-      current();
-      const code = cause instanceof Error ? "code" in cause ? String(cause.code) : cause.message : "";
-      if (["verify_google_identity_required", "google_identity_required"].includes(code)) {
-        setNeedsGoogle(true); setMessage("Add a Google account once to receive original files.");
-      } else if (["packet_changed", "listing_changed", "price_changed", "packet_unavailable"].includes(code)) {
-        setMessage("This packet changed. Refresh it before continuing."); onChanged();
-      } else if (code === "connection_required") setMessage("Connect with this person before requesting files.");
-      else if (["identity_cancelled", "identity_popup_blocked", "identity_already_linked"].includes(code)) setMessage(code === "identity_cancelled" ? "Google verification was cancelled. No request was sent." : code === "identity_popup_blocked" ? "Allow the Google verification popup, then retry." : "That Google account belongs to another One account. Choose another.");
-      else setMessage("Couldn’t finish. Retry to check the latest status.");
-    } catch { /* No stale private output. */ } }
-    finally { lock.current = false; try { current(); setBusy(false); } catch { /* Unmounted. */ } }
-  };
-  const state = packet.freshness === "paused" ? "Paused" : packet.freshness === "stale" ? "Update needed" :
-    packet.state === "ready" ? "Ready" : packet.state === "incomplete" ? "Incomplete" : "Unable to verify";
-  return <article className="min-w-0 text-sm">
-    <SettingsRow title={packet.title} description={`${packet.coverageSummary} · ${packet.documentCount} ${packet.documentCount === 1 ? "document" : "documents"}`}
-      trailing={<span className="font-semibold tabular-nums">{formatDocumentRequestPrice(packet.priceCents)}</span>} />
-    <div className="space-y-2 px-4 pb-2">
-    {(state !== "Ready" || packet.gaps.length > 0) && <p className="text-xs text-muted-foreground">{state}{packet.gaps.length > 0 ? ` · ${packet.gaps[0]}` : ""}</p>}
-    {request ? <Button asChild size="compact" variant="outline"><Link href={buildConsentCenterHref("pending", { requestId: `document_share_request:${request.requestId}`, requestView: "sent" })}>{request.existingAccess ? "View access" : "View request"}</Link></Button> :
-      <Button size="compact" disabled={busy || !packet.canRequest} onClick={() => void act()}>{busy ? "Requesting…" : needsGoogle ? "Add Google account" : `Request packet · ${formatDocumentRequestPrice(packet.priceCents)}`}</Button>}
-    <details className="text-xs text-muted-foreground"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
-      <p className="break-words">{packet.description}</p>
-      <p>{packet.verifiedAt ? `Verified ${new Date(packet.verifiedAt).toLocaleString()}` : "Not yet verified"} · {state}</p>
-      {packet.gaps.length > 0 && <ul className="list-inside list-disc">{packet.gaps.map((gap, index) => <li key={index} className="break-words">{gap}</li>)}</ul>}
-      <p>Agent One assessment {packet.assessmentScore}/100 · Importance {packet.importance}/500</p>
-      <p>The assessment is not a measured probability of correctness.</p>
-    </details>
-    {message && <p role="status" className="text-xs">{message}</p>}
-    </div>
-  </article>;
 }
