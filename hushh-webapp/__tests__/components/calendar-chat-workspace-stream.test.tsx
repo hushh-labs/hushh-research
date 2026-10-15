@@ -529,3 +529,23 @@ it("rechecks meeting permission on retry without copying source text into Memory
   expect(stream).toHaveBeenCalledTimes(1);
   expect(preparation).not.toHaveBeenCalled();
 });
+
+it("cancels pending meeting context when the same owner starts another chat", async () => {
+  const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+  let finish!: (value: unknown) => void;
+  const contextRead = vi.spyOn(CalendarInsightsService, "read").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  workspace();
+  await screen.findByRole("textbox", { name: "Message One" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" } } }); });
+  await waitFor(() => expect(contextRead).toHaveBeenCalled());
+  const signal = contextRead.mock.calls[0][3];
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", transcript: "Start another conversation" }); });
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  await act(async () => finish({ title: "Private", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Discarded meeting source" }] }));
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
+  const wire = JSON.parse(String(stream.mock.calls[0][1]?.body));
+  expect(wire.messages.at(-1).content).toBe("Start another conversation");
+  expect(JSON.stringify(wire)).not.toContain("Meeting sources.txt");
+  expect(screen.queryByText("Summarize this meeting.")).toBeNull();
+});
