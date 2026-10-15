@@ -93,6 +93,25 @@ describe("Live Mirror projection", () => {
     expect(projection.history.entries[1]!.changes).toContainEqual({ predicate: "profile.name", label: "Name", value: "Ankit Kumar Singh" });
   });
 
+  it("keeps record refs stable as records arrive, dated or not", () => {
+    const consentAt = (id: string, createdAt: string | null, scope: string, status = "active"): LivingSourceInput => ({
+      kind: "consent", id, createdAt, updatedAt: null, value: { scope, status },
+    });
+    const refs = (steps: Parameters<typeof sync>[0]) => Object.fromEntries(build(sync(steps)).facts
+      .filter(fact => fact.predicate === "consent.scope").map(fact => [fact.value, fact.ref]));
+    const first = { inputs: [consentAt("z-food", "2026-10-01T00:00:00.000Z", "attr.food.*"), consentAt("y-travel", null, "attr.travel.*")],
+      kinds: ["consent"], now: T0 };
+    expect(refs([first])).toEqual({ "attr.food.*": "Consent 1", "attr.travel.*": "Consent 2" });
+    // Later: the undated record changes, an undated record whose id sorts
+    // first arrives, and so does a newer dated one. No existing ref moves.
+    const later = { inputs: [first.inputs[0]!, consentAt("y-travel", null, "attr.travel.*", "revoked"),
+      consentAt("a-health", null, "attr.health.*"), consentAt("b-work", "2026-10-05T00:00:00.000Z", "attr.work.*")],
+    kinds: ["consent"], now: T1 };
+    expect(refs([first, later])).toEqual({
+      "attr.food.*": "Consent 1", "attr.travel.*": "Consent 2", "attr.work.*": "Consent 3", "attr.health.*": "Consent 4",
+    });
+  });
+
   it("hides values of a record that was later removed, maps gaps and counts dropped changes", () => {
     const steps = [
       { inputs: [profile("Ankit", { dateOfBirth: "1990-01-01" }), consent("c1", "OLD_CONSENT_SCOPE")], kinds: ["profile", "consent"], now: T0 },

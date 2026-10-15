@@ -226,7 +226,13 @@ function lag(health: unknown, kind: LiveMirrorKind): { lastLagMs: number | null;
   };
 }
 
-/** Stable, human-safe references: inventory records by source creation time, then history-only records. */
+/**
+ * Stable, human-safe references. Records are numbered in the order this vault
+ * first saw them (their earliest retained change), so a new record, dated or
+ * not, never renumbers an existing one. Records first seen together are
+ * numbered by source creation time, undated ones last. History-only records
+ * follow the inventory.
+ */
 function recordRefs(recordNodes: readonly LivingFactNode[], changes: readonly LivingSourceChange[]): Map<string, string> {
   const refs = new Map<string, string>();
   const counts = new Map<LiveMirrorKind, number>();
@@ -236,13 +242,26 @@ function recordRefs(recordNodes: readonly LivingFactNode[], changes: readonly Li
     counts.set(kind, count);
     refs.set(recordKey(kind, id), kind === "profile" ? RECORD_LABELS.profile : `${RECORD_LABELS[kind]} ${count}`);
   };
-  // New records normally have the newest creation time, so existing refs keep their number.
-  const created = (at: string | null) => (isIso(at) ? Date.parse(at) : Number.NEGATIVE_INFINITY);
-  for (const node of [...recordNodes].sort((a, b) =>
-    created(a.provenance.createdAt) - created(b.provenance.createdAt) ||
-    byCodeUnit(a.provenance.sourceId, b.provenance.sourceId))) {
-    add(node.provenance.kind, node.provenance.sourceId);
+  const firstChange = new Map<string, LivingSourceChange>();
+  for (const change of changes) {
+    if (change.operation === "gap") continue;
+    const key = recordKey(change.kind, change.id);
+    if (change.sequence < (firstChange.get(key)?.sequence ?? Number.POSITIVE_INFINITY)) firstChange.set(key, change);
   }
+  const order = (node: LivingFactNode) => {
+    const { kind, sourceId, createdAt, capturedAt } = node.provenance;
+    const first = firstChange.get(recordKey(kind, sourceId));
+    const created = isIso(createdAt) ? Date.parse(createdAt) : Number.POSITIVE_INFINITY;
+    // Without a retained change, creation (else capture) time stands in for first sight.
+    const seen = first ? Date.parse(first.capturedAt) : Number.isFinite(created) ? created : Date.parse(capturedAt);
+    return { seen: Number.isFinite(seen) ? seen : Number.POSITIVE_INFINITY, created, sequence: first?.sequence ?? Number.POSITIVE_INFINITY };
+  };
+  const ordered = recordNodes.map(node => ({ node, ...order(node) }));
+  const before = (left: number, right: number) => (left === right ? 0 : left < right ? -1 : 1);
+  ordered.sort((a, b) =>
+    before(a.seen, b.seen) || before(a.created, b.created) || before(a.sequence, b.sequence) ||
+    byCodeUnit(a.node.provenance.sourceId, b.node.provenance.sourceId));
+  for (const { node } of ordered) add(node.provenance.kind, node.provenance.sourceId);
   for (const change of [...changes].sort((a, b) => a.sequence - b.sequence)) {
     if (change.operation !== "gap") add(change.kind, change.id);
   }
