@@ -162,10 +162,11 @@ class DriveDocumentWorker:
                                     "unavailable",
                                     "superseded",
                                     "not_ready",
+                                    "unsupported",
                                 }
                                 else "not_ready"
                             ] += 1
-                            if status not in {"ready", "queued", "unchanged"}:
+                            if status not in {"ready", "queued", "unchanged", "unsupported"}:
                                 blocked.add(owner)
                         except Exception:
                             counts["not_ready"] += 1

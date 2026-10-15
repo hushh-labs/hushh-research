@@ -25,6 +25,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     DRIVE_POLICY,
     LIVE_POLICY_HASH,
+    LIVE_SUPPORTED_TYPES,
     DriveReadError,
 )
 
@@ -491,6 +492,7 @@ class DriveCollectionStore(DriveLivePreferences):
         """One source-registration path for discovery and bounded request candidates."""
         invalidated, document_ids = [], []
         for metadata in files:
+            supported = metadata.mime_type in LIVE_SUPPORTED_TYPES
             fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
             old = self._row(
                 connection,
@@ -527,7 +529,7 @@ class DriveCollectionStore(DriveLivePreferences):
                     if same_source
                     else None
                 )
-                if progress and progress["complete"]:
+                if supported and progress and progress["complete"]:
                     connection.execute(
                         text("""UPDATE connected_documents SET source_profile='live',
                           processing_enabled=TRUE,processing_disclosure_version=:disclosure,
@@ -566,17 +568,18 @@ class DriveCollectionStore(DriveLivePreferences):
                 text("""
                 INSERT INTO connected_documents(document_id,user_id,connection_generation,source_fingerprint,
                   metadata_envelope,source_version,processing_enabled,processing_disclosure_version,
-                  processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch)
+                  processing_accepted_at,processing_revision,source_profile,collection_revision,collection_seen_epoch,
+                  status,last_error_code)
                 VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version,TRUE,:disclosure,
-                  clock_timestamp(),1,'live',:revision,:epoch)
+                  clock_timestamp(),1,'live',:revision,:epoch,:status,:error)
                 ON CONFLICT (user_id,connector_id,source_fingerprint) DO UPDATE SET
                   metadata_envelope=EXCLUDED.metadata_envelope,source_version=EXCLUDED.source_version,
                   source_profile='live',processing_disclosure_version=EXCLUDED.processing_disclosure_version,
                   processing_accepted_at=EXCLUDED.processing_accepted_at,
-                  status='queued',active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
+                  status=EXCLUDED.status,active_version=NULL,source_changed_at=clock_timestamp(),lease_id=NULL,lease_expires_at=NULL,
                   processing_enabled=TRUE,collection_revision=EXCLUDED.collection_revision,
                   processing_revision=connected_documents.processing_revision+1,attempt_count=0,
-                  next_attempt_at=clock_timestamp(),last_error_code=NULL,updated_at=clock_timestamp()
+                  next_attempt_at=clock_timestamp(),last_error_code=EXCLUDED.last_error_code,updated_at=clock_timestamp()
             """),
                 {
                     "id": identity,
@@ -588,6 +591,8 @@ class DriveCollectionStore(DriveLivePreferences):
                     "disclosure": COLLECTION_DISCLOSURE,
                     "revision": revision,
                     "epoch": epoch,
+                    "status": "queued" if supported else "unsupported",
+                    "error": None if supported else "unsupported_format",
                 },
             )
         return document_ids, invalidated
