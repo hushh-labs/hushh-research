@@ -225,7 +225,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
   const artwork = SRC.header.centered.artwork;
   const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
   const brand = variant.centeredHeader
-    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
+    ? `<button type="button" data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="${SRC.header.centered.profileTriggerClass}">${artworkMarkup}</button>`
     : "";
   const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
@@ -821,11 +821,11 @@ test.describe("One centered header: phone regression", () => {
             .evaluate((el) => el.scrollWidth <= el.clientWidth),
         ).toBe(true);
         const oneTarget = await box(page, "one-profile-button");
-        expect(oneTarget.width).toBe(44);
-        expect(oneTarget.height).toBe(44);
+        expect(oneTarget.width).toBe(52);
+        expect(oneTarget.height).toBe(52);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBe(44);
-        expect(artwork.height).toBe(44);
+        expect(artwork.width).toBe(52);
+        expect(artwork.height).toBe(52);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -833,7 +833,7 @@ test.describe("One centered header: phone regression", () => {
           ),
         ).toBe(true);
         const header = await box(page, "agent-header");
-        expect(header.height).toBe(86 + safeTop);
+        expect(header.height).toBe(94 + safeTop);
         expect(name.y + name.height).toBeLessThanOrEqual(
           header.y + header.height - 8,
         );
@@ -872,8 +872,12 @@ test.describe("One centered header: phone regression", () => {
       await openFixture(page, variant, width);
       const after = await Promise.all(ids.map((id) => box(page, id)));
       expect(after).toEqual(before);
-      expect(after[2].width).toBe(72);
-      expect(after[3].width).toBe(72);
+      expect(after[2].width).toBe(88);
+      expect(after[3].width).toBe(88);
+      await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
+      const activeHeader = await box(page, "agent-header");
+      const subtitle = await box(page, "agent-subtitle");
+      expect(subtitle.y + subtitle.height).toBeLessThanOrEqual(activeHeader.y + activeHeader.height);
     }
   });
 

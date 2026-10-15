@@ -41,7 +41,7 @@ worker. The authored idle blink spans only two frames; unrelated fixture
 builds must not starve the renderer and skip it. All cases remain included in
 the native CI shard partition with unchanged motion and first-paint deadlines.
 Backing buffers are capped at the embedded images' 128px resolution while CSS
-geometry remains 44/72px in the header and 192px in the panel. This avoids
+geometry remains 52/88px in the header and defaults to 192px in the panel. This avoids
 20.25 times the backing-pixel count of a 576px Retina profile buffer without
 adding detail; this is not a measured CPU improvement. Actual buffer dimensions
 are rechecked on resize and resume, including
@@ -62,9 +62,26 @@ native frame pacing remains unverified.
 Animated frames have a 128px source and are displayed at 192 CSS px in the panel,
 so animated work artwork is softer than the HD fallback portraits.
 The artwork, canvas and owning avatar surfaces have no opaque background disk.
-The compact header artwork fills its existing 44px phone and 72px desktop
-trigger; the panel uses a 192px surface. Canvas and fallback portraits share
+The compact header artwork fills its 52px phone and 88px desktop
+trigger. This artwork-only control has no Material ripple, hover fill, press
+fill or tap flash; keyboard focus uses a thin outline without a filled halo.
+The panel uses a square 192px surface by default, bounded by its available
+width; `--one-presence-size` can resize that owning container without changing
+the native instance. Canvas and fallback portraits share
 the same bounds, including when playback pauses or reduced motion is enabled.
+
+## Current Rive input boundary
+
+Runtime inspection of all four deployed files reports
+`stateMachineNames: ["State Machine 1"]` and
+`stateMachineInputs("State Machine 1"): []`. Each file contains one activity
+artboard and no boolean, number or trigger inputs. These exports cannot drive
+hover/tap behavior or four activities through one persistent input-driven
+instance. That requires an authored combined asset with explicit inputs;
+changing the React adapter or reloading the canvas does not supply them.
+The existing activity mapping and painted crossfades remain the compatibility
+path until such an asset is available. Higher-resolution animated artwork is
+also required to improve the native 128px source detail at large Retina sizes.
 
 ## HD variant provenance
 
