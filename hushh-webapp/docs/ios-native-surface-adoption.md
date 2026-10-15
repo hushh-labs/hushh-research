@@ -24,7 +24,7 @@ that compilation condition. Launch arguments cannot enable it in Release.
 The standard native tab bar remains independent. This isolates the experimental
 custom presentation, not shared React/navigation changes; those still require
 exact-head verification before landing. The latest integration includes main
-through `3f769bc691`, preserving the compact shared header and native draft ports
+through `a0d8fd0a27`, preserving the compact shared header and native draft ports
 while retaining upstream conversation-epoch guards, Calendar continuation and
 the shared Live Memory preview.
 
@@ -33,9 +33,14 @@ Development qualification uses `HUSHH_NATIVE_SHELL_QUALIFICATION` (or the
 existing Debug-only launch opt-in); neither changes React's route, draft,
 permission or operation authority. Shared frontend changes still need their
 own regression proof: the first combined-head CI at `1231e70ead` failed, despite
-its green local core. Fixture reconciliation, uniform-row alignment and mobile
-detail/safe-area corrections are being verified before another push. No main
-landing or release acceptance is implied by the experimental flag.
+its green local core. Focused fixture, uniform-row, mobile-detail/safe-area,
+optional-feedback and connector-focus corrections now pass. The repaired iOS
+test target builds at `3872060bd8`; integrated exact-head CI remains mandatory.
+No main landing or release acceptance is implied by the experimental flag.
+Custom native descriptions below refer to qualification builds, not the
+ordinary Capacitor/React default. After verified landing, complete the remaining
+nested Profile navigation and ordinary form families through the same owned
+presentation before expanding admission; Account alone does not qualify them.
 
 The core Feed scroll rehearsal passes on the signed simulator at `45de35508d`:
 three down/reverse cycles, paired displacement, unchanged WebView, keyboard
@@ -45,7 +50,7 @@ threshold changed. Core smoke repetition is separate from ten-cycle physical
 qualification and Release frame-pacing acceptance. This predates the latest
 main integration and does not qualify its installed product.
 
-| Family | Current renderer/owner | Evidence and limit |
+| Family | Development renderer/owner | Evidence and limit |
 |---|---|---|
 | Account navigation | Retained UIKit stack with SwiftUI bodies; React operations | Existing physical Account proof below remains bounded; no whole-Profile conversion claimed. |
 | Other Profile details | Existing React body in the owned native content pane | Committed outgoing body/title are retained, inert and owner/vault-bound until native return admission. Nine-destination functional batches passed on iPhone at `bd9f375821` and simulator at `a23712046f`. |

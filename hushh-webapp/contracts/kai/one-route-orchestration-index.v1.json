@@ -357,7 +357,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-connected-systems"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/connected-systems/[systemId]",
@@ -1742,7 +1742,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-connected-systems"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/connected-systems/[systemId]",
@@ -5586,7 +5586,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "native-route-connected-systems"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/setup/connections",

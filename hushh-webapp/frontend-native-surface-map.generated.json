@@ -791,18 +791,8 @@
       },
       "native": {
         "route": "/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loading",
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ],
+        "classification": "excluded-web-only",
+        "reason": "Legacy local CRM alias; requireLocalCrmRoute rejects Capacitor builds and admits only explicitly enabled localhost development.",
         "legacyAlias": true
       },
       "shell": {
@@ -2750,17 +2740,8 @@
       },
       "native": {
         "route": "/one/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM is explicitly localhost-only development; requireLocalCrmRoute rejects Capacitor builds before reading request headers."
       },
       "shell": {
         "app_page_shell": true,
@@ -7870,17 +7851,8 @@
       },
       "native": {
         "route": "/one/setup/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-        "expectedMarker": "native-route-connected-systems",
-        "expectedRoute": "/one/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM setup is guarded by localhost-only product availability; native UAT/production bundles do not admit this development flow."
       },
       "shell": {
         "app_page_shell": false,
@@ -10397,5 +10369,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e6be347df167cddebddf120ef156f050650156dae9b396037dc3278b705ec480"
+  "content_sha256": "b2da6adad814aaf5941328dd12706943b7da0066fd4b6c2dc1b1302454901b43"
 }
