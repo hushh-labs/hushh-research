@@ -14,6 +14,7 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 const fixture = vi.hoisted(() => {
   const user = { uid: "owner", email: "owner@example.com", displayName: "Owner", getIdToken: async () => "test-id-token" };
   return {
+    captureReady: false,
     auth: { user, loading: false, sessionVerificationRequired: false },
     vault: { isVaultUnlocked: true, vaultKey: "12".repeat(32), vaultOwnerToken: "test-owner-token", tokenExpiresAt: Date.now() + 3600000, getVaultOwnerToken: () => "test-owner-token" },
     persona: { activePersona: "investor", primaryNavPersona: "investor", personaTransitionTarget: null, riaSetupAvailable: false, riaSwitchAvailable: false, riaOnboardingStatus: null, switchPersona: vi.fn() },
@@ -35,7 +36,7 @@ vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () =
 vi.mock("@/lib/agent/use-one-display-name", () => ({ useOneDisplayName: () => "One" }));
 vi.mock("@/lib/services/model-preference-service", () => ({ ModelPreferenceService: { get: async () => ({ choices: [], effective_model: "test" }) } }));
 vi.mock("@/lib/agent/use-entry-welcome", () => ({ useEntryWelcome: () => null }));
-vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => ({ ...await importOriginal<object>(), isAgentPkmProcessingReady: () => false }));
+vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => ({ ...await importOriginal<object>(), isAgentPkmProcessingReady: () => fixture.captureReady }));
 vi.mock("@/lib/agent/agent-pkm-memory", async importOriginal => ({ ...await importOriginal<object>(), loadAgentPkmContext: async () => fixture.memory, peekAgentPkmContext: () => fixture.memory, warmAgentPkmContext: async () => fixture.memory }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => fixture.search, useRouter: () => fixture.router }));
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   useOneConversationSession.getState().clearSession();
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));
+  fixture.captureReady = false;
   fixture.auth.user.uid = "owner";
   publishValidatedAuthSessionOwner("owner");
   vi.spyOn(GoogleCalendarService, "status").mockResolvedValue({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
@@ -459,4 +461,71 @@ it("rejects a changed Google account even if the model returns the same invitati
   expect(confirm).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Close invitations" }));
   expect(screen.queryByText(/The connected Calendar account changed/)).toBeNull();
+});
+
+it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
+  const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+  fixture.captureReady = true;
+  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
+  const contextRead = vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "QA Review", sources: [{ title: "Verified notes", url: "https://docs.google.com/document/d/verified", text: "Private meeting source", truncated: false }] });
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: "Earlier conversation" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
+  await screen.findByRole("button", { name: "Schedule meeting" });
+  await waitFor(() => expect(preparation).toHaveBeenCalledTimes(1));
+  preparation.mockClear();
+  const earlierThread = JSON.parse(String(stream.mock.calls[0][1]?.body)).threadId;
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "verified-event", expected_account_email: "owner@example.com" } } }); });
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+  expect(contextRead).toHaveBeenCalledWith("meetings/context", { calendar_id: "primary", event_id: "verified-event", expected_account_email: "owner@example.com" }, "test-id-token", expect.any(AbortSignal), expect.any(String));
+  const wire = JSON.parse(String(stream.mock.calls.at(-1)?.[1]?.body));
+  expect(wire.threadId).toBe(earlierThread);
+  expect(screen.getByText("Earlier conversation")).toBeInTheDocument();
+  const source = Buffer.from(wire.messages.at(-1).content.find((part: { type: string }) => part.type === "document").source.value, "base64").toString("utf8");
+  expect(source).toContain("Private meeting source");
+  expect(source).toContain("https://docs.google.com/document/d/verified");
+  expect(preparation).not.toHaveBeenCalled();
+  expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+});
+
+it("discards pending meeting context when the workspace owner changes", async () => {
+  const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+  let finish!: (value: unknown) => void;
+  const contextRead = vi.spyOn(CalendarInsightsService, "read").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const stream = vi.spyOn(ApiService, "apiFetchStream");
+  const view = workspace();
+  await screen.findByRole("textbox", { name: "Message One" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" } } }); });
+  await waitFor(() => expect(contextRead).toHaveBeenCalled());
+  const signal = contextRead.mock.calls[0][3];
+  fixture.auth.user.uid = "replacement";
+  publishValidatedAuthSessionOwner("replacement");
+  view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+  await waitFor(() => expect(signal?.aborted).toBe(true));
+  await act(async () => finish({ title: "Private", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Must be discarded" }] }));
+  expect(stream).not.toHaveBeenCalled();
+  expect(screen.queryByText(/Meeting access changed/)).toBeNull();
+});
+
+it("rechecks meeting permission on retry without copying source text into Memory", async () => {
+  const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+  fixture.captureReady = true;
+  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
+  const contextRead = vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Authorized first read", truncated: false }] });
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockRejectedValueOnce(new Error("Network failure")).mockImplementation(async () => sse("tool"));
+  workspace();
+  await screen.findByRole("textbox", { name: "Message One" });
+  act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "event", expected_account_email: "owner@example.com" } } }); });
+  const retry = await screen.findByRole("button", { name: "Try again" });
+  contextRead.mockRejectedValueOnce(new Error("Permission revoked"));
+  fireEvent.click(retry);
+  await screen.findByText("Meeting access changed or could not be verified. Open Calendar and check the meeting again.");
+  expect(contextRead).toHaveBeenCalledTimes(2);
+  expect(stream).toHaveBeenCalledTimes(1);
+  expect(preparation).not.toHaveBeenCalled();
 });

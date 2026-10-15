@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
 
 const mocks = vi.hoisted(() => ({
+  insights: vi.fn(),
   invitations: vi.fn().mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true }),
   today: vi.fn(),
   availability: vi.fn(),
@@ -18,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   vaultOwnerToken: "owner-token" as string | null,
   router: { push: vi.fn(), replace: vi.fn() },
 }));
+
+vi.mock("@/lib/services/calendar-insights-service", () => ({ CalendarInsightsService: { read: mocks.insights } }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
@@ -321,6 +324,7 @@ describe("CalendarConnectedWorkspace", () => {
     mocks.ownerTokenStatus = "valid";
     mocks.retryOwnerTokenRenewal.mockResolvedValue(undefined);
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
+    mocks.insights.mockResolvedValue({ complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0, time_zone: "UTC" });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
     mocks.invitations.mockResolvedValue({ events: [], pending_count: 0, unreadable_calendars: [], start_at: "2026-10-14T00:00:00Z", end_at: "2027-01-12T00:00:00Z", time_zone: "Asia/Kolkata", complete: true });
@@ -360,7 +364,7 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.getByRole("tablist", { name: "Invitation filters" })).toBeInTheDocument();
     fireEvent.keyDown(invitations, { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "Insights", exact: true })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/Coming soon/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Executive snapshot" })).toBeInTheDocument();
     expect(mocks.availability).not.toHaveBeenCalled();
     expect(mocks.reviewAttendance).not.toHaveBeenCalled();
   });
@@ -1180,5 +1184,36 @@ describe("CalendarConnectedWorkspace", () => {
     expect(mocks.onChat).toHaveBeenCalledOnce();
     expect(mocks.onDisconnect).toHaveBeenCalledOnce();
     expect(mocks.onConnect).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Calendar Insights meeting library", () => {
+  afterEach(cleanup);
+  it("filters verified artifacts, keeps search on Back and hides revoked sources", async () => {
+    mocks.getIdToken.mockResolvedValue("firebase-owner-token");
+    mocks.today.mockResolvedValue(dailyResponse());
+    mocks.insights.mockImplementation(async (path: string) => {
+      if (path === "meetings") return { complete: true, window_days: 30, meetings: [
+        { id: "notes", calendar_id: "primary", title: "Design review", artifact_kinds: ["notes"], start: { dateTime: "2026-10-14T10:00:00Z" } },
+        { id: "video", calendar_id: "primary", title: "Product demo", artifact_kinds: ["recording"], start: { dateTime: "2026-10-14T09:00:00Z" } },
+      ] };
+      if (path === "meetings/detail") return { discovery: "permission_required", complete: false, event: { title: "Design review" }, artifacts: [{ file_id: "revoked", kind: "notes", state: "permission_required" }] };
+      return { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
+    });
+    render(workspace());
+    fireEvent.click(screen.getByRole("tab", { name: "Insights", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+    await screen.findByRole("button", { name: /Design review/ });
+    fireEvent.click(screen.getByRole("tab", { name: "Notes", exact: true }));
+    expect(screen.queryByRole("button", { name: /Product demo/ })).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Design" } });
+    fireEvent.click(screen.getByRole("button", { name: /Design review/ }));
+    expect(await screen.findByRole("button", { name: "Ask One about this meeting" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /Open source/ })).toBeNull();
+    act(() => { unwindBackLayer("/one/calendar"); });
+    expect(screen.getByRole("searchbox")).toHaveValue("Design");
+    await screen.findByRole("button", { name: /Design review/ });
+    expect(screen.getByRole("tab", { name: "Notes", exact: true })).toHaveAttribute("aria-selected", "true");
   });
 });

@@ -1,0 +1,10 @@
+@font-face{font-family:CalendarInter;src:url('/fonts/Inter/InterVariable.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
+.insights{font-family:CalendarInter,Inter,sans-serif;display:grid;gap:12px;min-width:0;font-size:13px;color:var(--app-label)}
+.insights h2{font-size:15px;letter-spacing:-.3px;font-weight:600}.insights p{line-height:1.6}
+.heading{font-size:22px;font-weight:600;letter-spacing:-.7px}.muted{color:var(--muted-foreground);font-size:12px}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center}.metrics strong{display:block;font-size:24px;letter-spacing:-.6px;font-weight:600}.metrics span{font-size:11px;color:var(--muted-foreground)}
+.entry{display:flex;align-items:center;gap:12px;width:100%;min-height:66px;padding:12px;text-align:left;border:1px solid var(--app-accent-border);border-radius:var(--app-radius-lg);background:var(--app-accent-surface)}
+.entry strong{display:block;font-size:14px}.entry span{display:block}.icon{display:grid!important;place-items:center;width:40px;height:40px;flex-shrink:0;border-radius:var(--app-radius-sm);color:var(--app-accent);background:var(--app-card-surface-compact)}
+.row{display:flex;align-items:center;gap:12px;min-height:72px;width:100%;padding:12px 0;text-align:left;border-bottom:1px solid var(--border)}.row:last-child{border-bottom:0}.row strong{display:block;font-size:13px;font-weight:600}.copy{flex:1;min-width:0;overflow-wrap:anywhere}.tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.tag{border-radius:var(--app-radius-pill);background:var(--app-accent-surface);color:var(--app-accent);padding:2px 8px;font-size:10px}
+.notes{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.7;max-height:440px;overflow:auto}.breadcrumb{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:12px}.details{display:grid;gap:12px}.link{display:inline-flex;align-items:center;min-height:44px;color:var(--app-accent);gap:6px;font-size:12px}
+@media(min-width:760px){.details{grid-template-columns:1fr 1.5fr;align-items:start}.metrics strong{font-size:28px}}
