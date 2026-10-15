@@ -3,12 +3,32 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
+// pull_request runs test refs/pull/N/merge. After a synchronize, the event's
+// base.sha is the branch's old fork point: absent at fetch-depth 2, and a diff
+// from it counts main's own changes as this PR's. As in the Base Freshness Gate,
+// the tested target is HEAD^1, trusted only when HEAD^2 is this PR's head.
+function testedPullRequestBase(git) {
+  if (process.env.CI !== 'true') return undefined;
+  try {
+    const head = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).pull_request?.head?.sha;
+    const parents = head ? git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ').slice(1) : [];
+    return parents.length === 2 && parents[1] === head ? parents[0] : undefined;
+  } catch {
+    // Unreadable event or history: keep the pinned/event base order, which fails closed itself.
+    return undefined;
+  }
+}
+
 // Only inherit the target branch when this PR changes none of this owner's
 // inputs. A missing receipt on main's combined merge must not block asset/docs PRs.
 export function unchangedFromReviewBase(root, inputs) {
   if (!inputs) return false;
   try {
-    let base = process.env.UI_CONTRACT_BASE_SHA;
+    // Hooks export repository-local GIT_* variables. Honor the supplied cwd,
+    // including independent fixtures, rather than accidentally using the caller's repo.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+    const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: 'pipe', maxBuffer: 16 * 1024 * 1024 });
+    let base = testedPullRequestBase(git) || process.env.UI_CONTRACT_BASE_SHA;
     if (!base && process.env.CI === 'true') {
       const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
       base = event.pull_request?.base?.sha ?? event.merge_group?.base_sha;
@@ -16,10 +36,6 @@ export function unchangedFromReviewBase(root, inputs) {
     }
     if (base && !/^[a-f0-9]{40,64}$/.test(base)) return false;
     base ??= 'origin/main';
-    // Hooks export repository-local GIT_* variables. Honor the supplied cwd,
-    // including independent fixtures, rather than accidentally using the caller's repo.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
-    const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: 'pipe', maxBuffer: 16 * 1024 * 1024 });
     git('merge-base', '--is-ancestor', base, 'HEAD');
     const prefix = git('rev-parse', '--show-prefix').trim();
     const changed = [
