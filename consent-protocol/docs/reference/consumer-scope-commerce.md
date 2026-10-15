@@ -48,6 +48,10 @@ visible cold vault challenge, unlock and same-session Saved/Add and information-
 payout navigation. The primary's information-access setup button was visible and
 enabled; readiness remained false. Task-client reconnection is checked separately
 from browser and vault continuity; earlier receipts do not prove a current lease.
+A retiring route could throw after Playwright had already handled it, terminating
+the task client. The correction keeps the lease retired and never forwards or
+retries the request when refusal delivery fails. All 19 reviewer guard tests pass;
+the old handler fails the extended retirement regression.
 
 The reviewer guard supports narrowly admitted private Memory preparation against
 the current authenticated, canonically verified signed pod endpoint. Endpoint,

@@ -60,7 +60,9 @@ class ExistingReviewerSession {
         } catch {
           this.retired = true;
           await route.fulfill({ status: 409, contentType: "application/json",
-            body: '{"code":"REVIEWER_SESSION_RETIRED"}' });
+            body: '{"code":"REVIEWER_SESSION_RETIRED"}' }).catch(() => undefined);
+          // Disposal can finish an in-flight route; the lease stays retired even
+          // when its refusal cannot be delivered. Never retry or forward it.
         }
       };
       await page.route(pattern, this.routeHandler);
