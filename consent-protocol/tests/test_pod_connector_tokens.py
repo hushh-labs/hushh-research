@@ -389,3 +389,41 @@ async def test_a_write_that_cannot_land_is_a_typed_refusal_never_a_raw_store_err
     assert dead.value.code == NEEDS_REAUTH, (
         "the login is dead at Google whether or not it is written"
     )
+
+
+@pytest.mark.parametrize(
+    ("state", "code", "reason"),
+    [
+        ("absent", None, "google_not_connected"),
+        ("needs_reauth", None, "google_reauthorization_required"),
+        ("connected", NOT_CONNECTED, "google_not_connected"),
+        ("connected", NEEDS_REAUTH, "google_reauthorization_required"),
+        ("connected", SCOPE_NOT_GRANTED, "google_permission_required"),
+        ("connected", "PROVIDER_UNREACHABLE", None),
+        ("connected", "LEVEL_UNSUPPORTED", None),
+    ],
+)
+async def test_pod_connection_recovery_reason_only_names_actual_grant_failures(
+    monkeypatch, state, code, reason
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+    from hushh_mcp.services.pod_google_connections import PodGoogleConnections
+
+    held = None if state == "absent" else SimpleNamespace(status=state, credential_id="synthetic")
+    monkeypatch.setattr(store, "active_connector_credential", lambda service: held)
+    source = SimpleNamespace(access_token=AsyncMock(side_effect=ConnectorTokenError(code)))
+    connections = PodGoogleConnections(token_source=source, owner_user_id=OWNER)
+    with pytest.raises(GoogleConnectionError) as error:
+        await connections.access_token(user_id=OWNER, service="calendar", access_level="read")
+    assert error.value.reason_code == reason
+    assert source.access_token.await_count == (1 if state == "connected" else 0)
+    source.access_token.reset_mock()
+    with pytest.raises(GoogleConnectionError) as mismatch:
+        await connections.access_token(
+            user_id="other-owner", service="calendar", access_level="read"
+        )
+    assert mismatch.value.status_code == 403 and mismatch.value.reason_code is None
+    source.access_token.assert_not_awaited()

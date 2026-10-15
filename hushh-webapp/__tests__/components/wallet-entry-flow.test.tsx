@@ -151,17 +151,17 @@ describe("Wallet visit introduction", () => {
     expect(await screen.findByRole("tab", { name: "Cards" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
-  it("opens entry directly in Add, retains masked drafts across tabs, and clears a cancelled draft", async () => {
+  it("opens entry directly in Add, retains drafts across tabs, and clears a cancelled draft", async () => {
     render(<WalletWorkspace />);
     await enter();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
-    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Show CVV and PIN" }));
+    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
-    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
+    expect(screen.queryByLabelText("CVV")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
@@ -203,7 +203,6 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
-    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
     fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
@@ -222,7 +221,7 @@ describe("Wallet visit introduction", () => {
     const page = render(<WalletWorkspace />);
     await enter();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
+    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     vaultMock.locked = true;
     page.rerender(<WalletWorkspace />);
     await screen.findByTestId("one-wallet-locked");

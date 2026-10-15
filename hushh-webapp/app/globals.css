@@ -9633,7 +9633,69 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     justify-self: start;
     align-self: center;
   }
-  .agent-chat-header > :last-child {
+  .agent-chat-header[data-one-centered-header="true"] > .agent-chat-history-control button {
+    width: 44px;
+    height: 44px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    grid-row: 1;
+    position: relative;
+    width: 44px;
+    height: 44px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 0;
+    overflow: visible;
+    text-align: center;
+    transform: none;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+    width: 44px;
+    height: 44px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] > span:first-child > :first-child,
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] img {
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 50%;
+    width: max-content;
+    min-width: 0;
+    transform: translateX(-50%);
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin-inline: 0;
+    padding: 2px 6px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+  /* Keep live status available to assistive technology without squeezing the
+     One label. The transcript's activity panel carries the visible progress. */
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="actions"] {
+    display: contents;
+  }
+  .agent-chat-header[data-one-centered-header="true"] .agent-chat-surface-control {
     grid-column: 3;
     grid-row: 1;
     align-self: center;
@@ -9645,4 +9707,30 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .agent-chat-header [data-agent-chat-header-region="identity"] p {
     max-width: 256px;
   }
+}
+
+/* Chat detail bodies inherit the same grouped material and type as Profile. */
+[data-chat-detail-body] [role="region"] {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+}
+[data-chat-detail-body] :is(p, ul) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-chat-detail-body] button {
+  height: auto;
+  min-height: 44px;
+  padding-block: 10px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+
+[data-chat-detail-body] button > span {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

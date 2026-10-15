@@ -50,7 +50,14 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
   window.sessionStorage.clear();
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); configure({ asyncUtilTimeout: 1000 }); });
+afterEach(async () => {
+  cleanup();
+  // Reset lazily clears markdown memory; let that real import finish before
+  // Vitest tears down this file's environment and restores its dependencies.
+  await vi.dynamicImportSettled();
+  vi.restoreAllMocks();
+  configure({ asyncUtilTimeout: 1000 });
+});
 
 describe("receipt sync durable completion", () => {
   it.each([false, true])("shows each restored-refresh page immediately, dedupes saved groups and keeps the durable snapshot on failure (new saved event=%s)", async newSavedEvent => {

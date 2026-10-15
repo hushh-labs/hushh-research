@@ -13,6 +13,7 @@ describe("connected Calendar transport authority", () => {
 
   afterEach(() => {
     vi.clearAllTimers();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -32,6 +33,13 @@ describe("connected Calendar transport authority", () => {
     expect(options.isEffectCurrent).toBe(current);
     expect(options.cache).toBe("no-store");
     expect(JSON.parse(options.body)).not.toHaveProperty("user_id");
+  });
+
+  it("keeps confirmed selections on availability only and preserves failure catalog", async () => {
+    const options = [{ id: "work", name: "Work", availability_default_included: true, availability_included: true }];
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { message: "Unreadable work calendar", reason_code: "calendar_unreadable", calendar_options: options } }), { status: 409 }));
+    await expect(GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-17", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 30, calendarOverrides: { holiday: false, work: true } })).rejects.toMatchObject({ reasonCode: "calendar_unreadable", calendarOptions: options });
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body).calendar_overrides).toEqual({ holiday: false, work: true });
   });
 
   it("lets recipients check only the public capability without an owner Authorization header", async () => {
@@ -80,7 +88,7 @@ describe("connected Calendar transport authority", () => {
     const response = {
       windows: [{ start_at: "2030-01-02T09:00:00Z", end_at: "2030-01-02T09:45:00Z", duration_minutes: 45 }],
       full_count: 5, requested_duration_minutes: 15, date: "2030-01-02", time_zone: "UTC",
-      time_min: "2030-01-02T09:00:00Z", time_max: "2030-01-02T17:00:00Z", calendars: [{ id: "primary", name: "Personal" }],
+      time_min: "2030-01-02T00:00:00Z", time_max: "2030-01-03T00:00:00Z", calendars: [{ id: "primary", name: "Personal" }],
     };
     apiFetch.mockResolvedValueOnce(new Response(JSON.stringify(response)));
     const current = vi.fn(() => true);
@@ -92,13 +100,32 @@ describe("connected Calendar transport authority", () => {
     expect(url).toBe("/api/one/calendar/schedule/availability");
     expect(options.headers.Authorization).toBe("Bearer firebase-owner");
     expect(options.headers).not.toHaveProperty("X-Hushh-Consent");
-    expect(JSON.parse(options.body)).toEqual({ date: "2030-01-02", time_zone: "UTC", start_time: "09:00", end_time: "17:00", duration_minutes: 15 });
+    expect(JSON.parse(options.body)).toEqual({ date: "2030-01-02", time_zone: "UTC", start_time: "00:00", end_time: "24:00", duration_minutes: 15 });
     expect(options.isEffectCurrent).toBe(current);
     expect(options.signal).toBe(signal);
     expect(options.cache).toBe("no-store");
   });
 
   it.each([
+    ["America/New_York", "2026-03-08", "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z"],
+    ["America/Los_Angeles", "2026-11-01", "2026-11-01T07:00:00Z", "2026-11-02T08:00:00Z"],
+    ["Europe/London", "2026-10-25", "2026-10-24T23:00:00Z", "2026-10-26T00:00:00Z"],
+    ["Asia/Kolkata", "2026-10-15", "2026-10-14T18:30:00Z", "2026-10-15T18:30:00Z"],
+    ["Asia/Kathmandu", "2026-10-15", "2026-10-14T18:15:00Z", "2026-10-15T18:15:00Z"],
+    ["America/Santiago", "2026-09-06", "2026-09-06T04:00:00Z", "2026-09-07T03:00:00Z"],
+    ["America/Havana", "2026-11-01", "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z"],
+  ])("accepts complete civil-day bounds in %s on %s", async (timeZone, date, start, end) => {
+    const response = { windows: [], full_count: 0, requested_duration_minutes: 15, date, time_zone: timeZone, time_min: start, time_max: end, calendars: [{ id: "personal" }] };
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify(response)));
+    await expect(GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date, timeZone, startTime: "00:00", endTime: "24:00", durationMinutes: 15 })).resolves.toEqual(response);
+  });
+
+  it.each([
+    { time_min: "2030-01-02T09:00:00Z", time_max: "2030-01-02T17:00:00Z" },
+    { time_min: "2030-01-02T14:00:00Z" },
+    { time_max: "2030-01-03T01:00:00Z" },
+    { windows: [{ start_at: "2030-01-01T23:30:00Z", end_at: "2030-01-02T00:15:00Z", duration_minutes: 45 }] },
+    { windows: [{ start_at: "2030-01-02T23:30:00Z", end_at: "2030-01-03T00:15:00Z", duration_minutes: 45 }] },
     { full_count: 0 },
     { requested_duration_minutes: 30 },
     { windows: [{ start_at: "2030-01-02T09:00:00Z", end_at: "2030-01-02T09:30:00Z", duration_minutes: 45 }] },
@@ -106,7 +133,7 @@ describe("connected Calendar transport authority", () => {
     apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({
       windows: [{ start_at: "2030-01-02T09:00:00Z", end_at: "2030-01-02T09:45:00Z", duration_minutes: 45 }],
       full_count: 1, requested_duration_minutes: 15, date: "2030-01-02", time_zone: "UTC",
-      time_min: "2030-01-02T09:00:00Z", time_max: "2030-01-02T17:00:00Z", calendars: [{ id: "primary" }], ...correction,
+      time_min: "2030-01-02T00:00:00Z", time_max: "2030-01-03T00:00:00Z", calendars: [{ id: "primary" }], ...correction,
     })));
 
     await expect(GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 15 })).rejects.toMatchObject({
@@ -187,6 +214,64 @@ describe("connected Calendar transport authority", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(await result).toMatchObject({ error: { status: 503 } });
     expect(apiFetch).toHaveBeenCalledOnce();
+  });
+
+
+  it.each([503, 429])("retries temporary availability failure %s twice within the fixed budget", async status => {
+    vi.useFakeTimers();
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Temporary provider failure" }), { status }));
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Temporary provider failure" }), { status }));
+    const response = { windows: [], full_count: 0, requested_duration_minutes: 15, date: "2030-01-02", time_zone: "UTC",
+      time_min: "2030-01-02T00:00:00Z", time_max: "2030-01-03T00:00:00Z", calendars: [{ id: "primary" }] };
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify(response)));
+    const result = GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 15 }).then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apiFetch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await result).toEqual({ value: response });
+    expect(apiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { status: 502, reason: "calendar_invalid_response" },
+    { status: 409, reason: "calendar_unreadable" },
+  ])("never retries permanent availability failure $reason", async ({ status, reason }) => {
+    vi.useFakeTimers();
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { message: "Calendar data could not be checked", reason_code: reason } }), { status }));
+    const result = GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 15 }).then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toMatchObject({ error: { status, reasonCode: reason } });
+    expect(apiFetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not issue availability transport requests while offline", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    await expect(GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 15 })).rejects.toMatchObject({ reasonCode: "calendar_offline" });
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("stops availability retries when offline rather than waiting indefinitely for reconnect", async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Temporary provider failure" }), { status: 503 }));
+    const result = GoogleCalendarService.availability({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC", startTime: "09:00", endTime: "17:00", durationMinutes: 15 }).then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apiFetch).toHaveBeenCalledOnce();
+    online.mockReturnValue(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toMatchObject({ error: { reasonCode: "calendar_offline" } });
+    expect(apiFetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Today's existing transient retry behavior outside the Free time failure policy", async () => {
+    vi.useFakeTimers();
+    apiFetch.mockImplementation(async () => new Response(JSON.stringify({ detail: { message: "Temporary daily-event failure", reason_code: "calendar_invalid_response" } }), { status: 503 }));
+    const result = GoogleCalendarService.today({ firebaseIdToken: "firebase-owner", date: "2030-01-02", timeZone: "UTC" }).then(value => ({ value }), error => ({ error }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toMatchObject({ error: { status: 503, reasonCode: "calendar_invalid_response" } });
+    expect(apiFetch).toHaveBeenCalledTimes(3);
   });
 
 });

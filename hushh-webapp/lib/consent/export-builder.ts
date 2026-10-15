@@ -189,9 +189,9 @@ export function createConsentExportReadSession(params: {
     })))];
     if (segments.some(segment => !snapshot.segmentIds.includes(segment)))
       throw new Error("Approved scope segments could not be read");
-    const signature = JSON.stringify([domain, selected, paths, snapshot.contentRevision, snapshot.manifestRevision, snapshot.etag]);
+    const signature = JSON.stringify(["wallet-projection-2", domain, selected, paths, snapshot.contentRevision, snapshot.manifestRevision, snapshot.etag]);
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signature));
-    const resourceKey = "answer_scope_projection:v1:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    const resourceKey = "answer_scope_projection:v2:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
     const cached = await SecureResourceCacheService.read<{ signature: string; exports: Record<string, BuiltConsentExport> }>({
       userId: params.userId, vaultKey: params.vaultKey, resourceKey,
     });

@@ -25,6 +25,7 @@ import {
   RESERVED_ENFORCEMENT_MODE,
   ReservedBranchWriteBlocked,
   evaluateReservedWrite,
+  assertReservedBranchesUntouched,
 } from "@/lib/pkm/reserved-branches";
 import { Capacitor } from "@capacitor/core";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
@@ -4334,8 +4335,8 @@ export class PersonalKnowledgeModelService {
 
   /**
    * Artifacts for the reserved `wallet` domain. The domain data has
-   * exactly two top-level branches - `summary` (non-secret card metadata) and
-   * `secrets` (PAN/CVV/PIN/cardholder name), each keyed by card id - so the
+   * owner branches: `summary` (masked metadata), `secrets` (PAN/name),
+   * and optional private `artwork`, each keyed by card id. The
    * manifest paths line up with the two consent-requestable branch scopes and
    * the `secrets` key matches the memory-context prune pattern. The plaintext
    * index summary carries only the non-secret envelope the server validates.
@@ -4417,6 +4418,7 @@ export class PersonalKnowledgeModelService {
         source_agent: "wallet_settings",
       },
     ];
+    if (this.isPlainObject(params.domainData.artwork)) paths.push({ json_path: "artwork", parent_path: null, path_type: "object", exposure_eligibility: false, consent_label: "Private card design", sensitivity_label: "restricted", segment_id: "artwork", source_agent: "wallet_settings" });
     const structureDecision: StructureDecision = {
       action: params.previousManifest ? "extend_domain" : "create_domain",
       target_domain: params.domain,
@@ -4467,7 +4469,7 @@ export class PersonalKnowledgeModelService {
       summary_projection: summary,
       top_level_scope_paths: ["summary", "secrets"],
       externalizable_paths: ["summary", "secrets"],
-      segment_ids: ["summary", "secrets"],
+      segment_ids: this.isPlainObject(params.domainData.artwork) ? ["summary", "secrets", "artwork"] : ["summary", "secrets"],
       path_count: paths.length,
       externalizable_path_count: 2,
       last_structured_at: nowIso,
@@ -4498,15 +4500,22 @@ export class PersonalKnowledgeModelService {
     const build = async (
       domainData: Record<string, unknown>,
       snapshot: DomainSnapshotV1 | null,
+      before: Record<string, unknown>,
     ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
+      // Current writes cannot re-persist legacy security codes. Recovery archives
+      // are immutable and require their separately governed retention migration.
+      if (this.isPlainObject(domainData.secrets)) domainData = { ...domainData, secrets: Object.fromEntries(Object.entries(domainData.secrets).map(([id, value]) => {
+        if (!this.isPlainObject(value)) throw new Error("Your saved cards could not be read. Please try again.");
+        const allowed = ["pan", "cardholder_name", "share_receipts"];
+        const projected = Object.fromEntries(allowed.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+        if (Array.isArray(projected.share_receipts)) projected.share_receipts = projected.share_receipts.filter(row => this.isPlainObject(row)).map(row => Object.fromEntries(["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].filter(key => typeof row[key] === "string").map(key => [key, row[key]])));
+        else delete projected.share_receipts;
+        return [id, projected];
+      })) };
       // Bind the write to the revision that was actually decrypted. Loading a
       // newer manifest separately can otherwise bless a stale card collection.
       const previousManifest = snapshot?.manifest ?? null;
       const sourceRevision = snapshot?.contentRevision ?? 0;
-      const encryptedBlob = await this.encryptDomainForStorage({
-        vaultKey: params.vaultKey,
-        domainData,
-      });
       const scopeHandles = {
         summary: `s_${(await sha256Hex(`${params.userId}:${domain}:summary`)).slice(0, 12)}`,
         secrets: `s_${(await sha256Hex(`${params.userId}:${domain}:secrets`)).slice(0, 12)}`,
@@ -4528,6 +4537,10 @@ export class PersonalKnowledgeModelService {
         confirmation: params.confirmation,
         sourceRevision,
       });
+      assertReservedBranchesUntouched({ domain, before, after: domainData,
+        writerId: mutationPlan.writer_id, mergeMode: "replace_domain",
+        authorizationMode: mutationPlan.confirmation_receipt.authorization_mode });
+      const encryptedBlob = await this.encryptDomainForStorage({ vaultKey: params.vaultKey, domainData });
       return {
         userId: params.userId,
         domain,
@@ -4545,7 +4558,7 @@ export class PersonalKnowledgeModelService {
     const walletBase = (data: Record<string, unknown> | null, snapshot: DomainSnapshotV1 | null): Record<string, unknown> => {
       if (data === null && snapshot === null) return {};
       if (!this.isPlainObject(data)) throw new Error("Your saved cards could not be read. Please try again.");
-      for (const branch of ["summary", "secrets"] as const) {
+      for (const branch of ["summary", "secrets", "artwork"] as const) {
         if (Object.prototype.hasOwnProperty.call(data, branch) && !this.isPlainObject(data[branch])) {
           throw new Error("Your saved cards could not be read. Please try again.");
         }
@@ -4559,10 +4572,8 @@ export class PersonalKnowledgeModelService {
       vaultOwnerToken: params.vaultOwnerToken,
       force: true,
     });
-    let built = await build(
-      params.applyMutation(walletBase(existing.data, existing.snapshot)),
-      existing.snapshot,
-    );
+    const initialBase = walletBase(existing.data, existing.snapshot);
+    let built = await build(params.applyMutation(structuredClone(initialBase)), existing.snapshot, initialBase);
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
       send: () => {
@@ -4580,10 +4591,8 @@ export class PersonalKnowledgeModelService {
           vaultOwnerToken: params.vaultOwnerToken,
           force: true,
         });
-        built = await build(
-          params.applyMutation(walletBase(fresh.data, fresh.snapshot)),
-          fresh.snapshot,
-        );
+        const freshBase = walletBase(fresh.data, fresh.snapshot);
+        built = await build(params.applyMutation(structuredClone(freshBase)), fresh.snapshot, freshBase);
       },
       pause: (ms) => this.pause(ms),
       now: () => Date.now(),

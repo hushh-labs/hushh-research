@@ -16,7 +16,7 @@
  * Pure and import-safe.
  */
 
-import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { isPrivateWalletArtworkBranch, reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { buildOwnerLivingFactIndex } from "@/lib/pkm/living-source-fact-index";
 import type { LivingSourceInventory } from "@/lib/pkm/living-source-records";
 import {
@@ -66,6 +66,7 @@ function excluded(
   domain: string,
   branch: string,
 ): boolean {
+  if (isPrivateWalletArtworkBranch(domain, branch)) return true;
   if (audience === "agent") {
     if (shouldSkipPkmAgentContextKey(key)) return true;
     const entry = reservedEntryFor(domain, branch);

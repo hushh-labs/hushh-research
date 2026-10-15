@@ -20,6 +20,11 @@ import { WalletService } from "@/lib/services/wallet-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { luhnValid } from "@/lib/wallet/card-validation";
+import { approveWalletCatalogArtwork } from "@/lib/wallet/card-artwork";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { encodeCardPng } from "@/lib/wallet/card-scan-raster";
+import { Blob as NodeBlob } from "node:buffer";
+import { webcrypto } from "node:crypto";
 
 beforeEach(() => {
   publishValidatedAuthSessionOwner("user_1");
@@ -58,6 +63,40 @@ const DOMAIN_DATA = {
 };
 
 describe("WalletService", () => {
+  it("uses native binary transport and verifies approved final artwork bytes", async () => {
+    vi.stubGlobal("Blob", NodeBlob); vi.stubGlobal("crypto", webcrypto);
+    const blob = await encodeCardPng({ width: 4, height: 4, data: new Uint8ClampedArray(64).fill(255) });
+    const bytes = await blob.arrayBuffer(), digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("");
+    const variant = { assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", label: "Synthetic", image: `/api/one/wallet/card-access/artwork/assets/${digest}`, digest, allowOverlay: true };
+    networkApi.fetch.mockImplementation(async url => url.endsWith("/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: true, allowOverlay: false }] })) : new Response(bytes, { headers: { "Content-Type": "image/png" } }));
+    try {
+      const approved = await WalletService.selectCardArtwork(CONTEXT, variant, "test-1");
+      expect(approved).toMatchObject({ source: "catalog", digest, allowOverlay: false });
+      const [, options] = networkApi.fetch.mock.calls.find(([url]) => url.includes("/assets/"))!;
+      expect(options.responseType).toBe("arraybuffer");
+      networkApi.fetch.mockImplementation(async url => url.endsWith("/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: true, allowOverlay: false }] })) : new Response("bad bytes", { headers: { "Content-Type": "image/png" } }));
+      await expect(WalletService.selectCardArtwork(CONTEXT, variant, "test-1")).rejects.toThrow();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("retains one fallback identity when an uncertain save is retried after registration recovers", async () => {
+    const draftId = "123E4567-E89B-12D3-A456-426614174088", reserveCardId = vi.fn().mockResolvedValueOnce(null).mockResolvedValue("card_registered_later");
+    const card = { draftId, pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030 };
+    mockStoreWalletDomain.mockRejectedValueOnce(new Error("Synthetic uncertain receipt")).mockResolvedValue({ success: true });
+    await expect(WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add", reserveCardId })).rejects.toThrow("uncertain");
+    const saved = await WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add", reserveCardId });
+    expect(saved.cardId).toBe(`card_${draftId.toLowerCase()}`); expect(reserveCardId).toHaveBeenCalledOnce();
+    const ids = mockStoreWalletDomain.mock.calls.map(([call]) => Object.keys(call.applyMutation({}).summary));
+    expect(ids).toEqual([[saved.cardId], [saved.cardId]]);
+    await expect(WalletService.addCard({ ...CONTEXT, card: { ...card, draftId: "-".repeat(36) }, surface: "web", source: "one_wallet_add" })).rejects.toThrow("Invalid card draft");
+  });
+  it("saves valid details with neutral artwork when catalog approval is revoked while reviewing", async () => {
+    const artwork = approveWalletCatalogArtwork({ source: "catalog", version: 1, assetId: "synthetic", issuerId: "issuer", productId: "product", variantId: "blue", catalogVersion: "test-1", digest: "a".repeat(64), image: "data:image/png;base64,c3ludGhldGlj", allowOverlay: false, evidence: "owner_selected" }, CONTEXT.userId, snapshotVaultSessionEpoch());
+    networkApi.fetch.mockImplementation(async (url) => url.endsWith("/artwork/validate") ? new Response(JSON.stringify({ selections: [{ assetId: "synthetic", approved: false, allowOverlay: false }] })) : new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] })));
+    const saved = await WalletService.addCard({ ...CONTEXT, card: { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2030, artwork }, surface: "web", source: "one_wallet_add" });
+    expect(saved.artwork).toEqual({ source: "neutral", version: 1 });
+    const result = mockStoreWalletDomain.mock.calls[0]![0].applyMutation({}); expect(result.artwork[saved.cardId]).toEqual(saved.artwork);
+    await expect(WalletService.updateCardArtwork({ ...CONTEXT, cardId: saved.cardId, artwork })).rejects.toThrow("approval changed");
+  });
   it("prepares an existing owner's card unchanged and refuses stale or missing cards", async () => {
     let current = true;
     const isCurrent = () => current;
@@ -137,7 +176,8 @@ describe("WalletService", () => {
   it("getCard returns both halves for the reveal surface", async () => {
     const full = await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID });
     expect(full?.secrets.pan).toBe("4111111111111111");
-    expect(full?.secrets.pin).toBe("1234");
+    expect(full?.secrets).not.toHaveProperty("pin");
+    expect(full?.secrets).not.toHaveProperty("cvv");
   });
 
   it("refuses an invalid card before any storage call", async () => {
@@ -187,8 +227,6 @@ describe("WalletService", () => {
     const mutated = call.applyMutation({});
     expect(mutated.secrets[saved.cardId]).toMatchObject({
       pan: "378282246310005",
-      cvv: "1234",
-      pin: "4321",
     });
     expect(mutated.summary[saved.cardId]).not.toHaveProperty("pan");
     expect(mutated.summary[saved.cardId]).not.toHaveProperty("cardholder_name");
@@ -215,13 +253,14 @@ describe("WalletService", () => {
     const original = structuredClone(DOMAIN_DATA);
     const mutated = call.applyMutation(original);
     expect(saved.summary).toMatchObject({ brand: "jcb", issuingRegion: "", nickname: "" });
-    expect(mutated.secrets[saved.cardId].pin).toBe("");
+    expect(mutated.secrets[saved.cardId]).not.toHaveProperty("pin");
+    expect(mutated.secrets[saved.cardId]).not.toHaveProperty("cvv");
     expect(mutated.summary[CARD_ID]).toEqual(DOMAIN_DATA.summary[CARD_ID]);
     expect(mutated.secrets[CARD_ID]).toEqual(DOMAIN_DATA.secrets[CARD_ID]);
     expect(original).toEqual(DOMAIN_DATA);
   });
 
-  it.each(["cardholderName", "cvv"] as const)("requires %s before saving", async (field) => {
+  it.each(["cardholderName"] as const)("requires %s before saving", async (field) => {
     await expect(WalletService.addCard({
       ...CONTEXT,
       surface: "web",

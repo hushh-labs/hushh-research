@@ -1,3 +1,4 @@
+import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 import { pkmStorageSegmentId } from "./segmentation";
 import { sensitiveTopicLabel, valueIsIdentifierShaped } from "@/lib/consent/field-sensitivity";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
@@ -825,7 +826,7 @@ export function projectDomainDataForScope(params: {
   approvedPaths?: string[];
 }): Record<string, unknown> {
   if (params.scope === "pkm.read") {
-    return { [params.domain]: cloneValue(params.domainData) };
+    return { [params.domain]: params.domain.trim().toLowerCase() === "wallet" ? projectWalletConsent(params.domainData) : cloneValue(params.domainData) };
   }
 
   const prefix = `attr.${params.domain}.`;
@@ -864,7 +865,7 @@ export function projectDomainDataForScope(params: {
     projected = mergeProjectedValues(projected, rebuildProjectedValue(segments, extracted));
   }
   return {
-    [params.domain]: projected as Record<string, unknown>,
+    [params.domain]: params.domain.trim().toLowerCase() === "wallet" ? projectWalletConsent(projected) : projected as Record<string, unknown>,
   };
 }
 

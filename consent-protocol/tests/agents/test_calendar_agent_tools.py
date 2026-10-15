@@ -62,7 +62,9 @@ class _Calendar:
 
 class _UnavailableCalendar:
     async def list_events(self, **kwargs: object) -> dict[str, object]:
-        raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
+        raise GoogleConnectionError(
+            "Connect Google Calendar first", status_code=403, reason_code="google_not_connected"
+        )
 
 
 class _RateLimitedCalendar:
@@ -407,7 +409,9 @@ def test_calendar_confirmation_uses_the_chat_users_timezone_not_plan_utc(monkeyp
 class _ReadOnlyCalendar:
     async def propose(self, **kwargs: object) -> dict[str, object]:
         raise GoogleConnectionError(
-            "Additional Google Calendar permission is required", status_code=403
+            "Additional Google Calendar permission is required",
+            status_code=403,
+            reason_code="google_permission_required",
         )
 
 

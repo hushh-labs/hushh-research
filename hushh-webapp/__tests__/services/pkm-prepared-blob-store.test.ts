@@ -1328,12 +1328,13 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token",
     scopePath: "summary" as const,
     explanation: "Synthetic owner confirmed a payment card.",
-    confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "wallet_test" },
+    confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "one_wallet_add" },
   };
   const firstId = "card_123e4567-e89b-12d3-a456-426614174000";
   const nextId = "card_123e4567-e89b-12d3-a456-426614174001";
   const metadata = { brand: "visa", last4: "1111", expiry_month: 5, expiry_year: 2031, issuing_region: "" };
   const nextCard = { pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner", share_receipts: [{ messageId: "message", recipientName: "Private Recipient", recipientPersonRef: "private-person" }] };
+  const safeNextCard = { pan: nextCard.pan, cardholder_name: nextCard.cardholder_name, share_receipts: nextCard.share_receipts };
   const applyMutation = (base: Record<string, unknown>) => ({
     ...base,
     summary: { ...(base.summary as Record<string, unknown>), [nextId]: metadata },
@@ -1369,12 +1370,48 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     const payload = store.mock.calls[0]![0];
     expect(payload.expectedDataVersion).toBe(0);
     expect(payload.mutationPlan?.source_revision).toBe(0);
-    expect(payload.domainData).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: nextCard } });
+    expect(payload.domainData).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: safeNextCard } });
     const plaintext = JSON.stringify([payload.summary, payload.manifest, payload.structureDecision]);
     for (const privateValue of [nextCard.pan, nextCard.cardholder_name, "Private Recipient", "private-person", '"cvv"', '"pin"', '"share_receipts"']) {
       expect(plaintext).not.toContain(privateValue);
     }
     expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({ plaintext: JSON.stringify(payload.domainData) }));
+  });
+
+  it("encrypts artwork atomically into the private segment and round-trips real AES-GCM bytes", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const vaultKey = "7f".repeat(32), artwork = { [nextId]: { source: "photo", version: 1, image: "data:image/png;base64,U1lOVEhFVElD", digest: "a".repeat(64), sanitizerVersion: 1 } };
+    encryptDataMock.mockImplementation(({ plaintext, keyHex }: { plaintext: string; keyHex: string }) => encryptData(plaintext, keyHex));
+    mockWalletRead().mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    try {
+      await PersonalKnowledgeModelService.storeWalletDomain({ ...context, vaultKey, applyMutation: base => ({ ...applyMutation(base), artwork }) });
+      const payload = store.mock.calls[0]![0], encrypted = payload.encryptedBlob;
+      expect(JSON.parse(await decryptData(encrypted as EncryptedPayload, vaultKey))).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: safeNextCard }, artwork });
+      expect(JSON.parse(await decryptData(encrypted.segments!.artwork as EncryptedPayload, vaultKey))).toEqual(artwork);
+      const envelope = JSON.stringify([payload.summary, payload.manifest, payload.structureDecision, payload.mutationPlan]);
+      expect(envelope).not.toContain("data:image"); expect(envelope).not.toContain(nextCard.pan); expect(envelope).not.toContain(nextCard.cardholder_name);
+      expect(payload.manifest?.paths.find(row => row.json_path === "artwork")?.exposure_eligibility).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(["agent_chat_wallet_add", "one_wallet_share_card"])("blocks existing private artwork changes hidden behind summary by %s", async source => {
+    const artwork = { [firstId]: { source: "neutral", version: 1 } };
+    mockWalletRead().mockResolvedValue({ summary: { [firstId]: metadata }, secrets: { [firstId]: safeNextCard }, artwork });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, confirmation: { ...context.confirmation, source }, applyMutation: base => { (base.artwork as Record<string, unknown>)[firstId] = { source: "photo", image: "synthetic" }; return base; } })).rejects.toMatchObject({ name: "ReservedBranchWriteBlocked" });
+    expect(store).not.toHaveBeenCalled(); expect(encryptDataMock).not.toHaveBeenCalled();
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, confirmation: { ...context.confirmation, source }, applyMutation })).resolves.toMatchObject({ success: true });
+  });
+
+  it("scrubs nested legacy receipt security-code extras and refuses malformed per-card records", async () => {
+    mockWalletRead().mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation: base => ({ ...applyMutation(base), secrets: { [nextId]: { ...nextCard, share_receipts: [{ ...nextCard.share_receipts[0], cvv: "legacy-secret", pin: "legacy-pin", payload: { cvc: "legacy-cvc" } }] } } }) });
+    const content = JSON.stringify(store.mock.calls[0]![0].domainData); expect(content).not.toContain("legacy-"); expect(content).not.toContain('"cvv"'); expect(content).not.toContain('"pin"'); expect(content).toContain("Private Recipient");
+    encryptDataMock.mockClear(); store.mockClear();
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation: base => ({ ...applyMutation(base), secrets: { [nextId]: [nextCard] } }) })).rejects.toThrow("could not be read");
+    expect(encryptDataMock).not.toHaveBeenCalled(); expect(store).not.toHaveBeenCalled();
   });
 
   it("does not dispatch a wallet receipt after its effect session changes while encrypting", async () => {
@@ -1434,7 +1471,7 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     expect(retried.mutationPlan?.source_revision).toBe(8);
     expect(retried.domainData).toMatchObject({
       summary: { [firstId]: metadata, [nextId]: metadata },
-      secrets: { [firstId]: { cardholder_name: "Existing Owner" }, [nextId]: nextCard },
+      secrets: { [firstId]: { cardholder_name: "Existing Owner" }, [nextId]: safeNextCard },
     });
   });
 

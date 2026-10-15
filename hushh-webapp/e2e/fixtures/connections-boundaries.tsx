@@ -32,7 +32,7 @@ export const AuthService = {
   linkGoogleIdentity: async () => { throw new Error("No identity mutation in the layout fixture"); },
 };
 export function useVault() {
-  return { vaultOwnerToken: "synthetic-owner" };
+  return { vaultOwnerToken: "synthetic-owner", isVaultUnlocked: true, getVaultOwnerToken: () => "synthetic-owner" };
 }
 // Same synthetic vault as `useVault`, for components that read the context.
 export const VaultContext = createContext<{ vaultOwnerToken: string } | null>({

@@ -830,8 +830,8 @@ test.describe("One compact header: phone regression", () => {
         expect(oneTarget.width).toBe(44);
         expect(oneTarget.height).toBe(44);
         const artwork = await box(page, "one-artwork");
-        expect(artwork.width).toBe(32);
-        expect(artwork.height).toBe(32);
+        expect(artwork.width).toBe(44);
+        expect(artwork.height).toBe(44);
         await expect(page.getByTestId("agent-name")).toHaveText("One");
         expect(
           await page.evaluate(
@@ -878,8 +878,8 @@ test.describe("One compact header: phone regression", () => {
       await openFixture(page, variant, width);
       const after = await Promise.all(ids.map((id) => box(page, id)));
       expect(after).toEqual(before);
-      expect(after[2].width).toBe(44);
-      expect(after[3].width).toBe(32);
+      expect(after[2].width).toBe(72);
+      expect(after[3].width).toBe(72);
     }
   });
 

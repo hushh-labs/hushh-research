@@ -58,6 +58,7 @@
     "one_settings_communication_preferences": {"feature": "settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wallet_artwork_change": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_remove": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_share_card": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
@@ -235,10 +236,21 @@
     },
     {
       "domain": "wallet",
+      "branch_prefix": "artwork",
+      "except": [],
+      "owner_feature": "wallet",
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_artwork_change"],
+      "agent_memory_sibling": null,
+      "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Open Wallet"},
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "domain": "wallet",
       "branch_prefix": "*",
       "except": [],
       "owner_feature": "wallet",
-      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add"],
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add", "one_wallet_artwork_change"],
       "agent_memory_sibling": "financial.agent_memory",
       "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Add {label} to Wallet"},
       "shareable": "policy",

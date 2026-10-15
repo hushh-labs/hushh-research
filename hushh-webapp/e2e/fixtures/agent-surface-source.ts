@@ -441,14 +441,15 @@ export const AGENT_SURFACE_SOURCE = {
     centered: {
       artwork: header.includes("<OnePresenceAvatar")
         ? {
-            // Caller sizing owns the compact shell, not the Profile hero default.
+            // This static header fixture measures the production avatar's
+            // outer geometry; native playback is mounted by Connections tests.
             kind: "image",
             containerClass: "",
             className: one(
-              header,
-              /<OnePresenceAvatar[^>]*className="([^"]+)"/,
-              "One presence shell image",
-              WORKSPACE_PATH,
+              read("components/agent/one-presence-avatar.tsx"),
+              /data-one-presence-state=\{state\}[\s\S]*?className \?\? "([^"]+)"/,
+              "One presence surface sizing",
+              "components/agent/one-presence-avatar.tsx",
             )[1],
           }
         : {

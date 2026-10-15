@@ -117,6 +117,47 @@ def day_window(
         raise _error(str(exc) or "Choose a valid date, time zone and availability window.") from exc
 
 
+def local_day_window(date: str, time_zone: str) -> tuple[datetime, datetime]:
+    """First instant of each civil date, including midnight offset transitions.
+
+    Editable booking boundaries remain strict in day_window. For a full day,
+    repeated midnight starts at its first occurrence; skipped midnight starts
+    at the first existing local time. No fixed 24-hour duration is assumed.
+    """
+    try:
+        day, zone = local_date.fromisoformat(date), ZoneInfo(time_zone)
+
+        def first_instant(target):
+            midnight = datetime.combine(target, time())
+            candidates = sorted(
+                {midnight.replace(tzinfo=zone, fold=fold).astimezone(UTC) for fold in (0, 1)}
+            )
+            exact = [
+                instant
+                for instant in candidates
+                if instant.astimezone(zone).replace(tzinfo=None) == midnight
+            ]
+            if exact:
+                return exact[0]
+            # The two folds bracket the missing midnight. Find the transition
+            # into the civil date, rather than shifting midnight by the gap.
+            left, right = candidates[0], candidates[-1]
+            while right - left > timedelta(microseconds=1):
+                middle = left + (right - left) // 2
+                if middle.astimezone(zone).date() < target:
+                    left = middle
+                else:
+                    right = middle
+            return right
+
+        start, end = first_instant(day), first_instant(day + timedelta(days=1))
+        if start >= end:
+            raise ValueError("This local date does not exist in the selected time zone.")
+        return start, end
+    except (ValueError, KeyError, OverflowError) as exc:
+        raise _error(str(exc) or "Choose a valid date and time zone.") from exc
+
+
 class CalendarScheduleService:
     def __init__(self, *, calendar=None, db=None, mail=None):
         self.calendar = calendar or get_google_calendar_service()
@@ -193,6 +234,7 @@ class CalendarScheduleService:
             "time_zone": time_zone,
             "calendars": calendars,
             "unreadable_calendars": unreadable,
+            "calendar_options": self._availability_options(calendars),
         }
 
     async def _day_events(self, *, user_id, calendar, date, start, end, binding):
@@ -394,34 +436,118 @@ class CalendarScheduleService:
             cursor = max(cursor, right)
         return gaps
 
+    @staticmethod
+    def _availability_options(calendars, overrides=None):
+        # Google owns this exact feed namespace. Titles, access roles and
+        # CalendarList.selected describe neither holiday identity nor consent
+        # to block time. Unknown feeds remain included until explicitly excluded.
+        overrides = overrides or {}
+        options = []
+        for calendar in calendars:
+            default_included = not bool(
+                re.fullmatch(
+                    r"[a-zA-Z0-9_.-]+#holiday@group\.v\.calendar\.google\.com", calendar["id"]
+                )
+            )
+            options.append(
+                {
+                    **calendar,
+                    "availability_default_included": default_included,
+                    "availability_included": overrides.get(calendar["id"], default_included),
+                }
+            )
+        return options
+
+    def _availability_selection(self, calendars, overrides=None):
+        """One selection policy for Free time and confirmation-bound booking checks."""
+        options = self._availability_options(calendars)
+        overrides = overrides if overrides is not None else {}
+        identifiers = {calendar["id"] for calendar in calendars}
+        if (
+            not isinstance(overrides, dict)
+            or len(overrides) > _INVENTORY_MAX
+            or any(
+                key not in identifiers or type(value) is not bool
+                for key, value in overrides.items()
+            )
+        ):
+            error = _error(
+                "Calendar selection changed. Review your calendars in settings.",
+                409,
+                "calendar_selection_changed",
+            )
+            error.calendar_options = options
+            raise error
+        options = self._availability_options(calendars, overrides)
+        calendars = [calendar for calendar in options if calendar["availability_included"]]
+        if not calendars:
+            error = _error(
+                "Choose at least one calendar for availability in settings.",
+                422,
+                "calendar_selection_empty",
+            )
+            error.calendar_options = options
+            raise error
+        return calendars, options
+
     async def free_windows(
-        self, *, user_id, date, time_zone, start_time, end_time, duration_minutes
+        self,
+        *,
+        user_id,
+        date,
+        time_zone,
+        duration_minutes,
+        start_time="00:00",
+        end_time="24:00",
+        calendar_overrides=None,
     ):
         if duration_minutes not in (15, 30, 60):
             raise _error("Choose 15, 30 or 60 minutes.")
-        start, end = day_window(date, time_zone, start_time, end_time)
+        start, end = (
+            local_day_window(date, time_zone)
+            if (start_time, end_time) == ("00:00", "24:00")
+            else day_window(date, time_zone, start_time, end_time)
+        )
         binding = await self._read_binding(user_id)
         calendars = await self._included_calendars(user_id, binding=binding)
+        await self.calendar._check_read_binding(user_id, binding)
+        calendars, options = self._availability_selection(calendars, calendar_overrides)
         next_minute = (datetime.now(UTC) + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        start = min(max(start, next_minute), end)
-        busy = (
-            await self._busy_intervals(
-                user_id=user_id,
-                start=start,
-                end=end,
-                calendar_ids=[item["id"] for item in calendars],
-                binding=binding,
+        offer_start = min(max(start, next_minute), end)
+        try:
+            busy = (
+                await self._busy_intervals(
+                    user_id=user_id,
+                    start=start,
+                    end=end,
+                    calendar_ids=[item["id"] for item in calendars],
+                    binding=binding,
+                )
+                if start < end
+                else []
             )
-            if start < end
-            else []
-        )
+        except GoogleConnectionError as error:
+            await self.calendar._check_read_binding(user_id, binding)
+            # Scope selection conflicts to Free time; shared chat/voice callers
+            # retain the provider service's existing unavailable status.
+            if error.reason_code == "calendar_unreadable":
+                error.status_code = 409
+            # Owner-only selection metadata enables recovery without declaring
+            # partial availability or exposing any event contents.
+            if error.reason_code in {
+                "calendar_unreadable",
+                "calendar_invalid_response",
+                "calendar_provider_unavailable",
+            }:
+                error.calendar_options = options
+            raise
         windows = [
             {
                 "start_at": GoogleCalendarService._utc_iso(left),
                 "end_at": GoogleCalendarService._utc_iso(right),
                 "duration_minutes": int((right - left).total_seconds() // 60),
             }
-            for left, right in self._free_gaps(start, end, busy)
+            for left, right in self._free_gaps(offer_start, end, busy)
             if right - left >= timedelta(minutes=duration_minutes)
         ]
         await self.calendar._check_read_binding(user_id, binding)
@@ -430,6 +556,7 @@ class CalendarScheduleService:
             "full_count": len(windows),
             "requested_duration_minutes": duration_minutes,
             "calendars": calendars,
+            "calendar_options": options,
             "date": date,
             "time_zone": time_zone,
             "time_min": GoogleCalendarService._utc_iso(start),

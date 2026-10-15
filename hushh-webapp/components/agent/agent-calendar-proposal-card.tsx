@@ -22,6 +22,7 @@ export type AgentCalendarProposalCardProps = {
   title: string | null;
   startAt: string | null;
   endAt: string | null;
+  timeZone?: string;
   attendees: string[];
   location: string | null;
   sendUpdates: boolean;
@@ -39,7 +40,7 @@ const VERB_LABEL: Record<CalendarProposalAction, string> = {
   cancel: "Cancel",
 };
 
-function formatDateTime(value: string | null): string {
+function formatDateTime(value: string | null, timeZone?: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -47,26 +48,28 @@ function formatDateTime(value: string | null): string {
     weekday: "short",
     month: "short",
     day: "numeric",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
-function formatTimeOnly(value: string | null): string {
+function formatTimeOnly(value: string | null, timeZone?: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString(undefined, {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
 /** "Sat, Sep 20, 3:00 PM – 3:30 PM"; falls back to just the start when there's no end. */
-function formatRange(startAt: string | null, endAt: string | null): string {
+function formatRange(startAt: string | null, endAt: string | null, timeZone?: string): string {
   if (!startAt) return "";
-  const start = formatDateTime(startAt);
-  const end = endAt ? formatTimeOnly(endAt) : "";
+  const start = formatDateTime(startAt, timeZone);
+  const end = endAt ? formatTimeOnly(endAt, timeZone) : "";
   return end ? `${start} – ${end}` : start;
 }
 
@@ -89,6 +92,7 @@ export function AgentCalendarProposalCard({
   title,
   startAt,
   endAt,
+  timeZone,
   attendees,
   location,
   sendUpdates,
@@ -100,7 +104,11 @@ export function AgentCalendarProposalCard({
   onCancel,
 }: AgentCalendarProposalCardProps) {
   const isCancel = action === "cancel";
-  const range = formatRange(startAt, endAt);
+  let displayZone = timeZone;
+  try { new Intl.DateTimeFormat(undefined, { timeZone: displayZone }).format(); }
+  catch { displayZone = undefined; }
+  const minutes = startAt && endAt ? (Date.parse(endAt) - Date.parse(startAt)) / 60000 : 0;
+  const range = [formatRange(startAt, endAt, displayZone), displayZone, minutes > 0 ? `${minutes} min` : ""].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
 
   return (
