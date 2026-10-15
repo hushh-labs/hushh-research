@@ -79,37 +79,34 @@ async def transition(
     mode: Literal["dispatch", "live", "abandon", "claim", "recovery"],
     lease: str = "",
 ) -> bool:
-    guards = {
-        "dispatch": "state='active' AND lease_id=$6::uuid AND lease_until>now()",
-        "live": "state='active' AND lease_id=$6::uuid",
-        "abandon": "state IN ('active','erasing') AND (state='erasing' OR lease_until<now() OR writes->$3->>'state'='uncertain')",
-        "claim": """state IN ('active','erasing') AND
-            ((writes->$3->>'state' IN ('session_ready','sending','uncertain') AND
-              (state='erasing' OR lease_until<now() OR writes->$3->>'state'='uncertain'))
-             OR (writes->$3->>'state'='reconciling' AND
-                 (writes->$3->>'claimUntil')::numeric < extract(epoch from now())))""",
-        "recovery": "state IN ('active','erasing')",
-    }
-    if mode not in guards or previous.get("protocol") != 2:
+    if (
+        mode not in {"dispatch", "live", "abandon", "claim", "recovery"}
+        or previous.get("protocol") != 2
+    ):
         raise FilesRefused("FILES_UPLOAD_OPERATION_CHANGED", 409)
     pool = await registry.get_pool()
-    arguments = [
+    changed = await pool.fetchrow(
+        """UPDATE shared_files_storage SET writes=CASE WHEN $5::jsonb IS NULL
+             THEN writes-$3::text ELSE jsonb_set(writes,ARRAY[$3::text],$5::jsonb,false) END,
+             updated_at=now() WHERE user_id=$1 AND library_id=$2::uuid
+             AND writes->$3::text=$4::jsonb AND (
+               ($7::text='dispatch' AND state='active' AND lease_id=$6::uuid AND lease_until>now())
+               OR ($7::text='live' AND state='active' AND lease_id=$6::uuid)
+               OR ($7::text='abandon' AND state IN ('active','erasing') AND
+                   (state='erasing' OR lease_until<now() OR writes->$3->>'state'='uncertain'))
+               OR ($7::text='claim' AND state IN ('active','erasing') AND
+                   ((writes->$3->>'state' IN ('session_ready','sending','uncertain') AND
+                     (state='erasing' OR lease_until<now() OR writes->$3->>'state'='uncertain'))
+                    OR (writes->$3->>'state'='reconciling' AND
+                        (writes->$3->>'claimUntil')::numeric < extract(epoch from now()))))
+               OR ($7::text='recovery' AND state IN ('active','erasing'))
+             ) RETURNING user_id""",
         row["user_id"],
         registry._epoch(str(row["library_id"])),
         operation,
         json.dumps(previous),
         json.dumps(replacement) if replacement is not None else None,
-    ]
-    if mode in {"dispatch", "live"}:
-        arguments.append(registry._epoch(lease))
-    changed = await pool.fetchrow(
-        """UPDATE shared_files_storage SET writes=CASE WHEN $5::jsonb IS NULL
-             THEN writes-$3::text ELSE jsonb_set(writes,ARRAY[$3::text],$5::jsonb,false) END,
-             updated_at=now() WHERE user_id=$1 AND library_id=$2::uuid
-             AND writes->$3::text=$4::jsonb
-             AND """
-        + guards[mode]
-        + " RETURNING user_id",
-        *arguments,
+        registry._epoch(lease) if mode in {"dispatch", "live"} else None,
+        mode,
     )
     return changed is not None
