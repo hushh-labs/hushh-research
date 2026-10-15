@@ -17,6 +17,7 @@ import { create } from "zustand";
 
 import {
   activeChipTurnId,
+  newChatOnboardingProgress,
   isAwaitingTypedName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
@@ -29,6 +30,7 @@ import {
   progressFromWire,
   progressToWire,
 } from "@/lib/agent/chat-onboarding/chat-onboarding-progress";
+import { useChatPreferredName } from "@/lib/agent/use-one-display-name";
 import { saveChatOnboardingPreferences } from "@/lib/agent/chat-onboarding/chat-onboarding-preferences";
 import {
   signInFirstName,
@@ -102,6 +104,7 @@ export type ChatOnboardingHost = {
   anchor: () => string | null;
   vault: () => { vaultKey: string | null; vaultOwnerToken: string | null };
   focusComposer: () => void;
+  closeConversation?: () => void;
 };
 
 function persistDurable(durable: OneChatOnboardingState): void {
@@ -134,6 +137,8 @@ export function runChatOnboardingEvent(
       });
     } else if (effect.type === "focus_composer") {
       host.focusComposer();
+    } else if (effect.type === "close_conversation") {
+      host.closeConversation?.();
     } else if (effect.type === "save_preferences") {
       const owner = store.userId;
       const { vaultKey, vaultOwnerToken } = host.vault();
@@ -148,7 +153,8 @@ export function runChatOnboardingEvent(
         : Promise.resolve(false);
       void save.then((ok) => {
         // Ignore a result that lands after the signed-in person changed.
-        if (useChatOnboardingSession.getState().userId !== owner) return;
+        if (useChatOnboardingSession.getState().userId !== owner ||
+          useChatOnboardingSession.getState().machine !== result.state) return;
         runChatOnboardingEvent(
           { type: "save_result", ok, anchor: host.anchor(), today: localCalendarDate() },
           host,
@@ -160,6 +166,7 @@ export function runChatOnboardingEvent(
 }
 
 export type ChatOnboardingController = {
+  preferredName?: string;
   /** Owner progress is loaded and personality onboarding is finished or not due. */
   resolved: boolean;
   /** Onboarding turns to render (empty when there is nothing to show). */
@@ -195,10 +202,13 @@ export function useChatOnboarding(input: {
   messages: readonly { id: string }[];
   conversationId: string | null;
   onFocusComposer: () => void;
+  onEndConversation?: () => void;
+  disabled?: boolean;
   /** Starters already on screen, so the tip teaches something new. */
   visiblePrompts: readonly string[];
 }): ChatOnboardingController {
   const session = useChatOnboardingSession();
+  const name = useChatPreferredName(input);
   const userId = input.userId ?? null;
   const firstName = signInFirstName(input.displayName);
 
@@ -227,6 +237,7 @@ export function useChatOnboarding(input: {
         vaultOwnerToken: latest.current.vaultOwnerToken,
       }),
       focusComposer: () => latest.current.onFocusComposer(),
+      closeConversation: () => latest.current.onEndConversation?.(),
     }),
     [anchor],
   );
@@ -275,29 +286,24 @@ export function useChatOnboarding(input: {
     };
   }, [userId, session.userId, session.durable]);
 
-  // Start (new person, right after setup) or resume (unfinished, any device).
-  const ready = Boolean(userId && input.isVaultUnlocked && session.userId === userId);
+  // Only a successful, unlocked identity read can establish an absent name.
+  const ready = Boolean(userId && input.isVaultUnlocked && !input.disabled && session.userId === userId);
   useEffect(() => {
-    if (!ready || session.machine || session.durable === undefined) return;
-    if (session.durable === null) {
-      if (!input.startSignal) return;
-      dispatch({
-        type: "start",
-        displayName: input.displayName,
-        firstName,
-        anchor: anchor(),
-      });
+    if (!ready || !name.ready || session.durable === undefined) return;
+    if (session.machine && !(isAwaitingTypedName(session.machine) && name.preferredName)) return;
+    const progress = session.machine?.progress ?? (session.durable
+      ? progressFromWire(session.durable) : newChatOnboardingProgress());
+    if (!name.preferredName) {
+      dispatch({ type: "request_name", progress, firstName, anchor: anchor(),
+        nameOnly: session.durable?.status === "completed" || (!session.durable && !input.startSignal) });
       return;
     }
-    if (session.durable.status !== "in_progress") return;
-    dispatch({
-      type: "resume",
-      progress: progressFromWire(session.durable),
-      firstName,
-      anchor: anchor(),
-      today: localCalendarDate(),
-    });
-  }, [ready, session.machine, session.durable, input.startSignal, input.displayName, firstName, anchor, dispatch]);
+    if (!session.machine && session.durable?.status !== "in_progress" && !input.startSignal) return;
+    dispatch({ type: "resume", progress: {
+      ...progress, questions: { ...progress.questions, name: "answered" },
+    }, firstName, anchor: anchor(), today: localCalendarDate() });
+  }, [ready, name.ready, name.preferredName, session.machine, session.durable,
+    input.startSignal, firstName, anchor, dispatch]);
 
   // Remember which conversation the onboarding lives in, once it has an id.
   const hasTurns = Boolean(session.machine?.turns.length);
@@ -309,6 +315,7 @@ export function useChatOnboarding(input: {
 
   const onChip = useCallback(
     (chipId: ChatOnboardingChipId) => {
+      if (latest.current.disabled) return;
       dispatch({ type: "chip", chipId, anchor: anchor(), today: localCalendarDate(), firstName });
     },
     [anchor, dispatch, firstName],
@@ -316,7 +323,10 @@ export function useChatOnboarding(input: {
 
   const captureComposerText = useCallback(
     (text: string) => {
-      if (!isAwaitingTypedName(useChatOnboardingSession.getState().machine)) return false;
+      if (latest.current.disabled) return true;
+      const machine = useChatOnboardingSession.getState().machine;
+      if (machine?.savingName && machine.step === "saving") return true;
+      if (!isAwaitingTypedName(machine)) return false;
       return dispatch({ type: "typed_answer", text, anchor: anchor(), today: localCalendarDate() }) === true;
     },
     [anchor, dispatch],
@@ -342,7 +352,8 @@ export function useChatOnboarding(input: {
     input.conversationId !== session.homeConversationId;
   const visible = ready && !finishedElsewhere ? session.machine : null;
   return {
-    resolved: ready && session.durable !== undefined && (session.machine
+    preferredName: name.preferredName,
+    resolved: ready && name.ready && session.durable !== undefined && (session.machine
       ? session.machine.step === "done"
       : session.durable?.status === "completed" || (session.durable === null && !input.startSignal)),
     turns: visible?.turns ?? [],
