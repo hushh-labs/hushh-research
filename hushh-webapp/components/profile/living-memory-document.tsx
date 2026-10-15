@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useId, useState, type ClipboardEvent, type ReactNode } from "react";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
-import { LiveMirrorClaimLines, liveMirrorFixRoutes } from "@/components/profile/live-mirror-preview";
+import { LiveMirrorClaimLines } from "@/components/profile/live-mirror-preview";
 import { SafeMarkdown } from "@/components/profile/safe-markdown";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +26,7 @@ import {
   liveMirrorClaimText,
   liveMirrorCount,
   liveMirrorFactStateLabel,
+  liveMirrorFixRoutes,
   liveMirrorGapText,
   liveMirrorHistoryAction,
   liveMirrorHistoryDetail,

@@ -10,12 +10,11 @@ import {
   LIVE_MEMORY_BOUNDARY_COPY,
   LIVE_MIRROR_HIDDEN_PREDICATES,
   type LiveMirrorConflict,
-  type LiveMirrorSourceRoute,
 } from "@/lib/pkm/live-mirror-contract";
 import {
-  liveMirrorClaimRoute,
   liveMirrorClaimText,
   liveMirrorFactStateLabel,
+  liveMirrorFixRoutes,
   liveMirrorPreviewRows,
   liveMirrorStatus,
   type LiveMirrorPreviewRow,
@@ -43,27 +42,6 @@ export function LiveMirrorClaimLines({ conflict, now }: { conflict: LiveMirrorCo
       })}
     </>
   );
-}
-
-/**
- * Each distinct place a side of these disagreements is corrected, in claim
- * order: memory.md for what the owner wrote, else the screen that owns the
- * source. `includeMemory: false` leaves memory.md out where Memory is already
- * open or a tap away.
- */
-export function liveMirrorFixRoutes(
-  conflicts: readonly LiveMirrorConflict[],
-  { includeMemory = true }: { includeMemory?: boolean } = {},
-): LiveMirrorSourceRoute[] {
-  const routes = new Map<string, LiveMirrorSourceRoute>();
-  for (const conflict of conflicts) {
-    for (const claim of conflict.claims) {
-      if (claim.source === "soul" && !includeMemory) continue;
-      const route = liveMirrorClaimRoute(claim, conflict.predicate);
-      if (route && !routes.has(route.href)) routes.set(route.href, route);
-    }
-  }
-  return [...routes.values()];
 }
 
 function PreviewRow({ row }: { row: LiveMirrorPreviewRow }) {

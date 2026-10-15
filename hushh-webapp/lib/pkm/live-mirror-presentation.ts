@@ -6,6 +6,7 @@ import {
   LIVE_MIRROR_KINDS,
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
   type LiveMirrorClaim,
+  type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorFactState,
   type LiveMirrorFactValue,
@@ -471,6 +472,28 @@ export function liveMirrorClaimText(
 /** Where to fix one side: memory.md for the owner's own words, else the screen that owns the source. */
 export function liveMirrorClaimRoute(claim: LiveMirrorClaim, predicate: string): LiveMirrorSourceRoute | null {
   if (claim.source === "soul") return { href: ROUTES.PKM, label: "Edit memory.md" };
-  const kind = predicate.slice(0, predicate.indexOf("."));
+  const dot = predicate.indexOf(".");
+  const kind = dot > 0 ? predicate.slice(0, dot) : "";
   return (LIVE_MIRROR_KINDS as readonly string[]).includes(kind) ? liveMirrorSourceRoute(kind as LiveMirrorKind) : null;
+}
+
+/**
+ * Each distinct place a side of these disagreements is corrected, in claim
+ * order: memory.md for what the owner wrote, else the screen that owns the
+ * source. `includeMemory: false` leaves memory.md out where Memory is already
+ * open or a tap away.
+ */
+export function liveMirrorFixRoutes(
+  conflicts: readonly LiveMirrorConflict[],
+  { includeMemory = true }: { includeMemory?: boolean } = {},
+): LiveMirrorSourceRoute[] {
+  const routes = new Map<string, LiveMirrorSourceRoute>();
+  for (const conflict of conflicts) {
+    for (const claim of conflict.claims) {
+      if (claim.source === "soul" && !includeMemory) continue;
+      const route = liveMirrorClaimRoute(claim, conflict.predicate);
+      if (route && !routes.has(route.href)) routes.set(route.href, route);
+    }
+  }
+  return [...routes.values()];
 }

@@ -20,6 +20,7 @@ import {
 import {
   formatLiveMirrorValue,
   liveMirrorClaimRoute,
+  liveMirrorFixRoutes,
   liveMirrorClaimText,
   liveMirrorHistoryDetail,
   liveMirrorSourceRoute,
@@ -568,5 +569,16 @@ describe("Live Mirror conflict claims", () => {
     // Negative control: a predicate that names no source kind has nowhere to go.
     expect(liveMirrorClaimRoute(second!, "wallet.balance")).toBeNull();
     expect(liveMirrorClaimRoute(second!, "__proto__.amountCents")).toBeNull();
+    // A predicate with no field never borrows a kind from its own letters.
+    expect(liveMirrorClaimRoute(second!, "profileX")).toBeNull();
+    expect(liveMirrorClaimRoute(second!, ".amountCents")).toBeNull();
+
+    // One link per screen, in claim order; memory.md only where it is asked for.
+    const named = conflictOf(build({ inventory, history, document, nameConflict: true, nameClaims }), "profile.name")!;
+    expect(liveMirrorFixRoutes([named, named])).toEqual([
+      { href: "/one/pkm", label: "Edit memory.md" },
+      { href: "/one/profile/account", label: "Edit profile" },
+    ]);
+    expect(liveMirrorFixRoutes([named], { includeMemory: false })).toEqual([{ href: "/one/profile/account", label: "Edit profile" }]);
   });
 });
