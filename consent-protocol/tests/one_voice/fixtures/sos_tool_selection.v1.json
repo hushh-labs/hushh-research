@@ -4906,7 +4906,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question about SMS (the feature), not a request"
     },
@@ -4971,7 +4972,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "how-to question"
     },
@@ -5036,7 +5038,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "plain negation; no tool, and never the opposite"
     },
@@ -5101,7 +5104,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "prohibition covering the alert"
     },
@@ -5166,7 +5170,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "quotation of a phrase, not a request"
     },
@@ -5231,7 +5236,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "example inside a question"
     },
@@ -5295,7 +5301,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare word with no request (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5359,7 +5366,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare feature name (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5423,7 +5431,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare word (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5488,7 +5497,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "the voice session, not the alert"
     },
@@ -5553,7 +5563,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a statement; stopping tells nobody, so ask before stopping"
     },
@@ -5618,7 +5629,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "no tool tells anyone; explain, do not stop or send"
     },
@@ -5683,7 +5695,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a phone text message is not a feature here"
     },
@@ -5750,7 +5763,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "one person only is not the alert; say what it can do instead"
     },
@@ -5817,7 +5831,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a different duration is not the alert"
     },
@@ -5882,7 +5897,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a different duration is not the alert"
     },
@@ -5947,7 +5963,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "approximate is not the alert; the alert is precise"
     },
@@ -6012,7 +6029,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "explanation question"
     },
@@ -6077,7 +6095,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question"
     },
@@ -6142,7 +6161,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "duration question"
     },
@@ -6207,7 +6227,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "concept question"
     },
@@ -6272,7 +6293,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'never send' is a prohibition"
     },
@@ -6337,7 +6359,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a report about the past"
     },
@@ -6402,7 +6425,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "another person's device"
     },
@@ -6467,7 +6491,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "hypothetical quoting the trigger phrase"
     },
@@ -6532,7 +6557,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of stop"
     },
@@ -6597,7 +6623,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of add"
     },
@@ -6662,7 +6689,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of remove"
     },
@@ -6727,7 +6755,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a subset is not the alert"
     },
@@ -6792,7 +6821,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a circle is not the emergency roster"
     },
@@ -6857,7 +6887,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "another place is not the alert"
     },
@@ -6922,7 +6953,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish capability question"
     },
@@ -6987,7 +7019,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish negation"
     },
@@ -7052,7 +7085,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish what-does-it-do"
     },
@@ -7117,7 +7151,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish stop listening"
     },
@@ -7182,7 +7217,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish I'm safe now"
     },
@@ -7247,7 +7283,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish tell them I'm fine"
     },
@@ -7311,7 +7348,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: Hinglish bare 'help' (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -7376,7 +7414,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish only-to-Priya"
     },
@@ -7441,7 +7480,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish approximate location"
     },
@@ -7510,7 +7550,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the trigger card; not stop_save_my_soul"
     },
@@ -7579,7 +7620,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "change of mind cancels the card"
     },
@@ -7648,7 +7690,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'scrap that' cancels"
     },
@@ -7717,7 +7760,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare never mind after a card"
     },
@@ -7786,7 +7830,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'cancel it' is the unconfirmed card, never stop_save_my_soul"
     },
@@ -7855,7 +7900,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish: no, stop, don't send"
     },
@@ -7924,7 +7970,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish: leave it, cancel"
     },
@@ -7990,7 +8037,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a spoken yes cannot confirm a tap card; the tap-tier refusal (tap_required) is the guard; no other mutation"
     },
@@ -8056,7 +8104,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish spoken yes on a tap card; the tap-tier refusal (tap_required) is the guard; no other mutation"
     },
@@ -8123,7 +8172,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "hesitation: nothing or cancel, never confirm"
     },
@@ -8191,7 +8241,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "correction re-resolves the new name; no card yet"
     },
@@ -8258,7 +8309,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "drop the add; nothing to change"
     },
@@ -8325,7 +8377,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "drop the add"
     },
@@ -8391,7 +8444,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "correction of the removal target; confirm from the roster, then ask"
     },
@@ -8460,7 +8514,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the stop card, leave the alert live"
     },
@@ -8529,7 +8584,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the stop card"
     }

@@ -267,6 +267,7 @@ import {
   clearAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
 import {
@@ -328,6 +329,8 @@ import {
   runDriveReviewDirective,
 } from "@/lib/agent/drive-review-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+import { CalendarInvitationChat } from "@/components/calendar/calendar-invitation-chat";
+import { attendanceResultMessage } from "@/components/calendar/calendar-invitation-actions";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { runGmailTodoDirective } from "@/lib/agent/gmail-todo-directive-runtime";
 import {
@@ -2642,6 +2645,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (state) => state.pendingHandoff,
   );
   const handoff = pendingSessionHandoff;
+  const [calendarInvitationContext, setCalendarInvitationContext] = useState<{ selection: CalendarInvitationHandoff; conversationId: string | null; needsContext: boolean } | null>(null);
   const [calendarSlot, setCalendarSlot] = useState<{ selection: CalendarSlotHandoff; conversationId: string | null; needsContext: boolean } | null>(null);
   const pendingEntryWelcome = useOneConversationSession((state) => state.pendingEntryWelcome);
   const postSetupWelcomeContext = useEntryWelcome({
@@ -2937,6 +2941,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const appendPendingConsentRequestRef = useRef<((requestId: string) => Promise<void>) | null>(null);
   const updateConversationId = useCallback(
     (nextConversationId: string | null, remember = true) => {
+      setCalendarInvitationContext(current => current && (current.conversationId === null || current.conversationId === nextConversationId)
+        ? { ...current, conversationId: nextConversationId } : null);
       setCalendarSlot(current => current && (current.conversationId === null || current.conversationId === nextConversationId)
         ? { ...current, conversationId: nextConversationId } : null);
       conversationIdRef.current = nextConversationId;
@@ -4237,9 +4243,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!handoff || consumedHandoffIdRef.current === handoff.id) return;
     // Calendar continues the selected chat after its history is restored.
     // Other handoff owners retain their existing new-chat behavior.
-    if (handoff.calendarSlot) {
-      if (handoff.calendarSlot.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
-      if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== user.uid))) return;
+    if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest) {
+      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
+      if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== user?.uid))) return;
     }
     consumedHandoffIdRef.current = handoff.id;
     // Every handoff is One speaking. Landing one behind the Puppy surface
@@ -4253,6 +4259,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setAgentSurface("one");
     const { timestamp, sentAtMs } = stampNow();
     const nextMessages: AgentMessage[] = [];
+    if (handoff.calendarRequest) {
+      historyRestoreEpochRef.current += 1;
+      setCalendarInvitationContext(null);
+      setQueuedHandoffPrompt(handoff.calendarRequest.request);
+      consumeHandoff(handoff.id);
+      return;
+    }
+    if (handoff.calendarInvitation) {
+      historyRestoreEpochRef.current += 1;
+      const invitation = handoff.calendarInvitation;
+      setCalendarSlot(null);
+      if (invitation.request) {
+        setPendingSpecialistDirective(null);
+        setCalendarInvitationContext({ selection: invitation, conversationId: conversationIdRef.current, needsContext: true });
+        setQueuedHandoffPrompt(invitation.request);
+        consumeHandoff(handoff.id);
+        return;
+      }
+      setPendingSpecialistDirective({ delegateAgentId: "agent_calendar", directive: { kind: "action", payload: {
+        type: "calendar.invitations", filter: "all", calendarId: invitation.calendarId,
+        eventId: invitation.eventId, decision: invitation.decision || "offer_times", accountEmail: invitation.accountEmail, timeZone: invitation.timeZone,
+        startAt: invitation.startAt, endAt: invitation.endAt,
+      } }, message: invitation.request || "Review this invitation.", stateChanged: true });
+      setMessages(current => [...current, ...(invitation.request ? [{ id: `handoff-${handoff.id}-user`, role: "user" as const, timestamp, sentAtMs, text: invitation.request, status: "done" as const }] : []), { id: `handoff-${handoff.id}-assistant`, role: "assistant", timestamp, sentAtMs,
+        text: "Review this invitation below. I'll ask you to confirm before changing your response or sending Mail.",
+        status: "done", renderAsPlainAssistantMessage: true }]);
+      consumeHandoff(handoff.id);
+      return;
+    }
     if (handoff.calendarSlot) {
       historyRestoreEpochRef.current += 1;
       setPendingSpecialistDirective(current => current?.delegateAgentId === "agent_calendar" ? null : current);
@@ -5456,7 +5491,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       appendMessage({ id: `calendar-window-expired-${Date.now()}`, role: "assistant", text: "That free window has passed. What time would work for you?", ...stampNow(), status: "done", renderAsPlainAssistantMessage: true });
       return;
     }
-    const attachments = [...(options.attachments ?? []), ...(slotContext
+    const invitationContext = calendarInvitationContext?.needsContext && calendarInvitationContext.selection.ownerId === user?.uid &&
+      calendarInvitationContext.conversationId === conversationIdRef.current
+      ? calendarInvitationInstruction(calendarInvitationContext.selection) : null;
+    const attachments = [...(options.attachments ?? []), ...(invitationContext
+      ? [createAgentTextAttachment(invitationContext, "Selected Calendar invitation.txt")] : []), ...(slotContext
       ? [createAgentTextAttachment(slotContext, "Selected Calendar time.txt")] : [])];
     if ((!text && attachments.length === 0) || !hasChatAccess || !user?.uid) return;
     // The whole turn as the person supplied it (typed text, then any pasted
@@ -6274,6 +6313,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
             if (calendarDirective) {
               setPendingSpecialistDirective(calendarDirective);
+              if (calendarDirective.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
               if (calendarDirective.directive.payload.type === "calendar.execute_proposal") {
                 setCalendarSlot(current => current ? { ...current, needsContext: false } : null);
               }
@@ -6327,6 +6367,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
+            if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
             if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.execute_proposal") {
               setCalendarSlot(current => current ? { ...current, needsContext: false } : null);
             }
@@ -9483,8 +9524,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
-              {handoff?.calendarSlot?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
-                <p>Your conversation could not be restored. Your selected time is retained.</p>
+              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
+                <p>Your conversation could not be restored. Your Calendar selection is retained.</p>
                 <Button variant="secondary" disabled={isLoadingHistory} onClick={() => setSlotHistoryRetry(value => value + 1)}>Retry conversation</Button>
               </div> : null}
 
@@ -9902,6 +9943,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       unknown
                     >;
                     const type = String(payload.type ?? "");
+                    if (type === "calendar.invitations" && user) {
+                      return <CalendarInvitationChat key={`${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
+                        owner={user} payload={payload}
+                        expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === user.uid && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
+                        onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
+                        onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),
+                          text: attendanceResultMessage(result), status: result.calendar === "failed" || result.calendar === "unknown" ? "error" : "done",
+                          renderAsPlainAssistantMessage: true })} />;
+                    }
                     const calendarAction: CalendarProposalAction =
                       payload.action === "reschedule" || payload.action === "cancel"
                         ? payload.action

@@ -1551,13 +1551,13 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
 | POST | `/api/one/calendar/schedule/today` | Firebase Bearer + active owner-bound Calendar OAuth grant | Resolve `date` in `time_zone`, page the subscribed calendar inventory and all readable calendar events, including recurring instances and civil all-day dates. Fail on incomplete reads; report calendars that share only busy times separately. |
 | POST | `/api/one/calendar/schedule/availability` | Firebase Bearer + active owner-bound Calendar OAuth grant | Check every subscribed calendar and return up to three maximal free `windows` plus exact `full_count`, filtering by requested 15/30/60-minute duration. Missing permission or any unavailable calendar fails closed. |
+| POST | `/api/one/calendar/invitations` | Firebase Bearer | No-store, owner-bound upcoming received invitations across subscribed event-readable calendars (default 90 days, maximum 93), all pages and recurring instances; organizer-owned events excluded. Includes pending count, RSVP, attendees, provider link and conflicts. Reports free/busy-only calendars explicitly. |
 | POST | `/api/one/calendar/attendance/review` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Verify equal owners and the connected primary attendee; prepare a ten-minute encrypted review of decline and optionally the editable organizer email with checked alternatives. No meeting changes. |
 | POST | `/api/one/calendar/attendance/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Atomically claim `review_id`, validate `review_token`, current account/grant and ETag, patch only the connected attendee response. Return separate `calendar` and `email` outcomes, replay completed outcomes without sending twice. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
-Connected `/one/calendar` defaults to Schedule → Today. Invitations and Insights
-are Coming soon. Today loads every event-readable subscribed calendar with
+Connected `/one/calendar` defaults to Schedule → Today. Invitations shows Pending, Responded and All received invitations; Insights remains Coming soon. Today loads every event-readable subscribed calendar with
 source names/colors and real Meet/Zoom/Teams links. Free time checks up to 100
 subscribed calendars in batches of twenty, merges busy periods and clips elapsed
 time before counting matching windows. Overlaps and civil-day/DST boundaries
@@ -3653,3 +3653,30 @@ a browser return and a stream notification never prove payment or delivery.
 
 The delivery-confirmed owner settlement and proportional-refund rules are in
 [Drive request payment gate](../operations/drive-request-stripe-paywall.md).
+
+
+### Calendar Invitations review and chat continuation
+
+`attendance/review` adds `response_status` (`accepted`, `declined`, or `tentative`,
+default `declined` for existing Schedule callers), exact `calendar_id`, and optional
+`expected_account_email`. The review seals source calendar, event instance, response,
+ETag and current owner/account/grant binding; organizer events, recurrence masters,
+omitted/ambiguous attendees and cross-account selections fail closed. Accept reviews
+include all-calendar overlaps, and confirmation rejects newly observed conflicts.
+Only the connected email's attendee is patched (`attendeesOmitted: true`, `If-Match`);
+no meeting is created, moved, cancelled or replaced. Read-only calendar ACLs disable
+RSVP controls. Existing review metadata/idempotency storage is reused; no migration.
+
+`offer_times` requires decline, a chosen date/window/duration and editable message.
+The existing availability and reviewed Mail services prepare the organizer's exact
+message and a recipient-accessible, expiring `/calendar/reschedule` capability.
+Confirmation reports RSVP and Mail separately; unknown delivery is never retried
+silently. The organizer chooses/replies and updates their own invitation.
+
+One's typed `calendar_invitations` read and client-only `open_calendar_invitation`
+use private owner/conversation/grant-bound ordinal offers. Provider content keeps the
+external-read barrier; review capabilities remain only in browser memory. Both chat
+and `/one/calendar` use the same invitation components and attendance routes. Realtime
+Talk to One's `calendar.invitation.review` handoff forwards the original request (or
+an explicitly selected, current offered event) into the existing conversation. It
+grants no RSVP/Mail authority and never navigates to `/one/calendar` for an action.

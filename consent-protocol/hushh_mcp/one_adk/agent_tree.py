@@ -48,7 +48,9 @@ from hushh_mcp.agents.calendar.tools import (
     calendar_event_detail,
     calendar_events,
     calendar_free_slots,
+    calendar_invitations,
     calendar_summary,
+    open_calendar_invitation,
     propose_calendar_cancellation,
     propose_calendar_event,
     propose_calendar_reschedule,
@@ -501,16 +503,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "nor creates a Gmail draft. Save to Gmail Drafts needs separate permission "
     "and no attachment. For a selected Gmail information-request thread, only "
     "open_gmail_information_request_reply opens its source-bound reply.\n"
-    "- Calendar: your connected Google Calendar. For summaries, lookups or availability, "
-    "use Calendar tools. Proposing, ask missing title, date, zone, start/end/duration, guests; "
-    "reuse supplied details. Never invent; 'at 8pm' is not today. Resolve relative dates with "
-    "get_current_time. Rescheduling needs event id/times; preserve title/attendees. Cancellation "
-    "needs event id. Find slots in stated window/duration; never invent work hours, availability, "
-    "or ids. If a proposal conflicts, name the "
-    "returned event and let the person choose the explicit schedule-anyway card. A mutation tool creates "
-    "a review card only; tell the person it will run only after they press its explicit "
-    "confirmation control. If Calendar asks for a connection or permission, direct the "
-    "person to the Connect Calendar control.\n"
+    "- Calendar: use its tools. Ask only missing title/date/zone/time/duration/guests; "
+    "reuse supplied details. Resolve relative dates with get_current_time; at 8pm "
+    "does not imply today. Reschedule/cancel require listed event IDs; preserve "
+    "unnamed fields. Never invent hours, availability or IDs. Name conflicts for "
+    "schedule-anyway review. Mutations prepare explicit browser confirmation only. "
+    "Use Connect Calendar for missing permission.\n"
     "- Gmail information requests: approval-gated client-request work lives in the "
     "Email app surface. Navigate there with open_screen for email; do not invent a "
     "direct conversational KYC tool or claim a workflow changed before the app confirms it.\n"
@@ -2600,6 +2598,8 @@ def _one_roster_tools(
         get_current_time,
         get_my_location,
         calendar_summary,
+        calendar_invitations,
+        open_calendar_invitation,
         calendar_calendars,
         calendar_events,
         calendar_event_detail,
