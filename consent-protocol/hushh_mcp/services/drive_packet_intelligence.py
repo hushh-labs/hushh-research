@@ -297,6 +297,21 @@ def _require_source_periods(periods, source_periods, *, citations=True):
                 raise ValueError("unsupported content period")
 
 
+def _require_distinct_member_content(documents, selected):
+    """Equal provider checksums identify one original; facts similarity does not."""
+    groups = {}
+    for item in documents:
+        digest = item.get("content_digest")
+        if item["document_id"] in selected and digest:
+            groups.setdefault(digest, []).append(item["document_id"])
+    duplicates = sorted({member for ids in groups.values() if len(ids) > 1 for member in ids})
+    if duplicates:
+        raise EvidenceValidationError(
+            "model_membership_invalid",
+            issues=[{"field": "selected_document_ids", "duplicate_content": duplicates[:8]}],
+        )
+
+
 def _requested_packet_statuses(selected_facts):
     return [
         (facts.get("record_status") or {}).get("status")
@@ -306,15 +321,18 @@ def _requested_packet_statuses(selected_facts):
 
 
 def _check_requested_event_claims(packet, selected_facts):
-    """Validate typed scope coherence; the authored checker assesses packet meaning."""
+    """Validate typed scope; the authored checker assesses wording and meaning."""
     statuses = _requested_packet_statuses(selected_facts)
     if not any(status in {"requested", "pending"} for status in statuses):
         return
-    if packet.temporal_scope != "no_period_claim":
+    request_only = len(statuses) == len(selected_facts) and all(
+        status in {"requested", "pending"} for status in statuses
+    )
+    if packet.state != "ready" and not request_only:
+        return
+    if packet.temporal_scope not in {"no_period_claim", "unknown"}:
         raise ValueError("requested event is not a snapshot")
-    if len(statuses) != len(selected_facts) or any(
-        status not in {"requested", "pending"} for status in statuses
-    ):
+    if not request_only:
         raise ValueError("mixed requested packet evidence")
 
 
@@ -429,14 +447,10 @@ async def construct_packet(
             )
             if not (current_snapshot or prior_snapshot):
                 raise ValueError("unsupported snapshot scope")
+        selected_facts = [item["facts"] for item in documents if item["document_id"] in selected]
+        _check_requested_event_claims(result, selected_facts)
         if result.state == "ready":
-            selected_facts = [
-                item["facts"] for item in documents if item["document_id"] in selected
-            ]
-            _check_requested_event_claims(
-                result,
-                selected_facts,
-            )
+            _require_distinct_member_content(documents, selected)
         if result.state == "ready" and not complete:
             raise ValueError("unfinished assembly cannot be ready")
 
@@ -507,6 +521,7 @@ async def verify_packet(
                 ):
                     raise ValueError("unsupported snapshot scope")
                 _check_requested_event_claims(proposal, selected_facts)
+                _require_distinct_member_content(documents, set(selected))
                 if scope_mode == "complete_compact_summary" and not any(
                     facts.get("facts") or facts.get("periods") for facts in selected_facts
                 ):
@@ -514,6 +529,23 @@ async def verify_packet(
                     # an automatically prepared packet useful to a buyer.
                     # Source facts and periods were citation-checked at indexing.
                     raise ValueError("unsupported standalone packet evidence")
+
+        if (
+            result.state != "ready"
+            and "selected_document_ids" in packet
+            and scope_mode in {"complete_compact_summary", "complete_current_request_packet"}
+        ):
+            selected_facts = [
+                item.get("facts") if isinstance(item.get("facts"), dict) else item
+                for item in documents
+                if item["document_id"] in set(selected or [])
+            ]
+            _check_requested_event_claims(
+                PacketProposal.model_validate(
+                    {key: value for key, value in packet.items() if key != "document_request"}
+                ),
+                selected_facts,
+            )
 
     return await _ask(
         "packet_verification",

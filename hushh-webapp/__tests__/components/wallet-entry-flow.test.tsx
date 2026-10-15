@@ -181,7 +181,8 @@ describe("Wallet visit introduction", () => {
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     const details = within(screen.getByRole("region", { name: "Saved card details" }));
-    expect(await details.findByText("4242 4242 4242 1000")).toBeVisible();
+    expect(await details.findByText("•••• •••• •••• 1000")).toBeVisible();
+    expect(document.body).not.toHaveTextContent("4242 4242 4242 1000");
     expect(details.getByText("Test Cardholder")).toBeVisible();
     expect(details.getByText("Visa")).toBeVisible();
     expect(await screen.findByText("No active shares")).toBeVisible();
@@ -189,7 +190,7 @@ describe("Wallet visit introduction", () => {
     expect(screen.queryByText(/origin must be verified/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Show card details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
-    expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "card_0" });
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
   it("returns a saved payment card to Cards while retaining the three system cards", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
@@ -213,9 +214,10 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "Open Agent One Profile" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
-    expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("4242 4242 4242 4242")).toBeVisible();
+    expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("•••• •••• •••• 4242")).toBeVisible();
+    expect(document.body).not.toHaveTextContent("4242 4242 4242 4242");
     expect(await screen.findByText("No active shares")).toBeVisible();
-    expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "saved" });
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
   it("removes the form and card details when the vault locks", async () => {
     const page = render(<WalletWorkspace />);

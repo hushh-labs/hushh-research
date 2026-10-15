@@ -86,7 +86,7 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
     {fileInput(camera, true)}{fileInput(gallery, false)}
     {live ? <WalletLiveCardCapture onCancel={release} onPhoto={file => { setLive(false); void acquire(async () => file); }} /> : !photo ? <>
       {featured ? <div className={styles.scanIntro}><button type="button" className={styles.scanArtwork} aria-label="Scan card" disabled={disabled || busy || !active} onClick={() => choose("camera")}>
-        <Image src="/wallet/card-scan-agent-one.webp" alt="" width={768} height={644} unoptimized className={styles.scanReference} />
+        <Image src="/wallet/card-scan-agent-one-emerging.webp" alt="" width={644} height={768} unoptimized className={styles.scanReference} />
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan here to add card</span>
       </button></div> : null}
       {showPhotoActions ? <div className={styles.scanActions}>

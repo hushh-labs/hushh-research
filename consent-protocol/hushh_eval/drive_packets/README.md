@@ -27,13 +27,13 @@ suite (`tests/fixtures/drive_packet_eval/adversarial/`) feeds adversarial model
 outputs to the runtime validators; an unexpected Ready-with-defect turns CI red.
 Cases with `known_gap` are tracked runtime work and run as strict expected failures
 (when the runtime closes a gap, its case passes and the strict marker fails CI until
-`known_gap` is removed from the generator). Open gaps today:
-
-| Fixture | Runtime gap |
-| --- | --- |
-| `same-pdf-twice` | No runtime Ready guard for a duplicate content hash among members (P1). |
-| `period-from-modified-date` | No runtime Ready guard for a period equal to the file date without a content citation (P1). |
-| `wrong-account-member` | Account consistency is left to the model checker; no deterministic runtime guard. |
+`known_gap` is removed from the generator). Equal original-content checksums
+have a deterministic duplicate-membership guard. Account identity, date meaning
+and request-only wording remain authored canonical/checker assessments, with
+exact typed membership, period and citation validation. Scripted refusal cases
+pass; paired faulty Ready answers for account, date and execution claims still
+produce independent defects and a failing deploy gate. These synthetic cases do
+not establish live model accuracy or a universal deterministic semantic guard.
 
 ## Operator runbook (real Drive, read-only)
 

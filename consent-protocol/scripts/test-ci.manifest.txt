@@ -1261,6 +1261,8 @@ tests/test_one_chat_service_only_release.py
 
 tests/services/test_drive_packet_intelligence.py
 
+tests/services/test_drive_packet_account_guard.py
+
 tests/services/test_drive_document_pages_postgres.py
 
 tests/services/test_drive_pipeline_evaluation.py

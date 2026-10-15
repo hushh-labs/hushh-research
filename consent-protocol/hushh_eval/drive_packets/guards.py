@@ -97,6 +97,7 @@ async def run_case(case: dict) -> GuardResult:
             "source_version": item.get("source_version", "1"),
             "complete": item.get("complete", True),
             "facts": item["facts"],
+            **({"content_digest": item["content_sha256"]} if item.get("content_sha256") else {}),
         }
         for item in case["documents"]
     ]

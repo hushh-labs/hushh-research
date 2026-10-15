@@ -452,13 +452,15 @@ async def test_packet_rejects_period_citations_outside_selected_source_periods(q
 
 async def test_packet_carries_prior_verified_provenance_only_with_exact_membership():
     previous = packet([period()], ["previous"])
-    result = packet([period(), period("Current period")], ["previous", "current"])
+    result = packet([period(), period("Current period Jan 2026")], ["previous", "current"])
     arguments = {
         "user_id": "owner",
         "key": "group",
         "complete": True,
         "previous": previous,
-        "documents": [{"document_id": "current", "facts": {"periods": [period("Current period")]}}],
+        "documents": [
+            {"document_id": "current", "facts": {"periods": [period("Current period Jan 2026")]}}
+        ],
     }
     assert (
         await construct_packet(**arguments, interpret=AsyncMock(return_value=result))
@@ -471,7 +473,7 @@ async def test_packet_carries_prior_verified_provenance_only_with_exact_membersh
 
 async def test_packet_can_replace_prior_copy_with_current_supported_complete_copy():
     previous = packet([period("Earlier copy period")], ["earlier_copy"])
-    result = packet([period("Complete copy period")], ["complete_copy"])
+    result = packet([period("Complete copy period Jan 2026")], ["complete_copy"])
     result["excluded_documents"] = [exclusion("earlier_copy", duplicate_of="complete_copy")]
     interpreter = AsyncMock(return_value=result)
     answer = await construct_packet(
@@ -482,7 +484,7 @@ async def test_packet_can_replace_prior_copy_with_current_supported_complete_cop
         documents=[
             {
                 "document_id": "complete_copy",
-                "facts": {"periods": [period("Complete copy period")]},
+                "facts": {"periods": [period("Complete copy period Jan 2026")]},
             }
         ],
         interpret=interpreter,
@@ -801,6 +803,154 @@ async def test_requested_packet_keeps_typed_scope_and_model_copy_for_independent
         )
 
 
+async def test_request_only_packet_keeps_bounded_copy_and_no_period_claim_at_every_state():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    facts = page_facts()
+    facts.pop("pages")
+    facts["document_type"] = {
+        "value": "Wire transfer request form",
+        "citations": [{"page": 1, "quote": "Wire transfer request form"}],
+    }
+    # The earlier model mislabeled the requested date as_of; the fence cannot rely on it.
+    facts["date_evidence"] = [dated_evidence("as_of")]
+    facts["record_status"] = {
+        "status": "requested",
+        "evidence_basis": "documentary_form",
+        "explanation": "The source is a transfer request, with no completion evidence.",
+        "citations": [{"page": 1, "quote": "Wire transfer request form"}],
+    }
+    facts["facts"] = [
+        {"value": "A transfer was requested", "citations": [{"page": 1, "quote": "Amount"}]}
+    ]
+    source = {"document_id": "selected", "source_version": "v1", "complete": True, "facts": facts}
+    bounded = {
+        "title": "Wire transfer requests",
+        "description": "Documents requesting a wire transfer; execution is unverified.",
+        "coverage_summary": "Request records only; no completed action or reporting period verified.",
+        "utility_rationale": "Request documents are useful as records; completion is unverified.",
+    }
+    proposal = packet([])
+    proposal.update(
+        state="incomplete",
+        gaps=["The bank confirmation page is missing."],
+        title="Executed wire transfer",
+        description="Requested transfer was executed",
+        coverage_summary="Bank debited the account",
+        utility_rationale="Settlement confirmed",
+    )
+    proposal["pricing"].update(
+        coverage="partial", quality="limited", rationale="Payment went through"
+    )
+    verdict = dict(
+        state="incomplete",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=False,
+        correct_standalone_value=True,
+        correct_coverage=False,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=["Completion is not evidenced."],
+    )
+
+    qualified = {
+        **proposal,
+        **bounded,
+        "pricing": {
+            **proposal["pricing"],
+            "rationale": "Estimate for request documents only; completion is unverified.",
+        },
+    }
+    # The authored qualification is preserved even for unfinished assemblies.
+    for complete in (False, True):
+        normalized = await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=complete,
+            documents=[source],
+            interpret=AsyncMock(return_value=qualified),
+        )
+        assert normalized.state == "incomplete"
+        assert normalized.gaps == proposal["gaps"]
+        assert {key: getattr(normalized, key) for key in bounded} == bounded
+        assert normalized.pricing.rationale == (
+            "Estimate for request documents only; completion is unverified."
+        )
+        assert "executed" not in normalized.model_dump_json()
+
+    # The independent checker owns refusal of unqualified copy; the host never
+    # changes that copy into a different successful model answer.
+    bad_copy = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        documents=[compact_evidence(source)],
+        complete=False,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=AsyncMock(return_value=verdict),
+    )
+    assert bad_copy.model_dump() == verdict
+    checked = await verify_packet(
+        user_id="owner",
+        packet=normalized.model_dump(),
+        documents=[compact_evidence(source)],
+        complete=False,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=AsyncMock(return_value=verdict),
+    )
+    assert checked.state == "incomplete"
+
+    # A request date is no snapshot or period for an Incomplete version either.
+    proposal["temporal_scope"] = "as_of_snapshot"
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await construct_packet(
+            user_id="owner",
+            key="wire-request",
+            complete=False,
+            documents=[source],
+            interpret=AsyncMock(return_value=proposal),
+        )
+    with pytest.raises(EvidenceValidationError, match="model_period_invalid"):
+        await verify_packet(
+            user_id="owner",
+            packet={**normalized.model_dump(), "temporal_scope": "as_of_snapshot"},
+            documents=[compact_evidence(source)],
+            complete=False,
+            batch_scope={"mode": "complete_compact_summary"},
+            interpret=AsyncMock(return_value=verdict),
+        )
+
+    # An undecided scope claims nothing; preserve the authored copy.
+    proposal["temporal_scope"] = "unknown"
+    undecided = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=False,
+        documents=[source],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert undecided.temporal_scope == "unknown"
+    assert undecided.title == proposal["title"]
+
+    # A completed record beside the request may evidence execution: the mix is
+    # not request-only, so an Incomplete version keeps the model's own copy.
+    posted = {
+        **source,
+        "document_id": "posted",
+        "facts": {**facts, "record_status": {**facts["record_status"], "status": "completed"}},
+    }
+    proposal.update(temporal_scope="no_period_claim", selected_document_ids=["selected", "posted"])
+    mixed = await construct_packet(
+        user_id="owner",
+        key="wire-request",
+        complete=True,
+        documents=[source, posted],
+        interpret=AsyncMock(return_value=proposal),
+    )
+    assert mixed.state == "incomplete"
+    assert mixed.title == "Executed wire transfer"
+
+
 async def test_final_checker_cannot_certify_event_as_document_period():
     event = dated_evidence()
     proposal = packet(
@@ -1039,3 +1189,383 @@ def test_legacy_manifest_remains_readable_but_new_ready_proposal_requires_typed_
         PacketProposal.model_validate(legacy)
     with pytest.raises(ValueError):
         PacketProposal.model_validate({**legacy, "temporal_scope": "unknown"})
+
+
+# Incident coverage retains separate deterministic and authored authorities.
+# Equal original-content checksums reject duplicate members at both runtime
+# Ready gates; extracted facts alone never establish original identity.
+# Date meaning and requested-versus-completed claims remain authored model
+# assessments checked independently. Adversarial refusals and faulty Ready
+# negative controls prove the evaluation deploy gate still detects defects.
+
+
+def statement_facts(period_quote="Statement period September 1, 2026 to September 30, 2026"):
+    facts = page_facts()
+    facts.pop("pages")
+    facts.update(
+        document_type={
+            "value": "Monthly statement",
+            "citations": [{"page": 1, "quote": "Monthly statement"}],
+        },
+        issuer={"value": "Example Bank", "citations": [{"page": 1, "quote": "Example Bank"}]},
+        account={
+            "value": "Account ending 1122",
+            "citations": [{"page": 1, "quote": "Account ending 1122"}],
+        },
+        periods=[
+            {
+                "start": "2026-09-01",
+                "end": "2026-09-30",
+                "citations": [{"page": 1, "quote": period_quote}],
+            }
+        ],
+        facts=[
+            {
+                "value": "Ending balance $1,000.00",
+                "citations": [{"page": 1, "quote": "Ending balance $1,000.00"}],
+            }
+        ],
+    )
+    return facts
+
+
+def statement_member(document_id, facts=None, **extra):
+    return {
+        "document_id": document_id,
+        "source_version": "7",
+        "complete": True,
+        "facts": facts or statement_facts(),
+        **extra,
+    }
+
+
+def statement_packet(selected, periods):
+    result = packet(periods, selected)
+    result.update(title="Example Bank statements", description="Monthly statements for one account")
+    return result
+
+
+def ready_verdict():
+    return dict(
+        state="ready",
+        correct_subject_and_account=True,
+        correct_issuer_and_type=True,
+        correct_record_status=True,
+        correct_standalone_value=True,
+        correct_coverage=True,
+        no_unrelated_inclusions=True,
+        no_unexplained_omissions=True,
+        issues=[],
+    )
+
+
+@pytest.mark.parametrize("signal", ["content_digest", "identical_evidence"])
+async def test_ready_packet_cannot_select_the_same_content_twice(signal):
+    # One original stored twice is one source. The host decides this from the
+    # evidence; the model's confidence cannot make both copies Ready members.
+    copies = [statement_member("copy_a"), statement_member("copy_b")]
+    if signal == "content_digest":
+        for copy in copies:
+            copy["content_digest"] = "a" * 32
+        # A noisier second extraction of the same bytes is still the same original.
+        copies[1]["facts"]["facts"] = []
+    arguments = dict(user_id="owner", key="statements", complete=True, documents=copies)
+    both = statement_packet(["copy_a", "copy_b"], [statement_facts()["periods"][0]])
+    if signal == "identical_evidence":
+        # Equal extractions do not prove equal originals; preserve both members
+        # for the independent model's duplicate assessment.
+        answer = await construct_packet(**arguments, interpret=AsyncMock(return_value=both))
+        assert answer.selected_document_ids == ["copy_a", "copy_b"]
+        return
+    interpreter = AsyncMock(return_value=both)
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid") as info:
+        await construct_packet(**arguments, interpret=interpreter)
+    assert interpreter.await_count == 2
+    # The retry names the members that share content, so the model can keep one.
+    assert info.value.issues == [
+        {"field": "selected_document_ids", "duplicate_content": ["copy_a", "copy_b"]}
+    ]
+    feedback = json.loads(interpreter.await_args.kwargs["prompt"])["validation_feedback"]
+    assert feedback["issues"] == info.value.issues
+
+    # The contract's own answer: keep one copy and exclude the other as its duplicate.
+    deduped = statement_packet(["copy_a"], [statement_facts()["periods"][0]])
+    deduped["excluded_documents"] = [exclusion("copy_b", duplicate_of="copy_a")]
+    answer = await construct_packet(**arguments, interpret=AsyncMock(return_value=deduped))
+    assert answer.state == "ready" and answer.selected_document_ids == ["copy_a"]
+
+
+async def test_distinct_statements_remain_ready_together():
+    october = statement_facts("Statement period October 1, 2026 to October 31, 2026")
+    october["periods"][0].update(start="2026-10-01", end="2026-10-31")
+    october["facts"][0] = {
+        "value": "Ending balance $1,250.00",
+        "citations": [{"page": 1, "quote": "Ending balance $1,250.00"}],
+    }
+    documents = [
+        statement_member("september", content_digest="a" * 32),
+        statement_member("october", october, content_digest="b" * 32),
+    ]
+    result = statement_packet(
+        ["september", "october"], [statement_facts()["periods"][0], october["periods"][0]]
+    )
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=documents,
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.selected_document_ids == ["september", "october"]
+
+
+async def test_final_checker_cannot_verify_the_same_content_twice_as_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    copies = [
+        statement_member("copy_a", content_digest="a" * 32),
+        statement_member("copy_b", content_digest="a" * 32),
+    ]
+    documents = [compact_evidence(copy) for copy in copies]
+    assert [item["content_digest"] for item in documents] == ["a" * 32, "a" * 32]
+    arguments = dict(
+        user_id="owner",
+        documents=documents,
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+    )
+    both = statement_packet(["copy_a", "copy_b"], [statement_facts()["periods"][0]])
+    with pytest.raises(EvidenceValidationError, match="model_membership_invalid"):
+        await verify_packet(
+            **arguments, packet=both, interpret=AsyncMock(return_value=ready_verdict())
+        )
+
+    deduped = statement_packet(["copy_a"], [statement_facts()["periods"][0]])
+    deduped["excluded_documents"] = [exclusion("copy_b", duplicate_of="copy_a")]
+    checked = await verify_packet(
+        **arguments, packet=deduped, interpret=AsyncMock(return_value=ready_verdict())
+    )
+    assert checked.state == "ready"
+
+    # Without a provider checksum, duplicate meaning remains with the checker.
+    for item in documents:
+        item.pop("content_digest")
+    refusal = {
+        **ready_verdict(),
+        "state": "unable_to_verify",
+        "no_unrelated_inclusions": False,
+        "issues": ["Original identity is uncertain."],
+    }
+    checked = await verify_packet(
+        **arguments, packet=both, interpret=AsyncMock(return_value=refusal)
+    )
+    assert checked.model_dump() == refusal
+
+
+async def test_members_sharing_only_boilerplate_facts_remain_ready_together():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    # Two originals whose extraction captured the same header only (a type and
+    # one fact; no account, period or dated evidence) cannot be told apart by
+    # their facts. Both stay members; duplicate review stays with the checker.
+    facts = page_facts()
+    facts.pop("pages")
+    facts.update(
+        document_type={
+            "value": "Meeting notes",
+            "citations": [{"page": 1, "quote": "Meeting notes"}],
+        },
+        facts=[
+            {"value": "Agenda circulated", "citations": [{"page": 1, "quote": "Agenda circulated"}]}
+        ],
+    )
+    members = [
+        statement_member("first", facts),
+        statement_member("second", json.loads(json.dumps(facts))),
+    ]
+    result = packet([], ["first", "second"])
+    answer = await construct_packet(
+        user_id="owner",
+        key="notes",
+        complete=True,
+        documents=members,
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.selected_document_ids == ["first", "second"]
+    checked = await verify_packet(
+        user_id="owner",
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        packet=result,
+        documents=[compact_evidence(item) for item in members],
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"
+
+
+async def test_final_checker_keeps_two_sparse_extractions_that_compact_alike_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    # Two originals whose facts compact to the same summary (the same header
+    # facts, quoted from different pages) are two sources, not one copy. The
+    # final checker compares the digest of the full facts the worker carries.
+    first, second = statement_member("first"), statement_member("second")
+    second["facts"]["facts"][0]["citations"] = [{"page": 2, "quote": "Ending balance $1,000.00"}]
+    documents = [compact_evidence(first), compact_evidence(second)]
+    summaries = [
+        {key: value for key, value in item.items() if key not in {"document_id", "facts_digest"}}
+        for item in documents
+    ]
+    assert summaries[0] == summaries[1]
+    checked = await verify_packet(
+        user_id="owner",
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        packet=statement_packet(["first", "second"], [statement_facts()["periods"][0]]),
+        documents=documents,
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"
+
+
+async def assert_authored_coverage_refusal(source, proposal):
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    authored = {
+        **ready_verdict(),
+        "state": "unable_to_verify",
+        "correct_coverage": False,
+        "issues": ["The claimed period is not established by the cited document."],
+    }
+    checker = AsyncMock(return_value=authored)
+    checked = await verify_packet(
+        user_id="owner",
+        packet=proposal,
+        documents=[compact_evidence(source)],
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=checker,
+    )
+    assert checked.model_dump() == authored
+    sent = json.loads(checker.await_args.kwargs["prompt"])
+    assert sent["proposed_packet"] == proposal
+    assert sent["document_facts"][0]["document_id"] == source["document_id"]
+
+
+@pytest.mark.parametrize(
+    "quote", ["Monthly statement", "Account ending 1122", "Ending balance $2,026.00"]
+)
+async def test_ready_packet_period_needs_a_quote_that_states_its_date(quote):
+    # A quote's date meaning is assessed by the independent authored checker.
+    source = statement_member("trap", statement_facts(quote))
+    result = statement_packet(["trap"], [source["facts"]["periods"][0]])
+    built = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert built.periods[0].citations[0].quote == quote
+    await assert_authored_coverage_refusal(source, built.model_dump())
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Statement period September 1, 2026 to September 30, 2026",
+        "September 2026",
+        "Sept. 2026 statement",
+        "1 September 2026",
+        "Closing date 09/30/2026",
+        "2026-09-30",
+        "Period ending 30.09.26",
+        "Statement for 9/2026",
+        "For the month of September",
+    ],
+)
+async def test_ready_packet_period_accepts_a_quote_stating_its_month(quote):
+    source = statement_member("statement", statement_facts(quote))
+    result = statement_packet(["statement"], [source["facts"]["periods"][0]])
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready" and answer.periods[0].citations[0].quote == quote
+
+
+@pytest.mark.parametrize(
+    ("quote", "window"),
+    [
+        ("Tax year 2026", ("2026-01-01", "2026-12-31")),
+        ("Q3 2026", ("2026-07-01", "2026-09-30")),
+        ("Fiscal year ended June 30, 2026", ("2025-07-01", "2026-06-30")),
+    ],
+)
+async def test_ready_packet_longer_period_accepts_a_quote_stating_its_year(quote, window):
+    facts = statement_facts(quote)
+    facts["periods"][0].update(start=window[0], end=window[1])
+    source = statement_member("statement", facts)
+    result = statement_packet(["statement"], [facts["periods"][0]])
+    answer = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert answer.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("quote", "window"),
+    [
+        # A September statement edited in October: the quote is dated, but not
+        # inside the claimed month, so the period came from somewhere else.
+        (
+            "Statement period September 1, 2026 to September 30, 2026",
+            ("2026-10-01", "2026-10-31"),
+        ),
+        ("Closing date 09/30/2026", ("2026-10-01", "2026-10-31")),
+        ("Tax year 2026", ("2026-10-01", "2026-10-31")),
+        ("Account ending 2026", ("2026-10-01", "2026-10-31")),
+        # Last year's statement re-uploaded this month.
+        ("September 2025", ("2026-09-01", "2026-09-30")),
+    ],
+)
+async def test_ready_packet_month_needs_a_quote_dated_inside_it(quote, window):
+    facts = statement_facts(quote)
+    facts["periods"][0].update(start=window[0], end=window[1])
+    source = statement_member("trap", facts)
+    result = statement_packet(["trap"], [facts["periods"][0]])
+    built = await construct_packet(
+        user_id="owner",
+        key="statements",
+        complete=True,
+        documents=[source],
+        interpret=AsyncMock(return_value=result),
+    )
+    assert built.periods[0].citations[0].quote == quote
+    await assert_authored_coverage_refusal(source, built.model_dump())
+
+
+async def test_final_checker_cannot_verify_an_undated_period_as_ready():
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    undated = statement_member("trap", statement_facts("Monthly statement"))
+    proposal = statement_packet(["trap"], [undated["facts"]["periods"][0]])
+    await assert_authored_coverage_refusal(undated, proposal)
+    dated = statement_member("statement")
+    proposal = statement_packet(["statement"], [dated["facts"]["periods"][0]])
+    checked = await verify_packet(
+        user_id="owner",
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        packet=proposal,
+        documents=[compact_evidence(dated)],
+        interpret=AsyncMock(return_value=ready_verdict()),
+    )
+    assert checked.state == "ready"

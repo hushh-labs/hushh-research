@@ -132,7 +132,8 @@ it("preserves loaded history when access is revoked", async () => {
  fireEvent.click(screen.getByRole("button", { name: "Load more shares" }));
  await screen.findByText("Person 2");
  fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
- await screen.findByText("Access revoked");
+ await waitFor(() => expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull());
+ expect(screen.queryByText("Access revoked")).toBeNull();
  expect(screen.getByText("Person 2")).toBeInTheDocument();
  expect(mocks.state).toHaveBeenCalledTimes(2);
 });

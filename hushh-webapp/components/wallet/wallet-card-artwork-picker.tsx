@@ -11,11 +11,13 @@ import type { CardImageBox, CardPoint } from "@/lib/wallet/card-scan-image";
 import { WalletCardArtworkTile } from "./wallet-card-artwork-tile";
 
 /** Picker receives only an allowed IIN, never a complete card or vault key. */
-export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange }: {
+export function WalletCardArtworkPicker({ context, prefix, panLength, active, sanitized, candidate, value, onChange, onBusyChange, showSimpleDesign = true, compact = false }: {
   context: WalletNetworkContext | null; prefix: string; panLength: number;
   active: boolean; sanitized?: Blob; candidate?: Blob; onChange: (artwork: WalletCardArtwork) => void;
   onBusyChange?: (busy: boolean) => void;
   value?: WalletCardArtwork;
+  showSimpleDesign?: boolean;
+  compact?: boolean;
 }) {
   const [resolution, setResolution] = useState<WalletArtworkResolution | null>(null);
   const [notice, setNotice] = useState("");
@@ -45,7 +47,7 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
       const timer = setTimeout(() => {
         void WalletService.resolveCardArtwork({ userId, vaultOwnerToken: ownerToken }, { iinPrefix: prefix, panLength }, controller.signal).then(value => {
           if (!controller.signal.aborted) setResolution(value);
-        }).catch(() => { if (!controller.signal.aborted) setNotice("Original design unavailable. Neutral artwork is ready."); });
+        }).catch(() => { if (!controller.signal.aborted) setNotice("Original design unavailable."); });
       }, 250);
       return () => { clearTimeout(timer); controller.abort(); operation.current?.abort(); };
     }
@@ -56,7 +58,7 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
     const controller = new AbortController(); choiceRevision.current++; operation.current = controller; setBusy(true);
     void WalletService.selectCardArtwork({ userId, vaultOwnerToken: ownerToken }, resolution.variants[0]!, resolution.catalogVersion, controller.signal).then(value => {
       if (!controller.signal.aborted) { onChange(value); setNotice("Original design selected. Review it before adding your card."); }
-    }).catch(() => { if (!controller.signal.aborted) setNotice("Original design unavailable. Neutral artwork is ready."); })
+    }).catch(() => { if (!controller.signal.aborted) setNotice("Original design unavailable."); })
       .finally(() => { if (operation.current === controller) { operation.current = null; setBusy(false); } });
     return () => controller.abort();
   }, [active, userId, ownerToken, resolution, onChange]);
@@ -73,15 +75,15 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
       const value = await get(controller.signal);
       if (controller.signal.aborted || !activeRef.current || !isVaultSessionEpochCurrent(epoch) || current.current?.userId !== owner.userId || current.current.vaultOwnerToken !== owner.vaultOwnerToken) return;
       onChange(value); setNotice("Design selected. Review it before adding your card.");
-    } catch { if (!controller.signal.aborted) setNotice("This design is unavailable. Choose neutral artwork."); }
+    } catch { if (!controller.signal.aborted) setNotice("This design is unavailable. Try another design."); }
     finally { if (operation.current === controller) { operation.current = null; setBusy(false); } }
   };
-  if (!active) return null;
+  if (!active || (!showSimpleDesign && !resolution?.variants.length && !visiblePreview)) return null;
   return <section aria-label="Card design" className="flex flex-col gap-3">
-    <h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
-    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p>
+    {!compact ? <><h3 className={TYPOGRAPHY_CLASSNAMES.rowLabel}>Choose your card design</h3>
+    <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Select the design that matches your card.</p></> : null}
     {resolution?.metadata && Object.values(resolution.metadata).some(Boolean) ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{[resolution.metadata.issuerName, resolution.metadata.productFamily, resolution.metadata.cardType, resolution.metadata.tier, resolution.metadata.country].filter(Boolean).join(" · ")}</p> : null}
-    {resolution?.match === "unknown" ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Original design unavailable. You can use a neutral design.</p> : null}
+    {showSimpleDesign && resolution?.match === "unknown" ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Original design unavailable. You can use a neutral design.</p> : null}
     {resolution && resolution.variants.length ? <>
       <div className="flex snap-x gap-3 overflow-x-auto p-1" aria-label="Approved card designs">{context ? resolution.variants.map(variant => <WalletCardArtworkTile key={`${userId}:${ownerToken}:${resolution.catalogVersion}:${variant.assetId}`} context={context} variant={variant} catalogVersion={resolution.catalogVersion} selected={value?.source === "catalog" && value.assetId === variant.assetId} onSelect={() => void apply(signal => WalletService.selectCardArtwork(context, variant, resolution.catalogVersion, signal))} />) : null}</div>
     </> : null}
@@ -108,13 +110,13 @@ export function WalletCardArtworkPicker({ context, prefix, panLength, active, sa
         const controller = new AbortController(), version = photoGeneration.current; operation.current?.abort(); operation.current = controller; setBusy(true);
         void scanWalletCardForReview(displayedPhoto, controller.signal, { sanitizeOnly: true, masks: [mask] }).then(result => {
           if (controller.signal.aborted || version !== photoGeneration.current) return; setEditedPhoto({ source: sourcePhoto, result }); setMask(null); setMaskStart(null);
-          setNotice(result.sanitized ? "Photo rechecked. Inspect it before approval." : "The photo needs more masking. You can use a neutral design.");
-        }).catch(() => { if (!controller.signal.aborted) setNotice("Photo inspection unavailable. Use a neutral design."); })
+          setNotice(result.sanitized ? "Photo rechecked. Inspect it before approval." : "The photo needs more masking.");
+        }).catch(() => { if (!controller.signal.aborted) setNotice("Photo inspection unavailable."); })
           .finally(() => { if (operation.current === controller) { operation.current = null; setBusy(false); } });
       }}>Remove selected area</Button>
       {inspectedPhoto ? <Button type="button" variant="secondary" size="compact" disabled={busy || Boolean(mask) || Boolean(maskStart)} onClick={() => void apply(async () => approveWalletPhoto(inspectedPhoto, context.userId))}>I checked — use photo</Button> : null}
     </> : null}
-    <Button type="button" variant="ghost" size="compact" aria-pressed={!value || value.source === "neutral"} onClick={() => { choiceRevision.current++; operation.current?.abort(); onChange({ source: "neutral", version: 1 }); setBusy(false); setNotice("Simple design selected."); }}>Use a simple design</Button>
+    {showSimpleDesign ? <Button type="button" variant="ghost" size="compact" aria-pressed={!value || value.source === "neutral"} onClick={() => { choiceRevision.current++; operation.current?.abort(); onChange({ source: "neutral", version: 1 }); setBusy(false); setNotice("Simple design selected."); }}>Use a simple design</Button> : null}
     {notice ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>{notice}</p> : null}
   </section>;
 }

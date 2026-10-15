@@ -4100,3 +4100,39 @@ all 2,707 existing findings and historical evidence with no detector or budget
 change. The actual retirement callback-removal negative control fails the
 unknown-append case and restores the verification checkout. Hosted CI and
 financial acceptance remain unverified until their own receipts pass.
+
+
+### Release-integration status, 2026-10-15
+
+The `bcbf537b4f0f` batch passes local core stages: 20,256 protocol cases,
+1,266 PostgreSQL cases, frontend lint/build, packaged MCP and integration.
+Backend evidence is on `93c8a1584590`; its only continuation adds the completed
+Search review receipt. The exact source implementation is unchanged. The batch
+was pushed normally; another concurrent main conflict still prevents hosted CI.
+This is implementation evidence, not completed paid-scope acceptance.
+
+The current merge of `6a6f83257406` preserves incoming wallet preload/masking,
+owner/epoch/Back authority and existing separate document/answer contracts.
+It corrects an incoming semantic-boundary regression: the host must never
+replace successful model/checker copy, state, pricing rationale or identity
+judgment. Equal provider checksums reject duplicate originals through the
+existing bounded validation retry; equal extracted facts do not establish that
+identity. Existing authored policy already assesses holder ambiguity, date
+meaning and request status, so its exact fingerprint is preserved and this
+integration does not force an unrelated document-facts reindex.
+
+The adversarial harness now transports original-content checksums and generates
+consistent synthetic checksums. It retains all cohorts and pairs authored
+refusals with faulty Ready builder/checker answers: independent defect detection
+still makes the actual deploy gate fail. Scripted compliance is not a claim of
+live model accuracy. No funding, reservations, purchases or payouts were added
+by this integration; the first verified one-cent exchange remains outstanding.
+
+
+The completed composition passes 95 wallet cases, 103 focused semantic/security
+cases and the broader 267-case store/evaluation run using real PostgreSQL.
+Both Back and Search generation completed; all 462 Back cases pass. Two
+independent evidence lanes reviewed exactly 11 size observations, retaining
+all 2,707 historical findings and adding two measured slots. Scanner, budgets
+and the second store-operation occurrence remain unchanged. The next release
+requires canonical core and hosted CI; these results do not prove a purchase.

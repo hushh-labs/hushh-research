@@ -288,7 +288,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
             />
           </div>
         </div>
-        <div className={styles.row}>
+        <div className={cn(styles.row, styles.pairedRow)}>
           <div className={styles.field}>
             <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
@@ -303,7 +303,6 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               {...fieldErrors("expiry_month_invalid", "expiry_year_invalid", "card_expired")}
             />
           </div>
-        </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
             <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
@@ -315,11 +314,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
                 {supportedNetworks.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
             </Select>
-            {catalogFailed ? <div role="status" className={styles.scanHint}>
-              <p>Network options could not load. Auto-detect is still available.</p>
-              <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
-            </div> : null}
           </div>
+        </div>
+        {catalogFailed ? <div role="status" className={styles.scanHint}>
+          <p>Network options could not load. Auto-detect is still available.</p>
+          <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+        </div> : null}
         <details className={styles.additional} open={additionalOpen} onToggle={event => setAdditionalOpen(event.currentTarget.open)}>
           <summary>Additional details</summary>
           <div className={styles.fields}>
@@ -342,7 +342,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
       </fieldset>
       {artworkEnabled ? <>
         <WalletBankDesignPicker key={bankContextKey} context={context} network={bankNetwork} country={issuingRegion || undefined} active={draftVisible && !submitting && !scanning && Boolean(currentReply?.result || (networkReply?.key === lookupKey && networkReply.result))} draftRevision={bankDraftRevision} onChange={setArtwork} onModeChange={enabled => setBankSelection(enabled ? bankContextKey : null)} suggest={suggestBankDesign ? (variants, signal) => suggestBankDesign(digits, variants, signal) : undefined} hasPhoto={Boolean(scanReading?.sanitized || scanReading?.candidate)} />
-        <WalletCardArtworkPicker context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} />
+        <WalletCardArtworkPicker compact context={context} prefix={digits.length >= 13 ? digits.slice(0, 8) : ""} panLength={length} active={draftVisible && !submitting && !scanning && !bankMode} sanitized={scanReading?.sanitized} candidate={scanReading?.candidate} value={artwork} onChange={setArtwork} showSimpleDesign={false} />
       </> : null}
       {errors.length > 0 ? (
         <ul ref={errorsRef} tabIndex={-1} role="alert" className={styles.errors} data-testid="secure-card-errors">
@@ -350,10 +350,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         </ul>
       ) : null}
       <FlowActionGroup
-        className="mx-auto max-w-[244px]"
-        stacked
+        className={styles.actions}
+        separateSecondary={false}
         primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
-        secondary={onCancel ? <Button type="button" variant="ghost" size="standard" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
+        secondary={onCancel ? <Button type="button" variant="ghost" size="prominent" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
     </>

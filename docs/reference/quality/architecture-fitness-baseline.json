@@ -2425,7 +2425,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2707,
+  "finding_count": 2709,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -20731,7 +20731,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 725
+      "value": 728
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22675,7 +22675,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 1344
+      "value": 1381
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25106,7 +25106,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "DrivePacketStore",
-      "value": 937
+      "value": 942
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25277,7 +25277,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "finalize_packet",
-      "value": 113
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25295,7 +25295,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "operation",
-      "value": 107
+      "value": 108
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25448,7 +25448,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": null,
-      "value": 999
+      "value": 1004
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26281,7 +26281,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
       "symbol": null,
-      "value": 547
+      "value": 579
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26308,7 +26308,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
       "symbol": null,
-      "value": 1041
+      "value": 1571
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26452,7 +26452,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py",
       "symbol": "build",
-      "value": 215
+      "value": 224
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26795,6 +26795,24 @@
       "path": "hushh-webapp/__tests__/components/world-model-journey.test.tsx",
       "symbol": null,
       "value": 505
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_packet_intelligence.py|test_request_only_packet_keeps_bounded_copy_and_no_period_claim_at_every_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
+      "symbol": "test_request_only_packet_keeps_bounded_copy_and_no_period_claim_at_every_state",
+      "value": 146
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py|verify_packet|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
+      "symbol": "verify_packet",
+      "value": 90
     }
   ],
   "inspected_files": 6625,
@@ -48905,6 +48923,128 @@
     "incoming_main": "5d4b7c51df32caf67df0ce330b428d4b053ff69e",
     "review": "Connections retains nominal 44px targets with 0.0001px WebKit arithmetic precision allowance; a 43px target still fails. Wallet extends the existing Add regression with loaded artwork, single chooser, required fields, paired geometry and no runtime errors. Test counts remain 34 and 26; existing privacy, consent, revocation and navigation assertions remain.",
     "source_revision": "dbd87490f1fd3ec23f611eb9a2c7f98d936e86fa"
+  },
+  "scope_commerce_main6a6_composition_20261015": {
+    "boundary": "Exactly11 independently reviewed rank-zero size observations; all2707 historical entries and metadata preserved, operation rank1 remains100. Scanner, exclusions and500/250/80budgets unchanged; new growth still rejected.",
+    "entries": [
+      {
+        "accepted_ceiling": 942,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 937,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "2d656d7640aa2ecb1a550a4c5e747569b6252cb2",
+        "source_sha256": "be0472926efe16478a363cdea540cb50fdce1d88df2545e4b076627a94dc2b8e"
+      },
+      {
+        "accepted_ceiling": 224,
+        "key": "function_size|consent-protocol/tests/fixtures/drive_packet_eval/generate_adversarial.py|build|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 215,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d444d92d1e10e0a9cb07ba4fe759f5926670dd51",
+        "source_sha256": "f7e85cd6d58fec74bb989d64fe86f73083eeddbb9777681c9676349debe963a3"
+      },
+      {
+        "accepted_ceiling": 146,
+        "key": "function_size|consent-protocol/tests/services/test_drive_packet_intelligence.py|test_request_only_packet_keeps_bounded_copy_and_no_period_claim_at_every_state|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "533556dfab90eaf36fb1656c202b72dae249474c",
+        "source_sha256": "1d17cdb4da507c846db97a12b05bd82492f741645520157959158dc4d9f1ba96"
+      },
+      {
+        "accepted_ceiling": 114,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|finalize_packet|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 113,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "2d656d7640aa2ecb1a550a4c5e747569b6252cb2",
+        "source_sha256": "be0472926efe16478a363cdea540cb50fdce1d88df2545e4b076627a94dc2b8e"
+      },
+      {
+        "accepted_ceiling": 108,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 107,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "2d656d7640aa2ecb1a550a4c5e747569b6252cb2",
+        "source_sha256": "be0472926efe16478a363cdea540cb50fdce1d88df2545e4b076627a94dc2b8e"
+      },
+      {
+        "accepted_ceiling": 90,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py|verify_packet|function exceeds the advisory gene budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": null,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "f2201231e0590641cc91e3e94c0ed101e9228e60",
+        "source_sha256": "22372bb267cf1c322e00fff42fee5fafb17328acaafbe28d6973939483f918f4"
+      },
+      {
+        "accepted_ceiling": 1571,
+        "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1041,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "533556dfab90eaf36fb1656c202b72dae249474c",
+        "source_sha256": "1d17cdb4da507c846db97a12b05bd82492f741645520157959158dc4d9f1ba96"
+      },
+      {
+        "accepted_ceiling": 1381,
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 1344,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "d72ce618a7a5ed7b0d61cfae49da72bd3fd94641",
+        "source_sha256": "7260cdd2fdaeecb2cd77ecf8bbd0386c1257392f18f8f73ba710cf9b563d10e3"
+      },
+      {
+        "accepted_ceiling": 1004,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 999,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "2d656d7640aa2ecb1a550a4c5e747569b6252cb2",
+        "source_sha256": "be0472926efe16478a363cdea540cb50fdce1d88df2545e4b076627a94dc2b8e"
+      },
+      {
+        "accepted_ceiling": 728,
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 725,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "ci_registry_review",
+        "source_git_blob": "587ff6938f21f26b09199980309b878e07c2e7e6",
+        "source_sha256": "905cab30eee637d7041fc50e6fcb5e4b9fe44ae60327525c2d7e881b03b1a2e9"
+      },
+      {
+        "accepted_ceiling": 579,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "occurrence_rank": 0,
+        "previous_ceiling": 547,
+        "review": "Independently reviewed exact main composition. Original-content identity only; authored model results preserved. Placement and owner isolation retained. False-Ready negative controls reach actual failed deploy gate. Wallet masking, Back and owner retirement retained. Comment corrected without changing measured spans.",
+        "reviewer": "architecture_review",
+        "source_git_blob": "f2201231e0590641cc91e3e94c0ed101e9228e60",
+        "source_sha256": "22372bb267cf1c322e00fff42fee5fafb17328acaafbe28d6973939483f918f4"
+      }
+    ],
+    "evidence": "consent-protocol/docs/reference/consumer-scope-commerce.md",
+    "incoming_main_revision": "6a6f83257406f9a8d9b52f9085321edb52e46de5",
+    "prior_baseline_sha256": "bfc012030e3319933ab31a9ebb625859923eb798612041ec47a3c0088a877aaa",
+    "retained_parent_revision": "bcbf537b4f0fb13f0d5a3f2323e4677773fa980e",
+    "reviewed_report_sha256": "5aa37383bc1158768a93e3f7e6bc9ef4d32f7b5fc6b80cf6c9c6a1da1bf4e389",
+    "reviewed_source_revision": "831492e896f60f940eb3ce0e82c2e50a2e8a759a",
+    "verification": "95 frontend and103 semantic/security cases pass; broader267 store/eval cases pass with real PostgreSQL.462 Back cases pass. No deployment, live model accuracy or financial acceptance inferred."
   },
   "scope_commerce_main_document_payout_union_20261012": {
     "added_slots": [

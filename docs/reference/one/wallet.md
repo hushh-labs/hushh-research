@@ -124,9 +124,9 @@ card design comes from an approved catalog, an explicitly approved sanitized
 private photo, or the solid neutral Wallet design; it is never chosen by card ID.
 The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
-chat projection. Collection faces show only the last four number digits; the
-selected card in an unlocked Wallet shows the full number. CVV and PIN stay
-hidden. Locking the vault or changing
+chat projection. Collection and selected-card faces show only the last four
+number digits, as does the Card details row. The full number is decrypted only
+after an explicit copy action. CVV and PIN stay hidden. Locking the vault or changing
 accounts drops the presentation. Reads that fail do not become an empty wallet,
 and writes use the current snapshot revision to preserve concurrent additions.
 
@@ -228,10 +228,20 @@ The Cards overview presents one full card above a compact lower stack. Vertical 
 
 ### Saved payment card numbers and temporary sharing
 
-Selecting a saved payment card in an unlocked Wallet displays its full number
-on that face and in Card details. The collection remains a metadata projection.
-Owner, key, tab, selection, visibility and unmount changes invalidate delayed
-number reads and clear the selected number. CVV and PIN remain hidden.
+Selecting a saved payment card keeps its face and Card details number masked.
+The copy icon decrypts and copies the complete saved number without adding it
+to the DOM. Owner, key, tab, selection, visibility and unmount changes invalidate
+delayed copies. CVV and PIN remain hidden. Saved-card recipient rows show the
+recipient name and shared date; revocation remains available for active grants.
+
+The Add scanner illustration centers the portrait Agent One card over the
+phone screen and raises it above the phone, using the supplied placement
+reference. The transparent black-and-gold asset is
+`hushh-webapp/public/wallet/card-scan-agent-one-emerging.webp` (built-in image
+editing, then WebP compression). Add omits the design introduction and simple
+design action; approved bank/photo selection stays available. Saved-card
+details omit the Change card design entry. Built-in card QR panels use a small
+QR on the left and a two-column action grid on the right.
 
 Share is available on every owner-entered payment card without a separate
 card-verification step. A confirmed Wallet write registers saved cards automatically;

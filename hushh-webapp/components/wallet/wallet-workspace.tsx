@@ -63,7 +63,6 @@ import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
-import { WalletCardDesignEditor } from "@/components/wallet/wallet-card-design-editor";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
@@ -85,6 +84,7 @@ import { ReferralService, type ReferralSummary } from "@/lib/services/referral-s
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { CARD_CORNER_RADIUS_RATIO } from "@/lib/wallet/wallet-card-presentation";
 import {
   INITIAL_WALLET_VIEW,
@@ -179,7 +179,7 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
       </div>
 
       <h2 id="one-wallet-empty-title" className="sr-only">
-        All your cards. In one place.
+        All your cards in one place
       </h2>
       <PageTitle
         as="p"
@@ -187,8 +187,7 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
         className="mt-4 max-w-[20rem] text-balance lg:max-w-none lg:whitespace-nowrap"
         data-testid="one-wallet-empty-display-title"
       >
-        <span className="block lg:inline">All your cards.</span>{" "}
-        <span className="block lg:inline">In one place.</span>
+        All your cards in one place
       </PageTitle>
       <div className="mx-auto mt-5 w-full max-w-[244px]">
         <Button
@@ -636,59 +635,24 @@ export function WalletWorkspace() {
     };
   }
   const numberScopeRevision = cardActionScopeRef.current.revision;
-  const [ownerNumber, setOwnerNumber] = useState<{ revision: number; pan: string } | null>(null);
-  const [numberUnavailable, setNumberUnavailable] = useState(false);
-  const [numberReadRevision, setNumberReadRevision] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    let readRevision = 0;
-    const load = async () => {
-      const read = ++readRevision;
-      setOwnerNumber(null);
-      setNumberUnavailable(false);
-      const context = vaultContextRef.current();
-      const scope = cardActionScopeRef.current;
-      if (!context || activeTab !== "cards" || view.kind !== "list" ||
-          !focusedCardId || focusedCardId !== focusedCard?.cardId || document.visibilityState === "hidden") return;
-      const revision = scope.revision;
-      const isCurrent = () => {
-        const current = vaultContextRef.current();
-        return !cancelled && read === readRevision && document.visibilityState !== "hidden" &&
-          current?.userId === context.userId && current.vaultKey === context.vaultKey &&
-          current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision;
-      };
-      try {
-        const saved = await WalletService.getCard({ ...context, cardId: focusedCardId });
-        if (!isCurrent()) return;
-        if (!saved?.secrets.pan) { setNumberUnavailable(true); return; }
-        // Only the selected owner's number is retained for display. Security
-        // codes never enter this projection, the collection, or telemetry.
-        setOwnerNumber({ revision, pan: saved.secrets.pan });
-      } catch {
-        if (isCurrent()) setNumberUnavailable(true);
-      }
-    };
-    const visibility = () => { void load(); };
-    void load();
-    document.addEventListener("visibilitychange", visibility);
-    return () => { cancelled = true; readRevision += 1; document.removeEventListener("visibilitychange", visibility); };
-  }, [numberScopeRevision, numberReadRevision, activeTab, view.kind, focusedCardId, focusedCard?.cardId]);
-  const displayedNumber = ownerNumber?.revision === cardActionScopeRef.current.revision ? ownerNumber.pan : undefined;
+  // History belongs to the unlocked owner session, independent of card/tab selection.
+  const historyVisibilityRevision = useRef(0);
   const getHistoryContext = useCallback((_cardId: string) => {
-    const context = vaultContextRef.current();
-    const revision = cardActionScopeRef.current.revision;
+    const context = vaultContext();
+    const epoch = snapshotVaultSessionEpoch();
+    const visibilityRevision = historyVisibilityRevision.current;
     const isCurrent = () => {
       const current = vaultContextRef.current();
       return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
-        current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision &&
-        cardActionScopeRef.current.tab === "sharing" && document.visibilityState !== "hidden");
+        current.vaultOwnerToken === context.vaultOwnerToken && isVaultSessionEpochCurrent(epoch) &&
+        historyVisibilityRevision.current === visibilityRevision && document.visibilityState !== "hidden");
     };
     if (!context || !isCurrent()) return null;
     return { ...context, isCurrent, getIdToken: async () => {
       if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
       return sharingUserRef.current.getIdToken();
     } };
-  }, []);
+  }, [vaultContext]);
   const getCardShareContext = useCallback((cardId: string) => {
     const context = vaultContextRef.current();
     const revision = cardActionScopeRef.current.revision;
@@ -707,11 +671,15 @@ export function WalletWorkspace() {
   }, []);
   useEffect(() => {
     const invalidateCopy = () => {
-      if (document.visibilityState === "hidden") cardActionScopeRef.current.revision += 1;
+      if (document.visibilityState === "hidden") {
+        cardActionScopeRef.current.revision += 1;
+        historyVisibilityRevision.current += 1;
+      }
     };
     document.addEventListener("visibilitychange", invalidateCopy);
     return () => {
       cardActionScopeRef.current.revision += 1;
+      historyVisibilityRevision.current += 1;
       document.removeEventListener("visibilitychange", invalidateCopy);
     };
   }, []);
@@ -856,14 +824,10 @@ export function WalletWorkspace() {
         key={focusedCard.cardId}
         card={focusedCard}
         name={cardholderNames[focusedCard.cardId]}
-        pan={displayedNumber}
-        numberUnavailable={numberUnavailable}
-        onRetryNumber={() => setNumberReadRevision(value => value + 1)}
         onCopyCardNumber={() => copyCardNumber(focusedCard.cardId)}
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
-      <WalletCardDesignEditor key={`design:${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} name={cardholderNames[focusedCard.cardId]} getContext={() => getCardShareContext(focusedCard.cardId)} onSaved={artwork => { cardReadRevision.current++; setCardSnapshot(previous => previous?.ownerId === renderedOwnerId ? { ...previous, artworks: { ...previous.artworks, [focusedCard.cardId]: artwork } } : previous); }} />
       <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
 
     </div>
@@ -1033,7 +997,6 @@ export function WalletWorkspace() {
               cardholderNames={cardholderNames}
               artworks={artworks}
               selectedCardId={selectedDeckCardId}
-              selectedCardNumber={displayedNumber}
               onSelect={selectCard}
               onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
