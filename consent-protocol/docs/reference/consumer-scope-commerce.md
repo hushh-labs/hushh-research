@@ -3800,3 +3800,16 @@ mutation admission and owner/vault retirement checks. Its 57 focused cases and
 retirement during deferred connector admission. The concrete signed endpoint and
 OAuth-attempt filter still require qualification before browser use. This is
 rehearsal admission, not evidence of One's authenticated Stripe account reads.
+
+The subsequent normal merge `32260e80da` retains concurrent web repairs from
+`15d83d5bab` without duplicating them. All 173 tests across the eight previously
+failing Vitest files pass. The unchanged receipt-disconnection case first
+reproduced its timeout; explicitly starting the scan restores the intended
+pending-page/late-response boundary. No timeout or retirement assertion changed.
+The connected Calendar Chromium 320px geometry/session-recovery case also passes:
+its synthetic authentication boundary prevents import-time Firebase initialization
+while retaining the real Calendar component and typed transport. The earlier
+failure was an `auth/invalid-api-key` fixture error, not a missing product heading.
+Final combined core, exact-head hosted CI, Dev release and financial acceptance
+remain required. Existing Chrome transport and the owner session remain connected;
+no funding, purchase or payout was repeated during these checks.
