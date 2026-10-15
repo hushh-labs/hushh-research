@@ -152,6 +152,34 @@ export interface LiveMirrorHistory {
   coverage: "open_app_only";
 }
 
+/** One claim about a predicate, with where it came from. */
+export interface LiveMirrorClaim {
+  /** "soul" for the owner-authored chat memory, else the living source kind. */
+  source: "soul" | LiveMirrorKind;
+  label: string;
+  value: LiveMirrorFactValue | null;
+  revision: number | null;
+  sourceUpdatedAt: string | null;
+  verifiedAt: string | null;
+  /** A money claim's own ISO currency from its copy; null when the copy names none; absent when the claim is not money. */
+  currency?: string | null;
+  /** "named": a Soul-versus-profile name claim. "record": one side of a record whose revisions disagree. */
+  origin?: "named" | "record";
+}
+
+/** The sides disagree about one predicate. Every claim is shown; none is chosen. */
+export interface LiveMirrorConflict {
+  predicate: string;
+  label: string;
+  claims: LiveMirrorClaim[];
+}
+
+/** Where the owner changes a source's values; never a Live Mirror write path. */
+export interface LiveMirrorSourceRoute {
+  href: string;
+  label: string;
+}
+
 export interface LiveMirrorProjection {
   schemaVersion: "live_mirror.v1";
   /** Consumers must drop the projection when this differs from the signed-in owner. */
@@ -164,6 +192,8 @@ export interface LiveMirrorProjection {
   issues: readonly string[];
   /** The owner-authored Soul name differs from the verified account name. */
   nameConflict: boolean;
+  /** Every disagreement, with both claims and their provenance. Empty when none. */
+  conflicts?: LiveMirrorConflict[];
   /** Seven living kinds in LIVE_MIRROR_KINDS order, then saved sections by domain. */
   sources: LiveMirrorSource[];
   /** Sorted by key. */

@@ -350,11 +350,12 @@ it("continues reconnect catch-up beyond the first five pages without waiting for
     };
   });
   act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
-  await screen.findByText("Message 206", {}, { timeout: 1500 });
+  // Seven pages and 206 decrypted rows take about 0.7 s locally and longer on shared CI runners.
+  await screen.findByText("Message 206", {}, { timeout: 8_000 });
   const transcript = screen.getByRole("list");
   expect(transcript.children).toHaveLength(206);
   expect(api.messages).toHaveBeenCalledTimes(7);
-});
+}, 15_000);
 
 it("retains a newer receipt when the committed send response arrives late", async () => {
   const own = { ...message, id: "own", sequence: 2, senderUserId: "alice", receipt: { recipientCount: 1, readCount: 0 } };
