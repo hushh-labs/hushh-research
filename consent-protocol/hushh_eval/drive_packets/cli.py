@@ -1,9 +1,10 @@
-"""python -m hushh_eval.drive_packets plan-batch | run-batch | judge | label | score | report | gate
+"""python -m hushh_eval.drive_packets plan-batch | run-batch | judge | label | score | report | gate | dashboard
 
 Sources: ``fixture`` (synthetic, CI) or ``uat`` (one owner's Drive, read-only,
 requires DRIVE_PACKET_EVAL_LIVE=1). Exit codes: 0 ok/pass, 1 fail, 2 insufficient
 evidence or usage error. There is no command or flag that creates jobs, dispatches
-workflows or writes to any database or Drive.
+workflows or writes to any database or Drive. ``dashboard`` serves the local,
+read-only founder dashboard on 127.0.0.1 (see dashboard/README.md).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from hushh_eval.drive_packets.contracts import (
 from hushh_eval.drive_packets.privacy import PrivacyError, PrivateWorkdir, keyed
 from hushh_mcp.managed_ai_config import load_profile
 
-COMMANDS = ("plan-batch", "run-batch", "judge", "label", "score", "report", "gate")
+COMMANDS = ("plan-batch", "run-batch", "judge", "label", "score", "report", "gate", "dashboard")
 VERDICT_ERRORS = {
     "judge_schema_invalid",
     "judge_citation_invalid",
@@ -892,7 +893,34 @@ def parser() -> argparse.ArgumentParser:
     )
     gate.add_argument("--previous-anchor", help="Previous anchor_severity.json to compare against")
     gate.set_defaults(func=cmd_gate)
+
+    dashboard = sub.add_parser(
+        "dashboard", help="Local read-only founder dashboard for the eval's one owner (127.0.0.1)"
+    )
+    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument(
+        "--db-port", type=int, default=6657, help="Local Cloud SQL proxy port (read-only use)"
+    )
+    dashboard.add_argument(
+        "--engine-root",
+        help="A checkout of exactly UAT's deployed commit (default: found or added)",
+    )
+    dashboard.add_argument(
+        "--no-engine-checkout",
+        action="store_true",
+        help="Run the engine from this checkout; the page shows any mismatch in red",
+    )
+    dashboard.add_argument(
+        "--check", action="store_true", help="Run the startup checks, print counts only, exit"
+    )
+    dashboard.set_defaults(func=cmd_dashboard)
     return root
+
+
+def cmd_dashboard(args) -> int:
+    from hushh_eval.drive_packets.dashboard.launch import run
+
+    return run(args)
 
 
 def main(argv: list[str] | None = None) -> int:

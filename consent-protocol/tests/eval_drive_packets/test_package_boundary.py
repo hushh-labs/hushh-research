@@ -42,7 +42,9 @@ def test_cli_exposes_the_seven_commands_and_no_mutating_flags():
 
 
 def test_package_source_has_no_write_or_dispatch_paths():
-    source = "\n".join(path.read_text() for path in PACKAGE.glob("*.py"))
+    # Every module, including the local dashboard (dashboard/*.py).
+    source = "\n".join(path.read_text() for path in PACKAGE.rglob("*.py"))
+    assert (PACKAGE / "dashboard" / "server.py").read_text() in source
     for pattern in (
         r"INSERT\s+INTO",
         r"UPDATE\s+\w+\s+SET",

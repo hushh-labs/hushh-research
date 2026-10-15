@@ -800,6 +800,11 @@ tests/services/test_drive_pipeline_evaluation.py
 # Drive packet batch eval: synthetic fixtures only, fixture model and judge, no network.
 tests/eval_drive_packets/test_cli_smoke_fixtures.py
 tests/eval_drive_packets/test_contracts.py
+tests/eval_drive_packets/test_dashboard_accuracy.py
+tests/eval_drive_packets/test_dashboard_engine_info.py
+tests/eval_drive_packets/test_dashboard_real_requests.py
+tests/eval_drive_packets/test_dashboard_server.py
+tests/eval_drive_packets/test_dashboard_sql.py
 tests/eval_drive_packets/test_deterministic_checks.py
 tests/eval_drive_packets/test_gates.py
 tests/eval_drive_packets/test_guard_regression_suite.py
