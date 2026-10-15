@@ -7,6 +7,7 @@ import {
   LIVE_MIRROR_PRESENCE_ONLY_PREDICATES,
   LIVE_MIRROR_SOURCE_LABELS,
   LIVE_MIRROR_STALE_GRACE_MS,
+  type LiveMirrorClaim,
   type LiveMirrorConflict,
   type LiveMirrorFact,
   type LiveMirrorHistoryEntry,
@@ -90,12 +91,12 @@ const withSource = (kind: LiveMirrorKind, patch: Partial<LiveMirrorSource>) =>
 /** A Soul-versus-profile name conflict beside a record conflict, each with its claims. */
 const CONFLICTS: LiveMirrorConflict[] = [
   { predicate: "profile.name", label: "Name", claims: [
-    { source: "soul", label: "Memory (you wrote)", value: "Ankit K", revision: 9, sourceUpdatedAt: at(-45 * MIN), verifiedAt: null },
-    { source: "profile", label: "Profile", value: "Ankit Synthetic", revision: 3, sourceUpdatedAt: at(-30 * MIN), verifiedAt: T },
+    { source: "soul", origin: "named", label: "Your memory", value: "Ankit K", revision: 9, sourceUpdatedAt: at(-45 * MIN), verifiedAt: null },
+    { source: "profile", origin: "named", label: "Profile", value: "Ankit Synthetic", revision: 3, sourceUpdatedAt: at(-30 * MIN), verifiedAt: T },
   ] },
   { predicate: "consent.scope", label: "Scope", claims: [
-    { source: "consent", label: "Consent 2", value: "CANDIDATE_A", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
-    { source: "consent", label: "Consent 2", value: "CANDIDATE_B", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
+    { source: "consent", origin: "record", label: "Consent 2, copy 1", value: "CANDIDATE_A", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
+    { source: "consent", origin: "record", label: "Consent 2, copy 2", value: "CANDIDATE_B", revision: 5, sourceUpdatedAt: null, verifiedAt: T },
   ] },
 ];
 
@@ -198,7 +199,7 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
     }, [
       'Name conflict: memory says "Ankit K"; verified profile says "Ankit Synthetic" [profile r3, verified 2026-10-15T10:00Z]',
       "- Consent 2: conflicting revisions, no value selected",
-    ], ["the owner-authored Soul name differs", "CANDIDATE_A", "CANDIDATE_B", "Memory (you wrote)", "09:15Z", "09:30Z", "r9"]],
+    ], ["the owner-authored Soul name differs", "CANDIDATE_A", "CANDIDATE_B", "Your memory", "09:15Z", "09:30Z", "r9"]],
     ["name conflict while Profile is withheld, without either name", {
       nameConflict: true, overall: "conflict", conflicts: CONFLICTS, sources: withSource("profile", { state: "withheld" }),
     }, ["Name conflict: the owner-authored Soul name differs from the verified profile.name."], ["Ankit K", "Ankit Synthetic"]],
@@ -230,6 +231,73 @@ describe("Live Mirror packet states read at turn time (B-R6)", () => {
     expect(late).not.toContain("[verified");
     // The caller's turn time counts too, so an old view cannot look fresh.
     expect(build(view(cached), { now: Date.parse(at(9 * MIN)) }).text).not.toContain("[verified");
+  });
+});
+
+describe("Live Mirror name conflict read at turn time (B-R6)", () => {
+  const FALLBACK = "Name conflict: the owner-authored Soul name differs from the verified profile.name.";
+  const SOUL: LiveMirrorClaim = {
+    source: "soul", origin: "named", label: "Your memory", value: "SOUL_NAME", revision: 9,
+    sourceUpdatedAt: at(-45 * MIN), verifiedAt: null,
+  };
+  const PROFILE: LiveMirrorClaim = {
+    source: "profile", origin: "named", label: "Profile", value: "PROFILE_NAME", revision: 3,
+    sourceUpdatedAt: at(-30 * MIN), verifiedAt: T,
+  };
+  /** One side of a profile record whose own copies disagree on the name. */
+  const copy = (number: number, value: string): LiveMirrorClaim => ({
+    source: "profile", origin: "record", label: `Profile, copy ${number}`, value, revision: 3,
+    sourceUpdatedAt: at(-number * MIN), verifiedAt: T,
+  });
+  const SENTINELS = ["SOUL_NAME", "PROFILE_NAME", "SECOND_PROFILE_NAME", "RECORD_NAME_A", "RECORD_NAME_B"];
+  const packet = (claims: LiveMirrorClaim[], patch: Partial<LiveMirrorView> = {}) => build(view({
+    nameConflict: true, overall: "conflict", conflicts: [{ predicate: "profile.name", label: "Name", claims }], ...patch,
+  })).text;
+
+  // Hand-built views: the projection no longer pairs memory's name with a
+  // record's copies. Profile stays current here, so only the sides decide.
+  it.each<[string, LiveMirrorClaim[]]>([
+    // The reviewed case: the first profile string, a record copy, went out as "verified profile says".
+    ["a profile record's copies beside a named profile side without a value",
+      [SOUL, { ...PROFILE, value: null }, copy(1, "RECORD_NAME_A"), copy(2, "RECORD_NAME_B")]],
+    ["a profile record's copies alone", [SOUL, copy(1, "RECORD_NAME_A"), copy(2, "RECORD_NAME_B")]],
+    ["a lone record copy, the only profile name on offer", [SOUL, copy(1, "RECORD_NAME_A")]],
+    ["sides without an origin", [{ ...SOUL, origin: undefined }, { ...PROFILE, origin: undefined }]],
+    ["two named profile names", [SOUL, PROFILE, { ...PROFILE, value: "SECOND_PROFILE_NAME" }]],
+    ["a blank profile name", [SOUL, { ...PROFILE, value: "  " }]],
+    ["no written name", [{ ...SOUL, value: null }, PROFILE]],
+  ])("names the conflict without values for %s", (_label, claims) => {
+    const text = packet(claims);
+    expect(text).toContain(FALLBACK);
+    for (const value of SENTINELS) expect(text, value).not.toContain(value);
+  });
+
+  it.each<[string, Partial<LiveMirrorView>, string]>([
+    ["verified while current", {}, 'verified profile says "PROFILE_NAME" [profile r3, verified 2026-10-15T10:00Z]'],
+    ["stale past its window, though the cached view says current", { evaluatedAt: at(8 * MIN) },
+      'profile (stale, last verified 2026-10-15T10:00Z) says "PROFILE_NAME" [profile r3]'],
+    ["pending an update", { sources: withSource("profile", { state: "updating", pendingChanges: 1 }) },
+      'profile (update pending, last verified 2026-10-15T10:00Z) says "PROFILE_NAME" [profile r3]'],
+    ["unverifiable three hours after its last check", {
+      overall: "partial", evaluatedAt: at(3 * 60 * MIN), sources: withSource("profile", { state: "unavailable" }),
+    }, 'profile (cannot verify now, last verified 2026-10-15T10:00Z) says "PROFILE_NAME" [profile r3]'],
+  ])("words the profile side by its state at turn time: %s", (label, patch, side) => {
+    const text = packet([SOUL, PROFILE], patch);
+    expect(text).toContain(`\nName conflict: memory says "SOUL_NAME"; ${side}\n`);
+    // Only a current profile is called verified (negative control for the rest).
+    if (label.startsWith("verified")) expect(text).toContain("verified profile says");
+    else expect(text).not.toContain("verified profile");
+  });
+
+  it.each<[string, LiveMirrorSource[]]>([
+    ["withheld", withSource("profile", { state: "withheld" })],
+    ["not checked yet", withSource("profile", { state: "not_checked", verifiedAt: null })],
+    ["conflicting", withSource("profile", { state: "conflict" })],
+    ["missing", LIVE_MIRROR_KINDS.filter((kind) => kind !== "profile").map((kind) => source(kind))],
+  ])("names the conflict without values while the profile source is %s", (_label, sources) => {
+    const text = packet([SOUL, PROFILE], { sources });
+    expect(text).toContain(FALLBACK);
+    for (const value of SENTINELS) expect(text, value).not.toContain(value);
   });
 });
 

@@ -317,29 +317,48 @@ function sourcesLineText(living: readonly { kind: LiveMirrorKind; source: LiveMi
 
 const OPERATIONS: ReadonlySet<string> = new Set(["upsert", "delete", "gap"]);
 const NAME_CONFLICT_FALLBACK = "Name conflict: the owner-authored Soul name differs from the verified profile.name.";
+/** A profile that is not current at turn time still names its value, never as verified. */
+const UNVERIFIED_PROFILE_TEXT: Partial<Record<LiveMirrorSourceState, string>> = {
+  stale: "stale",
+  updating: "update pending",
+  unavailable: "cannot verify now",
+};
 
 /**
  * Both names, so the agent puts the question to the owner instead of picking
- * one. Soul is already in the model's context; the verified name comes with
- * only its profile revision and verification time. Without both names, or
- * when Profile is withheld, the line names the conflict without values.
+ * one. Soul is already in the model's context; the profile name comes with
+ * only its revision and verification time, and is called verified only while
+ * the profile source is current at turn time. Only the Soul-versus-profile
+ * claims count: a profile record's own disagreeing copies are never its name.
+ * Without a written name and exactly one profile name, or while Profile is
+ * withheld, not checked yet or conflicting, the line names the conflict
+ * without values.
  */
-function nameConflictLine(view: LiveMirrorView, withheld: ReadonlySet<string>): string | null {
+function nameConflictLine(view: LiveMirrorView, profileSource: LiveMirrorSource | undefined, now: number): string | null {
   if (!view.nameConflict) return null;
   const conflict = Array.isArray(view.conflicts)
     ? view.conflicts.find((entry) => entry?.predicate === "profile.name")
     : undefined;
-  const claims = Array.isArray(conflict?.claims) ? conflict.claims : [];
-  const written = claims.filter((claim) => claim?.source === "soul" && typeof claim.value === "string")
+  const claims = (Array.isArray(conflict?.claims) ? conflict.claims : []).filter((claim) => claim?.origin === "named");
+  const written = claims.filter((claim) => claim.source === "soul" && typeof claim.value === "string")
     .map((claim) => formatValue(claim.value as string));
-  const profile = claims.find((claim) => claim?.source === "profile" && typeof claim.value === "string");
-  if (!written.length || !profile || withheld.has("profile")) return NAME_CONFLICT_FALLBACK;
-  const provenance: string[] = [];
-  if (Number.isSafeInteger(profile.revision)) provenance.push(`profile r${profile.revision}`);
+  const profiles = claims.filter((claim) => claim.source === "profile");
+  const profile = profiles.length === 1 ? profiles[0]! : null;
+  const state = profileSource ? sourceState(profileSource, now) : "not_checked";
+  const unverified = UNVERIFIED_PROFILE_TEXT[state];
+  if (!written.length || typeof profile?.value !== "string" || !profile.value.trim() || (state !== "current" && !unverified))
+    return NAME_CONFLICT_FALLBACK;
+  const memory = `Name conflict: memory says ${written.join(" and ")}`;
+  const name = formatValue(profile.value);
+  const revision = Number.isSafeInteger(profile.revision) ? `profile r${profile.revision}` : null;
   const verifiedAt = formatTime(parseTime(profile.verifiedAt));
+  if (unverified)
+    return `${memory}; profile (${unverified}, last verified ${verifiedAt ?? "never"}) says ${name}` +
+      (revision ? ` [${revision}]` : "");
+  const provenance: string[] = [];
+  if (revision) provenance.push(revision);
   if (verifiedAt) provenance.push(`verified ${verifiedAt}`);
-  return `Name conflict: memory says ${written.join(" and ")}; verified profile says ${formatValue(profile.value as string)}` +
-    (provenance.length ? ` [${provenance.join(", ")}]` : "");
+  return `${memory}; verified profile says ${name}` + (provenance.length ? ` [${provenance.join(", ")}]` : "");
 }
 
 function historyChange(change: LiveMirrorHistoryEntry): string {
@@ -427,7 +446,7 @@ export function buildLiveMirrorFactsPacket(params: {
     `Mirror: ${OVERALL_TEXT[overall]}; read ${formatTime(now)}; ` +
     `last verified ${formatTime(parseTime(view.lastVerifiedAt)) ?? "never"}`;
   const sourcesLine = living.length ? sourcesLineText(living, now) : null;
-  const nameLine = nameConflictLine(view, withheld);
+  const nameLine = nameConflictLine(view, sources.get("profile"), now);
   const history = historyLine(view.history, withheld);
   const records = collectRecords(view, sources, now).map(recordLine);
 
