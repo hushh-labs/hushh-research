@@ -47,7 +47,7 @@ _PROVIDER_POLL_SECONDS = 5.0
 _PROVIDER_POLL_LIMIT = 60
 #: Stages whose resources hold the agent's identity, keys and memory.
 CUSTODY_STAGES: frozenset[str] = frozenset(
-    {"creating_identity", "creating_key_vault", "creating_storage"}
+    {"creating_resource_group", "creating_identity", "creating_key_vault", "creating_storage"}
 )
 
 

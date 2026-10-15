@@ -325,15 +325,22 @@ class UserAzureBackend(RegistryPruneHook):
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
         """Move the agent to the approved digest. Needs ``jit_person_authority``."""
         from hushh_mcp.services.azure_agent_upgrade import upgrade_agent  # noqa: PLC0415
+        from hushh_mcp.services.azure_hosted_authority import upgrade_authority
         from hushh_mcp.services.azure_setup_worker import run_setup_thread  # noqa: PLC0415
 
         token = current_jit_token()
 
-        def run(*, guard: Callable[[], None], advance: Callable[[str], None]) -> BackendHandle:
-            arm = self._person_factory(token).with_write_guard(guard)
-            return upgrade_agent(self, spec, arm, guard=guard)
+        async with upgrade_authority(spec) as authority:
 
-        return await run_setup_thread(run, advance=lambda _stage: None)
+            def run(*, guard: Callable[[], None], advance: Callable[[str], None]) -> BackendHandle:
+                arm = self._person_factory(token).with_write_guard(guard).with_mutations(authority)
+                # Registry pruning needs its own durable data-plane receipts.
+                # Keep predecessor images until that port is qualified.
+                return upgrade_agent(self, spec, arm, guard=guard, prune_images=False)
+
+            return await run_setup_thread(
+                run, advance=lambda _stage: None, guard=authority.assert_admitted
+            )
 
     async def inspect_files_capability(self, spec: PodSpec) -> dict:
         from hushh_mcp.services.pod_files.azure_provisioning import inspect_files_capability

@@ -55,12 +55,25 @@ Dev-only 961 records original setup bindings and bounded provider receipts in
 Its latest verified dev ledger read (2026-10-15, 05:37 UTC) stops at 959. Recheck
 that ledger before deploying: an applied migration must never be edited.
 
-Fresh setup holds a dedicated database session until its actual thread exits.
+Fresh setup, approved updates and rebuilds hold a dedicated database session
+until their actual thread exits. Version-2 hosted intents bind the original pod
+identity, setup nonce and exact permitted requests. Updates additionally bind the
+lease, operation, release, target and capability approval. Files dispatch requires
+the current exact checkpoint. SQL restricts resource kinds independently of the
+supplied request list; rebuild cannot recreate the group, identity, keys or
+storage. Reject invalid rebuild intent before claiming a job.
+
 The worker's exit, Azure's acceptance and Azure's terminal result are separate
 receipts. Reserve acknowledgement, terminal and exit capacity before dispatch;
 ordinary progress writes cannot spend it. A lost write response remains
 unresolved and cannot be automatically replayed. Late results for admitted
 writes remain retainable after erasure has fenced new work.
+
+If replacement polling fails, only the existing exact incarnation/revision/image
+verdict may settle that original request. Timeout remains unresolved. The explicit
+`RoleAssignmentExists` denial is a terminal refusal, not an uncertain write.
+Optional registry-image pruning is excluded from governed hosted updates until
+its data-plane deletion has equivalent durable receipts; retain the predecessor.
 
 These receipts do not qualify historical workers or authorize group-wide
 resource deletion. Before full cleanup, reconcile every retained setup attempt,

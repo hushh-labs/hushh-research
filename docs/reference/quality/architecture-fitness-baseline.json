@@ -27337,7 +27337,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": "ArmClient",
-      "value": 260
+      "value": 271
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27346,7 +27346,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
       "symbol": "_replace",
-      "value": 84
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27364,7 +27364,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_arm_client.py",
       "symbol": null,
-      "value": 514
+      "value": 525
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27373,7 +27373,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/azure_agent_upgrade.py",
       "symbol": null,
-      "value": 511
+      "value": 516
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27383,6 +27383,15 @@
       "path": "consent-protocol/hushh_mcp/services/pod_connector_connect.py",
       "symbol": null,
       "value": 505
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_azure_arm_client.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_azure_arm_client.py",
+      "symbol": null,
+      "value": 540
     }
   ],
   "inspected_files": 6625,
@@ -52469,6 +52478,51 @@
         "previous": null,
         "reviewed": 505,
         "source_sha256": "64eb39d48a5237512a731cffc4595fe89930c72e82b72be046bdc5eee6db193c"
+      }
+    ]
+  },
+  "azure_hosted_authority_review_20261015": {
+    "source_parent": "fdf6f2629df54145459c3247ba8cfba6348df94a",
+    "reviewer": "adk_authority_review, read-only independent security and architecture review",
+    "rationale": "Five exact cohesive spans: original-dispatch settlement from the existing verified replacement verdict, typed role-conflict terminal refusal, and their nearest regression cases. Confirmation and hosted authority are separate bounded modules; shared PostgreSQL arrangement is a fixture. No global module/class/function budget change, no unrelated finding reset, no cloud acceptance claim.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_arm_client.py|ArmClient|class exceeds the advisory operon budget",
+        "previous": [
+          260
+        ],
+        "reviewed": 271,
+        "source_sha256": "4c4473892e71c1da22fcbbc1789d81e15eb09ce188a5a0fc18d48d64a7ca1cbd"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py|_replace|function exceeds the advisory gene budget",
+        "previous": [
+          84
+        ],
+        "reviewed": 87,
+        "source_sha256": "36408eda871e45b2a0e1424205f7821248475631b4485db3ce64d1b18927374c"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_azure_arm_client.py||module exceeds the advisory operon budget",
+        "previous": [],
+        "reviewed": 540,
+        "source_sha256": "39d5502496d725928fc6242dcbbb14ea9b077a20a7d2c6ac447f88cd6d484ad8"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_arm_client.py||module exceeds the advisory operon budget",
+        "previous": [
+          514
+        ],
+        "reviewed": 525,
+        "source_sha256": "4c4473892e71c1da22fcbbc1789d81e15eb09ce188a5a0fc18d48d64a7ca1cbd"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py||module exceeds the advisory operon budget",
+        "previous": [
+          511
+        ],
+        "reviewed": 516,
+        "source_sha256": "36408eda871e45b2a0e1424205f7821248475631b4485db3ce64d1b18927374c"
       }
     ]
   }

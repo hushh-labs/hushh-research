@@ -127,6 +127,7 @@ def upgrade_agent(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     guard: Callable[[], None] | None = None,
+    prune_images: bool = True,
 ) -> BackendHandle:
     """Synchronous: import the digest, re-fence, replace, acknowledge, wait for a verdict."""
     expected = str(spec.expected_service_uid or "").strip()
@@ -187,6 +188,7 @@ def upgrade_agent(
         clock=clock,
         sleep=sleep,
         guard=guard,
+        prune_images=prune_images,
     )
 
 
@@ -202,8 +204,11 @@ def _replace(
     clock: Callable[[], float],
     sleep: Callable[[float], None],
     guard: Callable[[], None] | None = None,
+    prune_images: bool = True,
 ) -> BackendHandle:
     """Submit the one-image replacement, acknowledge it, and wait for its revision."""
+    from hushh_mcp.services.azure_upgrade_confirmation import confirm_replacement
+
     api = API_VERSIONS["container_apps"]
     suffix = revision_suffix(spec.upgrade_attempt_id or spec.upgrade_operation_id or "")
     body = replacement_body(
@@ -250,27 +255,27 @@ def _replace(
         spec.on_upgrade_ack(
             upgrade_acknowledgement(backend.app_id, spec, revision, target, connector_environment)
         )
-    try:  # the replace was sent: the revision verdict below, not this poll, decides
-        if arm.needs_poll(started):
-            arm.wait(started, "deploying_agent")
-    except (ArmError, OSError) as exc:
-        logger.warning("user_azure_backend.replace_poll_failed err=%s", type(exc).__name__)
     began = clock()
-    observation = _await_verdict(
-        backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
+    observation = confirm_replacement(
+        arm,
+        started,
+        read_verdict=lambda: _await_verdict(
+            backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
+        ),
     )
     handle = backend.verified_handle(spec.hushh_id, observation)
     handle = _verified_files(handle, spec, observation.app, connector_environment)
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
-    backend.prune_superseded_images(
-        arm,
-        observation.app,
-        previous=previous,
-        expected=target,
-        **({"guard": guard} if guard is not None else {}),
-    )
+    if prune_images:
+        backend.prune_superseded_images(
+            arm,
+            observation.app,
+            previous=previous,
+            expected=target,
+            **({"guard": guard} if guard is not None else {}),
+        )
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )

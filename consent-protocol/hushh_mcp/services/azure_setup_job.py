@@ -290,13 +290,14 @@ async def run_azure_upgrade_job(
     resume_files_job: dict | None = None,
 ) -> None:
     """The approved update under the person's JIT token, through the orchestrator."""
+    from hushh_mcp.services.azure_hosted_authority import hosted_job
     from hushh_mcp.services.user_azure_backend import jit_person_authority  # noqa: PLC0415
 
     jobs = repo or ByocSetupJobRepo()
 
     async def work() -> None:
         await jobs.advance(user_id=user_id, job_id=job_id, stage="importing_image")
-        with jit_person_authority(access_token):
+        with jit_person_authority(access_token), hosted_job(owner=user_id, job=job_id):
             outcome = await upgrade(
                 user_id=user_id,
                 current_image=target_image,
@@ -347,10 +348,12 @@ async def run_azure_rebuild_job(
     access_token: str,
     spec: PodSpec,
     source_image: str,
+    intent: dict,
     publish: Callable[[], Awaitable[None]],
     on_recorded: Optional[Callable[[], Awaitable[Any]]] = None,
     repo: Optional[ByocSetupJobRepo] = None,
     setup: Callable[..., AzureSetupResult] = run_agent_setup,
+    authority_factory: Callable[..., AbstractAsyncContextManager[Any]] = azure_setup_authority,
 ) -> None:
     """Rebuild after Azure removed the hosting space: setup in adopt mode, then adopt.
 
@@ -362,17 +365,45 @@ async def run_azure_rebuild_job(
 
     async def work() -> None:
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
-        await run_setup_thread(
-            setup,
-            access_token=access_token,
-            tenant_id=str(spec.user_cloud_tenant_id or ""),
-            subscription_id=str(spec.user_cloud_subscription_id or ""),
-            location=str(spec.user_cloud_region or ""),
-            spec=spec,
-            source_image=source_image,
-            advance=advance,
-            adopt=True,
-        )
+
+        def bind_setup(inputs: PlanInputs) -> None:
+            observed = (
+                inputs.hushh_id,
+                inputs.tenant_id,
+                inputs.subscription_id,
+                inputs.resource_group,
+                inputs.location,
+                inputs.nonce,
+            )
+            expected = tuple(
+                intent.get(k)
+                for k in (
+                    "hushhId",
+                    "tenantId",
+                    "subscriptionId",
+                    "resourceGroup",
+                    "location",
+                    "setupNonce",
+                )
+            )
+            if observed != expected:
+                raise AzureSetupRefused("Rebuild custody changed.", code="SETUP_FENCED")
+
+        async with authority_factory(owner=user_id, job=job_id, hosted_intent=intent) as authority:
+            await run_setup_thread(
+                setup,
+                access_token=access_token,
+                tenant_id=str(spec.user_cloud_tenant_id or ""),
+                subscription_id=str(spec.user_cloud_subscription_id or ""),
+                location=str(spec.user_cloud_region or ""),
+                spec=spec,
+                source_image=source_image,
+                advance=advance,
+                adopt=True,
+                bind_setup=bind_setup,
+                guard=authority.assert_admitted,
+                mutations=authority,
+            )
         await publish()
         if on_recorded is not None:
             await on_recorded()

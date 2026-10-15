@@ -44,17 +44,21 @@ predecessor; publishing never installs it. The documented verified-image reuse
 path can later publish qualified metadata without rebuilding that executable.
 Shared Files owner acceptance remains unperformed.
 
-**Lifecycle correction — local, not deployed:** focused groups pass: **98 Azure
-cleanup/transport**, **110 update/handoff**, and **94 connector/erasure** cases.
-Real PostgreSQL proves exact-plan approval, actual worker-session ownership,
-retained uncertainty and refusal of unjournalled later jobs. Cancellation joins
-the real update thread and fences new writes. Full cleanup preserves encrypted
+**Lifecycle correction — local, not deployed:** **326 affected Azure lifecycle
+checks pass**, including real PostgreSQL. Setup, updates and rebuilds share the
+existing job journal; dispatch binds the owner, original pod identity, approved
+image and exact permitted resources. Files writes require their current approved
+checkpoint. Stale authority and self-granted custody writes are refused; the
+paired broken-code controls fail. Exact revision recovery settles the original
+cloud request; unknown outcomes remain unresolved. Optional image pruning stays
+off on this path until its receipts are qualified. Cancellation joins the real
+update thread and fences new writes. Full cleanup preserves encrypted
 credentials until provider revocation succeeds; version-4 tombstones cover
 cleared/superseded grants. Legacy repair requires the original key, exact fenced
 inventory and conditional metadata replacement. Broken-code controls fail.
 
 Dev-only 960/961 and the new 962 authority are not live acceptance. Complete Azure
-JIT deletion/finalization, hosted-worker journaling and operator-project mail-topic
+JIT deletion/finalization and operator-project mail-topic
 cleanup before release freeze. Account deletion stays refused while obligations
 are unresolved; provider retention is not immediate physical erasure. Existing
 GCP receipts keep historical obligations without inventing uncreated resources.

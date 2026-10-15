@@ -490,3 +490,51 @@ def test_initial_operation_status_cannot_claim_synchronous_success(status, kind)
         client.post(_PATH, api_version="v", body={})
     assert refused.value.kind == kind
     assert not any(event[0] == "terminal" and event[2] == "succeeded" for event in journal.events)
+
+
+@pytest.mark.parametrize(
+    "code,settled", [("RoleAssignmentExists", True), ("AnotherOperationInProgress", False)]
+)
+def test_only_explicit_role_conflict_is_a_terminal_refusal(code, settled):
+    journal = _MutationJournal()
+    session = _Session(_Response(409, {"error": {"code": code}}))
+    client = ArmClient(_BEARER, session=session).with_mutations(journal)
+    with pytest.raises(ArmError):
+        client.put(_PATH, api_version="v", body={}, op="assigning_roles")
+    terminals = [event for event in journal.events if event[0] == "terminal"]
+    assert len(session.sent) == 1
+    assert [event[2] for event in terminals] == (["refused"] if settled else [])
+
+
+@pytest.mark.parametrize("verdict", ["live", "failed", "unconfirmed"])
+def test_exact_replacement_verdict_settles_original_request_after_lost_poll(verdict):
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+    from hushh_mcp.services.azure_upgrade_confirmation import confirm_replacement
+
+    journal = _MutationJournal()
+    poll = (
+        "https://management.azure.com/subscriptions/s/operations/replacement?api-version=2025-01-01"
+    )
+    session = _Session(_Response(202, {}, {"Azure-AsyncOperation": poll}), _Response(503, {}))
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None).with_mutations(journal)
+    response = client.request("PUT", _PATH, api_version="v", body={}, op="deploying_agent")
+
+    def exact_verdict():
+        if verdict != "live":
+            code = "UPGRADE_REVISION_FAILED" if verdict == "failed" else "UPGRADE_UNCONFIRMED"
+            raise AzureSetupRefused("synthetic", code=code)
+        return {"exact-incarnation-revision-and-digest": True}
+
+    if verdict == "live":
+        assert confirm_replacement(client, response, read_verdict=exact_verdict)
+    else:
+        with pytest.raises(AzureSetupRefused):
+            confirm_replacement(client, response, read_verdict=exact_verdict)
+    terminals = [event for event in journal.events if event[0] == "terminal"]
+    assert [event[2] for event in terminals] == (
+        [] if verdict == "unconfirmed" else ["succeeded" if verdict == "live" else "failed"]
+    )
+    assert (
+        len(session.sent) == 2
+        and session.sent[0]["headers"]["x-ms-client-request-id"] == journal.events[0][1]
+    )

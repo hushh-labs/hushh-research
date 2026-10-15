@@ -28,7 +28,7 @@ from hushh_mcp.services.azure_setup_plan import (
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
-from tests.azure_arm_fake import POD_PRINCIPAL, FakeArm
+from tests.azure_arm_fake import POD_PRINCIPAL, FakeArm, unit_upgrade_authority
 
 _HUSHH_ID = "ha1_abcdefghijklmnopqrstuvwxyz234567"
 _TENANT = "11111111-1111-1111-1111-111111111111"
@@ -260,6 +260,7 @@ async def _rebuild_job(repo: _Repo, setup_fn, events: list) -> None:
     )  # fmt: skip
     await job.run_azure_rebuild_job(
         user_id="u1", job_id="j1", access_token=_TOKEN, spec=spec, source_image=_IMAGE,
+        intent={"version": 2}, authority_factory=unit_upgrade_authority,
         publish=publish, on_recorded=adopted, repo=repo, setup=setup_fn,
     )  # fmt: skip
 

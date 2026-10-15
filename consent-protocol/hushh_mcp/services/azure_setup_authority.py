@@ -48,6 +48,19 @@ class AzureSetupAuthority:
     def _from_thread(self, stage: str, **fields: Any) -> bool:
         return asyncio.run_coroutine_threadsafe(self.retain(stage, **fields), self._loop).result(30)
 
+    async def _admitted(self) -> bool:
+        async with self._serial:
+            return (
+                await self._connection.fetchval(
+                    "SELECT public.byoc_azure_worker_admitted($1,$2)", self._owner, self._job
+                )
+                is True
+            )
+
+    def assert_admitted(self) -> None:
+        if not asyncio.run_coroutine_threadsafe(self._admitted(), self._loop).result(30):
+            raise AzureSetupRefused("Cloud operation stopped.", code="SETUP_FENCED")
+
     def admit(self, request_id: str, request: ArmMutationRequest) -> bool:
         return self._from_thread(
             "azure_provider_request",
@@ -76,16 +89,17 @@ async def azure_setup_authority(
     *,
     owner: str,
     job: str,
+    hosted_intent: dict | None = None,
     connection_factory: Callable[[], AbstractAsyncContextManager[Any]] = dedicated_connection,
 ) -> AsyncIterator[AzureSetupAuthority]:
     async with connection_factory() as connection:
         execution = str(uuid.uuid4())
-        admitted = await connection.fetchval(
-            "SELECT public.begin_byoc_azure_worker($1,$2,$3)",
-            owner,
-            job,
-            execution,
-        )
+        arguments: tuple[str, ...] = (owner, job, execution)
+        query = "SELECT public.begin_byoc_azure_worker($1,$2,$3)"
+        if hosted_intent is not None:
+            arguments += (json.dumps(hosted_intent),)
+            query = "SELECT public.begin_byoc_azure_worker($1,$2,$3,$4::jsonb)"
+        admitted = await connection.fetchval(query, *arguments)
         if admitted is not True:
             raise AzureSetupRefused("Cloud setup needs reconciliation.", code="SETUP_FENCED")
         authority = AzureSetupAuthority(connection, owner=owner, job=job, execution=execution)

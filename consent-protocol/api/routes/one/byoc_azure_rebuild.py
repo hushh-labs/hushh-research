@@ -91,6 +91,7 @@ def _spec(row: dict) -> Any:
         billing_space_id=row.get("billing_space_id"),
         deployment_target=BACKEND_USER_AZURE,
         model_credential_mode=str(row.get("model_credential_mode") or "user_azure_mi"),
+        expected_service_uid=str((row.get("backend_metadata") or {}).get("serviceUid") or ""),
         files_library_enabled=selected_for_row(row),
         **spec_coordinates_from_row(row),
         **adoption_expectations(row.get("backend_metadata")),
@@ -283,6 +284,8 @@ async def start_rebuild(user_id: str, token: Any) -> Any:
     from api.routes.one import byoc_azure as azure
     from hushh_mcp.services import azure_hosting_rebuild as rebuild
     from hushh_mcp.services import byoc_setup_job_service as jobs
+    from hushh_mcp.services.azure_hosted_intent import hosted_intent
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
     from hushh_mcp.services.azure_setup_job import run_azure_rebuild_job
     from hushh_mcp.services.compute_backend import resolve_compute_backend
     from hushh_mcp.services.personal_agent_provisioning_service import (
@@ -294,6 +297,11 @@ async def start_rebuild(user_id: str, token: Any) -> Any:
     if token.tenant_id != str(row.get("user_cloud_tenant_id") or "").lower():
         raise azure._refuse(409, "BAD_TENANT", "Sign in with the directory that holds your agent.")
     source = await azure._source_image()
+    spec = _spec(row)
+    try:
+        intent = hosted_intent(row, job="pending", spec=spec, source=source, kind="rebuild")
+    except AzureSetupRefused as exc:
+        raise azure._refuse(409, exc.code, str(exc)) from exc
     job_id, started = await azure._claim_job(user_id, _group_ref(row))
     repo = jobs.ByocSetupJobRepo()
     if not started and not rebuild.is_rebuild_job(await repo.get(user_id)):
@@ -333,8 +341,9 @@ async def start_rebuild(user_id: str, token: Any) -> Any:
                 user_id=user_id,
                 job_id=job_id,
                 access_token=token.access_token,
-                spec=_spec(row),
+                spec=spec,
                 source_image=source,
+                intent={**intent, "jobId": job_id},
                 publish=publish,
                 on_recorded=adopt,
             )

@@ -4,59 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
 
-import asyncpg
 import pytest
 
 from hushh_mcp.services.azure_setup_plan import group_id
-from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+from tests.fixtures.azure_hosted_worker import _hosted_worker, _prepared_worker
 from tests.test_azure_arm_client import _Response, _Session
 from tests.test_byoc_setup_job_azure_admission_postgres import (
     GROUP,
-    HUSHH_ID,
     OWNER,
     PARKED,
     SUB,
     TENANT,
-    _Client,
-    _reserved_owner,
     psycopg2,
 )  # noqa: F401 - shared temporary PostgreSQL fixture and availability marker
 from tests.test_byoc_setup_job_azure_admission_postgres import pg as pg
 from tests.test_byoc_setup_job_azure_admission_postgres import pytestmark as pg_availability
 
 pytestmark = pg_availability
-
-
-async def _prepared_worker(pg):
-    pg.apply_file(PARKED / "961_azure_setup_erasure_binding.sql")
-    _reserved_owner(pg)
-    repo = ByocSetupJobRepo(client=_Client(pg))
-    assert await repo.start(user_id=OWNER, job_id="job-1", project_id=group_id(SUB, GROUP))
-    intent = {
-        "version": 1,
-        "jobId": "job-1",
-        "hushhId": HUSHH_ID,
-        "tenantId": TENANT,
-        "subscriptionId": SUB,
-        "resourceGroup": GROUP,
-        "location": "eastus2",
-        "setupNonce": "0" * 16,
-    }
-    assert await repo.retain_azure_setup_intent(user_id=OWNER, job_id="job-1", intent=intent)
-
-    @asynccontextmanager
-    async def connection():
-        conn = await asyncpg.connect(
-            host=str(pg.dir), port=pg.port, user="hushh", database="postgres"
-        )
-        try:
-            yield conn
-        finally:
-            await conn.close()
-
-    return repo, connection
 
 
 class _ErasingSession(_Session):
@@ -275,3 +240,193 @@ async def test_completion_receipts_have_reserved_capacity_before_arm_dispatch(
         if limit == "slots":
             assert len(stages) == 2048
         assert stages[-2]["stage"] == "azure_provider_terminal"
+
+
+@pytest.mark.parametrize("kind", ["upgrade", "rebuild"])
+async def test_hosted_worker_records_only_its_exact_requests_and_keeps_late_outcomes(pg, kind):
+    import uuid
+
+    from hushh_mcp.services.azure_arm_mutations import (
+        ArmMutationAcknowledgement,
+        ArmMutationRequest,
+    )
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+    from hushh_mcp.services.azure_setup_authority import azure_setup_authority
+
+    connection, intent = await _hosted_worker(pg, kind=kind)
+    async with azure_setup_authority(
+        owner=OWNER, job="hosted-1", hosted_intent=intent, connection_factory=connection
+    ) as authority:
+        dispatch = next(
+            call for call in intent["allowedRequests"] if call["purpose"] == "deploying_agent"
+        )
+        request = ArmMutationRequest(
+            dispatch["method"], dispatch["path"], dispatch["apiVersion"], dispatch["purpose"]
+        )
+        # A same-group path is insufficient for an already installed pod.
+        altered = ArmMutationRequest(
+            request.method, request.path + "-another", request.api_version, request.purpose
+        )
+        assert not await asyncio.to_thread(authority.admit, str(uuid.uuid4()), altered)
+        custody = ArmMutationRequest(
+            "PUT", group_id(SUB, GROUP), "2021-04-01", "creating_resource_group"
+        )
+        assert not await asyncio.to_thread(authority.admit, str(uuid.uuid4()), custody)
+        request_id = str(uuid.uuid4())
+        await asyncio.to_thread(authority.assert_admitted)
+        assert await asyncio.to_thread(authority.admit, request_id, request)
+        # Revocation fences further actions, while the real worker still owes
+        # the outcome for a mutation dispatched before that revocation.
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,'{serviceUid}','\"replacement\"') WHERE user_id=%s",
+            (OWNER,),
+        )
+        with pytest.raises(AzureSetupRefused):
+            await asyncio.to_thread(authority.assert_admitted)
+        assert not await asyncio.to_thread(authority.admit, str(uuid.uuid4()), request)
+        assert await asyncio.to_thread(
+            authority.acknowledge, request_id, ArmMutationAcknowledgement(200, None, None)
+        )
+        assert await asyncio.to_thread(authority.terminal, request_id, "succeeded")
+    history = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+    assert history[-1]["stage"] == "azure_worker_exited"
+    assert sum(x["stage"] == "azure_provider_request" for x in history) == 1
+
+
+@pytest.mark.parametrize(
+    "changed", ["lease", "operation", "incarnation", "key", "nonce", "job", "owner", "target"]
+)
+async def test_hosted_worker_refuses_stale_owner_approval_or_registry_binding(pg, changed):
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+    from hushh_mcp.services.azure_setup_authority import azure_setup_authority
+
+    connection, intent = await _hosted_worker(pg)
+    if changed == "job":
+        intent["jobId"] = "different-job"
+    elif changed == "owner":
+        intent["binding"]["user_id"] = "different-owner"
+    elif changed == "key":
+        pg.execute(
+            "UPDATE personal_agent_registry SET pod_key_id='replacement' WHERE user_id=%s", (OWNER,)
+        )
+    else:
+        path = {
+            "lease": "{upgradeLease}",
+            "operation": "{upgradeApproval,operationId}",
+            "incarnation": "{serviceUid}",
+            "nonce": "{setupNonce}",
+            "target": "{upgradeApproval,targetImage}",
+        }[changed]
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,%s::text[],'\"changed\"') WHERE user_id=%s",
+            (path, OWNER),
+        )
+    with pytest.raises(AzureSetupRefused):
+        async with azure_setup_authority(
+            owner=OWNER, job="hosted-1", hosted_intent=intent, connection_factory=connection
+        ):
+            pytest.fail("stale hosted authority admitted")
+    history = pg.execute("SELECT stages FROM byoc_setup_jobs WHERE user_id=%s", (OWNER,))[0][0]
+    assert not any(x["stage"] == "azure_worker_started" for x in history)
+
+
+@pytest.mark.parametrize("kind", ["upgrade", "rebuild"])
+async def test_supplied_request_list_cannot_grant_custody_writes(pg, kind):
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+    from hushh_mcp.services.azure_setup_authority import azure_setup_authority
+
+    connection, intent = await _hosted_worker(pg, kind=kind)
+    intent["allowedRequests"].append(
+        {
+            "method": "PUT",
+            "path": group_id(SUB, GROUP)
+            + "/providers/Microsoft.KeyVault/vaults/kv-h1-"
+            + "a" * 16
+            + "/keys/pod-log-key",
+            "apiVersion": "2023-07-01",
+            "purpose": "creating_key_vault",
+        }
+    )
+    with pytest.raises(AzureSetupRefused):
+        async with azure_setup_authority(
+            owner=OWNER, job="hosted-1", hosted_intent=intent, connection_factory=connection
+        ):
+            pytest.fail("self-authorizing custody tuple admitted")
+
+
+async def test_files_dispatch_requires_current_exact_approved_checkpoint(monkeypatch):
+    import hashlib
+    import uuid
+
+    from hushh_mcp.services.azure_arm_mutations import ArmMutationRequest
+    from hushh_mcp.services.azure_hosted_intent import _request
+    from hushh_mcp.services.azure_setup_authority import azure_setup_authority
+    from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+    from hushh_mcp.services.pod_files.azure_checkpoint import AzureFilesUpgradeCheckpoint
+    from tests.test_personal_agent_notification_checkpoint import _notification_server
+
+    server = _notification_server(monkeypatch)
+    try:
+        server.apply_file(PARKED / "957_personal_agent_azure_files_upgrade.sql")
+        connection, intent = await _hosted_worker(server, files=True)
+        meta = server.execute(
+            "SELECT backend_metadata FROM personal_agent_registry WHERE user_id=%s", (OWNER,)
+        )[0][0]
+        plan = AzureFilesCapabilityPlan.model_validate(meta["upgradeApproval"]["capabilityPlan"])
+        checkpoint = AzureFilesUpgradeCheckpoint(
+            plan=plan,
+            operation_id="operation-1",
+            attempt_id=hashlib.sha256(b"synthetic-lease").hexdigest(),
+            original_inventory={},
+        )
+        completed = []
+        async with azure_setup_authority(
+            owner=OWNER, job="hosted-1", hosted_intent=intent, connection_factory=connection
+        ) as authority:
+            for call in plan.operations():
+                request = _request("PUT", call["path"], call["api"], "files_activation")
+                dispatch = ArmMutationRequest(
+                    request["method"], request["path"], request["apiVersion"], request["purpose"]
+                )
+                # Before its own durable intent, neither a later step nor a
+                # stale observation can authorize a Files provider request.
+                assert not await asyncio.to_thread(authority.admit, str(uuid.uuid4()), dispatch)
+                value, inventory = checkpoint.prepare("intent", call["step"], completed)
+                server.execute(
+                    "UPDATE personal_agent_registry SET backend_metadata=backend_metadata||%s::jsonb WHERE user_id=%s",
+                    (
+                        json.dumps(
+                            {"filesUpgradeCheckpoint": value, "azureFilesInventory": inventory}
+                        ),
+                        OWNER,
+                    ),
+                )
+                checkpoint.acknowledge(value)
+                request_id = str(uuid.uuid4())
+                assert await asyncio.to_thread(authority.admit, request_id, dispatch)
+                assert await asyncio.to_thread(authority.terminal, request_id, "not_dispatched")
+                completed.append(
+                    {
+                        "step": call["step"],
+                        "ok": True,
+                        "status": 200,
+                        "observation": {
+                            "id": call["path"],
+                            "kind": call["kind"],
+                            "properties": call["body"]["properties"],
+                        },
+                    }
+                )
+                value, inventory = checkpoint.prepare("observed", call["step"], completed)
+                server.execute(
+                    "UPDATE personal_agent_registry SET backend_metadata=backend_metadata||%s::jsonb WHERE user_id=%s",
+                    (
+                        json.dumps(
+                            {"filesUpgradeCheckpoint": value, "azureFilesInventory": inventory}
+                        ),
+                        OWNER,
+                    ),
+                )
+                checkpoint.acknowledge(value)
+    finally:
+        server.stop()

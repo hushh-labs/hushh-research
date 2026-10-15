@@ -8,12 +8,24 @@ Not a mock of method calls: it holds resources by ARM id, fills in what Azure fi
 from __future__ import annotations
 
 import copy
+from contextlib import asynccontextmanager
 from typing import Any, Callable, Optional
 
 from hushh_mcp.services.azure_arm_client import ArmError, ArmResponse
 
 POD_PRINCIPAL = "66666666-6666-6666-6666-666666666666"
 POD_CLIENT = "77777777-7777-7777-7777-777777777777"
+
+
+@asynccontextmanager
+async def unit_upgrade_authority(_spec=None, **_kwargs):
+    """Lifecycle-unit adapter only; PostgreSQL/real ARM tests prove journaling."""
+
+    class Authority:
+        def assert_admitted(self):
+            return None
+
+    yield Authority()
 
 
 class FakeArm:
@@ -36,6 +48,14 @@ class FakeArm:
 
         guarded._write_guard = combined
         return guarded
+
+    def with_mutations(self, journal):
+        # This fixture models resource behavior, not durable provider receipts.
+        # test_azure_setup_authority_postgres exercises the real transport/ledger.
+        return copy.copy(self)
+
+    def confirm_observed_mutation(self, response, *, succeeded):
+        return None
 
     def fail(self, method: str, suffix: str, *errors: ArmError) -> None:
         self.failures[(method, suffix)] = list(errors)

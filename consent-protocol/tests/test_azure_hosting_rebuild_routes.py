@@ -29,7 +29,8 @@ def _azure_row(**overrides) -> dict:
         "deployment_target": "user_azure", "external_agent_id": "/app", "updated_at": "t1",
         "user_cloud_tenant_id": _TENANT, "user_cloud_subscription_id": _SUB,
         "user_cloud_resource_group": "rg-hussh-one-x", "user_cloud_region": "eastus2",
-        "backend_metadata": {"runtime_principal_id": _PRINCIPAL, "image_digest": "sha256:aa"},
+        "backend_metadata": {"runtime_principal_id": _PRINCIPAL, "image_digest": "sha256:aa",
+                             "serviceUid": "incarnation-1", "setupNonce": "0" * 16},
     }  # fmt: skip
     return {**row, **overrides}
 

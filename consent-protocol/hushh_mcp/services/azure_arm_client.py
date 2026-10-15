@@ -398,7 +398,9 @@ class ArmClient:
         )
         response = self._send(method, url, body, label, mutation)
         if response.status >= 400:
-            if response.status in (400, 401, 403, 404, 405, 412, 422, 429):
+            if response.status in (400, 401, 403, 404, 405, 412, 422, 429) or (
+                response.status == 409 and _error_detail(response.body)[0] == "RoleAssignmentExists"
+            ):
                 self._mutations.terminal(response.mutation_id, "refused")
             self._raise_for(response, label)
         if mutation is not None and not self.needs_poll(response):
@@ -467,6 +469,15 @@ class ArmClient:
             or bool(response.headers.get("location"))
             or bool(state and state not in _TERMINAL_OK | _TERMINAL_BAD)
         )
+
+    def confirm_observed_mutation(self, response: ArmResponse, *, succeeded: bool) -> None:
+        """Settle the original dispatch after exact owning-resource verification.
+
+        This does not perform verification. Only the owning lifecycle may call it
+        after proving that dispatch's incarnation, revision and immutable image.
+        An unknown or timed-out observation must leave the receipt unresolved.
+        """
+        self._mutations.terminal(response.mutation_id, "succeeded" if succeeded else "failed")
 
     def wait(self, response: ArmResponse, op: str) -> dict[str, Any]:
         """Poll ``Azure-AsyncOperation`` (status body) or ``Location`` (202 until done)."""
