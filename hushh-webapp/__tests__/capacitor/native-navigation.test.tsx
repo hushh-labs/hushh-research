@@ -1,16 +1,18 @@
 import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked, useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked, useNativeNavigationBlockedUntilSettled, useNativeNavigationScrollFollowing } from "@/lib/capacitor/native-navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
+import { NativeNavigationScrollDelivery } from "@/lib/capacitor/native-navigation-scroll";
+import { onScroll, resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => true) }));
 
 const bridge = vi.hoisted(() => ({
   platform: "web", supported: true,
   callbacks: new Map<string, (event: unknown) => void>(),
-  setState: vi.fn(), getCapabilities: vi.fn(),
+  setState: vi.fn(), getCapabilities: vi.fn(), setScroll: vi.fn(),
   confirmSelection: vi.fn(), sequence: 0,
   regions: vi.fn(),
 }));
@@ -26,6 +28,7 @@ vi.mock("@capacitor/core", () => ({
   registerPlugin: () => ({
     getCapabilities: bridge.getCapabilities,
     setState: bridge.setState,
+    setScroll: bridge.setScroll,
     confirmSelection: bridge.confirmSelection,
     addListener: async (name: string, callback: (event: unknown) => void) => {
       bridge.callbacks.set(name, callback);
@@ -52,8 +55,97 @@ describe("native navigation presentation boundary", () => {
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
     bridge.regions.mockReset().mockResolvedValue(true);
+    bridge.setScroll.mockReset().mockResolvedValue({ applied: true });
+    resetKaiBottomChromeVisibility();
   });
   afterEach(async () => { await act(async () => { await Promise.resolve(); }); });
+
+  it("projects shared scroll without React rerenders only after native capability and state admission", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, synchronizedBottomScroll: true,
+      wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.setState.mockImplementation(async state => ({ supported: true, contentHeight: 49, bottomInset: 34,
+      scrollGeneration: state.revision, privacyGeneration: 0, scrollFollowing: state.scrollFollowing }));
+    let renders = 0;
+    const view = renderHook(() => { renders++; return useNativeNavigation({ ...options, onSelect: vi.fn() }); });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    await waitFor(() => expect(bridge.setScroll).toHaveBeenCalled());
+    const before = renders;
+    act(() => { onScroll(0); onScroll(30); onScroll(60); });
+    await waitFor(() => expect(bridge.setScroll.mock.calls.at(-1)?.[0].progress).toBeGreaterThan(0));
+    expect(renders).toBe(before);
+    expect(bridge.setScroll.mock.calls.at(-1)?.[0]).toMatchObject({
+      documentId: lastState().documentId, revision: lastState().revision,
+      interactionEpoch: lastState().interactionEpoch, scrollGeneration: lastState().revision, travel: 55,
+    });
+    act(() => bridge.callbacks.get("geometryChanged")?.({ supported: true, documentId: lastState().documentId,
+      revision: lastState().revision, contentHeight: 60, bottomInset: 34,
+      scrollGeneration: lastState().revision, privacyGeneration: 0, scrollFollowing: true }));
+    await waitFor(() => expect(bridge.setScroll.mock.calls.at(-1)?.[0].travel).toBe(66));
+    const overlay = render(<Overlay />);
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(false));
+    const blocked = bridge.setScroll.mock.calls.length;
+    act(() => onScroll(110));
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.setScroll).toHaveBeenCalledTimes(blocked);
+    overlay.unmount(); view.unmount();
+  });
+
+  it("requires acknowledged pinned state after a scroll delivery failure instead of leaving CSS moving alone", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, synchronizedBottomScroll: true,
+      wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.setState.mockImplementation(async state => ({ supported: true, contentHeight: 49, bottomInset: 34,
+      scrollGeneration: state.revision, privacyGeneration: 0, scrollFollowing: state.scrollFollowing }));
+    bridge.setScroll.mockRejectedValue(new Error("synthetic transport refusal"));
+    const view = renderHook(() => ({ navigation: useNativeNavigation({ ...options, onSelect: vi.fn() }),
+      following: useNativeNavigationScrollFollowing() }));
+    await waitFor(() => expect(lastState().scrollFollowing).toBe(false));
+    expect(bridge.setState.mock.calls.some(([state]) => state.scrollFollowing === true)).toBe(true);
+    expect(view.result.current.following).toBe(false);
+    expect(view.result.current.navigation.ready).toBe(true);
+    expect(bridge.setScroll).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
+  it("does not treat a timeout as cancellation or dispatch another scroll while the original remains outstanding", async () => {
+    vi.useFakeTimers();
+    let settle!: (value: { applied: boolean }) => void;
+    const send = vi.fn(() => new Promise<{ applied: boolean }>(resolve => { settle = resolve; }));
+    const unavailable = vi.fn();
+    const delivery = new NativeNavigationScrollDelivery({ setScroll: send }, unavailable);
+    try {
+      const binding = { documentId: "public", revision: 1, interactionEpoch: 1, privacyGeneration: 0, scrollGeneration: 1, travel: 55 };
+      delivery.update(binding); delivery.publish(1);
+      await vi.advanceTimersByTimeAsync(3001);
+      expect(unavailable).toHaveBeenCalledOnce();
+      delivery.update({ ...binding, revision: 2 }); delivery.publish(0.5);
+      expect(send).toHaveBeenCalledOnce();
+      settle({ applied: true }); await Promise.resolve();
+      expect(send).toHaveBeenCalledOnce();
+    } finally { delivery.stop(); vi.useRealTimers(); }
+  });
+
+  it("coalesces slow native scroll delivery and drops old pending poses across a binding change", async () => {
+    let acknowledge!: (value: { applied: boolean }) => void;
+    const send = vi.fn().mockImplementationOnce(() => new Promise(resolve => { acknowledge = resolve; }))
+      .mockResolvedValue({ applied: true });
+    const delivery = new NativeNavigationScrollDelivery({ setScroll: send });
+    const binding = { documentId: "public", revision: 1, interactionEpoch: 1, privacyGeneration: 0, scrollGeneration: 1, travel: 55 };
+    delivery.update(binding);
+    for (let index = 1; index <= 100; index++) delivery.publish(index / 100);
+    expect(send).toHaveBeenCalledTimes(1);
+    acknowledge({ applied: true });
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls[1][0]).toMatchObject({ progress: 1, sequence: 101 });
+    delivery.update(null);
+    delivery.publish(0.3);
+    expect(send).toHaveBeenCalledTimes(2);
+    delivery.update({ ...binding, scrollGeneration: 3 });
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(3));
+    expect(send.mock.calls[2][0]).toMatchObject({ progress: 0.3, scrollGeneration: 3 });
+    delivery.stop(); delivery.publish(1);
+    await act(async () => { await Promise.resolve(); });
+    expect(send).toHaveBeenCalledTimes(3);
+  });
 
   it.each(["underlayPresentation", "contentBackedPresentation", "reservedPresentationRegions"])(
     "uses web fallback for an old experimental %s wrapper instead of reserving a stranded native bar", async (capability) => {

@@ -670,7 +670,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
               let parent = bridge?.viewController, viewport.width > 0 else { return nil }
         let scale = parent.view.bounds.width / viewport.width
         guard scale.isFinite, scale > 0 else { return nil }
-        let bounds = host.view.convert(host.view.bounds, to: parent.view)
+        let bounds = compositor?.restingBottomChromeFrame("agent-dock") ?? host.view.convert(host.view.bounds, to: parent.view)
         let actual = CGRect(x: bounds.minX / scale, y: bounds.minY / scale,
             width: bounds.width / scale, height: bounds.height / scale)
         guard actual.height >= 44, actual.height <= 340 else { return nil }

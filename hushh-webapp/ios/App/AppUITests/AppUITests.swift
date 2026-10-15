@@ -2005,6 +2005,83 @@ final class AppUITests: XCTestCase {
         print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
     }
 
+    func testLocalSessionNativeBottomChromeFollowsTheSharedScrollOwner() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in warm native scroll regression")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_BOTTOM_SCROLL_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate(); dismissRehearsalChatKeyboard(app)
+        perfTapNav(app, label: "Chat")
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_ADMITTED"); return }
+        let initialDraft = editor.value as? String // Process-only, never an artifact.
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let webFrame = web.frame
+        perfTapNav(app, label: "One")
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
+        let grid = web.buttons["Show agent grid view"].firstMatch
+        let list = web.buttons["Show agent list view"].firstMatch
+        guard waitForAdmittedControl(grid), waitForAdmittedControl(list), dock.waitForExistence(timeout: 10) else {
+            XCTFail("NATIVE_BOTTOM_SCROLL_HOME_NOT_ADMITTED"); return
+        }
+        func selected(_ element: XCUIElement) -> Bool {
+            element.isSelected || ["1", "true"].contains(element.value as? String ?? "")
+        }
+        let restoreGrid = selected(grid)
+        guard restoreGrid || selected(list) else { XCTFail("NATIVE_BOTTOM_SCROLL_VIEW_STATE_UNKNOWN"); return }
+        if restoreGrid { list.tap() }
+        var returnedToChat = false
+        defer {
+            if !returnedToChat {
+                for _ in 0..<3 where !grid.isHittable { web.swipeDown() }
+                if restoreGrid && grid.exists && grid.isHittable { grid.tap() }
+                perfTapNav(app, label: "Chat")
+            }
+        }
+        let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
+        for cycle in 0..<10 {
+            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: cycle == 0 ? 0.60 : 0.25))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
+            guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
+                XCTFail("NATIVE_BOTTOM_SCROLL_DID_NOT_FOLLOW_USER_SCROLL"); return
+            }
+            let displacement = bar.frame.minY - baseline
+            XCTAssertEqual(dock.frame.minY - dockBaseline, displacement, accuracy: 1,
+                "NATIVE_BOTTOM_SCROLL_PAIR_DIVERGED")
+            XCTAssertEqual(web.frame, webFrame, "NATIVE_BOTTOM_SCROLL_RESIZED_WEBVIEW")
+            if cycle == 0 {
+                let sameTab = bar.buttons["One"].firstMatch
+                guard sameTab.exists && sameTab.isHittable else { XCTFail("NATIVE_BOTTOM_SCROLL_DISPLACED_PRESS_UNAVAILABLE"); return }
+                sameTab.press(forDuration: 0.3)
+                XCTAssertTrue(sameTab.isSelected, "NATIVE_BOTTOM_SCROLL_PRESS_LOST_TARGET")
+            }
+            end.press(forDuration: 0.05, thenDragTo: start)
+            let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in abs(bar.frame.minY - baseline) <= 1 }, object: app)
+            guard XCTWaiter.wait(for: [restored], timeout: 5) == .completed else {
+                XCTFail("NATIVE_BOTTOM_SCROLL_REVERSE_DID_NOT_RESTORE"); return
+            }
+            XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)
+        }
+        if restoreGrid { grid.tap() }
+        perfTapNav(app, label: "Chat")
+        guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_RESTORED"); return }
+        XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_CHANGED_DRAFT")
+        editor.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else { XCTFail("NATIVE_BOTTOM_SCROLL_KEYBOARD_UNAVAILABLE"); return }
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY + 2)
+        dismissRehearsalChatKeyboard(app)
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        returnedToChat = true
+        print("NATIVE_BOTTOM_SCROLL_CONTINUITY cycles=10 pair=true keyboard=true draft=true single_host=true")
+    }
+
     func testLocalSessionNativeBackRetiresUnderProfileAndReturnsToOne() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in Back pilot acceptance; requires the current Debug candidate")

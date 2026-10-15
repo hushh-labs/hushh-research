@@ -1437,6 +1437,49 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testNativeBottomScrollMovesOnlyTheRetainedPairAndRejectsInvalidatedSamples() throws {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let navigationFrame = CGRect(x: 0, y: 761, width: 390, height: 83)
+        let dockFrame = CGRect(x: 16, y: 700, width: 358, height: 52)
+        let navigation = UIView(frame: navigationFrame), dock = UIView(frame: dockFrame)
+        let header = UIView(frame: CGRect(x: 16, y: 64, width: 44, height: 44))
+        container.install(navigation, id: "bottom-navigation", group: nil)
+        container.install(dock, id: "agent-dock", group: nil)
+        container.install(header, id: "chat-history-toggle", group: nil)
+        var fence = HushhNativeNavigationScrollState()
+        for (sequence, progress) in [(1, 0.5), (2, 1.0), (3, 0.25)] {
+            let offset = try XCTUnwrap(fence.apply(generation: 0, sequence: sequence, progress: progress, travel: 55))
+            container.setBottomChromeScrollOffset(offset)
+            XCTAssertEqual(navigation.transform.ty, offset, accuracy: 0.001)
+            XCTAssertEqual(dock.transform.ty, offset, accuracy: 0.001, "Both native surfaces share one presentation transaction")
+            XCTAssertTrue(header.transform.isIdentity, "Bottom movement cannot move shell header controls")
+            XCTAssertEqual(container.restingBottomChromeFrame("bottom-navigation"), navigationFrame)
+            XCTAssertEqual(container.restingBottomChromeFrame("agent-dock"), dockFrame,
+                "A later layout receipt must not include or accumulate scroll displacement")
+        }
+        XCTAssertNil(fence.apply(generation: 0, sequence: 2, progress: 0.5, travel: 55))
+        XCTAssertNil(fence.apply(generation: 0, sequence: 4, progress: .nan, travel: 55))
+        XCTAssertNil(fence.apply(generation: 0, sequence: 4, progress: 1, travel: 161))
+        // A pre-keyboard/pre-overlay sample remains stale after that surface
+        // has closed; a current document/state revision alone is insufficient.
+        fence.invalidate()
+        XCTAssertNil(fence.apply(generation: 0, sequence: 999, progress: 1, travel: 55))
+        let offset = try XCTUnwrap(fence.apply(generation: 1, sequence: 1, progress: 0, travel: 55))
+        container.setBottomChromeScrollOffset(offset)
+        XCTAssertTrue(navigation.transform.isIdentity)
+        XCTAssertTrue(dock.transform.isIdentity)
+        container.setBottomChromeScrollOffset(30)
+        container.remove("agent-dock")
+        let replacement = UIView(frame: dockFrame)
+        container.install(replacement, id: "agent-dock", group: nil)
+        XCTAssertEqual(replacement.transform.ty, navigation.transform.ty, accuracy: 0.001)
+        XCTAssertEqual(container.restingBottomChromeFrame("agent-dock"), dockFrame)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 30, y: 740), with: nil) === replacement,
+            "Scroll presentation must not grant operation admission to a new host")
+    }
+
+    @MainActor
     func testDockFollowsKeyboardLayoutWithoutAnotherApplyAndVoiceReleasesTheLift() {
         let parent = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let window = UIWindow(frame: parent.bounds)

@@ -18,7 +18,7 @@ import {
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
-import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { bottomChromeScrollTravel, snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
 import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 
@@ -84,7 +84,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
       // Keep the hide transform clear of the navigation pill's outer border.
-      const navigationTravel = `${navigationHeight + 6}px`;
+      const navigationTravel = `${bottomChromeScrollTravel(navigationHeight)}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
       // Keyboard lift reserves navigation and outer insets, never the input.
       shell.style.setProperty("--app-bottom-shell-keyboard-reservation", `${Math.ceil(shell.getBoundingClientRect().height - measuredAgentHeight)}px`);

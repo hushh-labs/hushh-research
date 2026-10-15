@@ -10,7 +10,7 @@ import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/cap
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
-import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
+import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
@@ -940,6 +940,29 @@ describe("owned panel pose transport", () => {
 });
 
 describe("private dock event boundary", () => {
+  it("samples the CSS resting seat independently of native scroll lag without accumulating displacement", () => {
+    const motion = document.createElement("div"), seat = document.createElement("div");
+    motion.dataset.bottomShellMotionStack = "";
+    motion.append(seat); document.body.append(motion);
+    vi.stubGlobal("DOMMatrixReadOnly", class {
+      is2D = true; a = 1; b = 0; c = 0; d = 1; f = 0;
+      constructor(value: string) { this.f = value === "matrix(1, 0, 0, 1, 0, 27.5)" ? 27.5 : 55; }
+    });
+    const rect = vi.spyOn(seat, "getBoundingClientRect");
+    try {
+      for (const offset of [27.5, 55, 27.5]) {
+        motion.style.transform = `matrix(1, 0, 0, 1, 0, ${offset})`;
+        rect.mockReturnValue({ x: 16, y: 700 + offset, width: 358, height: 52 } as DOMRect);
+        expect(nativeDockRestingFrame(seat)).toEqual({ x: 16, y: 700, width: 358, height: 52 });
+      }
+      // Keyboard/reduced-motion CSS can remove the effective transform even
+      // while a previous progress snapshot is nonzero. Compensate pixels only.
+      motion.style.transform = "none";
+      rect.mockReturnValue({ x: 16, y: 492, width: 358, height: 52 } as DOMRect);
+      expect(nativeDockRestingFrame(seat)?.y).toBe(492);
+    } finally { motion.remove(); rect.mockRestore(); vi.unstubAllGlobals(); }
+  });
+
   const identity = { documentId: "dock-document", ownerEpoch: "dock-owner", revision: 1 };
   const input = (overrides: Partial<DockEvent> = {}): DockEvent => ({
     ...identity, sequence: 1, updateSequence: 1, editRevision: 1, editorRevision: 0, privacyGeneration: 0,

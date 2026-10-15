@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useAuth } from "@/hooks/use-auth";
-import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nextDockIdentity, sameDock, validDockEvent, type DockIdentity, type DockProjection } from "@/lib/capacitor/native-dock";
+import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nativeDockRestingFrame, nextDockIdentity, sameDock, validDockEvent, type DockIdentity, type DockProjection } from "@/lib/capacitor/native-dock";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
@@ -299,8 +299,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     const shell = dock.host.closest<HTMLElement>("[data-agent-bar-shell]");
     const seat = family === "text" ? dock.host.querySelector<HTMLElement>("[data-agent-dock-embedded]") : shell?.querySelector<HTMLElement>("[data-agent-dock-surface]");
     if (!seat) return;
-    const bounds = seat.getBoundingClientRect();
-    if (bounds.width < 88 || bounds.height < 44) return;
+    const bounds = nativeDockRestingFrame(seat);
+    if (!bounds || bounds.width < 88 || bounds.height < 44) return;
     const lease = identity.current ?? nextDockIdentity();
     if (!identity.current) { identity.current = lease; fence.current = new DockEventFence(lease); update.current = 0; settledConsumption.current = 0; }
     const sequence = ++update.current;

@@ -9,10 +9,13 @@ import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
 import { nativePresentationAdmission, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativePresentationRegionRevision } from "./native-presentation-regions";
+import { bottomChromeScrollTravel, snapKaiBottomChromeVisible, subscribeKaiBottomChromeProgress } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { NativeNavigationScrollDelivery, type NativeNavigationScroll, type NativeNavigationScrollReset } from "./native-navigation-scroll";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
-type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame; presentationApplied?: boolean };
+type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame; presentationApplied?: boolean;
+  scrollGeneration?: number; privacyGeneration?: number; scrollFollowing?: boolean };
 type Selection = { documentId: string; interactionEpoch: number; privacyGeneration: number; sequence: number; tab: NativeNavigationTab };
 type NavigationState = NativeControlAppearance & {
   documentId: string;
@@ -22,16 +25,19 @@ type NavigationState = NativeControlAppearance & {
   interactionEnabled: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  scrollFollowing?: boolean;
   presentationRegionRevision?: number;
   privacyGeneration?: number;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean; wholeNativeDrawers?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean; wholeNativeDrawers?: boolean; synchronizedBottomScroll?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
+  setScroll?(options: NativeNavigationScroll): Promise<{ applied: boolean }>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "geometryChanged", listener: (event: Geometry & { documentId?: string; revision?: number }) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "scrollResetRequested", listener: (event: NativeNavigationScrollReset) => void): Promise<PluginListenerHandle>;
 }
 
 const nativeNavigation = registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation");
@@ -40,6 +46,8 @@ let revision = 0;
 let operationQueue: Promise<unknown> = Promise.resolve();
 let installed = false;
 let nativeBottomInset = 0;
+let nativeBottomContentHeight = 49;
+let nativeScrollFollowing = false;
 let interactionEpoch = 0;
 const overlays = new Map<symbol, string | undefined>();
 const subscribers = new Set<() => void>();
@@ -83,6 +91,10 @@ function checkedHeight(height: number): number {
 /** Shared shell state, not a second routing or owner-information store. */
 export function useNativeNavigationInstalled() {
   return useSyncExternalStore(subscribe, () => installed, () => false);
+}
+
+export function useNativeNavigationScrollFollowing() {
+  return useSyncExternalStore(subscribe, () => installed && nativeScrollFollowing, () => false);
 }
 
 export function useNativeNavigationBottomInset() {
@@ -151,9 +163,12 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   const [ready, setReady] = useState(false);
   const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
   const [height, setHeight] = useState(49);
+  const [scrollFailed, setScrollFailed] = useState(false);
   const overlayBlocked = useSyncExternalStore(subscribe, () => overlays.size > 0, () => false);
   const regionRevision = useNativePresentationRegionRevision();
   const current = useRef<NavigationState | null>(null);
+  const scrollDelivery = useRef<NativeNavigationScrollDelivery | null>(null);
+  const scrollGeneration = useRef(-1);
   const select = useRef(onSelect);
   const lastSelection = useRef(0);
   const underlayPresentation = useRef(false);
@@ -181,9 +196,15 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     if (!enabled || !isNativeIOS()) return;
     let cancelled = false;
     let confirmationEpoch = 0;
-    const invalidateConfirmations = () => { confirmationEpoch += 1; };
+    const invalidateConfirmations = () => {
+      confirmationEpoch += 1;
+      // A late visible event must not revoke the native release receipt that
+      // already re-admitted motion during foreground settlement.
+      if (document.visibilityState === "hidden") scrollDelivery.current?.update(null);
+    };
     document.addEventListener("visibilitychange", invalidateConfirmations);
     const handles: PluginListenerHandle[] = [];
+    let removeScroll: (() => void) | undefined;
     const retain = async (pending: Promise<PluginListenerHandle>) => {
       const handle = await pending;
       if (cancelled) await handle.remove(); else handles.push(handle);
@@ -200,7 +221,31 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         underlayPresentation.current = capability.underlayPresentation === true;
         reservedRegions.current = capability.reservedPresentationRegions === true;
         documentId ??= nativeDocumentId();
-        await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
+        if (capability.synchronizedBottomScroll === true && nativeNavigation.setScroll) {
+          const delivery = new NativeNavigationScrollDelivery({ setScroll: sample => nativeNavigation.setScroll!(sample) },
+            () => { if (!cancelled) setScrollFailed(true); });
+          scrollDelivery.current = delivery;
+          removeScroll = subscribeKaiBottomChromeProgress(progress => delivery.publish(
+            window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : progress));
+          await retain(nativeNavigation.addListener("scrollResetRequested", event => {
+            const state = current.current;
+            if (cancelled || !state || event.documentId !== state.documentId || event.revision !== state.revision ||
+                event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.scrollGeneration) ||
+                !Number.isSafeInteger(event.privacyGeneration) || event.scrollGeneration < scrollGeneration.current) return;
+            scrollGeneration.current = event.scrollGeneration;
+            // Reset is an explicit native keyboard/press intent, not inferred
+            // navigation. The shared owner still decides all scroll movement.
+            if (event.snap) snapKaiBottomChromeVisible();
+            delivery.update(event.active && state.visible && state.interactionEnabled && overlays.size === 0
+              ? { documentId: state.documentId, revision: state.revision, interactionEpoch: state.interactionEpoch,
+                privacyGeneration: event.privacyGeneration, scrollGeneration: event.scrollGeneration,
+                travel: bottomChromeScrollTravel(checkedHeight(nativeBottomContentHeight)) } : null);
+          }));
+        }
+        await retain(subscribeNativeSessionPrivacy(event => {
+          invalidateConfirmations();
+          if (event.shielded || !event.appIsActive) scrollDelivery.current?.update(null);
+        }));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
           const state = current.current;
           if (!state?.visible || !state.interactionEnabled || overlays.size > 0 || event.documentId !== state.documentId ||
@@ -223,8 +268,19 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
               const state = current.current;
               if (underlayPresentation.current && (!state || event.documentId !== state.documentId || event.revision !== state.revision)) return;
               const contentHeight = checkedHeight(event.contentHeight);
+              nativeBottomContentHeight = contentHeight;
               nativeBottomInset = checkedHeight(event.bottomInset);
               setHeight(contentHeight);
+              if (state && event.documentId === state.documentId && event.revision === state.revision &&
+                  Number.isSafeInteger(event.scrollGeneration) && Number.isSafeInteger(event.privacyGeneration) &&
+                  event.scrollGeneration! >= scrollGeneration.current) {
+                scrollGeneration.current = event.scrollGeneration!;
+                scrollDelivery.current?.update(state.visible && state.interactionEnabled && overlays.size === 0 ? {
+                  documentId: state.documentId, revision: state.revision, interactionEpoch: state.interactionEpoch,
+                  privacyGeneration: event.privacyGeneration!, scrollGeneration: event.scrollGeneration!,
+                  travel: bottomChromeScrollTravel(contentHeight),
+                } : null);
+              }
               if (state && event.documentId === state.documentId && event.revision === state.revision) applyAperture(event, state);
               publish();
             } catch { /* Retain the last valid reservation. */ }
@@ -245,6 +301,8 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       cancelled = true;
       document.removeEventListener("visibilitychange", invalidateConfirmations);
       handles.forEach((handle) => { void handle.remove(); });
+      removeScroll?.(); scrollDelivery.current?.stop(); scrollDelivery.current = null;
+      nativeScrollFollowing = false;
       const state = current.current;
       current.current = null;
       if (apertureRevision.current !== undefined) removeNativeBaseAperture("bottom-navigation", apertureRevision.current);
@@ -265,8 +323,10 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     const state: NavigationState = {
       documentId, revision: ++revision, interactionEpoch, visible: nextVisible, interactionEnabled: nextInteractionEnabled,
       selected, feedAttention, appearance, accentHex, foregroundHex,
+      ...(scrollDelivery.current ? { scrollFollowing: !scrollFailed } : {}),
     };
     current.current = state;
+    scrollDelivery.current?.update(null);
     let cancelled = false;
     void (reservedRegions.current ? syncNativePresentationRegions() : Promise.resolve(true)).then((confirmed) => {
       if (!confirmed || cancelled || current.current !== state) return undefined;
@@ -275,10 +335,21 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       if (!result || result.presentationApplied === false) return;
       if (cancelled || current.current !== state || !result.supported) return;
       setHeight(checkedHeight(result.contentHeight));
+      nativeBottomContentHeight = checkedHeight(result.contentHeight);
       nativeBottomInset = checkedHeight(result.bottomInset);
       applyAperture(result, state);
       setReady(true);
       setInstalled(true);
+      nativeScrollFollowing = !!scrollDelivery.current && !scrollFailed && result.scrollFollowing === true;
+      if (nativeScrollFollowing && scrollDelivery.current && Number.isSafeInteger(result.scrollGeneration) &&
+          Number.isSafeInteger(result.privacyGeneration) && result.scrollGeneration! >= scrollGeneration.current) {
+        scrollGeneration.current = result.scrollGeneration!;
+        scrollDelivery.current.update(state.visible && state.interactionEnabled && !overlayBlocked ? {
+          documentId: state.documentId, revision: state.revision, interactionEpoch: state.interactionEpoch,
+          privacyGeneration: result.privacyGeneration!, scrollGeneration: result.scrollGeneration!,
+          travel: bottomChromeScrollTravel(result.contentHeight),
+        } : null);
+      }
       publish();
     }).catch(() => {
       // Never expose duplicate DOM tabs after a previously accepted native installation.
@@ -286,7 +357,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, scrollFailed]);
 
   return { ready, height, reserved: ready || discovering || supported };
 }

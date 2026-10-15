@@ -79,6 +79,28 @@ export interface HushhNativeDockPlugin {
   addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 export const nativeDock = registerPlugin<HushhNativeDockPlugin>("HushhNativeDock");
+
+/** Measure the authored resting seat, not the CSS scroll pose sampled during
+ * a draft/theme update. Native's pose may lag CSS, so its offset is not a valid
+ * compensation. Keyboard `translate` remains separately owned. */
+export function nativeDockRestingFrame(seat: HTMLElement) {
+  const bounds = seat.getBoundingClientRect();
+  const movers = new Set([
+    seat.closest<HTMLElement>("[data-bottom-shell-motion-stack]"),
+    seat.closest<HTMLElement>('[data-agent-chat-composer-form="root"]'),
+  ].filter((node): node is HTMLElement => node !== null));
+  let offset = 0;
+  for (const mover of movers) {
+    const transform = getComputedStyle(mover).transform;
+    if (!transform || transform === "none") continue;
+    try {
+      const matrix = new DOMMatrixReadOnly(transform);
+      if (!matrix.is2D || matrix.a !== 1 || matrix.b !== 0 || matrix.c !== 0 || matrix.d !== 1 || !Number.isFinite(matrix.f)) return null;
+      offset += matrix.f;
+    } catch { return null; }
+  }
+  return { x: bounds.x, y: bounds.y - offset, width: bounds.width, height: bounds.height };
+}
 let capability: { documentId: string; promise: Promise<NativeDockCapabilities | null> } | undefined;
 export function getNativeDockCapabilities() {
   if (!customNativePresentationEnabled()) return Promise.resolve(null);
