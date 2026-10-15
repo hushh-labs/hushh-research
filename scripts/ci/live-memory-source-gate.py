@@ -32,12 +32,13 @@ SQL_KIND_LIST = re.compile(r"\s*'[a-z][a-z0-9_]*'(?:\s*,\s*'[a-z][a-z0-9_]*')*\s
 WEB_JOURNAL_KINDS = re.compile(r"\bexport\s+const\s+SOURCE_JOURNAL_KINDS\b[^=]*=\s*\[([^\]]*)\]")
 WEB_KIND_LIST = re.compile(r'\s*"[a-z][a-z0-9_]*"(?:\s*,\s*"[a-z][a-z0-9_]*")*\s*,?\s*')
 # Paid exact-scope answers read authoritative domains and Soul only. The owner
-# inventory, its history, fact index and every Live Mirror module stay out.
+# inventory, its history, fact index, every Live Mirror module and the
+# memory-refresh cache that serves peekLiveMirror stay out.
 PAID_RETRIEVAL_FILES = (
     "hushh-webapp/lib/pkm/memory-scope-retrieval.ts",
     "hushh-webapp/lib/answers/answer-scope-availability.ts",
 )
-LIVE_MEMORY_MODEL_MODULE = re.compile(r"(?:use-)?(?:living-source|live-mirror)-[a-z0-9-]+")
+LIVE_MEMORY_MODEL_MODULE = re.compile(r"(?:(?:use-)?(?:living-source|live-mirror)-[a-z0-9-]+|memory-refresh)")
 MODULE_SPECIFIER = re.compile(r"""(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"'\n]+)["']""")
 START = "<!-- live-memory-source-contract:v1 -->"
 END = "<!-- /live-memory-source-contract:v1 -->"
@@ -545,6 +546,8 @@ def self_test_paid_retrieval_imports(code: dict[str, str]) -> None:
         (retrieval, 'import {\n  buildLiveMirrorProjection,\n} from "./live-mirror-projection.ts";'),
         (availability, 'export type { LiveMirrorView } from "../pkm/live-mirror-contract";'),
         (availability, 'const facts = await import("@/lib/pkm/live-mirror-agent-facts");'),
+        (availability, 'import { peekLiveMirror } from "@/lib/pkm/memory-refresh";'),
+        (retrieval, 'import type { MemoryView } from "./memory-refresh.ts";'),
     ):
         changed = dict(code)
         changed[path] = f"{injected}\n{changed[path]}"
