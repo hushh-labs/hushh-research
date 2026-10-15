@@ -44,7 +44,11 @@ A durable exclusive lease serializes hierarchy mutations across browser tabs.
 Conditional writes protect immutable chunks and metadata revisions. Shared uploads
 persist a purpose-bound encrypted GCS session receipt before dispatching bytes.
 The existing credential-encryption key protects this provider bearer; it is not a
-library key. Exact per-operation SQL transitions fence stale writers and competing
+library key. The dev pilot binds independently provisioned dev custody material;
+no UAT/production credential key is copied. Existing configured references remain
+unchanged, and preflight verifies custody material and its runtime grant. Serving startup
+and a live upload must prove use.
+Exact per-operation SQL transitions fence stale writers and competing
 recovery. Completion requires exact ciphertext; cancellation requires the provider's
 terminal receipt and observed absence, unchanged predecessor, or exact completed bytes.
 Missing/expired sessions and lost cancellation replies remain fenced. Legacy one-shot

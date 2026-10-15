@@ -470,9 +470,11 @@ def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisi
             "bash",
             "-eu",
             "-c",
-            'append_optional_secret() { printf "%s=%s\\n" "$2" "$1"; }\n' + script[start:end],
+            'append_optional_secret() { [[ -n "$1" ]] || return 0; printf "%s=%s\\n" "$2" "$1"; }\n'
+            + script[start:end]
+            + '\nappend_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"',
         ],
-        env={"_DEPLOY_ENV": deploy_env},
+        env={"_DEPLOY_ENV": deploy_env, "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": ""},
         capture_output=True,
         text=True,
         check=True,
@@ -481,6 +483,7 @@ def test_shared_files_pilot_bindings_do_not_enable_existing_or_other_lane_revisi
         [
             "HUSSH_SHARED_FILES_ENABLED=HUSSH_SHARED_FILES_ENABLED",
             "HUSSH_SHARED_FILES_BUCKET=HUSSH_SHARED_FILES_BUCKET",
+            "EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY",
         ]
         if deploy_env == "dev"
         else []
