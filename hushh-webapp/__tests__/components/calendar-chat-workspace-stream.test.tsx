@@ -292,6 +292,36 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects an in-flight Calendar confirmation after the owner changes", async () => {
+    const start = new Date(Date.now() + 3600000).toISOString();
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start) + 1800000).toISOString(), timeZone: "UTC" });
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+    const view = workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarSlot: {
+      ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
+      windowEnd: new Date(Date.parse(start) + 7200000).toISOString(), durationMinutes: 30, timeZone: "UTC",
+    } }); });
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
+    fireEvent.change(composer, { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    let resolveStatus!: (value: Awaited<ReturnType<typeof GoogleCalendarService.status>>) => void;
+    vi.mocked(GoogleCalendarService.status).mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule meeting" }));
+    await waitFor(() => expect(resolveStatus).toBeTypeOf("function"));
+
+    fixture.auth.user.uid = "replacement";
+    publishValidatedAuthSessionOwner("replacement");
+    view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+    await waitFor(() => expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull());
+    await act(async () => { resolveStatus({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never); });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(screen.queryByText("The conversation changed before scheduling.")).toBeNull();
+  });
+
   it("account replacement clears the pending preview before it can execute", async () => {
     vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
