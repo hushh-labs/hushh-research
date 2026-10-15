@@ -41,14 +41,23 @@ journals contain kind-only hints, never source values.
   no longer holds every cursor, and no hint is dropped.
 - **Gap markers.** When more changes were committed than an unlocked client
   verified, the history gets an explicit `gap` entry with counts and times. It
-  never invents the values in between and shares the 2,048-entry cap.
+  never invents the values in between and shares the 2,048-entry cap. A
+  verified source that recorded no change gets no marker, and an unknown
+  recorded count reads "recorded count unknown".
 - **Reset repair.** A journal reset, including the backend's reset for a
   missing event inside the retained range, forces an authoritative rescan of
   every kind instead of trusting hints.
 - **Freshness.** A source is current for five minutes after its last verified
-  read, plus a two-minute grace, judged when the view is read. A failing kind
-  retries with bounded per-kind backoff. Commit-to-encrypted-write lag is
-  measured per kind and shown only to the owner.
+  read, plus a two-minute grace, judged when the view is read. An unchanged
+  sync's verification applies on read without a rebuild; a source whose
+  records changed keeps its stored time until the rebuilt mirror lands, and
+  the mirror shows "Updating" meanwhile. Routine wakes otherwise rebuild
+  quietly. A failing kind retries with bounded per-kind backoff.
+  Commit-to-encrypted-write lag is measured per kind and shown only to the
+  owner.
+- **Private agent packet.** The packet is bounded so the server's
+  20,000-character clip never cuts it. Finance and Investor receive the whole
+  block with its rule, or none of it; only Soul.md is clipped to fit.
 
 The observed history cannot reconstruct values that changed while every owner
 client was closed; it must not be sold as a complete account activity export.
