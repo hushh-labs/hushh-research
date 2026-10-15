@@ -13,7 +13,59 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
-### Installed Profile admission investigation — 2026-10-14
+### Current physical Profile gate — 2026-10-14
+
+Product source `cd09a3779d` is installed on the iPhone as UAT-backed Debug
+1.4.0 (69), with native-shell qualification enabled. Executable SHA-256:
+`8a80b6172db382324a75f448ff1b2ac596c75c2f3c30b346f2d9d5ef4c9bdf11`.
+Sealed-resource manifest SHA-256:
+`f13bfa5316db570bb6a3219b758e931720fe802d5841564362dc92b80561ca45`.
+Strict app/runner signatures, bundled assets and UAT target were checked before
+installation; reviewer unlock used the normal process-only passphrase path.
+
+Two complete attach-only runs pass on that installed candidate:
+
+- Eight Profile destinations and their authored Back stack retain a single
+  WebView, its frame, draft and unlocked session. Profile is full-height and
+  full-width on the phone.
+- Light/Dark/System, both accents, popup cancellation and ten alternating
+  Close-edge/reopen cycles pass together; original preferences are restored.
+
+The first gate was a diagnostic/test admission gap, not evidence to remove
+interaction guards: Radix exposes an owned popup outside its hidden underlying
+Profile accessibility subtree. Tests now target the actual popup and wait for
+its real cancellation. The native active-pane diagnostic also retains the
+already-sanitized geometry required by Back admission. Neither change broadens
+operation authority.
+
+| Family | Renderer / owner | Current evidence and boundary |
+| --- | --- | --- |
+| Profile menu and Back/Close | NativeDrawers menu; React query/Back owner | Physical functional stack and ten-cycle reopen pass at `cd09a3779d`; not visual, accessibility or Release-performance acceptance |
+| Appearance / Accent detail triggers | Existing React detail; current bounded selection owners | Physical functional values/cancellation pass; no new native settings scene claimed |
+| Account name | Existing React editor and shared memory-only controller | Owner-change, retained-callback, duplicate-submit and refresh-order regression checks; ordinary native editor not yet adopted |
+| Communication | `CommunicationPreferencesSection`; existing encrypted `saveOwnerStyleSettings` writer | Native ordinary settings scene not implemented; retain unlocked load, proposed-versus-saved state and explicit Save |
+| Ordinary Voice preferences | `VoicePreferencesPanel` and its existing preference services | Native ordinary scene not implemented; do not turn Location auto-approval/nearby policy rows into unguarded local settings |
+| Help & Feedback | `ProfileWorkspacePage` support composer and existing delivery service | Native multiline scene not implemented; preserve three intents, accepted/failed/uncertain outcomes and no uncertain-send replay |
+| Profile photo | `ProfileAvatarEditor` and existing camera/library/remove owners | Complete owned native action-menu adoption not qualified; no new camera or persistence owner |
+| One Feed/Profile finite tabs | Existing One profile content and local selection owner | Pane-bound native tab family not implemented; do not conflate finite local selection with route/swipe pagers |
+
+The name-controller prerequisite uses the existing authenticated service writer.
+Confirmed provider writes remain distinct from failed shadow readback; stale
+owner callbacks and older refreshes cannot replace a newer presentation draft.
+This source change is not installed on the device above. Protected forms, rich
+content, complex multiselects and other-platform fallbacks remain unchanged.
+No merge, deploy, distribution or new family qualification follows from these
+functional receipts. Transition frames, accessibility and physical Release
+performance retain separate acceptance gates.
+
+Behavioral Location tests isolate the decorative page-entrance hook only; they
+retain operation, consent, cancellation and gesture owners and all existing
+assertions. Actual animation/scroll frames remain owned by
+`location-switch.layout.spec.ts` and `one-location-people-rows.layout.spec.ts`.
+Removing an animation from JSDOM is not physical motion acceptance or a reason
+to increase timeouts.
+
+### Historical Profile admission investigation — 2026-10-14
 
 Product source `aa4197aad3` is installed on the iPhone as UAT Debug 1.4.0 (69).
 Its executable SHA-256 is
@@ -67,8 +119,9 @@ this readiness race as the cause of the earlier popup accessibility failure.
 Historical installed and prepared identities below are not the current candidate.
 
 Ordinary native Profile forms, support composition and finite local tabs are not
-implemented by this repair. Their adoption remains gated on physical Back/Close
-acceptance; existing protected-form, rich-content and platform fallbacks remain.
+implemented by this repair. The subsequent physical Back/Close gate is recorded
+above; it does not establish acceptance of those new families. Existing
+protected-form, rich-content and platform fallbacks remain.
 
 ### Profile continuity and system-resume repair — 2026-10-14
 
