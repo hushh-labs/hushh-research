@@ -989,7 +989,8 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # revisions at revision-level maxScale, plus jobs and administration.
     budget = json.loads(_read("config/runtime-capacity.json"))
     assert budget["database_max_connections"] == 1000
-    assert budget["admission_limit"] == 800
+    # 900 since 2026-10-15: measured num_backends peaked at 256 over 7 days.
+    assert budget["admission_limit"] == 900
     assert budget["administrative_reserve"] == 100
 
     uat_per_worker = 4 + 3 + 0
