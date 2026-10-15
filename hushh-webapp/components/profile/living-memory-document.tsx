@@ -12,96 +12,41 @@ import {
   LIVE_MIRROR_SOURCE_LABELS,
   type LiveMirrorFact,
   type LiveMirrorHistoryEntry,
-  type LiveMirrorOverall,
   type LiveMirrorSource,
-  type LiveMirrorSourceState,
   type LiveMirrorView,
 } from "@/lib/pkm/live-mirror-contract";
 import {
-  compareLiveMirrorFacts,
-  formatLiveMirrorValue,
-  LIVE_MIRROR_OVERALL_HEADLINES,
-  waitingText,
-} from "@/lib/pkm/live-mirror-projection";
+  formatLiveMirrorDateTime,
+  LIVE_MIRROR_HISTORY_FOOTER,
+  liveMirrorCount,
+  liveMirrorFactStateLabel,
+  liveMirrorGapText,
+  liveMirrorHistoryAction,
+  liveMirrorHistoryDetail,
+  liveMirrorRecordRows,
+  liveMirrorSourceDescription,
+  liveMirrorSourceStateLabel,
+  liveMirrorStatus,
+  type LiveMirrorStatusCopy,
+} from "@/lib/pkm/live-mirror-presentation";
 import { useLiveMirrorView } from "@/lib/pkm/use-live-mirror-view";
 
 const PAGE_SIZE = 50;
-const SOURCE_STATE_LABELS: Record<LiveMirrorSourceState, string> = {
-  current: "Current",
-  updating: "Updating",
-  stale: "Out of date",
-  unavailable: "Unavailable",
-  withheld: "Withheld",
-  conflict: "Needs review",
-  not_checked: "Not checked",
-};
-const DATE_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-
-function ago(at: string, now: string): string {
-  const minutes = Math.floor(Math.max(0, Date.parse(now) - Date.parse(at)) / 60_000);
-  if (!Number.isFinite(minutes) || minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} ${days === 1 ? "day" : "days"} ago`;
-}
-
-function duration(ms: number): string {
-  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
-  return `${Math.round(ms / 3_600_000)} hr`;
-}
 
 function DateTime({ at }: { at: string | null }) {
-  if (!at || !Number.isFinite(Date.parse(at))) return <span>Unknown</span>;
-  return <time dateTime={at}>{DATE_TIME.format(new Date(at))}</time>;
+  const text = formatLiveMirrorDateTime(at);
+  if (!at || !text) return <span>Unknown</span>;
+  return <time dateTime={at}>{text}</time>;
 }
 
-function statusSub(view: LiveMirrorView): string | null {
-  const at = view.lastVerifiedAt;
-  switch (view.overall) {
-    case "current": return at ? `Checked ${ago(at, view.evaluatedAt)}` : null;
-    case "updating": return "Checking your latest change";
-    case "stale": return at ? `Last checked ${ago(at, view.evaluatedAt)}` : null;
-    case "partial": return "Showing what we could check";
-    case "conflict": return "Two sources disagree";
-    case "empty": return "New changes will show here";
-    default: return null;
-  }
-}
-
-function StatusLine({ overall, sub }: { overall: LiveMirrorOverall; sub?: string | null }) {
+/** Only the headline is a live region; the ticking check time sits outside it. */
+function StatusLine({ status }: { status: LiveMirrorStatusCopy }) {
   return (
-    <div role="status" className="min-w-0 space-y-0.5 px-1">
-      <Headline as="p" className="[overflow-wrap:anywhere]">{LIVE_MIRROR_OVERALL_HEADLINES[overall]}</Headline>
-      {sub ? <RowDescription>{sub}</RowDescription> : null}
+    <div className="min-w-0 space-y-0.5 px-1">
+      <Headline as="p" role="status" className="[overflow-wrap:anywhere]">{status.headline}</Headline>
+      {status.sub ? <RowDescription className="[overflow-wrap:anywhere]">{status.sub}</RowDescription> : null}
     </div>
   );
-}
-
-function sourceDescription(source: LiveMirrorSource, now: string): string | undefined {
-  const at = source.verifiedAt ? ago(source.verifiedAt, now) : null;
-  const parts: string[] = [];
-  if (source.state === "unavailable") parts.push(at ? `Couldn’t check · last ${at}` : "Couldn’t check");
-  else if (source.state === "withheld") parts.push("Kept out of memory");
-  else if (source.state === "stale") parts.push(at ? `Last checked ${at}` : "Not checked yet");
-  else if (source.state !== "not_checked" && at) parts.push(`Checked ${at}`);
-  if (source.state !== "withheld" && source.withheld.length > 0) parts.push("Some details kept out");
-  const waiting = waitingText(source.pendingChanges);
-  if (waiting) parts.push(waiting);
-  if (source.lastLagMs !== null && source.state !== "unavailable") parts.push(`Updated ${duration(source.lastLagMs)} after change`);
-  return parts.length ? parts.join(" · ") : undefined;
-}
-
-function factTitle(fact: LiveMirrorFact): string {
-  return fact.kind === "profile" ? fact.label : `${fact.ref} · ${fact.label}`;
-}
-
-function FactValue({ fact }: { fact: LiveMirrorFact }) {
-  if (fact.state === "conflicted") return <span>Sources disagree</span>;
-  const lastKnown = fact.state === "stale" || fact.state === "unavailable";
-  return <><span>{formatLiveMirrorValue(fact.predicate, fact.value)}</span>{lastKnown ? <span> · Last known</span> : null}</>;
 }
 
 function ShowMore({ label, onClick }: { label: string; onClick: () => void }) {
@@ -112,44 +57,39 @@ function ShowMore({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
-function HistoryRow({ entry }: { entry: LiveMirrorHistoryEntry }) {
+function HistoryRow({ entry, facts }: { entry: LiveMirrorHistoryEntry; facts: readonly LiveMirrorFact[] }) {
   if (entry.gap) {
-    const count = entry.gap.committedChanges;
     return <SettingsRow title={entry.ref} description={<>
-      <span>{count === null ? "Some changes may be missing." : `${count} ${count === 1 ? "change" : "changes"} made. Only the latest seen.`}</span>
-      <span> · </span><DateTime at={entry.capturedAt} />
+      <span>{liveMirrorGapText(entry.gap)}</span><span> · </span><DateTime at={entry.capturedAt} />
     </>} />;
   }
-  const action = entry.operation === "delete" ? "Removed" : entry.revision === 1 ? "Added" : "Changed";
-  const detail = entry.redacted
-    ? "Details hidden"
-    : entry.changes.map(change => `${change.label}: ${formatLiveMirrorValue(change.predicate, change.value)}`).join(", ");
+  const detail = liveMirrorHistoryDetail(entry, facts);
   return <SettingsRow title={entry.ref} trailing={entry.current ? "Now" : "Earlier"} description={<>
-    <span>{action}</span><span> · </span><DateTime at={entry.capturedAt} />
+    <span>{liveMirrorHistoryAction(entry)}</span><span> · </span><DateTime at={entry.capturedAt} />
     {detail ? <><span> · </span><span>{detail}</span></> : null}
   </>} />;
 }
 
 function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNode }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [factLimits, setFactLimits] = useState<Partial<Record<string, number>>>({});
+  const [recordLimits, setRecordLimits] = useState<Partial<Record<string, number>>>({});
   const [historyLimit, setHistoryLimit] = useState(PAGE_SIZE);
-  const selected = selectedKey ? view.facts.find(fact => fact.key === selectedKey) ?? null : null;
-  const facts = [...view.facts].sort(compareLiveMirrorFacts);
+  const records = liveMirrorRecordRows(view.facts);
+  const selected = selectedKey ? records.find(record => record.key === selectedKey) ?? null : null;
   const groups = LIVE_MIRROR_KINDS
-    .map(kind => ({ kind, facts: facts.filter(fact => fact.kind === kind) }))
-    .filter(group => group.facts.length > 0);
+    .map(kind => ({ kind, records: records.filter(record => record.kind === kind) }))
+    .filter(group => group.records.length > 0);
   const living = view.sources.filter(source => source.group === "living");
   const saved = view.sources.filter(source => source.group === "saved");
   const entries = view.history.entries;
   const sourceRow = (source: LiveMirrorSource) => (
-    <SettingsRow key={source.id} title={source.label} description={sourceDescription(source, view.evaluatedAt)}
-      trailing={SOURCE_STATE_LABELS[source.state]} />
+    <SettingsRow key={source.id} title={source.label} description={liveMirrorSourceDescription(source, view.evaluatedAt)}
+      trailing={liveMirrorSourceStateLabel(source.state)} />
   );
   return (
     <>
       {title}
-      <StatusLine overall={view.overall} sub={statusSub(view)} />
+      <StatusLine status={liveMirrorStatus(view.overall, view)} />
       <Footnote className="px-1">{LIVE_MEMORY_BOUNDARY_COPY}</Footnote>
       <Tabs defaultValue="facts" className="min-w-0 gap-3">
         <TabsList className="w-full">
@@ -162,19 +102,20 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
             {living.map(sourceRow)}
           </SettingsGroup>
           {groups.map(group => {
-            const limit = factLimits[group.kind] ?? PAGE_SIZE;
+            const limit = recordLimits[group.kind] ?? PAGE_SIZE;
             const label = LIVE_MIRROR_SOURCE_LABELS[group.kind];
             return (
               <div key={group.kind} className="min-w-0">
                 <SettingsGroup title={label} embedded separatorInset>
-                  {group.facts.slice(0, limit).map(fact => (
-                    <SettingsRow key={fact.key} title={factTitle(fact)} description={<FactValue fact={fact} />}
-                      chevron onClick={() => setSelectedKey(fact.key)} />
+                  {group.records.slice(0, limit).map(record => (
+                    <SettingsRow key={record.key} title={record.ref} description={record.summary}
+                      trailing={liveMirrorFactStateLabel(record.state) ?? undefined}
+                      chevron onClick={() => setSelectedKey(record.key)} />
                   ))}
                 </SettingsGroup>
-                {group.facts.length > limit ? (
+                {group.records.length > limit ? (
                   <ShowMore label={`Show more ${label}`}
-                    onClick={() => setFactLimits(current => ({ ...current, [group.kind]: limit + PAGE_SIZE }))} />
+                    onClick={() => setRecordLimits(current => ({ ...current, [group.kind]: limit + PAGE_SIZE }))} />
                 ) : null}
               </div>
             );
@@ -185,13 +126,15 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
           <SettingsGroup embedded separatorInset>
             {entries.length === 0
               ? <SettingsRow title="No changes yet" />
-              : entries.slice(0, historyLimit).map(entry => <HistoryRow key={entry.sequence} entry={entry} />)}
+              : entries.slice(0, historyLimit).map(entry => <HistoryRow key={entry.sequence} entry={entry} facts={view.facts} />)}
           </SettingsGroup>
           {entries.length > historyLimit
             ? <ShowMore label="Show more changes" onClick={() => setHistoryLimit(limit => limit + PAGE_SIZE)} />
             : null}
-          {view.history.droppedCount > 0 ? <Footnote className="px-1">{`${view.history.droppedCount} older changes not kept`}</Footnote> : null}
-          <Footnote className="px-1">Only changes seen while open</Footnote>
+          {view.history.droppedCount > 0
+            ? <Footnote className="px-1">{`${liveMirrorCount(view.history.droppedCount, "older change")} not kept`}</Footnote>
+            : null}
+          <Footnote className="px-1">{LIVE_MIRROR_HISTORY_FOOTER}</Footnote>
         </TabsContent>
         <TabsContent value="preview" className="min-w-0">
           {view.markdown.trim()
@@ -203,20 +146,25 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
         open={selected !== null}
         onOpenChange={(open) => { if (!open) setSelectedKey(null); }}
         title="Source details"
-        description={selected ? factTitle(selected) : undefined}
+        description={selected?.ref}
         mobilePresentation="sheet"
         showCloseButton={false}
         desktopMaxWidthClassName="sm:!max-w-[480px]"
         footer={<Button type="button" size="standard" className="w-full" onClick={() => setSelectedKey(null)}>Done</Button>}
       >
         {selected ? (
-          <SettingsGroup embedded separatorInset>
-            <SettingsRow title="From" trailing={LIVE_MIRROR_SOURCE_LABELS[selected.kind]} />
-            <SettingsRow title="Version" trailing={String(selected.revision)} />
-            <SettingsRow title="Changed" trailing={<DateTime at={selected.sourceUpdatedAt} />} />
-            <SettingsRow title="Checked" trailing={<DateTime at={selected.verifiedAt} />} />
-            <SettingsRow title="Saved" trailing={<DateTime at={selected.capturedAt} />} />
-          </SettingsGroup>
+          <div className="min-w-0 space-y-3">
+            <SettingsGroup embedded separatorInset>
+              {selected.fields.map(field => <SettingsRow key={field.key} title={field.label} description={field.value} />)}
+            </SettingsGroup>
+            <SettingsGroup embedded separatorInset>
+              <SettingsRow title="From" trailing={LIVE_MIRROR_SOURCE_LABELS[selected.kind]} />
+              <SettingsRow title="Version" trailing={String(selected.revision)} />
+              <SettingsRow title="Changed" trailing={<DateTime at={selected.sourceUpdatedAt} />} />
+              <SettingsRow title="Checked" trailing={<DateTime at={selected.verifiedAt} />} />
+              <SettingsRow title="Saved" trailing={<DateTime at={selected.capturedAt} />} />
+            </SettingsGroup>
+          </div>
         ) : null}
       </SettingsDetailPanel>
     </>
@@ -225,14 +173,14 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
 
 /**
  * Profile's Live Mirror: one owner- and vault-epoch-fenced view of current
- * facts, observed history and the Markdown preview. A lock shows only a
+ * records, observed history and the Markdown preview. A lock shows only a
  * status line, and a different owner or epoch never shows the prior view.
  */
 export function LivingMemoryDocument() {
   const state = useLiveMirrorView();
   const headingId = useId();
   if (state.status === "locked") {
-    return <section aria-label="Live memory" className="min-w-0"><StatusLine overall="locked" sub="Unlock to see it" /></section>;
+    return <section aria-label="Live memory" className="min-w-0"><StatusLine status={liveMirrorStatus("locked")} /></section>;
   }
   const title = <SectionLabel as="h2" id={headingId} className="px-1">Live memory</SectionLabel>;
   return (
@@ -240,7 +188,7 @@ export function LivingMemoryDocument() {
       {state.status === "loading" ? (
         <>
           {title}
-          <StatusLine overall="loading" />
+          <StatusLine status={liveMirrorStatus("loading")} />
           <Footnote className="px-1">{LIVE_MEMORY_BOUNDARY_COPY}</Footnote>
         </>
       ) : (

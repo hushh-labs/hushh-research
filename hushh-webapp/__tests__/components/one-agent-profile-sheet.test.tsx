@@ -3,12 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { LIVE_MEMORY_BOUNDARY_COPY, type LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
+import { applyLiveMirrorReadTime, buildLiveMirrorProjection } from "@/lib/pkm/live-mirror-projection";
 import {
-  LIVE_MEMORY_BOUNDARY_COPY,
-  type LiveMirrorFact,
-  type LiveMirrorOverall,
-  type LiveMirrorView,
-} from "@/lib/pkm/live-mirror-contract";
+  appendVerifiedLivingSourceChanges,
+  reconcileLivingSources,
+  type LivingSourceHistory,
+  type LivingSourceInput,
+  type LivingSourceInventory,
+} from "@/lib/pkm/living-source-records";
 import { CacheService } from "@/lib/services/cache-service";
 
 const mocks = vi.hoisted(() => ({
@@ -61,21 +64,39 @@ const item = (id: string, event_type: string) => ({
   created_at: "2026-10-12T08:00:00Z",
 });
 
+const T0 = "2026-10-15T09:58:00.000Z";
 const T = "2026-10-15T10:00:00.000Z";
-function mirrorFact(predicate: string, label: string, value: LiveMirrorFact["value"], patch: Partial<LiveMirrorFact> = {}): LiveMirrorFact {
-  const [kind, field] = predicate.split(".") as [LiveMirrorFact["kind"], string];
-  return { key: predicate, predicate, kind, sourceId: "owner-record", ref: kind === "profile" ? "Profile" : "Consent 2",
-    field, label, value, state: "verified", revision: 2, sourceUpdatedAt: T, capturedAt: T, verifiedAt: T, ...patch };
+const READ = "2026-10-15T10:00:30.000Z";
+type Step = { inputs: LivingSourceInput[]; kinds: string[]; unavailable?: string[]; now: string };
+const person = (ownerId: string, name: string, email: string | null = "a@example.test"): LivingSourceInput => ({
+  kind: "profile", id: ownerId, createdAt: null, updatedAt: T0, value: { name, email },
+});
+const earning = (id: string, updatedAt: string, grossCents: number): LivingSourceInput => ({
+  kind: "document_earning", id, createdAt: updatedAt, updatedAt,
+  value: { stripeMode: "test", status: "succeeded", grossCents, netCents: grossCents - 30, createdAt: updatedAt },
+});
+/** A view built through the real reconciler, history, projection and read time. */
+function mirrorView(ownerId: string, options: {
+  steps?: Step[];
+  readAt?: string;
+  epoch?: number;
+  inventory?: (inventory: LivingSourceInventory) => LivingSourceInventory;
+} = {}): LiveMirrorView {
+  let inventory: LivingSourceInventory | null = null;
+  let history: LivingSourceHistory | null = null;
+  for (const step of options.steps ?? [{ inputs: [person(ownerId, "SYNTHETIC_A")], kinds: ["profile"], now: T }]) {
+    const next = reconcileLivingSources(inventory, step.inputs, step.kinds, step.unavailable ?? [], step.now);
+    history = appendVerifiedLivingSourceChanges(history, inventory, next);
+    inventory = next;
+  }
+  const projection = buildLiveMirrorProjection({
+    ownerId, vaultEpoch: options.epoch ?? mocks.epoch, now: T, history, document: null,
+    inventory: inventory && options.inventory ? options.inventory(inventory) : inventory,
+  });
+  return applyLiveMirrorReadTime(projection, options.readAt ?? READ, "current");
 }
-function mirrorView(ownerId: string, patch: Partial<LiveMirrorView> = {}): LiveMirrorView {
-  return {
-    schemaVersion: "live_mirror.v1", ownerId, vaultEpoch: mocks.epoch, builtAt: T, inventoryObservedAt: T,
-    inventoryComplete: true, issues: [], nameConflict: false, sources: [], markdown: "",
-    facts: [mirrorFact("profile.name", "Name", "SYNTHETIC_A"), mirrorFact("profile.email", "Email", "a@example.test")],
-    history: { entries: [], firstRetainedSequence: 1, droppedCount: 0, truncatedAt: null, coverage: "open_app_only" },
-    evaluatedAt: "2026-10-15T10:00:30.000Z", overall: "current", lastVerifiedAt: T, ...patch,
-  };
-}
+const factRow = (title: string) => screen.getAllByTestId("live-mirror-fact")
+  .find(row => row.querySelector('[data-slot="settings-row-title"]')?.textContent === title)!;
 const openProfileTab = () =>
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
 const mirrorStatus = () => within(screen.getByTestId("live-mirror-status"));
@@ -203,12 +224,11 @@ describe("One agent profile feed preview", () => {
     openProfileTab();
 
     expect(await screen.findByRole("heading", { name: "Live memory" })).toBeInTheDocument();
-    expect(mirrorStatus().getByText("Up to date")).toBeInTheDocument();
-    expect(screen.getByText(/^Checked /)).toBeInTheDocument();
-    expect(screen.getByText("Updates while the app is open and unlocked.")).toBe(screen.getByText(LIVE_MEMORY_BOUNDARY_COPY));
-    const name = screen.getByText("Name").closest<HTMLElement>('[data-testid="live-mirror-fact"]')!;
-    expect(within(name).getByText("SYNTHETIC_A")).toBeInTheDocument();
-    expect(screen.getByText("a@example.test")).toBeInTheDocument();
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Up to date");
+    expect(mirrorStatus().getByText("Checked just now")).toBeInTheDocument();
+    expect(screen.getByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeInTheDocument();
+    expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
+    expect(within(factRow("Email")).getByText("a@example.test")).toBeInTheDocument();
     const seeAll = screen.getByRole("link", { name: "See all" });
     expect(seeAll).toHaveAttribute("href", buildProfileRoute({ panel: "my-data" }));
     expect(seeAll).toHaveAttribute("href", "/one/profile/my-data");
@@ -221,55 +241,61 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
-  it.each<[LiveMirrorOverall, string]>([
-    ["current", "Up to date"],
-    ["updating", "Updating"],
-    ["stale", "May be out of date"],
-    ["partial", "Some sources unavailable"],
-    ["conflict", "Needs your review"],
-    ["empty", "Nothing yet"],
-  ])("names the %s mirror state in plain words", async (overall, label) => {
-    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { overall }));
+  it("picks the name, the email, then the newest record, summarised", async () => {
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { steps: [{ inputs: [
+      person(uid, "SYNTHETIC_A"),
+      { kind: "consent", id: "c1", createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
+        value: { scope: "attr.food.*", status: "active" } },
+      earning("e-old", "2026-10-01T00:00:00.000Z", 500),
+      earning("e-new", "2026-10-14T00:00:00.000Z", 1_200),
+    ], kinds: ["profile", "consent", "document_earning"], now: T }] }));
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     openProfileTab();
-    expect(await screen.findByTestId("live-mirror-status")).toHaveTextContent(label);
+    await screen.findByTestId("live-mirror-status");
+    expect(screen.getAllByTestId("live-mirror-fact").map(row => row.querySelector('[data-slot="settings-row-title"]')?.textContent))
+      .toEqual(["Name", "Email", "Earning 2"]);
+    expect(within(factRow("Earning 2")).getByText("Gross: $12.00 · Net: $11.70 · Status: Paid")).toBeInTheDocument();
   });
 
-  it("badges facts that are not current and never shows a disputed or removed value", async () => {
-    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { overall: "conflict", facts: [
-      mirrorFact("profile.name", "Name", "SYNTHETIC_A", { state: "stale" }),
-      // A projection fault that leaves values on these must still not show them.
-      mirrorFact("profile.email", "Email", "CONFLICT_VALUE_X", { state: "conflicted" }),
-      mirrorFact("consent.scope", "Scope", "DELETED_VALUE_X", { state: "deleted", sourceUpdatedAt: "2026-10-15T11:00:00.000Z" }),
-      mirrorFact("consent.status", "Status", "Active", { state: "unavailable" }),
-      mirrorFact("consent.expiresAt", "Expires", "never", { sourceUpdatedAt: "2026-10-15T09:00:00.000Z" }),
+  it("badges a value it cannot check now or that may be old, and drops a removed field", async () => {
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { steps: [
+      { inputs: [person(uid, "SYNTHETIC_A", "REMOVED_EMAIL_X")], kinds: ["profile"], now: T0 },
+      { inputs: [person(uid, "SYNTHETIC_A", null)], kinds: ["profile"], now: T },
+      { inputs: [], kinds: [], unavailable: ["profile"], now: T },
     ] }));
-    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    const view = render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     openProfileTab();
+    await screen.findByTestId("live-mirror-status");
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Some sources unavailable");
+    expect(within(factRow("Name")).getByText("SYNTHETIC_A")).toBeInTheDocument();
+    expect(within(factRow("Name")).getByText("Can’t check now")).toBeInTheDocument();
+    expect(screen.getAllByTestId("live-mirror-fact")).toHaveLength(1);
+    // The sheet renders in a portal, so check the whole document.
+    expect(document.body.textContent).not.toContain("REMOVED_EMAIL_X");
 
-    const name = (await screen.findByText("Name")).closest<HTMLElement>('[data-testid="live-mirror-fact"]')!;
-    expect(within(name).getByText("SYNTHETIC_A")).toBeInTheDocument();
-    expect(within(name).getByText("May be old")).toBeInTheDocument();
-    const email = screen.getByText("Email").closest<HTMLElement>('[data-testid="live-mirror-fact"]')!;
-    expect(within(email).getByText("Needs review")).toBeInTheDocument();
-    expect(screen.queryByText("CONFLICT_VALUE_X")).toBeNull();
-    expect(screen.queryByText("DELETED_VALUE_X")).toBeNull();
-    // Up to three rows: name, email, then the newest verified record.
-    expect(screen.getAllByTestId("live-mirror-fact")).toHaveLength(3);
-    expect(screen.getByText("Consents · Expires")).toBeInTheDocument();
+    // Read past the freshness window, the same verified name may be old.
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { readAt: "2026-10-15T10:08:00.000Z" }));
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(within(factRow("Name")).getByText("May be old")).toBeInTheDocument();
   });
 
-  it("badges a last-known value it cannot check now and drops a removed profile row", async () => {
-    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { overall: "partial", facts: [
-      mirrorFact("profile.name", "Name", "SYNTHETIC_A", { state: "unavailable" }),
-      mirrorFact("profile.email", "Email", "DELETED_VALUE_X", { state: "deleted" }),
-    ] }));
+  it("never shows a disputed or removed value", async () => {
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, {
+      steps: [
+        { inputs: [person(uid, "SYNTHETIC_A"), earning("e1", T0, 4_242)], kinds: ["profile", "document_earning"], now: T0 },
+        { inputs: [person(uid, "SYNTHETIC_A")], kinds: ["profile", "document_earning"], now: T },
+      ],
+      // Two disagreeing versions of the profile at the same revision.
+      inventory: inventory => ({ ...inventory, records: inventory.records.flatMap(record => record.kind === "profile"
+        ? [record, { ...record, value: { ...record.value, name: "CONFLICT_VALUE_X" } }] : [record]) }),
+    }));
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     openProfileTab();
-    const name = (await screen.findByText("Name")).closest<HTMLElement>('[data-testid="live-mirror-fact"]')!;
-    expect(within(name).getByText("Can't check now")).toBeInTheDocument();
-    expect(screen.queryByText("Email")).toBeNull();
-    expect(screen.queryByText("DELETED_VALUE_X")).toBeNull();
+    await screen.findByTestId("live-mirror-status");
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Needs your review");
+    expect(within(factRow("Name")).getByText("Needs review")).toBeInTheDocument();
+    expect(factRow("Name").querySelector('[data-slot="settings-row-description"]')).toBeNull();
+    for (const hidden of ["SYNTHETIC_A", "CONFLICT_VALUE_X", "$42.42", "Earning"]) expect(document.body.textContent).not.toContain(hidden);
   });
 
   it("clears owner A's preview on account switch and lock, and ignores a projection filed under another owner", async () => {
@@ -281,7 +307,7 @@ describe("One agent profile feed preview", () => {
     mocks.uid = "owner-b";
     mocks.epoch += 1;
     mocks.peekLiveMirror.mockImplementation((uid: string) =>
-      mirrorView(uid, { facts: [mirrorFact("profile.name", "Name", "SYNTHETIC_B")] }));
+      mirrorView(uid, { steps: [{ inputs: [person(uid, "SYNTHETIC_B")], kinds: ["profile"], now: T }] }));
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(screen.queryByText("SYNTHETIC_A")).toBeNull();
     expect(screen.getByText("SYNTHETIC_B")).toBeInTheDocument();
@@ -290,7 +316,8 @@ describe("One agent profile feed preview", () => {
     mocks.unlocked = false;
     mocks.epoch += 1;
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    expect(mirrorStatus().getByText("Unlock to see memory")).toBeInTheDocument();
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Memory locked");
+    expect(mirrorStatus().getByText("Unlock to see it")).toBeInTheDocument();
     expect(screen.queryByText("SYNTHETIC_B")).toBeNull();
     expect(screen.queryByText(LIVE_MEMORY_BOUNDARY_COPY)).toBeNull();
     expect(screen.queryByTestId("live-mirror-fact")).toBeNull();
@@ -301,9 +328,9 @@ describe("One agent profile feed preview", () => {
     mocks.unlocked = true;
     mocks.peekLiveMirror.mockImplementation(() => mirrorView("viewer"));
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    expect(mirrorStatus().getByText("Getting your memory")).toBeInTheDocument();
+    expect(mirrorStatus().getByRole("status")).toHaveTextContent("Checking sources");
     expect(screen.queryByText("SYNTHETIC_A")).toBeNull();
-    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { vaultEpoch: mocks.epoch - 1 }));
+    mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid, { epoch: mocks.epoch - 1 }));
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(screen.queryByTestId("live-mirror-fact")).toBeNull();
   });

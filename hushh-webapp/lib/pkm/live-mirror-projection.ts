@@ -14,7 +14,6 @@ import {
 import type { MemoryDocument } from "@/lib/pkm/memory-document";
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
 import {
-  LIVE_MEMORY_BOUNDARY_COPY,
   LIVE_MIRROR_FRESHNESS_MS,
   LIVE_MIRROR_HIDDEN_PREDICATES,
   LIVE_MIRROR_KINDS,
@@ -32,13 +31,27 @@ import {
   type LiveMirrorSource,
   type LiveMirrorView,
 } from "@/lib/pkm/live-mirror-contract";
+import {
+  compareLiveMirrorFacts,
+  formatLiveMirrorDateTime,
+  formatLiveMirrorValue,
+  liveMirrorCount,
+  liveMirrorFactStateLabel,
+  liveMirrorGapText,
+  liveMirrorHistoryAction,
+  liveMirrorHistoryDetail,
+  liveMirrorRecordCurrency,
+  liveMirrorSourceStateLabel,
+  liveMirrorWaitingText,
+} from "@/lib/pkm/live-mirror-presentation";
 
 /**
  * Live Mirror v1 projection. Pure: no vault, network, clock or storage access,
  * so callers pass `now`. It derives the one owner-scoped view of current facts
  * and observed history from an already decrypted inventory and the derived
  * memory document. The result lives in memory only. Its Markdown is a
- * deterministic, escaped preview of this model, never the authority.
+ * deterministic, escaped preview of this model, never the authority. Every
+ * owner-facing word comes from the shared presentation module.
  */
 
 export interface BuildLiveMirrorProjectionParams {
@@ -60,18 +73,6 @@ export interface BuildLiveMirrorProjectionParams {
   /** Saved-detail domains already represented by the living sources. */
   excludeSavedDomains?: readonly string[];
 }
-
-/** Headline copy for each overall state, shared by every mirror surface. */
-export const LIVE_MIRROR_OVERALL_HEADLINES: Record<LiveMirrorOverall, string> = {
-  locked: "Memory locked",
-  loading: "Checking sources",
-  current: "Up to date",
-  updating: "Updating",
-  stale: "May be out of date",
-  partial: "Some sources unavailable",
-  conflict: "Needs your review",
-  empty: "Nothing here yet",
-};
 
 const STALE_AFTER_MS = LIVE_MIRROR_FRESHNESS_MS + LIVE_MIRROR_STALE_GRACE_MS;
 const HIDDEN_PREDICATES = new Set<string>(LIVE_MIRROR_HIDDEN_PREDICATES);
@@ -134,24 +135,6 @@ function humanize(text: string): string {
 function fieldLabel(kind: LiveMirrorKind, field: string): string {
   const labels = LIVING_SOURCE_FIELD_LABELS[kind] as Readonly<Record<string, string>>;
   return Object.hasOwn(labels, field) ? labels[field]! : humanize(field);
-}
-
-/** Owner-facing text for a fact or history value. */
-export function formatLiveMirrorValue(predicate: string, value: LiveMirrorFactValue | null): string {
-  if (value === null) return "Sources disagree";
-  if (PRESENCE_ONLY_PREDICATES.has(predicate)) return "Added";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
-}
-
-/** Display order: source kind, record ref, admitted field order. */
-export function compareLiveMirrorFacts(left: LiveMirrorFact, right: LiveMirrorFact): number {
-  const rank = (ref: string) => Number(/(\d+)$/.exec(ref)?.[1] ?? 0);
-  const fields = (fact: LiveMirrorFact) => LIVING_SOURCE_FACT_FIELDS[fact.kind].indexOf(fact.field);
-  return LIVE_MIRROR_KINDS.indexOf(left.kind) - LIVE_MIRROR_KINDS.indexOf(right.kind) ||
-    rank(left.ref) - rank(right.ref) ||
-    fields(left) - fields(right) ||
-    byCodeUnit(left.key, right.key);
 }
 
 function readInventory(value: unknown, issues: Set<string>): LivingSourceInventory | null {
@@ -268,17 +251,35 @@ function recordRefs(recordNodes: readonly LivingFactNode[], changes: readonly Li
   return refs;
 }
 
-function admittedChanges(kind: LiveMirrorKind, value: Record<string, unknown>, unresolved: boolean): LiveMirrorHistoryEntry["changes"] {
+function admittedValue(value: unknown): LiveMirrorFactValue | null {
+  return value !== null && value !== undefined && isFactValue(value) ? value : null;
+}
+
+/**
+ * The admitted fields a revision set, compared with the record's previous
+ * retained change. Without one, every admitted field is listed. A
+ * presence-only field reports presence (`false` when removed); a disagreeing
+ * revision lists its fields without values.
+ */
+function admittedChanges(
+  kind: LiveMirrorKind,
+  value: Record<string, unknown>,
+  previous: Record<string, unknown> | null,
+  unresolved: boolean,
+): LiveMirrorHistoryEntry["changes"] {
   const changes: LiveMirrorHistoryEntry["changes"] = [];
   for (const field of LIVING_SOURCE_FACT_FIELDS[kind]) {
     const predicate = `${kind}.${field}`;
-    const raw = value[field];
-    if (HIDDEN_PREDICATES.has(predicate) || raw === null || raw === undefined || !isFactValue(raw)) continue;
-    changes.push({
-      predicate,
-      label: fieldLabel(kind, field),
-      value: unresolved ? null : PRESENCE_ONLY_PREDICATES.has(predicate) ? true : raw,
-    });
+    if (HIDDEN_PREDICATES.has(predicate)) continue;
+    const now = admittedValue(value[field]);
+    const before = previous && !unresolved ? admittedValue(previous[field]) : null;
+    if (previous && !unresolved && now === before) continue;
+    const label = fieldLabel(kind, field);
+    if (PRESENCE_ONLY_PREDICATES.has(predicate)) {
+      if (now !== null || before !== null) changes.push({ predicate, label, value: unresolved ? null : now !== null });
+      continue;
+    }
+    if (now !== null) changes.push({ predicate, label, value: unresolved ? null : now });
   }
   return changes;
 }
@@ -302,11 +303,17 @@ function buildHistory(params: {
 }): LiveMirrorHistory {
   const latestSequence = new Map<string, number>();
   const removedAt = new Map<string, number>();
-  for (const change of params.changes) {
+  // Each change's previous retained change for the same record.
+  const previous = new Map<number, LivingSourceChange>();
+  const last = new Map<string, LivingSourceChange>();
+  for (const change of [...params.changes].sort((a, b) => a.sequence - b.sequence)) {
     if (change.operation === "gap") continue;
     const key = recordKey(change.kind, change.id);
-    latestSequence.set(key, Math.max(latestSequence.get(key) ?? 0, change.sequence));
-    if (change.operation === "delete") removedAt.set(key, Math.max(removedAt.get(key) ?? 0, change.sequence));
+    latestSequence.set(key, change.sequence);
+    if (change.operation === "delete") removedAt.set(key, change.sequence);
+    const prior = last.get(key);
+    if (prior) previous.set(change.sequence, prior);
+    last.set(key, change);
   }
   const unresolvedRevision = new Map<string, number>();
   for (const node of params.recordNodes) {
@@ -335,7 +342,8 @@ function buildHistory(params: {
       sourceUpdatedAt: change.sourceUpdatedAt,
       changes: redacted || change.operation === "delete"
         ? []
-        : admittedChanges(change.kind, change.value, unresolvedRevision.get(key) === change.revision),
+        : admittedChanges(change.kind, change.value, previous.get(change.sequence)?.value ?? null,
+          unresolvedRevision.get(key) === change.revision),
       current: latestSequence.get(key) === change.sequence,
       redacted,
       gap: null,
@@ -496,7 +504,7 @@ export function buildLiveMirrorProjection(params: BuildLiveMirrorProjectionParam
 }
 
 /** True when a living source can no longer be called current at `nowMs`. */
-export function isLiveMirrorSourceExpired(source: LiveMirrorSource, nowMs: number): boolean {
+function isLiveMirrorSourceExpired(source: LiveMirrorSource, nowMs: number): boolean {
   if (source.group !== "living" || source.state === "unavailable" || source.state === "withheld") return false;
   // Records that were never verified cannot be vouched for.
   if (source.verifiedAt === null) return source.liveCount > 0;
@@ -565,8 +573,8 @@ export function applyLiveMirrorReadTime(
     overall,
     lastVerifiedAt: checked[0] ?? null,
   };
-  // The preview depends only on states, so it is re-rendered only when one changes.
-  const key = [overall, ...sources.map(source => `${source.id}:${source.state}:${expired.has(source.id) ? 1 : 0}`)].join("|");
+  // The preview depends only on source states, so it is re-rendered only when one changes.
+  const key = sources.map(source => `${source.id}:${source.state}:${expired.has(source.id) ? 1 : 0}`).join("|");
   const memo = markdownByState.get(projection);
   if (memo?.key === key) return { ...view, markdown: memo.markdown };
   const markdown = renderLiveMirrorMarkdown(view);
@@ -578,96 +586,88 @@ const MARKDOWN_SPECIALS = /\r\n|[\n\r\t\v\f\u2028\u2029]|[&<>]|[!"#$%'()*+,\-./:
 const HTML_ENTITIES: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
 
 /** Inline text that cannot open any Markdown or HTML construct, or a new line. */
-export function escapeLiveMirrorText(value: string): string {
+function escapeLiveMirrorText(value: string): string {
   return value.replace(MARKDOWN_SPECIALS, (match) =>
     Object.hasOwn(HTML_ENTITIES, match) ? HTML_ENTITIES[match]! : /^[!-~]$/.test(match) ? `\\${match}` : " ");
 }
 
-/** "{n} changes waiting" for committed hints not yet verified; null when none. */
-export function waitingText(pending: number | null): string | null {
-  if (pending === null) return "Changes waiting";
-  return pending > 0 ? `${pending} ${pending === 1 ? "change" : "changes"} waiting` : null;
+function timeText(at: string | null): string {
+  return escapeLiveMirrorText(formatLiveMirrorDateTime(at) ?? "an unknown time");
 }
 
 function sourceStatusText(source: LiveMirrorSource): string {
-  const at = source.verifiedAt ? escapeLiveMirrorText(source.verifiedAt) : null;
-  const status = {
-    current: at ? `Current · checked ${at}` : "Current",
-    updating: at ? `Updating · checked ${at}` : "Updating",
-    stale: at ? `Out of date · last checked ${at}` : "Out of date",
-    unavailable: at ? `Unavailable · last checked ${at}` : "Unavailable",
-    withheld: "Withheld · kept out of memory",
-    conflict: "Needs review",
-    not_checked: "Not checked yet",
-  }[source.state];
-  const waiting = waitingText(source.pendingChanges);
+  const state = liveMirrorSourceStateLabel(source.state);
+  const at = source.verifiedAt ? timeText(source.verifiedAt) : null;
+  const status = source.state === "withheld" ? `${state} · kept out of memory`
+    : !at || source.state === "conflict" || source.state === "not_checked" ? state
+      : `${state} · ${source.state === "stale" || source.state === "unavailable" ? "last checked" : "checked"} ${at}`;
+  const waiting = liveMirrorWaitingText(source.pendingChanges);
   return waiting ? `${status} · ${waiting.toLowerCase()}` : status;
 }
 
-function factLine(fact: LiveMirrorFact): string {
-  const value = fact.state === "conflicted" ? "_Sources disagree_" : escapeLiveMirrorText(formatLiveMirrorValue(fact.predicate, fact.value));
-  const note = fact.state === "stale" || fact.state === "unavailable" ? " _(last known)_" : "";
-  return `${escapeLiveMirrorText(fact.label)}: ${value}${note}`;
+function factLine(fact: LiveMirrorFact, record: readonly LiveMirrorFact[]): string {
+  if (fact.state === "conflicted") return `${escapeLiveMirrorText(fact.label)}: _Sources disagree_`;
+  const value = formatLiveMirrorValue(fact.predicate, fact.value, { currency: liveMirrorRecordCurrency(record) });
+  const note = liveMirrorFactStateLabel(fact.state);
+  return `${escapeLiveMirrorText(fact.label)}: ${escapeLiveMirrorText(note ? `${value} · ${note}` : value)}`;
 }
 
-function historyLine(entry: LiveMirrorHistoryEntry): string {
-  const at = escapeLiveMirrorText(entry.capturedAt);
-  if (entry.gap) {
-    const count = entry.gap.committedChanges;
-    return `${escapeLiveMirrorText(entry.ref)} · ${count === null ? "some changes may be missing" : `${count} changes made, only the latest seen`} · ${at}`;
-  }
-  const action = entry.operation === "delete" ? "Removed" : entry.revision === 1 ? "Added" : "Changed";
-  const detail = entry.redacted ? " · details hidden"
-    : entry.changes.length ? ` · ${entry.changes.map(change =>
-      `${escapeLiveMirrorText(change.label)}: ${change.value === null ? "_Sources disagree_" : escapeLiveMirrorText(formatLiveMirrorValue(change.predicate, change.value))}`).join(", ")}`
-      : "";
-  return `${escapeLiveMirrorText(entry.ref)} · ${action} · ${at}${detail}`;
+function historyLine(entry: LiveMirrorHistoryEntry, facts: readonly LiveMirrorFact[]): string {
+  const ref = escapeLiveMirrorText(entry.ref);
+  if (entry.gap) return `${ref} · ${escapeLiveMirrorText(liveMirrorGapText(entry.gap))} · ${timeText(entry.capturedAt)}`;
+  const detail = liveMirrorHistoryDetail(entry, facts);
+  return `${ref} · ${liveMirrorHistoryAction(entry)} · ${timeText(entry.capturedAt)}${detail ? ` · ${escapeLiveMirrorText(detail)}` : ""}`;
 }
 
-/** Deterministic preview of the model. Every value is Markdown- and HTML-escaped. */
-export function renderLiveMirrorMarkdown(input: Omit<LiveMirrorProjection, "markdown"> & { overall?: LiveMirrorOverall }): string {
-  const lines = ["# Live memory", ""];
-  if (input.overall) lines.push(`**${LIVE_MIRROR_OVERALL_HEADLINES[input.overall]}.**`, "");
-  lines.push(`_${LIVE_MEMORY_BOUNDARY_COPY}_`, "");
+/**
+ * Deterministic preview of the model. Every value is Markdown- and
+ * HTML-escaped. It starts at level two and leaves out what the surrounding
+ * panel already says (title, status, boundary and history footer). Sources
+ * with nothing recorded share one line.
+ */
+function renderLiveMirrorMarkdown(input: Omit<LiveMirrorProjection, "markdown">): string {
+  const lines: string[] = [];
   const facts = [...input.facts].sort(compareLiveMirrorFacts);
+  const empty: LiveMirrorSource[] = [];
   for (const source of input.sources) {
     if (source.group !== "living" || !source.kind) continue;
-    lines.push(`## ${source.label}`, "", `_${sourceStatusText(source)}_`, "");
     const own = facts.filter(fact => fact.kind === source.kind);
     if (own.length === 0) {
-      lines.push("_Nothing recorded._", "");
+      empty.push(source);
       continue;
     }
-    if (source.kind === "profile") {
-      for (const fact of own) lines.push(`- ${factLine(fact)}`);
-      lines.push("");
-      continue;
-    }
+    lines.push(`## ${source.label}`, "", `_${sourceStatusText(source)}_`, "");
     const refs = [...new Set(own.map(fact => fact.ref))];
     for (const ref of refs.slice(0, PREVIEW_RECORDS_PER_SOURCE)) {
+      const record = own.filter(fact => fact.ref === ref);
+      if (source.kind === "profile") {
+        for (const fact of record) lines.push(`- ${factLine(fact, record)}`);
+        continue;
+      }
       lines.push(`- ${escapeLiveMirrorText(ref)}`);
-      for (const fact of own) if (fact.ref === ref) lines.push(`  - ${factLine(fact)}`);
+      for (const fact of record) lines.push(`  - ${factLine(fact, record)}`);
     }
     if (refs.length > PREVIEW_RECORDS_PER_SOURCE) lines.push(`- _${refs.length - PREVIEW_RECORDS_PER_SOURCE} more not shown._`);
     lines.push("");
   }
+  const unreadable = empty.filter(source => source.state === "unavailable").map(source => source.label);
+  const nothing = empty.filter(source => source.state !== "unavailable").map(source => source.label);
+  if (nothing.length) lines.push(`_Nothing recorded: ${nothing.join(", ")}._`, "");
+  if (unreadable.length) lines.push(`_Couldn’t check: ${unreadable.join(", ")}._`, "");
   const saved = input.sources.filter(source => source.group === "saved");
   if (saved.length) {
     lines.push("## Saved details", "");
     for (const source of saved) {
-      const state = { current: "Current", updating: "Updating", stale: "Out of date", unavailable: "Unavailable",
-        withheld: "Withheld", conflict: "Needs review", not_checked: "Not checked yet" }[source.state];
       const version = source.contentRevision !== null ? ` · version ${source.contentRevision}` : "";
-      lines.push(`- ${escapeLiveMirrorText(source.label)} · ${state}${version}`);
+      lines.push(`- ${escapeLiveMirrorText(source.label)} · ${liveMirrorSourceStateLabel(source.state)}${version}`);
     }
     lines.push("");
   }
   lines.push("## Recent changes", "");
   const entries = input.history.entries;
   if (entries.length === 0) lines.push("_No changes yet._");
-  for (const entry of entries.slice(0, PREVIEW_HISTORY_LIMIT)) lines.push(`- ${historyLine(entry)}`);
+  for (const entry of entries.slice(0, PREVIEW_HISTORY_LIMIT)) lines.push(`- ${historyLine(entry, facts)}`);
   if (entries.length > PREVIEW_HISTORY_LIMIT) lines.push(`- _${entries.length - PREVIEW_HISTORY_LIMIT} more in History._`);
-  if (input.history.droppedCount > 0) lines.push(`- _${input.history.droppedCount} older changes not kept._`);
-  lines.push("", "_Only changes seen while open._");
+  if (input.history.droppedCount > 0) lines.push(`- _${liveMirrorCount(input.history.droppedCount, "older change")} not kept._`);
   return `${lines.join("\n")}\n`;
 }

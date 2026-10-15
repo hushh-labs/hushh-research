@@ -64,16 +64,16 @@ export const LIVING_SOURCE_FIELD_LABELS = {
   connection: { counterpartId: "Person", establishedAt: "Connected", connectedFromContacts: "From contacts" },
   curated_oauth_connector: { provider: "App", status: "Status", connectedAt: "Connected", authStyle: "Sign-in type" },
   document_earning: {
-    stripeMode: "Mode", status: "Status", grossCents: "Gross (cents)", refundCents: "Refunded (cents)",
-    netCents: "Net (cents)", createdAt: "Created", transferredAt: "Paid out", settlementMethod: "Payout method",
+    stripeMode: "Mode", status: "Status", grossCents: "Gross", refundCents: "Refunded",
+    netCents: "Net", createdAt: "Created", transferredAt: "Paid out", settlementMethod: "Payout method",
   },
   payout_activity: {
-    kind: "Activity", mode: "Mode", occurredAt: "Happened", updatedAt: "Updated", amountCents: "Amount (cents)",
+    kind: "Activity", mode: "Mode", occurredAt: "Happened", updatedAt: "Updated", amountCents: "Amount",
     coinsDelta: "Coins", status: "Status", reversalStatus: "Reversal", expectedArrivalAt: "Expected", type: "Type",
   },
   document_request_payment: {
-    counterpartRef: "Person", mode: "Mode", status: "Status", amountCents: "Amount (cents)", currency: "Currency",
-    paidAt: "Paid", refundStatus: "Refund", refundAmountCents: "Refunded (cents)", reconciliationRequired: "Needs check",
+    counterpartRef: "Person", mode: "Mode", status: "Status", amountCents: "Amount", currency: "Currency",
+    paidAt: "Paid", refundStatus: "Refund", refundAmountCents: "Refunded", reconciliationRequired: "Needs check",
   },
 } as const satisfies { readonly [K in SourceKind]: Readonly<Record<(typeof FIELDS)[K][number], string>> };
 

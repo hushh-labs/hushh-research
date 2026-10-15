@@ -4,6 +4,7 @@ import {
   buildLiveMirrorProjection,
   type BuildLiveMirrorProjectionParams,
 } from "@/lib/pkm/live-mirror-projection";
+import { formatLiveMirrorValue, liveMirrorHistoryDetail } from "@/lib/pkm/live-mirror-presentation";
 import {
   appendVerifiedLivingSourceChanges,
   reconcileLivingSources,
@@ -93,6 +94,20 @@ describe("Live Mirror projection", () => {
     expect(projection.history.entries[1]!.changes).toContainEqual({ predicate: "profile.name", label: "Name", value: "Ankit Kumar Singh" });
   });
 
+  it("lists only the fields a revision changed, and a replaced photo reads Updated", () => {
+    const { inventory, history } = sync([
+      { inputs: [profile("Ankit")], kinds: ["profile"], now: T0 },
+      { inputs: [profile("Ankit", { photo: "https://example.test/replaced-photo.png" })], kinds: ["profile"], now: T1 },
+    ]);
+    const projection = build({ inventory, history });
+    const [replaced, added] = projection.history.entries;
+    expect(replaced!.changes).toEqual([{ predicate: "profile.photo", label: "Photo", value: true }]);
+    expect(liveMirrorHistoryDetail(replaced!)).toBe("Photo: Updated");
+    expect(added!.changes.map(change => change.predicate)).toEqual(["profile.name", "profile.photo", "profile.email"]);
+    expect(liveMirrorHistoryDetail(added!)).toBe("Name: Ankit, Photo: Added, Email: owner@example.test");
+    expect(JSON.stringify(projection)).not.toContain("replaced-photo.png");
+  });
+
   it("keeps record refs stable as records arrive, dated or not", () => {
     const consentAt = (id: string, createdAt: string | null, scope: string, status = "active"): LivingSourceInput => ({
       kind: "consent", id, createdAt, updatedAt: null, value: { scope, status },
@@ -178,7 +193,7 @@ describe("Live Mirror projection", () => {
     const expired = applyLiveMirrorReadTime(projection, Date.parse(T0) + WINDOW_MS + 1_000, "current");
     expect(expired).toMatchObject({ overall: "stale", lastVerifiedAt: T0 });
     expect(expired.facts.every(fact => fact.state === "stale")).toBe(true);
-    expect(expired.markdown).toContain("May be out of date");
+    expect(expired.markdown).toContain("Name: Ankit · May be old");
 
     const pending = { version: 1 as const, kinds: { consent: { count: 3, firstOccurredAt: T0, lastOccurredAt: T0, historySequence: 2 } } };
     const waiting = applyLiveMirrorReadTime(build({ inventory, history, now: T0, pending }), T0, "current");
@@ -212,5 +227,37 @@ describe("Live Mirror projection", () => {
     expect(markdown).not.toContain("](javascript:");
     const injected = build(sync([{ inputs: [profile("Ankit\n## Injected")], kinds: ["profile"], now: T1 }])).markdown;
     expect(injected).not.toMatch(/^## Injected/m);
+  });
+
+  it("previews from level two without repeating the panel, with readable times and one line for empty sources", () => {
+    const { inventory, history } = sync([{ inputs: [profile("Ankit")], kinds: ["profile", "consent"], now: T1 }]);
+    const gap: LivingSourceChange = {
+      sequence: history.nextSequence, kind: "connection", id: "*", revision: 0, operation: "gap", capturedAt: T1, sourceUpdatedAt: null,
+      value: { reason: "unobserved_changes", committedChanges: 1, verifiedChanges: 0, firstOccurredAt: T0, lastOccurredAt: T1 },
+    };
+    const markdown = applyLiveMirrorReadTime(build({ inventory, history: { ...history, changes: [...history.changes, gap] } }), T2, "current").markdown;
+    expect(markdown.startsWith("## Profile\n")).toBe(true);
+    expect(markdown).not.toMatch(/^# /m);
+    for (const repeated of ["Live memory", "Up to date", "Updates while", "Only changes seen"]) expect(markdown).not.toContain(repeated);
+    expect(markdown).not.toMatch(/\d{4}\\?-\d{2}\\?-\d{2}T\d{2}/);
+    expect(markdown.match(/Nothing recorded/g)).toHaveLength(1);
+    expect(markdown).toContain("_Nothing recorded: Consents, Connections, Connected apps, Earnings, Wallet activity, Document payments._");
+    expect(markdown).toContain("Connections · 1 change made\\, nothing new seen");
+  });
+});
+
+describe("Live Mirror presentation", () => {
+  it("formats values for people: money, times, states and scope names", () => {
+    expect(formatLiveMirrorValue("document_earning.grossCents", 123_456)).toBe("$1,234.56");
+    expect(formatLiveMirrorValue("document_request_payment.amountCents", 1_200, { currency: "eur" })).toBe("€12.00");
+    expect(formatLiveMirrorValue("consent.expiresAt", "2026-11-01T00:00:00.000Z", { timeZone: "UTC" }).replace(/\s/g, " "))
+      .toBe("Nov 1, 2026, 12:00 AM");
+    expect(formatLiveMirrorValue("document_earning.status", "succeeded")).toBe("Paid");
+    expect(formatLiveMirrorValue("document_earning.stripeMode", "test")).toBe("Test mode");
+    expect(formatLiveMirrorValue("document_earning.status", "awaiting_delivery")).toBe("Awaiting delivery");
+    expect(formatLiveMirrorValue("consent.scope", "attr.financial.*")).toBe("Financial data");
+    expect(formatLiveMirrorValue("consent.active", false)).toBe("No");
+    // Owner text is never relabelled as a state.
+    expect(formatLiveMirrorValue("profile.name", "test")).toBe("test");
   });
 });
