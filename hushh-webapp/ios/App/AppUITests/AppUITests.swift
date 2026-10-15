@@ -2022,23 +2022,35 @@ final class AppUITests: XCTestCase {
         let webFrame = web.frame
         perfTapNav(app, label: "One")
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
-        // Observe the rendered dock child, not an optional AX container or a
-        // roster-view toggle which can be below the fold on compact phones.
-        // Keep the actual scroll/paired-motion assertions independent of view preference.
+        // Observe the rendered dock child, not an optional AX container.
         let dock = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch
-        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
+        let grid = web.buttons["Show agent grid view"].firstMatch
+        let list = web.buttons["Show agent list view"].firstMatch
+        guard waitForAdmittedControl(bar), waitForAdmittedControl(dock),
+              waitForAdmittedControl(grid), waitForAdmittedControl(list) else {
             XCTFail("NATIVE_BOTTOM_SCROLL_HOME_NOT_ADMITTED"); return
         }
+        func selected(_ element: XCUIElement) -> Bool {
+            element.isSelected || ["1", "true"].contains(element.value as? String ?? "")
+        }
+        let restoreGrid = selected(grid)
+        guard restoreGrid || selected(list) else { XCTFail("NATIVE_BOTTOM_SCROLL_VIEW_STATE_UNKNOWN"); return }
+        // The compact grid may legitimately fit without vertical overflow.
+        // Use the authored list preference and restore it before returning.
+        if restoreGrid { list.tap() }
         var returnedToChat = false
         defer {
             if !returnedToChat {
+                for _ in 0..<3 where !grid.isHittable { web.swipeDown() }
+                if restoreGrid && grid.exists && grid.isHittable { grid.tap() }
                 perfTapNav(app, label: "Chat")
             }
         }
         let baseline = bar.frame.minY, dockBaseline = dock.frame.minY
         for cycle in 0..<10 {
-            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
-            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: cycle == 0 ? 0.60 : 0.25))
+            // Pan in the shared page gutter, never through an actionable tile.
+            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.65))
+            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: cycle == 0 ? 0.60 : 0.25))
             start.press(forDuration: 0.05, thenDragTo: end)
             let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in bar.frame.minY > baseline + 6 }, object: app)
             guard XCTWaiter.wait(for: [moved], timeout: 5) == .completed else {
@@ -2062,6 +2074,7 @@ final class AppUITests: XCTestCase {
             }
             XCTAssertEqual(dock.frame.minY, dockBaseline, accuracy: 1)
         }
+        if restoreGrid { grid.tap() }
         perfTapNav(app, label: "Chat")
         guard waitForAdmittedControl(editor) else { XCTFail("NATIVE_BOTTOM_SCROLL_CHAT_NOT_RESTORED"); return }
         XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_CHANGED_DRAFT")
