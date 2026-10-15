@@ -171,8 +171,7 @@ describe("live turn queue", () => {
     const fresh = new LiveTurnQueue(server.ports, wait);
     fresh.begin("conversation");
     expect(await fresh.offer("client-b", "new session")).toBe("joining");
-    expect(session.end()).toBe(true);
-    expect(session.end()).toBe(false);
+    session.start();
     expect(retire).toHaveBeenCalledTimes(2);
     server.completeAppend(inflight);
     expect(await queue.settle()).toEqual({ joined: ["client-a"], waiting: [] });

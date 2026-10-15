@@ -1847,3 +1847,34 @@ async def test_packet_lease_fences_late_construction_after_authority_change(reus
         assert (
             connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() == 0
         )
+
+
+async def test_worker_carries_host_file_time_without_persisting_it_in_manifest(reusable):
+    # The store carries creation time through the host worker evidence ports.
+    # This is metadata conservation, not model-context or semantic proof;
+    # model input filters and the immutable manifest separately withhold it.
+    from dataclasses import replace
+
+    seen, checker = [], reusable.worker.checker
+
+    async def recording(**kwargs):
+        seen.extend(kwargs["documents"])
+        return await checker(**kwargs)
+
+    reusable.worker.checker = recording
+    created = "2026-09-20T08:00:00Z"
+    files = [replace(source("synthetic-created-source"), created_time=created)]
+    await seed_collection(reusable.collection, files=files)
+    job = await reusable.ingestion.claim(user_id="owner", generation=1)
+    await reusable.ingestion.publish_pages(job, metadata=files[0], batch=collection_pages())
+    assert await reusable.worker.run_facts_one(user_id="owner") == "facts_complete"
+    for _ in range(3):
+        result = await reusable.worker.run_packet_one(user_id="owner")
+    assert result == "ready"
+    assert seen and {item.get("created_time") for item in seen} == {created}
+    [packet] = (await reusable.packets.list_packets(user_id="owner"))["packets"]
+    manifest = await reusable.packets.current_packet_manifest(
+        owner_user_id="owner", packet_id=packet["packetId"], version=1
+    )
+    assert manifest["sources"]
+    assert all("created_time" not in item for item in manifest["sources"])

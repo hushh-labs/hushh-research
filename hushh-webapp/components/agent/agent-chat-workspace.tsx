@@ -41,6 +41,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
 import { AgentChatSessionEpoch } from "@/lib/agent/agent-chat-session-epoch";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
@@ -2540,6 +2541,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     tokenExpiresAt,
     getVaultOwnerToken,
   } = useVault();
+  const oneDisplayName = useOneDisplayName();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
   const emailScopeRef = useRef({ ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch });
   if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
@@ -2677,7 +2679,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setQueuedDeliveryChecking(false);
     setQueuedDeliveryUnconfirmed(false);
   }));
-  const [conversationClosed, setConversationClosed] = useState(false);
   const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? user?.uid ?? null : null);
   const { input, setInput, attachment: longPromptAttachment, setAttachment: setLongPromptAttachment,
     expanded: composerExpanded, setExpanded: setComposerExpandedState } = composerDraft;
@@ -3162,39 +3163,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setActivePkmToolCount(0);
   }, []);
 
-  const endConversation = useCallback((selection?: string) => {
-    const stop = stopActiveTurnRef.current;
-    if (!chatSessionRef.current.end()) return;
-    setConversationClosed(true);
-    historyRestoreEpochRef.current += 1;
-    latestVisibleTurnIdRef.current = null;
-    pendingChatKeyRetryRef.current = null;
-    operationQueueRef.current.replace([]);
-    liveTurnQueueRef.current?.stopAccepting();
-    if (stop) void stop();
-    else void liveTurnQueueRef.current?.stop();
-    abortAgentTurnWork();
-    requestAgentConversationStop();
-    setQueuedPrompts([]);
-    setInput("");
-    setLongPromptAttachment(null);
-    setPendingAppAction(null);
-    setPendingSpecialistDirective(null);
-    setSpecialistBusy(false);
-    setAppActionBusy(false);
-    setActiveFrontendToolCount(0);
-    setEmailDraftOpen(false);
-    setIsChatLoading(false);
-    setIsStreaming(false);
-    setIsVoiceConnecting(false);
-    setStoppableTurn(false);
-    setMessages((current) => [...current,
-      ...(selection ? [{ id: `msg-${crypto.randomUUID()}-choice`, role: "user" as const,
-        text: selection, ...stampNow(), status: "done" as const }] : []),
-      { id: `msg-${crypto.randomUUID()}-closed`, role: "assistant", text: "Okay. I'll leave you to it.",
-        ...stampNow(), status: "done", ephemeral: true, renderAsPlainAssistantMessage: true },
-    ]);
-  }, [abortAgentTurnWork, setInput, setLongPromptAttachment]);
 
   useEffect(() => {
     // Token renewal invalidates the captured vault generation, but must not
@@ -3424,7 +3392,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     user?.uid && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== user.uid,
   );
   const canSend =
-    !conversationClosed &&
     !recoveryInspectionPending &&
     !isVoiceConnecting &&
     !voiceActive &&
@@ -3434,7 +3401,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // keystroke. The submit path performs the authoritative empty check.
     (input.length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
-    !conversationClosed && agentVoiceEnabled && !recoveryInspectionPending && !isVoiceConnecting && !emailDraftOpen;
+    agentVoiceEnabled && !recoveryInspectionPending && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
     recoveryInspectionPending ||
     isChatLoading ||
@@ -3880,8 +3847,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     messages,
     conversationId,
     onFocusComposer: () => composerTextareaRef.current?.focus(),
-    onEndConversation: endConversation,
-    disabled: conversationClosed,
     visiblePrompts: welcomePrompts,
   });
   const onboardingToken = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
@@ -3901,7 +3866,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     chatSessionRef.current.start();
     liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
-    setConversationClosed(false);
     abortAgentTurnWork();
     clearTranscriptProgrammaticScroll();
     transcriptUserScrollRef.current = false;
@@ -3947,7 +3911,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const handleCreateNewChat = useCallback(() => {
     chatSessionRef.current.start();
     liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
-    setConversationClosed(false);
     setCalendarSlot(null);
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
@@ -3995,9 +3958,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     messageId: string,
     update: (message: AgentMessage) => AgentMessage,
   ) => {
-    if (chatSessionRef.current.closed) return;
     setMessages((current) =>
-      chatSessionRef.current.closed ? current : current.map((message) =>
+      current.map((message) =>
         message.id === messageId && !message.receiptRedacted ? update(message) : message,
       ),
     );
@@ -4005,8 +3967,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const updateMessage = updateWorkspaceMessage;
   const appendWorkspaceMessage = (message: AgentMessage) => {
-    if (chatSessionRef.current.closed) return;
-    setMessages((current) => !chatSessionRef.current.closed ? [...current, message] : current);
+    setMessages((current) => [...current, message]);
   };
 
   const appendMessage = appendWorkspaceMessage;
@@ -5083,7 +5044,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       isCurrent: () => boolean = () => true,
       preservePresentations = false,
     ) => {
-      if (!user?.uid || chatSessionRef.current.closed) return;
+      if (!user?.uid) return;
       const chatEpoch = chatSessionRef.current.value;
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
@@ -5329,7 +5290,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleSelectConversation = useCallback(
     async (nextConversationId: string) => {
-      if ((nextConversationId === conversationId && !chatSessionRef.current.closed) || historyInteractionDisabled)
+      if (nextConversationId === conversationId || historyInteractionDisabled)
         return;
       const token = getVaultOwnerToken();
       if (!token) {
@@ -5338,7 +5299,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       chatSessionRef.current.start();
       liveTurnQueueRef.current = new LiveTurnQueue(createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()));
-      setConversationClosed(false);
       abortAgentTurnWork();
       setIsLoadingHistory(true);
       try {
@@ -5361,7 +5321,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // A turn this chat stopped reading has written its answer: show it in place.
   useEffect(() => {
     return subscribeAgentTurnSettled((turn) => {
-      if (chatSessionRef.current.closed || turn.ownerId !== user?.uid || turn.conversationId !== conversationIdRef.current) return;
+      if (turn.ownerId !== user?.uid || turn.conversationId !== conversationIdRef.current) return;
       const token = getVaultOwnerToken();
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -5968,7 +5928,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
   ) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const turnQueue = liveTurnQueueRef.current;
     const updateMessage: typeof updateWorkspaceMessage = (...args) => {
@@ -7081,7 +7040,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       communicationPreferences?: OwnerStyleSettings;
     } = {},
   ): Promise<FollowUpTurnResult> => {
-    if (chatSessionRef.current.closed || !hasChatAccess || !user?.uid) return "failed";
+    if (!hasChatAccess || !user?.uid) return "failed";
     const chatEpoch = chatSessionRef.current.value;
     const updateMessage: typeof updateWorkspaceMessage = (...args) => {
       if (chatSessionRef.current.isCurrent(chatEpoch)) updateWorkspaceMessage(...args);
@@ -7357,7 +7316,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * an in-place unlock instead.
    */
   const runIntroTurn = async (textInput: string, replaceAssistantMessageId?: string) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const updateMessage: typeof updateWorkspaceMessage = (...args) => {
       if (chatSessionRef.current.isCurrent(chatEpoch)) updateWorkspaceMessage(...args);
@@ -7572,7 +7530,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const enqueueWorkspaceOperation = (operation: QueuedWorkspaceOperation) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const run = operation.run;
     operationQueueRef.current.enqueue({ ...operation, run: async (item) => {
@@ -7646,7 +7603,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const offerQueuedPromptsToLiveTurn = () => {
     const queue = liveTurnQueueRef.current;
-    if (!queue || chatSessionRef.current.closed) return;
+    if (!queue) return;
     const epoch = chatSessionRef.current.value;
     const owner = workspaceOwnerIdRef.current;
     const isCurrent = () => chatSessionRef.current.isCurrent(epoch) &&
@@ -7675,7 +7632,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       "deferPkmContext" | "driveSearchSelection" | "attachments"
     > = {},
   ) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const text = textInput.trim();
     const attachments = options.attachments ?? [];
@@ -7775,7 +7731,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const recheckQueuedDelivery = async () => {
     const queue = liveTurnQueueRef.current;
-    if (!queue || queuedDeliveryChecking || chatSessionRef.current.closed) return;
+    if (!queue || queuedDeliveryChecking) return;
     const epoch = chatSessionRef.current.value;
     const owner = workspaceOwnerIdRef.current;
     const isCurrent = () => chatSessionRef.current.isCurrent(epoch) &&
@@ -7882,7 +7838,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onFailure?: (error: unknown) => void;
     },
   ) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const payload = directive.directive.payload as Record<string, unknown>;
     const actionKey = `${options.scope}:${String(
@@ -8257,7 +8212,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // Food preferences"), and One answers from it in view. The turn itself
   // sends the server's fixed label, which admission requires.
   const continueWithConsentOutcome: AgentConsentContinuationHandler["continueWithOutcome"] = async (input) => {
-    if (chatSessionRef.current.closed) return false;
     const chatEpoch = chatSessionRef.current.value;
     const token = getVaultOwnerToken();
     const key = vaultKeyRef.current;
@@ -8323,9 +8277,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // writes its message about that one update, grounded in it and in memory.
   useFeedAttentionTurn({
     ownerId: user?.uid ?? null,
-    ready: hasChatAccess && !conversationClosed && Boolean(vaultKey),
+    ready: hasChatAccess && Boolean(vaultKey),
     start: (itemId) => {
-      if (chatSessionRef.current.closed) return;
       // Same as a handoff: One is speaking, never behind the on-device Puppy
       // header, and the first history load must not replace this chat.
       setAgentSurface("one");
@@ -8391,23 +8344,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const submitComposerText = async (nativeText?: string) => {
-    if (chatSessionRef.current.closed) return;
     const attachment = longPromptAttachment;
     const draftText = nativeText ?? input;
     // An opened attachment is edited in the composer itself, so the editor
     // text IS the attachment; otherwise the composer holds the typed message.
     const attachmentText = attachment?.isExpanded ? draftText : attachment?.text ?? null;
     const typedText = attachment?.isExpanded ? "" : draftText;
-    if (isVoiceConnecting || voiceActive) {
+    if ((!typedText.trim() && !attachmentText?.trim()) || isVoiceConnecting || voiceActive) {
       return;
     }
-    // The explicitly presented name question consumes its answer locally.
-    // Other chat text follows the ordinary guarded submission path.
+    // Only after the person chose "Something else" for their name, and only
+    // when it is name-shaped; anything else is an ordinary turn to One.
     if (!attachment && chatOnboarding.captureComposerText(typedText)) {
       setInput("");
       return;
     }
-    if (!typedText.trim() && !attachmentText?.trim()) return;
     // Enter (form submit) and the Send button both land here, so both bring
     // One's pending turn into view. The button used to call this directly
     // and skip the marking, which lived only in the form's submit handler.
@@ -8498,7 +8449,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
     onRefused?: () => void;
   }) => {
-    if (chatSessionRef.current.closed) return;
     const chatEpoch = chatSessionRef.current.value;
     const kept = await keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)]);
     if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
@@ -9002,7 +8952,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void enqueueGuardedTurn({ typedText: prompt, attachments: [], fromPaste: false });
   };
   const handlePromptDraftSelect = useCallback((prompt: string) => {
-    if (chatSessionRef.current.closed) return;
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
     generatedDriveSearchDraftRef.current = false;
@@ -9459,11 +9408,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-one-chat-surface
     >
       {transitionDialog}
-      <AgentPersonSelectionContext.Provider value={hasChatAccess && !conversationClosed && !isStreaming
+      <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
       <CustomConnectorChatContext.Provider value={customConnectorChat}>
-      <AgentConsentContinuationContext.Provider value={hasChatAccess && !conversationClosed
+      <AgentConsentContinuationContext.Provider value={hasChatAccess
         ? { conversationId, continueWithOutcome: continueWithConsentOutcome }
         : null}>
       <ConsentCardPhaseContext.Provider value={consentCardPhaseFor}>
@@ -9570,7 +9519,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   screen rather than the workspace. */}
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold leading-5 text-foreground">
-                  {isPuppySurface ? "Puppy One" : chatOnboarding.preferredName || "One"}
+                  {isPuppySurface ? "Puppy One" : oneDisplayName}
                 </div>
                 <ChatAgentSubtitle text={chatHeaderSubtitle({
                   isPuppySurface,
@@ -10172,7 +10121,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
                     )}
                     onSelect={handlePromptDraftSelect}
-                    onEndConversation={endConversation}
                   />
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
@@ -11298,7 +11246,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                         }}
                         disabled={
-                          conversationClosed || chatOnboarding.busy || recoveryInspectionPending ||
+                          recoveryInspectionPending ||
                           isVoiceConnecting
                         }
                         placeholder={

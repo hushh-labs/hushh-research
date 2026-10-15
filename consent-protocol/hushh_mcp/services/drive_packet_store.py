@@ -371,6 +371,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             )
             if not current:
                 raise DriveReadError("packet_source_changed")
+            metadata = self.cipher.open(dict(row))
             documents.append(
                 {
                     "document_id": str(row["document_id"]),
@@ -384,7 +385,11 @@ class DrivePacketStore(DriveDocumentFactsStore):
                     # Provider checksum of the original bytes (absent for native
                     # Google files). The Ready gates use it to spot one file
                     # selected twice; it is not persisted in the manifest.
-                    "content_digest": self.cipher.open(dict(row)).get("checksum"),
+                    "content_digest": metadata.get("checksum"),
+                    # Retain source metadata in the host evidence projection.
+                    # Creation time neither dates coverage nor proves duplicate
+                    # records; it stays outside model context and manifests.
+                    "created_time": metadata.get("created_time"),
                 }
             )
         return documents
@@ -588,7 +593,13 @@ class DrivePacketStore(DriveDocumentFactsStore):
                                 key: value
                                 for key, value in document.items()
                                 if key
-                                not in {"facts", "complete", "facts_profile", "content_digest"}
+                                not in {
+                                    "facts",
+                                    "complete",
+                                    "facts_profile",
+                                    "content_digest",
+                                    "created_time",
+                                }
                             }
                         )
                 if len(documents) < 50:

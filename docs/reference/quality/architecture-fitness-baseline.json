@@ -25106,7 +25106,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "DrivePacketStore",
-      "value": 967
+      "value": 978
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -25277,7 +25277,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "finalize_packet",
-      "value": 114
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25295,7 +25295,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": "operation",
-      "value": 108
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -25448,7 +25448,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_store.py",
       "symbol": null,
-      "value": 1029
+      "value": 1040
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25475,7 +25475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 1849
+      "value": 1880
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26281,7 +26281,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_intelligence.py",
       "symbol": null,
-      "value": 582
+      "value": 589
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26308,7 +26308,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_packet_intelligence.py",
       "symbol": null,
-      "value": 1571
+      "value": 1630
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26515,7 +26515,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
       "symbol": "_run",
-      "value": 104
+      "value": 108
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -26578,7 +26578,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/cli.py",
       "symbol": null,
-      "value": 884
+      "value": 909
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26587,7 +26587,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
       "symbol": null,
-      "value": 844
+      "value": 851
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26632,7 +26632,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/sources.py",
       "symbol": null,
-      "value": 556
+      "value": 578
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -50065,6 +50065,90 @@
         "source_sha256": "887d090e75eb9b2b8d304c881aa1e63cca08d41cd11fcb1e3196ac79245d4e9b"
       }
     ]
+  },
+  "scope_commerce_main_drive_guard_composition_20261015": {
+    "entries": [
+      {
+        "after": 978,
+        "before": 967,
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|DrivePacketStore|class exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "6eca924394e1e81f96b01378156a179b7dc957c2abf0ca93c49006228cdfffbe"
+      },
+      {
+        "after": 120,
+        "before": 114,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|finalize_packet|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "6eca924394e1e81f96b01378156a179b7dc957c2abf0ca93c49006228cdfffbe"
+      },
+      {
+        "after": 114,
+        "before": 108,
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_store.py|operation|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "6eca924394e1e81f96b01378156a179b7dc957c2abf0ca93c49006228cdfffbe"
+      },
+      {
+        "after": 108,
+        "before": 104,
+        "key": "function_size|consent-protocol/hushh_eval/drive_packets/cli.py|_run|function exceeds the advisory gene budget",
+        "rank": 0,
+        "source_sha256": "084bcd9f57e5f856f5bd21f7238d1cc00293beb8bb026a9b607311609aeecd90"
+      },
+      {
+        "after": 1880,
+        "before": 1849,
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "b564ca3b45249ebcbc755cf3ff9c761ddfd32d422edd0a2188a1ed37c56a6bfc"
+      },
+      {
+        "after": 1630,
+        "before": 1571,
+        "key": "module_size|consent-protocol/tests/services/test_drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "71f4b9762d1e647196d99475477dc9c87033fae003001d96d020788b0dcc8c1a"
+      },
+      {
+        "after": 1040,
+        "before": 1029,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_store.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "6eca924394e1e81f96b01378156a179b7dc957c2abf0ca93c49006228cdfffbe"
+      },
+      {
+        "after": 909,
+        "before": 884,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/cli.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "084bcd9f57e5f856f5bd21f7238d1cc00293beb8bb026a9b607311609aeecd90"
+      },
+      {
+        "after": 851,
+        "before": 844,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "91b7f837526d8abae7566d63776fff639d0b7c1712c58ad870b936fab0a5ea51"
+      },
+      {
+        "after": 589,
+        "before": 582,
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_intelligence.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "3330c88d626b6a39b9e6900006698742dc46cd36c1976415dcf6173489973ba1"
+      },
+      {
+        "after": 578,
+        "before": 556,
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/sources.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "source_sha256": "a87d8219d7f4151b232d8f6d637b5e651e440e7a7fd85be210b5be5006abecce"
+      }
+    ],
+    "incoming_main": "2aa7bd9fb1ec18ba0c0e7e18e039535d0676da01",
+    "review": "Parent source review with independent backend/client boundary review and architecture readback. Eleven retained size observations for owner-context metadata plumbing, file timestamp withholding and two observed Drive regression inputs. Model judgments remain authored; no incoming host semantic overrides. Preserve all2712 occurrences and duplicate operation rank1=100; budgets500/250/80, scanner, exclusions and prior history unchanged. Focused378backend/eval,55frontend, TypeScript and UIcontracts pass; real model accuracy and deployed acceptance remain unverified.",
+    "source_parent": "c777802db8"
   },
   "scope_commerce_maindb4_composition_20261015": {
     "boundary": "Exactly18 reviewed rank-zero observations. Prior findings/history, scanner, exclusions and500/250/80budgets retained. New growth still rejected.",

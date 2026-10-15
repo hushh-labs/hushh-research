@@ -274,3 +274,35 @@ async def test_authored_account_refusal_cannot_be_overruled_by_ready_checker():
             batch_scope=scope("complete_compact_summary", members),
             interpret=AsyncMock(return_value=verdict()),
         )
+
+
+async def test_host_file_timestamps_stay_outside_builder_and_checker_context():
+    import json
+
+    members = [
+        statement("first", account=None, holder=None),
+        statement("second", account=None, holder=None, month=10),
+    ]
+    for item in members:
+        item["created_time"] = "2026-09-14T09:00:00Z"
+    proposed = proposal(members)
+    builder = AsyncMock(return_value=proposed)
+    built = await construct_packet(
+        user_id="owner", key="records", documents=members, complete=True, interpret=builder
+    )
+    assert built == PacketProposal.model_validate(proposed)
+    checker = AsyncMock(return_value=verdict())
+    checked = await verify_packet(
+        user_id="owner",
+        packet=built.model_dump(),
+        documents=[compact_evidence(item) for item in members],
+        complete=True,
+        batch_scope=scope("complete_compact_summary", members),
+        interpret=checker,
+    )
+    assert checked.model_dump() == verdict()
+    for provider, key in [(builder, "documents"), (checker, "document_facts")]:
+        payload = json.loads(provider.await_args.kwargs["prompt"])
+        assert len(payload[key]) == 2
+        assert all("created_time" not in item for item in payload[key])
+    assert all(compact_evidence(item)["created_time"] for item in members)

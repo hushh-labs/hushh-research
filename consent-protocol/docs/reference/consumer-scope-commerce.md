@@ -4162,15 +4162,19 @@ No purchase or payout is inferred from those saves. Shared Chrome was untouched.
 
 ### Current integration and acceptance boundary, 2026-10-15
 
-The existing branch integrated main through `a0d8fd0a275b0afa80134769e0b632d3ea6acefa`.
-The local core protocol and PostgreSQL stages passed 20,318 and 1,267 cases.
-The web stage found four incoming raw accent literals; the token correction
-passed design checks and the resumed web, MCP and integration stages. That
-correction's protocol tree was byte-identical. The subsequent readiness-job
-headroom integration changes no product runtime or web source: 57 deployment
-contract cases passed. Governance is rechecked on the combined candidate.
-The probe keeps one canonical helper, exact runtime identity, cleared secrets,
-provider deadlines, success receipts and cleanup. No validation gate is weakened.
+The existing branch integrates main through `2aa7bd9fb1` without rewriting
+shared history. The earlier exact `94365bf9f0cc` candidate passed the full local
+core bundle, including 20,342 protocol and 1,280 PostgreSQL cases. That run
+predates the owner-approved identifier extension and latest main composition;
+those changes require their own final core and hosted CI before Dev deployment.
+The latest merge preserves main's intentional terminal-chat/name-prompt rollback
+while retaining owner-generation, queued-delivery and consent fences. Drive
+packet judgments remain authored builder/checker outcomes; host metadata, exact
+membership, citations and original checksums retain their existing authorities.
+Two observed Drive regressions and timestamp withholding extend the nearest core
+tests; duplicate mocked semantic permutations were consolidated. These tests do
+not certify model accuracy: independent faulty-Ready evals must still expose
+unsupported account/date/completeness claims and fail the deploy gate.
 
 Both reviewers accepted a scope-free social connection. Their existing encrypted
 synthetic fixtures expose independently discovered, exact nonwildcard role leaves.

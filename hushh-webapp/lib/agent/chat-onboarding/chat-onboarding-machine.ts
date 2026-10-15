@@ -81,21 +81,14 @@ export type ChatOnboardingState = {
   draft: { name: string | null; tone: ChatOnboardingTone | null };
   turns: ChatOnboardingTurn[];
   seq: number;
-  /** This explicitly presented name question saves its submitted answer. */
-  saveNameOnAnswer?: boolean;
-  nameOnly?: boolean;
-  nameReasked?: boolean;
-  savingName?: boolean;
 };
 
 export type ChatOnboardingEffect =
   | { type: "persist_progress"; progress: ChatOnboardingProgress }
   | { type: "save_preferences"; name: string | null; tone: ChatOnboardingTone | null }
-  | { type: "focus_composer" }
-  | { type: "close_conversation" };
+  | { type: "focus_composer" };
 
 export type ChatOnboardingEvent =
-  | { type: "request_name"; progress: ChatOnboardingProgress; firstName: string | null; anchor: string | null; nameOnly: boolean }
   | { type: "start"; displayName: string; firstName: string | null; anchor: string | null }
   | {
       type: "resume";
@@ -229,14 +222,6 @@ export function reduceChatOnboarding(
   state: ChatOnboardingState | null,
   event: ChatOnboardingEvent,
 ): ChatOnboardingResult {
-  if (event.type === "request_name") {
-    const progress = mark({ ...event.progress, status: "in_progress" }, "name", "pending");
-    const next = askQuestion(
-      { ...emptyState(progress), saveNameOnAnswer: true, nameOnly: event.nameOnly },
-      "name", "What would you like me to call you?", event.anchor, event.firstName,
-    );
-    return { state: { ...next, step: "name_typing" }, effects: [] };
-  }
   if (event.type === "start") {
     const progress = newChatOnboardingProgress();
     const next = pushTurn(
@@ -278,20 +263,6 @@ export function reduceChatOnboarding(
   if (event.type === "typed_answer") {
     if (state.step !== "name_typing") return { state, effects: [], consumed: false };
     const name = normalizePreferredName(event.text);
-    if (state.saveNameOnAnswer) {
-      if (!name) {
-        const next = state.nameReasked ? state : pushTurn(
-          { ...state, nameReasked: true },
-          { role: "assistant", text: "What would you like me to call you? Use up to 40 characters, or skip for now.", anchor: event.anchor, chips: nameChips(null) },
-        );
-        return { state: next, effects: [], consumed: true };
-      }
-      const next = pushTurn(
-        { ...state, step: "saving", savingName: true, draft: { ...state.draft, name } },
-        { role: "user", text: name, anchor: event.anchor },
-      );
-      return { state: next, effects: [{ type: "save_preferences", name, tone: null }], consumed: true };
-    }
     if (!name) {
       // The person left the explicit name entry. Let One answer the ordinary
       // turn without resuming recommendations or saving a guessed name.
@@ -334,22 +305,6 @@ export function reduceChatOnboarding(
       );
       return { state: next, effects: [] };
     }
-    if (state.savingName) {
-      const name = state.draft.name;
-      const progress = mark(state.progress, "name", "answered");
-      const clean = { ...state, progress, savingName: false, draft: { ...state.draft, name: null } };
-      const question = state.nameOnly ? null : firstPendingQuestion(progress);
-      if (question) {
-        const next = askQuestion(clean, question,
-          question === "focus" ? focusQuestionText(name, false) : resumeQuestionText(question),
-          event.anchor, null);
-        return { state: next, effects: [{ type: "persist_progress", progress }] };
-      }
-      const completed = complete(progress, event.today);
-      const next = pushTurn({ ...clean, progress: completed, step: "done" },
-        { role: "assistant", text: `I'll call you ${name}.`, anchor: event.anchor });
-      return { state: next, effects: [{ type: "persist_progress", progress: completed }] };
-    }
     const progress = complete(state.progress, event.today);
     const next = pushTurn(
       { ...state, progress, step: "done", draft: { name: null, tone: null } },
@@ -372,21 +327,11 @@ export function reduceChatOnboarding(
             ? "tone"
             : null;
     if (!question) return { state, effects: [] };
-    if (question === "name" && state.nameOnly) {
-      const progress = complete(mark(state.progress, "name", "skipped"), today);
-      const next = pushTurn({ ...state, progress, step: "done" },
-        { role: "assistant", text: "No problem. You can tell me later.", anchor });
-      return { state: next, effects: [{ type: "persist_progress", progress }] };
-    }
     return answerQuestion(state, question, "skipped", "Skip for now", anchor, today, firstName);
   }
 
   if (current === "name" || current === "name_typing") {
     if (chipId === "name_signin" && firstName) {
-      if (state.saveNameOnAnswer) {
-        return reduceChatOnboarding({ ...state, step: "name_typing" },
-          { type: "typed_answer", text: firstName, anchor, today });
-      }
       return answerQuestion(
         { ...state, draft: { ...state.draft, name: firstName } },
         "name",
@@ -408,7 +353,7 @@ export function reduceChatOnboarding(
         { ...state, progress, step: "done", draft: { name: null, tone: null } },
         { role: "user", text: "Something else", anchor },
       );
-      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "close_conversation" }] };
+      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "focus_composer" }] };
     }
     return { state, effects: [] };
   }

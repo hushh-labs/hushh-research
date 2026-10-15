@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   reduceChatOnboarding,
-  newChatOnboardingProgress,
   type ChatOnboardingEvent,
   type ChatOnboardingResult,
   type ChatOnboardingState,
@@ -51,44 +50,6 @@ function lastAssistant(state: ChatOnboardingState) {
 }
 
 describe("chat onboarding sequence", () => {
-  it("skips a name-only prompt without starting focus or tone onboarding", () => {
-    const requested = run(null, { type: "request_name", progress: newChatOnboardingProgress(),
-      firstName: null, anchor: null, nameOnly: true });
-    const skipped = chip(requested.state, "skip");
-    expect(skipped.state.step).toBe("done");
-    expect(skipped.state.progress.status).toBe("completed");
-    expect(skipped.effects.every((effect) => effect.type === "persist_progress")).toBe(true);
-  });
-  it("accepts a direct name answer, saves once, and advances only after encrypted-save success", () => {
-    const requested = run(null, { type: "request_name", progress: newChatOnboardingProgress(),
-      firstName: null, anchor: null, nameOnly: false });
-    expect(lastAssistant(requested.state).text).toBe("What would you like me to call you?");
-    const saving = run(requested.state, { type: "typed_answer", text: "  Roopmann  ", anchor: null, today: TODAY });
-    expect(saving.effects).toEqual([{ type: "save_preferences", name: "Roopmann", tone: null }]);
-    expect(saving.state.progress.questions.name).toBe("pending");
-    expect(chip(saving.state, "name_signin").effects).toEqual([]);
-    const failed = run(saving.state, { type: "save_result", ok: false, anchor: null, today: TODAY });
-    expect(failed.state.step).toBe("save_failed");
-    const retry = chip(failed.state, "retry_save");
-    const saved = run(retry.state, { type: "save_result", ok: true, anchor: null, today: TODAY });
-    expect(saved.state.progress.questions.name).toBe("answered");
-    expect(saved.state.step).toBe("focus");
-    expect(saved.state.draft.name).toBeNull();
-  });
-
-  it("re-asks an empty answer once and rejects an overlong name without saving or sending it", () => {
-    let state = run(null, { type: "request_name", progress: newChatOnboardingProgress(),
-      firstName: null, anchor: null, nameOnly: true }).state;
-    const first = run(state, { type: "typed_answer", text: " ", anchor: null, today: TODAY });
-    expect(first.consumed).toBe(true);
-    expect(first.effects).toEqual([]);
-    state = first.state;
-    const second = run(state, { type: "typed_answer", text: "R".repeat(41), anchor: null, today: TODAY });
-    expect(second.state.turns).toHaveLength(state.turns.length);
-    expect(second.effects).toEqual([]);
-    const saving = run(state, { type: "typed_answer", text: "Roopmann", anchor: null, today: TODAY });
-    expect(run(saving.state, { type: "save_result", ok: true, anchor: null, today: TODAY }).state.step).toBe("done");
-  });
   it("asks name, then focus, then tone, one question per assistant turn, then confirms", () => {
     const started = start();
     expect(started.state.step).toBe("name");
@@ -155,7 +116,7 @@ describe("unrelated input never breaks onboarding", () => {
     );
     expect(dismissed.state.progress.status).toBe("completed");
     expect(dismissed.effects).toEqual([
-      { type: "persist_progress", progress: dismissed.state.progress }, { type: "close_conversation" },
+      { type: "persist_progress", progress: dismissed.state.progress }, { type: "focus_composer" },
     ]);
     const ordinary = run(dismissed.state, { type: "typed_answer", text: "tell me the news", anchor: "msg-1", today: TODAY });
     expect(ordinary.consumed).toBe(false);

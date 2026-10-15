@@ -336,6 +336,13 @@ def _check_requested_event_claims(packet, selected_facts):
         raise ValueError("mixed requested packet evidence")
 
 
+def _model_view(item):
+    """Keep provider context free of host-only file timestamps."""
+    if not isinstance(item, dict):
+        return item
+    return {key: value for key, value in item.items() if key != "created_time"}
+
+
 async def consolidate_facts(
     *, user_id, previous, page_facts, complete, canonical_context=None, interpret=_interpret
 ):
@@ -459,7 +466,7 @@ async def construct_packet(
         "canonical_packet",
         {
             "canonical_key": key,
-            "documents": documents,
+            "documents": [_model_view(item) for item in documents],
             "previous_packet": previous,
             "all_members_observed": complete,
             "owner_pricing_preferences": owner_preferences,
@@ -553,7 +560,7 @@ async def verify_packet(
         "packet_verification",
         {
             "proposed_packet": packet,
-            "document_facts": documents,
+            "document_facts": [_model_view(item) for item in documents],
             "all_evidence_current_and_complete": complete,
             "batch_scope": batch_scope,
             "owner_identity": owner,

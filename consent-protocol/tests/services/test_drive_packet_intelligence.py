@@ -1569,3 +1569,62 @@ async def test_final_checker_cannot_verify_an_undated_period_as_ready():
         interpret=AsyncMock(return_value=ready_verdict()),
     )
     assert checked.state == "ready"
+
+
+@pytest.mark.parametrize("case", ["snapshot_as_coverage", "missing_month_completeness"])
+async def test_real_drive_regressions_reach_independent_authored_checker(case):
+    """Synthetic replicas preserve evidence and judgments, never host substitutes.
+
+    This proves the model boundary, not real model accuracy. Paired faulty-Ready
+    answers remain independent defects in the adversarial deploy gate.
+    """
+    from hushh_mcp.services.drive_packet_contract import PacketProposal
+    from hushh_mcp.services.drive_packet_worker import compact_evidence
+
+    documents = []
+    for month in [9] if case == "snapshot_as_coverage" else [9, 11]:
+        quote = f"Statement period {month:02d}/2026"
+        facts = statement_facts(quote)
+        facts["periods"][0].update(start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-28")
+        if case == "snapshot_as_coverage":
+            facts["date_evidence"] = [
+                {
+                    "role": "as_of",
+                    "start": "2026-09-28",
+                    "end": "2026-09-28",
+                    "meaning": "Benchmark snapshot, not a reporting window",
+                    "citations": [{"page": 1, "quote": quote}],
+                }
+            ]
+        documents.append(statement_member(f"m{month}", facts))
+    proposed = statement_packet(
+        [item["document_id"] for item in documents],
+        [item["facts"]["periods"][0] for item in documents],
+    )
+    if case == "missing_month_completeness":
+        proposed["coverage_summary"] = "Complete September-November 2026 statements"
+    builder = AsyncMock(return_value=proposed)
+    built = await construct_packet(
+        user_id="owner", key="statements", documents=documents, complete=True, interpret=builder
+    )
+    assert built.model_dump() == PacketProposal.model_validate(proposed).model_dump()
+    assert json.loads(builder.await_args.kwargs["prompt"])["documents"] == documents
+    authored = {
+        **ready_verdict(),
+        "state": "unable_to_verify",
+        "correct_coverage": False,
+        "issues": ["The cited records do not establish the claimed coverage."],
+    }
+    checker = AsyncMock(return_value=authored)
+    checked = await verify_packet(
+        user_id="owner",
+        packet=built.model_dump(),
+        documents=[compact_evidence(item) for item in documents],
+        complete=True,
+        batch_scope={"mode": "complete_compact_summary"},
+        interpret=checker,
+    )
+    assert checked.model_dump() == authored
+    sent = json.loads(checker.await_args.kwargs["prompt"])
+    assert sent["proposed_packet"] == built.model_dump()
+    assert sent["document_facts"] == [compact_evidence(item) for item in documents]

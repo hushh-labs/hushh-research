@@ -38,6 +38,11 @@ The production worker supplies the owner’s name on file as comparison context
 to both authored assessments. The offline replay has no owner listing and does
 not measure that assessment.
 
+The replay also accepts `--owner-name` or the live owner's identity on file
+as comparison context in memory for both authored assessments. Names are not
+written to batch files or reports; only their origin is reported. File creation
+timestamps remain host-side metadata and do not date document coverage.
+
 
 ## Operator runbook (real Drive, read-only)
 

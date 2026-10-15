@@ -183,3 +183,61 @@ async def test_runtime_validation_retries_are_counted_as_codes_only():
         ":1"
     )
     assert count == 1
+
+
+class NamedHolder(replay.FakeInterpret):
+    """The fixture model, reading every document as an account record of one
+    synthetic holder, and a checker that never certifies a nonready proposal."""
+
+    def _document_facts(self, request):
+        answer = super()._document_facts(request)
+        refs = [item["ref"] for item in request["citation_evidence"]][:1]
+        if refs:
+            answer["subject"] = {"value": "Jordan Sample", "citation_refs": refs}
+            answer["account"] = {"value": "Account ending 4417", "citation_refs": refs}
+        return answer
+
+    def _verdict(self, request):
+        answer = super()._verdict(request)
+        if request["proposed_packet"].get("state") != "ready":
+            answer.update(state="incomplete", issues=["Fixture proposal is not Ready."])
+        return answer
+
+
+async def test_owner_name_reaches_both_authored_assessments_in_replay():
+    seen = []
+
+    class Recording(NamedHolder):
+        async def __call__(self, *, prompt, user_id, output_schema):
+            request = json.loads(prompt)
+            if "owner_identity" in request:
+                seen.append(request["owner_identity"])
+            return await super().__call__(
+                prompt=prompt, user_id=user_id, output_schema=output_schema
+            )
+
+    owner = {"names": ["Avery Quill"]}
+    runner = ReplayRunner(
+        interpret=Recording(), model="fixture-interpret", budget=Budget(max_usd=50)
+    )
+    checked = await runner.run_owner_path(
+        batch_id="B", cases=cases(1), runtime=RUNTIME, owner=owner
+    )
+    assert len(seen) >= 2 and all(value == owner for value in seen)
+    # All-Ready fixtures do not establish semantic identity assurance. Their
+    # judgments stay observable for independent evaluation, without host edits.
+    assert [item.state for item in checked.packets] == ["ready"]
+
+
+def test_run_batch_owner_listing_prefers_an_explicit_name():
+    class Source:
+        def owner_identity(self):
+            return {"names": ["Name On File"]}
+
+    explicit = cli.parser().parse_args(
+        ["run-batch", "--workdir", "w", "--batch-id", "B", "--owner-name", " Avery Quill "]
+    )
+    plain = cli.parser().parse_args(["run-batch", "--workdir", "w", "--batch-id", "B"])
+    assert cli._owner_listing(explicit, Source()) == ({"names": ["Avery Quill"]}, "explicit_name")
+    assert cli._owner_listing(plain, Source()) == ({"names": ["Name On File"]}, "name_on_file")
+    assert cli._owner_listing(plain, object()) == (None, "none")

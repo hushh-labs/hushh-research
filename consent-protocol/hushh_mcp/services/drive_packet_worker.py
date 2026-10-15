@@ -114,6 +114,10 @@ def compact_evidence(document):
         **(
             {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
         ),
+        # Preserve host evidence metadata through bounded batching. File time
+        # is withheld from the model and cannot establish reporting coverage
+        # or duplicate-record meaning.
+        **({"created_time": document["created_time"]} if document.get("created_time") else {}),
     }
 
 

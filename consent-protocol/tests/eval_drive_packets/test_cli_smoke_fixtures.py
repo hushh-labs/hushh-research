@@ -78,3 +78,31 @@ def test_tampered_plan_is_refused_by_run_batch(tmp_path, capsys):
     plan_path.write_text(json.dumps(plan))
     assert cli.main(["run-batch", *common]) == 2
     assert "plan_changed_after_preregistration" in capsys.readouterr().out
+
+
+def test_owner_name_reaches_the_replay_and_is_never_written(
+    tmp_path, capsys, monkeypatch, no_network
+):
+    from hushh_eval.drive_packets import replay
+
+    seen = []
+    original = replay.ReplayRunner.run_owner_path
+
+    async def recording(self, **kwargs):
+        seen.append(kwargs.get("owner"))
+        return await original(self, **kwargs)
+
+    monkeypatch.setattr(replay.ReplayRunner, "run_owner_path", recording)
+    common = ["--workdir", str(tmp_path / "work"), "--batch-id", "OWN"]
+    assert (
+        cli.main(["plan-batch", *common, "--seed", "7", "--n-clusters", "4", "--n-loose", "3"]) == 0
+    )
+    capsys.readouterr()
+    assert cli.main(["run-batch", *common, "--owner-name", "Avery Quill"]) == 0
+    out = capsys.readouterr().out
+    summary = json.loads([line for line in out.splitlines() if line.startswith("{")][-1])
+    assert seen == [{"names": ["Avery Quill"]}]
+    assert summary["owner_check"] == "explicit_name"
+    assert "Quill" not in out
+    written = [path for path in (tmp_path / "work").rglob("*") if path.is_file()]
+    assert written and not [path.name for path in written if b"Quill" in path.read_bytes()]
