@@ -32,9 +32,16 @@ vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
 import {
   watchMemoryFreshness,
   clearMemoryDocument,
+  markMemoryRefreshPending,
+  peekLiveMirror,
   peekMemoryView,
   refreshMemoryDocument,
 } from "@/lib/pkm/memory-refresh";
+import {
+  clearLivingSourceSessionVerification,
+  recordLivingSourceSessionVerification,
+} from "@/lib/pkm/living-source-session-verification";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const USER = "owner-1";
 
@@ -63,6 +70,7 @@ beforeEach(() => {
   saveMergedDomain.mockReset();
   retrieveApprovedMemoryScopes.mockReset().mockResolvedValue({ complete: true });
   clearMemoryDocument(USER);
+  clearLivingSourceSessionVerification();
 });
 
 describe("memory.md freshness lifecycle", () => {
@@ -140,7 +148,7 @@ describe("memory.md freshness lifecycle", () => {
     expect(getStaleFirst).toHaveBeenCalledTimes(2);
   });
 
-  it("clearing on lock drops the document back to stale", async () => {
+  it("clearing on lock drops the document and the Live Mirror", async () => {
     getStaleFirst.mockResolvedValue(
       domainSnapshot(7, { home_city: "Bengaluru" }),
     );
@@ -150,12 +158,14 @@ describe("memory.md freshness lifecycle", () => {
       vaultOwnerToken: "token",
       domains: ["personal_data"],
     });
+    expect(peekLiveMirror(USER)?.ownerId).toBe(USER);
     clearMemoryDocument(USER);
     expect(peekMemoryView(USER)).toEqual({
       document: null,
       status: "stale",
       builtAt: null,
     });
+    expect(peekLiveMirror(USER)).toBeNull();
   });
 });
 
@@ -210,6 +220,7 @@ it("teardown fences late decrypted publication", async () => {
   old.resolve(domainSnapshot(7, { home_city: "PRIVATE" }));
   expect((await building).status).toBe("stale");
   expect(peekMemoryView(USER).document).toBeNull();
+  expect(peekLiveMirror(USER)).toBeNull();
 });
 it("expired session cache is stale", async () => {
   vi.useFakeTimers();
@@ -326,6 +337,8 @@ describe("persisted source-linked Profile memory.md", () => {
     state.livingRevision += 1;
     const conflict = await refreshSources(true);
     expect(conflict.status).toBe("refresh_failed");
+    // The incomplete document must not hide a conflict behind "Some sources unavailable".
+    expect(peekLiveMirror(USER)?.overall).toBe("conflict");
     expect(conflict.document?.markdown).toContain("profile.__record · conflicted");
     expect(conflict.document?.markdown).toContain("Unresolved source conflict");
     expect(conflict.document?.markdown).not.toContain("## Account");
@@ -467,6 +480,76 @@ describe("persisted source-linked Profile memory.md", () => {
       expect(peekMemoryView(USER).status).toBe("current");
       expect(retrieveApprovedMemoryScopes).toHaveBeenCalledTimes(2);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("stops calling the view current once a source passes its check window, without re-reading every domain", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
+      mountSources(sources());
+      expect((await refreshSources()).status).toBe("current");
+      const reads = getStaleFirst.mock.calls.length;
+      vi.setSystemTime(new Date("2026-10-15T10:06:59.000Z"));
+      expect(peekMemoryView(USER).status).toBe("current");
+      expect(peekLiveMirror(USER)?.overall).toBe("current");
+      vi.setSystemTime(new Date("2026-10-15T10:07:01.000Z"));
+      expect(peekMemoryView(USER).status).toBe("stale");
+      expect(peekLiveMirror(USER)).toMatchObject({ overall: "stale", lastVerifiedAt: "2026-10-15T10:00:00.000Z" });
+      // Only a source sync renews verification age; a wake that marks no
+      // change must not turn age into a read of every domain.
+      expect((await refreshSources()).status).toBe("stale");
+      expect(getStaleFirst.mock.calls.length).toBe(reads);
+      markMemoryRefreshPending(USER);
+      await refreshSources();
+      expect(getStaleFirst.mock.calls.length).toBe(reads * 2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("uses this owner session's profile check time, never another owner's or vault epoch's", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
+      mountSources(sources());
+      vi.setSystemTime(new Date("2026-10-15T10:05:00.000Z"));
+      const sessionCheck = "2026-10-15T10:04:00.000Z";
+      const profileCheck = () => peekLiveMirror(USER)?.sources.find(source => source.id === "living:profile")?.verifiedAt;
+      recordLivingSourceSessionVerification("owner-b", snapshotVaultSessionEpoch(), ["profile"], sessionCheck);
+      recordLivingSourceSessionVerification(USER, snapshotVaultSessionEpoch() + 1, ["profile"], sessionCheck);
+      await refreshSources(true);
+      expect(profileCheck()).toBe("2026-10-15T10:00:00.000Z");
+      recordLivingSourceSessionVerification(USER, snapshotVaultSessionEpoch(), ["profile"], sessionCheck);
+      await refreshSources(true);
+      expect(profileCheck()).toBe(sessionCheck);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("shows checked sources and marks the failed one, without persisting or rebuilding paid slices", async () => {
+    const state = sources();
+    const inventory = (state.living._private as Record<string, unknown>).inventory as Record<string, unknown>;
+    const lastCheck = new Date(Date.now() - 60_000).toISOString();
+    Object.assign(inventory, {
+      complete: false, unavailable: ["consent"], verifiedAt: { consent: lastCheck },
+      records: [...(inventory.records as unknown[]), { kind: "consent", id: "c1", revision: 1, createdAt: null, updatedAt: null,
+        capturedAt: lastCheck, deletedAt: null, value: { scope: "attr.food.*", status: "active" } }],
+    });
+    mountSources(state);
+    const view = await refreshSources();
+    expect(view.status).toBe("refresh_failed");
+    expect(saveMergedDomain).not.toHaveBeenCalled();
+    expect(retrieveApprovedMemoryScopes).not.toHaveBeenCalled();
+    // The incomplete inventory feeds only the mirror, never the legacy document.
+    expect(view.document?.markdown).not.toContain("Synthetic Ava");
+    const mirror = peekLiveMirror(USER)!;
+    expect(mirror.overall).toBe("partial");
+    expect(mirror.sources.find(source => source.id === "living:consent")).toMatchObject({ state: "unavailable", verifiedAt: lastCheck });
+    expect(mirror.sources.find(source => source.id === "living:profile")?.state).toBe("current");
+    expect(mirror.facts.find(fact => fact.predicate === "consent.scope")).toMatchObject({ value: "attr.food.*", state: "unavailable" });
+    expect(mirror.facts.find(fact => fact.predicate === "profile.name")).toMatchObject({ value: "Synthetic Ava", state: "verified" });
+
+    Object.assign(inventory, { complete: true, unavailable: [] });
+    state.livingRevision += 1;
+    await refreshSources(true);
+    expect(peekLiveMirror(USER)?.sources.find(source => source.id === "living:consent")?.state).toBe("current");
   });
 });
 
