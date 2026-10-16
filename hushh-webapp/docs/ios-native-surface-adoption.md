@@ -16,7 +16,25 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
-### Main integration and shared-pane repair — 2026-10-16
+### Shared-renderer recovery and release gate — 2026-10-16
+
+The current recovery integrates main through `44cf8c778b`. Custom native
+qualification remains opt-in; ordinary Capacitor/React and the independent
+native tab bar retain their existing admission policy. No additional Profile
+family is qualified by this integration.
+
+Exact-head PR validation at `d44a883d76` failed one Vitest shard and three
+browser lanes despite passing canonical core and the iOS, Android and strict
+macOS timing lanes. Repairs preserve authored web focus return without granting
+native action authority, suppress duplicate programmatic pager choices, and
+apply Profile's WebKit material policy to its portaled row menus. Confirmed
+chat-key recovery is bound to the original authentication generation and
+conversation, cancelled by later edits, and rechecks Calendar sources rather
+than retaining fetched meeting text. The authoritative composer still clears
+on lock. These changes require fresh combined-head core and CI; prior green
+checks do not qualify the repaired head or establish physical acceptance.
+
+### Earlier main integration and shared-pane repair — 2026-10-16
 
 Main through `745911d536` is merged locally, retaining current Calendar meeting
 recovery, semantic name saving, presence sequencing and Wallet behavior alongside
