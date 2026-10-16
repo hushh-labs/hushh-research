@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 356,
+  "expected_migration_version": 357,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -250,7 +250,11 @@
       "image_iv",
       "request_digest",
       "created_at",
-      "notification_previews"
+      "notification_previews",
+      "reply_to_message_id",
+      "revision",
+      "edited_at",
+      "deleted_for_everyone_at"
     ],
     "circle_chat_preferences": [
       "circle_id",
@@ -273,7 +277,8 @@
       "feed_event_id",
       "push_status",
       "push_attempts",
-      "push_due_at"
+      "push_due_at",
+      "deleted_at"
     ],
     "connected_documents": [
       "document_id",
