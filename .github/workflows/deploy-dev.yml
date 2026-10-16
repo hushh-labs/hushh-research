@@ -43,6 +43,7 @@ on:
 permissions:
   contents: read
   checks: read
+  actions: read
   id-token: write
 
 env:
@@ -149,7 +150,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
           REQUIRE_CI_SUCCESS: "1"
-          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate"
+          REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Checkout deployment SHA
