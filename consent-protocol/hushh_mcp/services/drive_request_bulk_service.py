@@ -337,6 +337,19 @@ class DriveRequestBulkService:
             # rejects them without one, so a new request would never load.
             return {"search": None, "bulkShare": None}
         search = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
+        if (
+            search is not None
+            and search["status"] == "completed"
+            and not context.get("agentPackageRequired")
+            and _deterministic_statement_plan(context["purpose"]) is not None
+        ):
+            replanned, changed = await self.search.replan_legacy_statement_request(
+                user_id=user_id, request_id=request_id, context=context
+            )
+            if replanned is not None:
+                search = replanned
+            if changed:
+                await self.wake("suggestions")
         if search is not None and search["status"] == "completed":
             await self.bulk.refresh_request(user_id=user_id, request_id=request_id)
         batches = await self.bulk.batches_by_request(user_id=user_id, request_id=request_id)

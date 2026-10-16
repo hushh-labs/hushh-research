@@ -473,6 +473,51 @@ async def test_existing_completed_statement_retries_same_job_without_model():
     wake.assert_awaited_once_with("suggestions")
 
 
+@pytest.mark.asyncio
+async def test_owner_review_retries_completed_unfrozen_statement_without_manual_restart():
+    request_id = "12345678-1234-1234-1234-123456789012"
+    context = {
+        "searchStarted": True,
+        "purpose": {
+            "purpose": "Schwab brokerage statements from 2026",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-10-09",
+        },
+        "revision": 2,
+        "requestTimeZone": "UTC",
+    }
+    old = {"jobId": "same-job", "status": "completed"}
+    retried = {"jobId": "same-job", "status": "queued"}
+    lookup = AsyncMock(side_effect=[old, retried])
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=lookup),
+        replan_legacy_statement_request=AsyncMock(return_value=(retried, True)),
+    )
+    bulk = SimpleNamespace(
+        refresh_request=AsyncMock(),
+        batches_by_request=AsyncMock(return_value={"batches": [], "batchCount": 0}),
+    )
+    planner = AsyncMock(side_effect=AssertionError("review must not call Gemini"))
+    wake = AsyncMock()
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        bulk=bulk,
+        planner=planner,
+        require_owner=AsyncMock(),
+        wake=wake,
+    )
+    first = await service.review_context(user_id="owner", request_id=request_id)
+    second = await service.review_context(user_id="owner", request_id=request_id)
+    assert first["search"] == second["search"] == retried
+    search.replan_legacy_statement_request.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, context=context
+    )
+    wake.assert_awaited_once_with("suggestions")
+    bulk.refresh_request.assert_not_awaited()
+    planner.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     "extra,expected_order",
     [
