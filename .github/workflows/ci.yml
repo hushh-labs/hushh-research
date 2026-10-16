@@ -377,6 +377,7 @@ jobs:
               - 'hushh-webapp/lib/kai/actions/voice-surface-activity.tsx'
               - 'hushh-webapp/lib/kai/actions/voice-surface-metadata.ts'
               - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/navigation/back-layers.ts'
               - 'hushh-webapp/lib/navigation/kai-bottom-chrome-visibility.ts'
               - 'hushh-webapp/lib/theme/accent.ts'
               - 'hushh-webapp/lib/ui/button-variants.ts'
