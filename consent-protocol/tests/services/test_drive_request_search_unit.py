@@ -433,6 +433,110 @@ async def test_saved_statement_marker_cannot_enter_trusted_auto_share_path():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "expected_terms", "required_entities"),
+    [
+        (
+            "All Charles Schwab brokerage statements from 2026",
+            ["Schwab", "brokerage", "statement"],
+            ["Schwab"],
+        ),
+        ("Bank statements", ["bank", "statement"], []),
+    ],
+)
+async def test_v1_statement_request_starts_with_deterministic_structural_search(
+    request_text, expected_terms, required_entities
+):
+    purpose = {
+        "purpose": request_text,
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 1,
+        "requestTimeZone": "UTC",
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"status": "queued", "jobId": "v1-job"}),
+        request_evidence_route=AsyncMock(),
+    )
+    planner = AsyncMock(side_effect=AssertionError("V1 statement discovery must not call Gemini"))
+    sharing = SimpleNamespace(
+        request_bulk_context=AsyncMock(return_value=context),
+        package_preparation_authority=AsyncMock(),
+    )
+    service = DriveRequestBulkService(
+        sharing=sharing, search=search, planner=planner, require_owner=AsyncMock()
+    )
+
+    result = await service.start_search(user_id="owner", request_id="request-id")
+
+    assert result == {"status": "queued", "jobId": "v1-job"}
+    planner.assert_not_awaited()
+    search.request_evidence_route.assert_not_awaited()
+    sharing.package_preparation_authority.assert_awaited_once()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["authority_mode"] == "agent_package"
+    assert frozen["v1_live_request"] is True
+    assert frozen["plan"]["terms"] == expected_terms
+    assert frozen["plan"]["required_entities"] == required_entities
+    assert frozen["plan"]["semantic_intent"] == "institutional_statement"
+    queries, _ = compile_request_queries(frozen["plan"], purpose, "UTC", v1_live_request=True)
+    assert "fullText" not in queries[-1]["arguments"]["query"]
+    assert "mimeType" in queries[-1]["arguments"]["query"]
+
+
+@pytest.mark.asyncio
+async def test_v1_named_bank_statement_keeps_issuer_in_semantic_plan():
+    purpose = {
+        "purpose": "Chase bank statements",
+        "periodStart": "2026-09-01",
+        "periodEnd": "2026-10-09",
+    }
+    context = {
+        "purpose": purpose,
+        "revision": 1,
+        "requestTimeZone": "UTC",
+        "agentPackageRequired": True,
+        "v1LiveRequest": True,
+    }
+    search = SimpleNamespace(
+        store=SimpleNamespace(by_client=AsyncMock(return_value=None)),
+        create_for_request=AsyncMock(return_value={"status": "queued", "jobId": "v1-job"}),
+    )
+    planner = AsyncMock(
+        return_value={
+            "mode": "find",
+            "terms": ["Chase", "bank", "statement"],
+            "required_entities": ["Chase"],
+            "semantic_intent": "institutional_statement",
+            "file_kind": "document",
+            "time_intent": "document_coverage",
+        }
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(
+            request_bulk_context=AsyncMock(return_value=context),
+            package_preparation_authority=AsyncMock(),
+        ),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+
+    await service.start_search(user_id="owner", request_id="request-id")
+
+    planner.assert_awaited_once()
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["required_entities"] == ["Chase"]
+    assert frozen["v1_live_request"] is True
+
+
+@pytest.mark.asyncio
 async def test_existing_completed_statement_retries_same_job_without_model():
     request_id = "12345678-1234-1234-1234-123456789012"
     context = {

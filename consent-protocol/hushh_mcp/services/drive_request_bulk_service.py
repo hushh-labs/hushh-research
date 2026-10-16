@@ -86,11 +86,14 @@ _GENERIC_TOPIC = frozenset(
 
 _STATEMENT_NOUN = re.compile(r"\bstatements?\b", re.I)
 _BROKERAGE_NOUN = re.compile(r"\b(?:brokerage|broker)\b", re.I)
+_GENERIC_BANK_STATEMENT = re.compile(r"^\s*bank\s+statements?\s*$", re.I)
 _SCHWAB_ISSUER = re.compile(r"\b(?:charles\s+)?schwab\b", re.I)
 
 
-def _deterministic_statement_plan(purpose: dict) -> LiveSearchPlan | None:
-    """Plan the supported brokerage-statement request without a model call.
+def _deterministic_statement_plan(
+    purpose: dict, *, include_bank: bool = False
+) -> LiveSearchPlan | None:
+    """Plan supported brokerage and V1 bank-statement requests without a model call.
 
     The selected period belongs to the document contents. It is deliberately
     absent from Drive metadata filters, and provider matches remain candidates
@@ -101,7 +104,10 @@ def _deterministic_statement_plan(purpose: dict) -> LiveSearchPlan | None:
         return None
     brokerage = bool(_BROKERAGE_NOUN.search(query))
     schwab = bool(_SCHWAB_ISSUER.search(query))
-    if not (brokerage or schwab):
+    # A named bank must remain a semantic plan so its issuer becomes an
+    # explicit evidence requirement; this generic path has no issuer to bind.
+    bank = include_bank and bool(_GENERIC_BANK_STATEMENT.fullmatch(query))
+    if not (brokerage or schwab or bank):
         return None
     terms = []
     groups = []
@@ -111,6 +117,9 @@ def _deterministic_statement_plan(purpose: dict) -> LiveSearchPlan | None:
     if brokerage:
         terms.append("brokerage")
         groups.append(["brokerage", "broker"])
+    if bank:
+        terms.append("bank")
+        groups.append(["bank", "banking"])
     terms.append("statement")
     groups.append(["statement", "statements"])
     return LiveSearchPlan(
@@ -239,12 +248,12 @@ class DriveRequestBulkService:
         timezone = context.get("requestTimeZone") or timezone
         requested_at = context.get("requestCreatedAt")
         statement_plan = (
-            _deterministic_statement_plan(purpose)
-            if authority_mode != "agent_package" and not context.get("v1LiveRequest")
+            _deterministic_statement_plan(purpose, include_bank=bool(context.get("v1LiveRequest")))
+            if authority_mode != "agent_package" or context.get("v1LiveRequest")
             else None
         )
         existing = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
-        if existing is not None and statement_plan is not None:
+        if existing is not None and statement_plan is not None and not context.get("v1LiveRequest"):
             replanned, changed = await self.search.replan_legacy_statement_request(
                 user_id=user_id, request_id=request_id, context=context
             )
