@@ -38,13 +38,6 @@ def response() -> dict:
                                 "start_index": 36,
                                 "end_index": 39,
                             },
-                            {
-                                "type": "url_citation",
-                                "title": "Insecure source",
-                                "url": "http://example.test/owner",
-                                "start_index": 36,
-                                "end_index": 39,
-                            },
                         ],
                     }
                 ],
@@ -62,6 +55,79 @@ def test_completed_search_accepts_only_valid_url_citations_and_provider_billing_
     assert [(source.title, source.url) for source in receipts.sources] == [
         ("Public team page", "https://example.test/team/owner")
     ]
+    assert receipts.citations == (
+        {
+            "start_index": 36,
+            "end_index": 39,
+            "title": "Public team page",
+            "url": "https://example.test/team/owner",
+        },
+    )
+
+
+def test_citations_keep_provider_title_and_offsets_across_content_parts():
+    raw = response()
+    raw["output"][2]["content"][0]["annotations"] = [
+        {**raw["output"][2]["content"][0]["annotations"][0], "title": "  Public team page  "}
+    ]
+    raw["output"][2]["content"].append(
+        {
+            "type": "output_text",
+            "text": "More [2].",
+            "annotations": [
+                {
+                    "type": "url_citation",
+                    "title": "Second source",
+                    "url": "https://example.test/second",
+                    "start_index": 5,
+                    "end_index": 8,
+                }
+            ],
+        }
+    )
+    receipts = extract_azure_web_receipts(raw)
+    assert receipts.observed is True
+    assert receipts.sources[0].title == "  Public team page  "
+    assert receipts.answer == "Public team page confirms the owner [1].\nMore [2]."
+    assert receipts.citations[0]["title"] == "  Public team page  "
+    assert (
+        receipts.citations[1]["start_index"]
+        == len("Public team page confirms the owner [1].\n") + 5
+    )
+
+
+def test_overlapping_citations_fail_closed():
+    raw = response()
+    raw["output"][2]["content"][0]["annotations"] = [
+        raw["output"][2]["content"][0]["annotations"][0],
+        {
+            "type": "url_citation",
+            "title": "Other",
+            "url": "https://example.test/other",
+            "start_index": 37,
+            "end_index": 39,
+        },
+    ]
+    receipts = extract_azure_web_receipts(raw)
+    assert receipts.observed is False
+    assert receipts.answer == ""
+    assert receipts.citations == ()
+
+
+def test_insecure_reference_fails_closed_instead_of_omitting_attribution():
+    raw = response()
+    raw["output"][2]["content"][0]["annotations"].append(
+        {
+            "type": "url_citation",
+            "title": "Insecure source",
+            "url": "http://example.test/owner",
+            "start_index": 36,
+            "end_index": 39,
+        }
+    )
+    receipts = extract_azure_web_receipts(raw)
+    assert receipts.observed is False
+    assert receipts.citations == ()
 
 
 @pytest.mark.parametrize("defect", ["no_call", "failed_call", "no_citation", "bad_range"])
@@ -101,6 +167,6 @@ def test_answer_and_citation_bounds_stop_oversized_provider_payloads():
         extract_azure_web_receipts(raw)
 
     raw = response()
-    raw["output"][2]["content"][0]["annotations"] *= 101
+    raw["output"][2]["content"][0]["annotations"] *= 201
     with pytest.raises(ValueError, match="citations exceeds"):
         extract_azure_web_receipts(raw)

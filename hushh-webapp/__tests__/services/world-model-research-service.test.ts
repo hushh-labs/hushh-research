@@ -83,6 +83,30 @@ it("accepts only matching display-only research provenance", () => {
     },
   };
   expect(pwmResultSchema.safeParse(azure).success).toBe(true);
+  const answer = "Alex 🧭 appears on a public page.";
+  const citation = {
+    start_index: answer.indexOf("public page"),
+    end_index: answer.indexOf("public page") + "public page".length,
+    title: "Original Bing citation",
+    url: "https://example.test/source?ref=bing",
+  };
+  const citedAzure = {
+    ...azure,
+    grounded_answers: [{ answer, sources: [], citations: [citation], search_suggestions: [] }],
+  };
+  expect(pwmResultSchema.safeParse(citedAzure).success).toBe(true);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [{ ...citation, url: "javascript:alert(1)" }], search_suggestions: [] }],
+  }).success).toBe(false);
+  expect(pwmResultSchema.safeParse({
+    ...citedAzure,
+    grounded_answers: [{ answer, sources: [], citations: [citation, citation], search_suggestions: [] }],
+  }).success).toBe(false);
   expect(pwmResultSchema.safeParse({
     ...azure,
     research: { ...azure.research, provider: "vertex_google_search" },

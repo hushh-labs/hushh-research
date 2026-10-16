@@ -30,6 +30,7 @@ import {
   type WorldModelFactDetail,
 } from "@/components/profile/world-model-fact-sheet";
 import { WorldModelOptions } from "@/components/profile/world-model-options";
+import { AzureGroundedAnswer } from "@/components/profile/world-model-azure-grounded-answer";
 import {
   LONG_STALL_MS,
   WorldModelIdentityGroup,
@@ -1058,6 +1059,17 @@ export function PersonalWorldModelPage({
                     onClick={onManageDetails}
                   />
                 ) : null}
+              </SettingsGroup>
+            ) : null}
+            {offered?.research.provider === "azure_openai_web_search" &&
+            offered.grounded_answers.length > 0 ? (
+              <SettingsGroup title="Bing web research" density="compact">
+                <HelperText className="profile-account-note px-4 py-3">
+                  These are the public search results used to prepare your review draft. Links open the cited pages.
+                </HelperText>
+                {offered.grounded_answers.map((answer, index) => (
+                  <AzureGroundedAnswer key={index} answer={answer} index={index} />
+                ))}
               </SettingsGroup>
             ) : null}
             {offered && offered.search_suggestions.length > 0 ? (

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -62,9 +63,15 @@ def profile_hash(value: dict) -> str:
     ).hexdigest()
 
 
-def load_pwm_policy(path: Path = PROFILE_PATH) -> dict:
+def load_pwm_policy(path: Path = PROFILE_PATH, *, environment: str | None = None) -> dict:
     """Research limits and provider are one checked-in runtime contract."""
-    value = json.loads(path.read_text())["pwm_research"]
+    document = json.loads(path.read_text())
+    runtime_environment = (environment or os.environ.get("ENVIRONMENT", "development")).lower()
+    value = document[
+        "pwm_research_uat"
+        if runtime_environment == "uat" and "pwm_research_uat" in document
+        else "pwm_research"
+    ]
     provider = value.get("provider")
     azure = provider == "azure_openai_web_search"
     if (

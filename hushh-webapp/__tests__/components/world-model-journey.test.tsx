@@ -109,6 +109,7 @@ const preferences = {
   enabled: true,
   email_enabled: true,
   consent_version: "pwm-native-v1",
+  research_provider: "vertex_google_search",
 };
 /** Two sections, three statements; one with doubtful evidence. */
 const offered = {

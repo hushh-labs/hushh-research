@@ -421,8 +421,15 @@ def test_azure_public_preferences_do_not_reuse_vertex_default_consent(monkeypatc
         "consent_version": "pwm-default-v1",
     }
     assert preferences.public_preferences(previous)["enabled"] is False
+    assert (
+        preferences.public_preferences(previous)["research_provider"] == "azure_openai_web_search"
+    )
     accepted = {**previous, "consent_version": "pwm-azure-bing-v1"}
     assert preferences.public_preferences(accepted)["enabled"] is True
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "vertex_google_search"}
+    )
+    assert preferences.public_preferences(previous)["research_provider"] == "vertex_google_search"
 
 
 def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch):
@@ -569,6 +576,19 @@ def test_claim_research_consent_keeps_owner_email_choice(monkeypatch, existing):
     else:
         update.assert_awaited_once_with("owner", "fixture", enabled=True, email_enabled=True)
         enroll.assert_not_awaited()
+
+
+def test_invitation_claim_cannot_grant_azure_bing_consent(monkeypatch):
+    client, routes = owner_client(monkeypatch, SimpleNamespace())
+    claim = AsyncMock()
+    monkeypatch.setattr(routes.invitations, "claim", claim)
+    monkeypatch.setattr(routes, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"})
+    response = client.post(
+        "/api/one/world-model/claims",
+        json={"token": "a" * 43, "consent": True, "research_consent": True},
+    )
+    assert response.status_code == 422
+    claim.assert_not_awaited()
 
 
 def checkpoint():

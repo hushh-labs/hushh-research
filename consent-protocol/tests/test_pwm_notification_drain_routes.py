@@ -99,6 +99,17 @@ def test_azure_pwm_policy_requires_scoped_endpoints_and_deployments(tmp_path):
         load_pwm_policy(path)
 
 
+def test_checked_in_pwm_provider_changes_only_in_uat():
+    from hushh_mcp.managed_ai_config import load_pwm_policy
+
+    uat = load_pwm_policy(environment="uat")
+    assert uat["provider"] == "azure_openai_web_search"
+    assert uat["azure"]["primary_deployment"] == "pwm-gpt-5-mini-eval"
+    assert uat["azure"]["phi_deployment"] == "pwm-phi-4-mini-eval"
+    for environment in ("development", "dev", "production"):
+        assert load_pwm_policy(environment=environment)["provider"] == "vertex_google_search"
+
+
 @pytest.mark.parametrize(
     "field,bad",
     [

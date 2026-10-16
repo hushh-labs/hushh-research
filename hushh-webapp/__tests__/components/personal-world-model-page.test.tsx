@@ -171,7 +171,7 @@ function research(
   mock.research = {
     mounted: true,
     result,
-    preferences: { ...preferences, consent_version: "pwm-native-v1" },
+    preferences: { ...preferences, consent_version: "pwm-native-v1", research_provider: "vertex_google_search" },
     failed: false,
     progress: null,
     validatedFacts: [],
@@ -437,6 +437,58 @@ describe("Personal World Model page", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Research and email"));
     expect(await screen.findByText("Checking your settings…")).toBeInTheDocument();
+  });
+
+  it("shows Bing's privacy boundary before Azure research opt-in, while Vertex keeps Google copy", async () => {
+    research({ status: "consent_required", pkm_written: false }, { enabled: false, email_enabled: true });
+    const vertex = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText("Research and email"));
+    expect(screen.getByText(/find pages about you with Google Search through Vertex AI/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bing may receive your name/)).not.toBeInTheDocument();
+    vertex.unmount();
+
+    research({ status: "consent_required", pkm_written: false }, { enabled: false, email_enabled: true });
+    (mock.research.preferences as Record<string, unknown>).research_provider = "azure_openai_web_search";
+    render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText("Research and email"));
+    expect(screen.getByText(/Bing may receive your name and verified email or phone/)).toHaveTextContent(
+      "outside Azure's compliance and data residency boundary",
+    );
+  });
+
+  it("shows an Azure grounded answer with its original UTF-16 citation and link", async () => {
+    const draft = offered([{ statement: "Works at Hushh", kind: "career" }]);
+    draft.research = {
+      ...draft.research,
+      provider: "azure_openai_web_search",
+      source_use: "azure_web_grounded_display_only",
+    };
+    const answer = "Alex 🧭 appears on the Hushh team page.";
+    const citationText = "Hushh team page";
+    draft.grounded_answers = [{
+      answer,
+      sources: [],
+      citations: [{
+        start_index: answer.indexOf(citationText),
+        end_index: answer.indexOf(citationText) + citationText.length,
+        title: "Hushh original title",
+        url: "https://hushh.ai/team?source=bing",
+      }],
+      search_suggestions: [],
+    }];
+    research(draft);
+    render(<PersonalWorldModelPage embedded />);
+
+    const result = await screen.findByTestId("pwm-azure-grounded-answer");
+    expect(result.querySelector("p")?.textContent).toBe(answer);
+    expect(within(result).getByRole("link", { name: citationText })).toHaveAttribute(
+      "href", "https://hushh.ai/team?source=bing",
+    );
+    expect(within(result).getByRole("link", { name: "Hushh original title" })).toHaveAttribute(
+      "href", "https://hushh.ai/team?source=bing",
+    );
+    expect(screen.getByText("Bing web research")).toBeInTheDocument();
+    expect(screen.queryByText("Related Google searches")).not.toBeInTheDocument();
   });
 
   it("keeps approved details and the last checkpoint visible after an unavailable result", async () => {

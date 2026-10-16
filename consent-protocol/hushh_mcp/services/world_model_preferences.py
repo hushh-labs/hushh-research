@@ -48,6 +48,7 @@ def public_preferences(row):
         "email_enabled": bool(row and row["email_enabled"]),
         # API shape version; the separate DB marker records Azure/Bing opt-in.
         "consent_version": NATIVE_CONSENT_VERSION,
+        "research_provider": "azure_openai_web_search" if azure else "vertex_google_search",
     }
 
 

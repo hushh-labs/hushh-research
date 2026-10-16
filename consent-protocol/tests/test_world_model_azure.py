@@ -11,7 +11,7 @@ from openai import APIError
 
 from hushh_mcp.one_adk.world_model import MAX_SEARCHES
 from hushh_mcp.one_adk.world_model_azure import AzurePwmGateway, run_world_model_azure
-from hushh_mcp.one_adk.world_model_contracts import TOPICS
+from hushh_mcp.one_adk.world_model_contracts import TOPICS, validated_facts_from_work
 
 IDENTITY = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
 URL = "https://example.test/alex"
@@ -128,6 +128,8 @@ class FakeGateway:
         coverage_with_contact=False,
         bad_coverage=False,
         unsearched_section=False,
+        invalid_finding=None,
+        report_timeout=False,
     ):
         self.charges = charges
         self.snapshots = snapshots
@@ -140,6 +142,8 @@ class FakeGateway:
         self.coverage_with_contact = coverage_with_contact
         self.bad_coverage = bad_coverage
         self.unsearched_section = unsearched_section
+        self.invalid_finding = invalid_finding
+        self.report_timeout = report_timeout
         self.calls = []
 
     async def search(self, request):
@@ -157,8 +161,9 @@ class FakeGateway:
                 MODEL_FIRST,
                 MODEL_FIRST + 1,
                 MODEL_FIRST + 2,
-                2,
                 MODEL_FIRST + 3,
+                2,
+                MODEL_FIRST + 4,
             ]
             assert self.snapshots[-1]["attempts"]["2"]["state"] == "started"
             assert request["exact_owner_fields"] == {"full_name": IDENTITY["full_name"]}
@@ -214,7 +219,38 @@ class FakeGateway:
                 )
                 value["anchors"][0]["candidate_id"] = "c2"
             return value
+        if purpose == "provisional_findings":
+            assert max_output_tokens <= 2048
+            assert payload["eligible_sources"] == [{"ref": "s1", "title": "Public bio", "url": URL}]
+            if payload["attempt_id"] != 1:
+                return {"skip": True}
+            statement = (
+                "A public bio publishes alex@example.test."
+                if self.invalid_finding == "contact"
+                else "A public bio names Alex Example."
+            )
+            return {
+                "candidate_id": "c2"
+                if self.invalid_finding == "candidate"
+                else payload["candidate_id"],
+                "attempt_id": payload["attempt_id"],
+                "topic": payload["topic"],
+                "facts": [
+                    {
+                        "statement": statement,
+                        "confidence": "supported",
+                        "sources": [
+                            {
+                                "title": "Untrusted model title",
+                                "ref": "s99" if self.invalid_finding == "source" else "s1",
+                            }
+                        ],
+                    }
+                ],
+            }
         assert purpose == "world_model_report"
+        if self.report_timeout:
+            raise TimeoutError("Synthetic report interruption")
         assert payload["owner_decisions"]["rejected"] == ["An unrelated claim"]
         assert payload["topic_attempt_ids"]["career"]
         draft = report(payload["research_history"]["assessment"]["identity"])
@@ -256,8 +292,91 @@ async def test_azure_runner_charges_before_dispatch_and_preserves_receipts():
         {"title": "Public bio", "url": URL}
     ]
     assert snapshots[-1]["attempts"]["1"]["bing_requests"] == 1
-    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 4)]
-    assert gateway.calls == ["search", "identity_assessment", "plan", "world_model_report"]
+    citation = {"start_index": 0, "end_index": 10, "title": "Public bio", "url": URL}
+    assert snapshots[-1]["attempts"]["1"]["citations"] == [citation]
+    assert result["grounded_answers"][0]["citations"] == [citation]
+    assert (
+        result["grounded_answers"][0]["answer"]
+        == search_response()["output"][1]["content"][0]["text"]
+    )
+    provisional = validated_facts_from_work(snapshots[-1])
+    assert len(provisional) == 1
+    assert provisional[0]["identity_state"] == "candidate_for_review"
+    assert provisional[0]["sources"] == [{"title": "Public bio", "url": URL}]
+    assert snapshots[-1]["finding_attempts"]["1"]["state"] == "recorded"
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_azure_runner_keeps_provisional_finding_when_final_report_pauses():
+    charges, snapshots = [], []
+    gateway = FakeGateway(charges=charges, snapshots=snapshots, report_timeout=True)
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result == {"status": "paused", "pkm_written": False, "restart_required": True}
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
+    provisional = validated_facts_from_work(snapshots[-1])
+    assert len(provisional) == 1
+    assert provisional[0]["statement"] == "A public bio names Alex Example."
+    assert provisional[0]["sources"] == [{"title": "Public bio", "url": URL}]
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defect", ["candidate", "source", "contact"])
+async def test_azure_runner_discards_invalid_provisional_batch_and_still_reports(defect):
+    charges, snapshots = [], []
+    gateway = FakeGateway(charges=charges, snapshots=snapshots, invalid_finding=defect)
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    async def progress(work):
+        snapshots.append(copy.deepcopy(work))
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        on_progress=progress,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
+    assert result["report"]["match_status"] == "uncertain"
+    assert validated_facts_from_work(snapshots[-1]) == []
+    assert snapshots[-1]["finding_attempts"]["1"]["state"] == "unavailable"
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
 
 
 @pytest.mark.asyncio
@@ -360,8 +479,14 @@ async def test_azure_runner_offers_existing_receipts_when_phi_returns_prose():
     )
     assert result["status"] == "offered"
     assert result["report"]["match_status"] == "uncertain"
-    assert gateway.calls == ["search", "identity_assessment", "plan", "world_model_report"]
-    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 4)]
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
 
 
 @pytest.mark.asyncio
@@ -387,8 +512,14 @@ async def test_azure_runner_offers_existing_receipts_after_phi_provider_error():
     )
     assert result["status"] == "offered"
     assert result["report"]["match_status"] == "uncertain"
-    assert gateway.calls == ["search", "identity_assessment", "plan", "world_model_report"]
-    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 4)]
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
+    assert charges == [1, *range(MODEL_FIRST, MODEL_FIRST + 5)]
 
 
 @pytest.mark.asyncio
@@ -507,9 +638,11 @@ async def test_azure_runner_allows_coverage_for_review_candidate_without_linking
     assert gateway.calls == [
         "search",
         "identity_assessment",
+        "provisional_findings",
         "plan",
         "search",
         "identity_assessment",
+        "provisional_findings",
         "world_model_report",
     ]
 
@@ -542,7 +675,13 @@ async def test_azure_runner_refuses_contact_seed_for_review_candidate_coverage()
     )
     assert result["status"] == "offered"
     assert result["research"]["searches_used"] == 1
-    assert gateway.calls == ["search", "identity_assessment", "plan", "world_model_report"]
+    assert gateway.calls == [
+        "search",
+        "identity_assessment",
+        "provisional_findings",
+        "plan",
+        "world_model_report",
+    ]
 
 
 @pytest.mark.asyncio
@@ -684,8 +823,75 @@ async def test_azure_runner_caps_resume_assessment_and_billed_searches():
     assert result["status"] == "offered"
     assert result["report"]["match_status"] == "uncertain"
     assert result["research"]["identity"]["state"] == "candidate_for_review"
+    assert gateway.calls == ["provisional_findings", "world_model_report"]
+    assert charges == [MODEL_FIRST + 1, MODEL_FIRST + 2]
+
+
+@pytest.mark.asyncio
+async def test_azure_runner_does_not_rebuy_recorded_finding_on_resume():
+    charges, snapshots = [], []
+    gateway = FakeGateway(charges=charges, snapshots=snapshots)
+    history = {
+        "azure_work_version": 1,
+        "sources": {"s1": {"title": "Public bio", "url": URL}},
+        "attempts": {
+            "1": {
+                "plan": {
+                    "purpose": "identity",
+                    "seed_fields": ["full_name", "email"],
+                    "anchor_ids": [],
+                    "candidate_id": None,
+                    "topics": ["digital_presence", "career"],
+                    "question": "Synthetic lookup",
+                },
+                "query_key": "prior",
+                "observed": True,
+                "answer": "A public bio names Alex Example.",
+                "source_refs": ["s1"],
+                "citations": [
+                    {"start_index": 0, "end_index": 10, "title": "Public bio", "url": URL}
+                ],
+                "state": "received",
+                "bing_requests": 16,
+            }
+        },
+        "assessment": assessment(),
+        "finding_batches": [
+            {
+                "candidate_id": "c1",
+                "attempt_id": 1,
+                "topic": "digital_presence",
+                "facts": [
+                    {
+                        "statement": "A public bio names Alex Example.",
+                        "confidence": "supported",
+                        "sources": [{"title": "Public bio", "ref": "s1"}],
+                    }
+                ],
+            }
+        ],
+        "finding_attempts": {"1": {"state": "recorded", "at": 1.0}},
+        "search_suggestions": [],
+    }
+
+    async def charge(slots):
+        charges.extend(slots)
+
+    result = await run_world_model_azure(
+        identity=IDENTITY,
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        require_access=AsyncMock(),
+        on_attempts_start=charge,
+        attempts_used=(1, MODEL_FIRST, MODEL_FIRST + 1, MODEL_FIRST + 2),
+        work=history,
+        owner_decisions={"rejected": ["An unrelated claim"]},
+        gateway=gateway,
+    )
+    assert result["status"] == "offered"
     assert gateway.calls == ["world_model_report"]
-    assert charges == [MODEL_FIRST + 1]
+    assert charges == [MODEL_FIRST + 3]
+    assert len(validated_facts_from_work(history)) == 1
 
 
 @pytest.mark.asyncio

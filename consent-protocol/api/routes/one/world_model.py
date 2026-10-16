@@ -14,6 +14,7 @@ from api.routes.one.profile_research import (
     MagicReviewCompletion,
     PrivateProfileRoute,
 )
+from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.services import world_model_invitations as invitations
 from hushh_mcp.services import world_model_preferences as preferences
@@ -262,6 +263,8 @@ async def revoke_invitation(
 async def claim_invitation(
     request: Request, body: ClaimInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
+    if body.research_consent and load_pwm_policy()["provider"] == "azure_openai_web_search":
+        raise HTTPException(422, "Turn on Azure public research in Personal World Model settings.")
     try:
         result = await invitations.claim(*owner(token), body.token)
         if body.research_consent:
