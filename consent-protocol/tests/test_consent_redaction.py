@@ -22,6 +22,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import PrivateAttr
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.consent_continuation import (
     STATE_CONSENT_CONTINUATION,
@@ -44,7 +45,7 @@ class _RecordingModel(BaseLlm):
     _requests: list = PrivateAttr(default_factory=list)
 
     def __init__(self, answers: list[str]) -> None:
-        super().__init__(model="gemini-3.6-flash")
+        super().__init__(model=GEMINI_MODEL)
         self._answers = answers
 
     async def generate_content_async(self, llm_request, stream=False):
@@ -246,7 +247,7 @@ class _StreamingModel(BaseLlm):
     _requests: list = PrivateAttr(default_factory=list)
 
     def __init__(self, script: list[list[types.Part]]) -> None:
-        super().__init__(model="gemini-3.6-flash")
+        super().__init__(model=GEMINI_MODEL)
         self._script = script
 
     async def generate_content_async(self, llm_request, stream=False):

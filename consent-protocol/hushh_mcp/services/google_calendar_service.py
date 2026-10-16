@@ -658,6 +658,21 @@ class GoogleCalendarService:
                 if isinstance(item, dict)
             ],
             "html_link": event.get("htmlLink"),
+            "conference_id": (
+                _mapping(event.get("conferenceData")).get("conferenceId")
+                if _mapping(
+                    _mapping(_mapping(event.get("conferenceData")).get("conferenceSolution")).get(
+                        "key"
+                    )
+                ).get("type")
+                == "hangoutsMeet"
+                else None
+            ),
+            "artifact_refs": [
+                {"file_id": item["fileId"], "mime_type": item.get("mimeType")}
+                for item in (event.get("attachments") or [])
+                if isinstance(item, dict) and isinstance(item.get("fileId"), str)
+            ],
             "conference_url": meeting[0] if meeting else None,
             "conference_name": meeting[1] if meeting else None,
             "conference_status": conference_status.get("statusCode") or None,

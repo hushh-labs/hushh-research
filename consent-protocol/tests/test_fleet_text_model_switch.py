@@ -53,15 +53,18 @@ def test_alias_resolves_to_the_switched_model(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_both_releases_share_the_flash_contract_and_have_a_vertex_location() -> None:
-    assert gemini_config.is_gemini_flash_v3("gemini-3.6-flash")
+    assert gemini_config.is_gemini_flash_v3("gemini-3.8-flash")
     assert gemini_config.is_gemini_37_flash("models/gemini-3.7-flash")
     assert gemini_config.is_gemini_flash_v3("gemini-3.7-flash")
-    assert not gemini_config.is_gemini_flash_v3("gemini-3.8-flash")
+    assert not gemini_config.is_gemini_flash_v3("gemini-3.6-flash")
     assert not gemini_config.is_gemini_flash_v3("gemini-embedding-001")
     assert not gemini_config.is_gemini_flash_v3("gemini-3.8-flash-live-preview")
-    for model in ("gemini-3.7-flash", "gemini-3.6-flash"):
+    for model, locations in (
+        ("gemini-3.8-flash", ("global",)),
+        ("gemini-3.7-flash", ("global", "us", "eu")),
+    ):
         entry = registry.resolve_model_entry("gemini", model)
-        assert entry.supported_vertex_locations == ("global", "us", "eu")
+        assert entry.supported_vertex_locations == locations
         assert entry.supports_prompt_caching is True
 
 
@@ -87,8 +90,8 @@ def test_vertex_readiness_probe_never_probes_the_alias(monkeypatch: pytest.Monke
 
 def test_registry_holds_exactly_the_last_two_gemini_releases() -> None:
     """Founder rule 2026-09-14: exactly two Gemini releases, never a third. Founder
-    decision 2026-09-25 chose 3.7 Flash (default) and 3.6 Flash by measured chat latency
-    and retired 3.8 Flash. The embedding model is retrieval, not generation, and stays
+    decision 2026-10-15 advances the supported pair to 3.8 Flash and 3.7 Flash
+    after bounded runtime and quality checks. The embedding model is retrieval, not generation, and stays
     beside them."""
     gemini_rows = [entry for entry in registry._MODELS if entry.provider == "gemini"]
     assert gemini_rows[0].aliases == ("gemini-default", "default")
@@ -96,13 +99,13 @@ def test_registry_holds_exactly_the_last_two_gemini_releases() -> None:
     generation_ids = [
         entry.model for entry in gemini_rows[1:] if not entry.supports_native_realtime
     ]
-    assert generation_ids == ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-embedding-001"]
-    # Founder decision 2026-09-27: 3.7 timed out in chat; One offers 3.6 only, no picker.
-    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.6-flash",)
-    assert FLEET_TEXT_MODEL_DEFAULT == "gemini-3.6-flash"
+    assert generation_ids == ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-embedding-001"]
+    # Owner decision 2026-10-15: One offers 3.8 only, preserving no picker.
+    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.8-flash",)
+    assert FLEET_TEXT_MODEL_DEFAULT == "gemini-3.8-flash"
     assert set(model_catalog._LABELS) == set(model_catalog.FLEET_TEXT_MODEL_CHOICES)
     assert FLEET_TEXT_MODEL_DEFAULT in model_catalog.FLEET_TEXT_MODEL_CHOICES
-    for retired in ("gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"):
+    for retired in ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"):
         assert not model_catalog.is_selectable_text_model(retired)
         assert (registry.normalize_provider("gemini"), retired) not in registry._MODEL_BY_KEY
 

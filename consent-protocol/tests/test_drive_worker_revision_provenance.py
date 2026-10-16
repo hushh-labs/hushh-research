@@ -48,13 +48,14 @@ def _deployed_revision() -> dict:
     }
 
 
-def _verify(revision: dict) -> None:
+def _verify(revision: dict, *, drain_enabled: str | None = None) -> None:
     MODULE.verify_revision(
         revision,
         deploy_sha=DEPLOY_SHA,
         app_image=APP_IMAGE,
         scanner_index_digest=SCANNER_INDEX_DIGEST,
         scanner_amd64_digest=SCANNER_AMD64_DIGEST,
+        drain_enabled=drain_enabled,
     )
 
 
@@ -66,6 +67,20 @@ def test_accepts_pinned_index_when_cloud_run_does_not_resolve_it() -> None:
     revision = _deployed_revision()
     revision["spec"]["containers"][1]["image"] = f"clamav/clamav@{SCANNER_INDEX_DIGEST}"
     _verify(revision)
+
+
+@pytest.mark.parametrize("actual", ["false", "true", None])
+def test_paused_release_requires_disabled_worker_in_fresh_revision(actual: str | None) -> None:
+    revision = _deployed_revision()
+    if actual is not None:
+        revision["spec"]["containers"][0]["env"] = [
+            {"name": "DRIVE_WORK_DRAIN_ENABLED", "value": actual}
+        ]
+    if actual == "false":
+        _verify(revision, drain_enabled="false")
+    else:
+        with pytest.raises(ValueError, match="background processing state mismatch"):
+            _verify(revision, drain_enabled="false")
 
 
 @pytest.mark.parametrize(

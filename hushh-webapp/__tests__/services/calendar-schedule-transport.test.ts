@@ -275,3 +275,11 @@ describe("connected Calendar transport authority", () => {
   });
 
 });
+
+it("meeting context uses Firebase plus separate vault authority and no-store", async () => {
+  const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
+  const { ApiService } = await import("@/lib/services/api-service");
+  const read = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(Response.json({ sources: [] }));
+  await CalendarInsightsService.read("meetings/context", { calendar_id: "primary", event_id: "provider-event", expected_account_email: "owner@example.test" }, "identity", undefined, "owner-capability");
+  expect(read).toHaveBeenCalledWith("/api/one/calendar/meetings/context", expect.objectContaining({ cache: "no-store", headers: { Authorization: "Bearer identity", "X-Hushh-Consent": "Bearer owner-capability", "Content-Type": "application/json" } }));
+});
