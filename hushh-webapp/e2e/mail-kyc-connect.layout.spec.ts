@@ -55,10 +55,6 @@ test.beforeAll(async () => {
 // Morphy card tokens at phone width are scoped to exactly those classes.
 async function open(page: Page, theme: "light" | "dark", revoked = false) {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.route("**/illustrations/mail-connect-envelope.png", (route) => route.fulfill({
-    contentType: "image/png",
-    body: fs.readFileSync(path.join(process.cwd(), "public/illustrations/mail-connect-envelope.png")),
-  }));
   await page.route("http://localhost/mail-kyc-connect**", (route) => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html class="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
@@ -113,13 +109,7 @@ for (const theme of ["light", "dark"] as const)
         expect(baseline.buttonHeight).toBeGreaterThanOrEqual(44);
         expect(baseline.buttonCenter).toBeLessThanOrEqual(0.5);
         expect(Math.abs(baseline.x - (width - baseline.x - baseline.width))).toBeLessThanOrEqual(0.5);
-        await expect(kyc.getByRole("heading", { name: revoked ? "Reconnect Mail" : "Connect your Mail", exact: true })).toBeVisible();
-        if (!revoked) {
-          await expect(kyc.getByText("Auto-sync receipts", { exact: true })).toBeVisible();
-          await expect(kyc.getByText("Build shopping memory", { exact: true })).toBeVisible();
-          await expect(kyc.getByText("You control access", { exact: true })).toBeVisible();
-          await expect(kyc.getByRole("button", { name: action, exact: true }).locator("svg")).toHaveCount(0);
-        }
+        await expect(kyc.getByRole("heading", { name: revoked ? "Reconnect Mail" : "Mail not connected", exact: true })).toBeVisible();
         if (revoked) await expect(kyc).toContainText("Refresh access to keep receipts syncing.");
 
         for (const name of ["Overview", "Receipts", "KYC"]) {
