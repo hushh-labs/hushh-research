@@ -1,3 +1,5 @@
+import { bumpPkmInvalidationEpoch } from "../../lib/cache/pkm-invalidation-epoch";
+import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
 // Inert boundaries for the Wallet layout fixture. Synthetic test cards only
 // (network test numbers such as 4242 4242 4242 4242); nothing here is a real
 // card, and nothing leaves the page. The scenario is read from
@@ -109,6 +111,7 @@ export class WalletService {
   static async deleteCard({ cardId }: { cardId: string }) {
     record(`delete:${cardId}`);
     store = cards().filter((card) => card.cardId !== cardId);
+    bumpPkmInvalidationEpoch("fixture-owner", "wallet");
   }
   static async addCard({ card }: { card: {
     nickname: string; brand?: string; pan: string; cardholderName: string;
@@ -126,6 +129,7 @@ export class WalletService {
       createdAt: "2026-10-09T00:00:00.000Z",
     };
     cards().push(saved);
+    bumpPkmInvalidationEpoch("fixture-owner", "wallet");
     return { cardId: saved.cardId, summary: summaryOf(saved), cardholderName: saved.cardholderName };
   }
   static matchesQuery(card: { nickname: string; brand: string; last4: string; issuingRegion: string }, query: string) {
@@ -198,7 +202,7 @@ export const useSearchParams = () => { React.useSyncExternalStore(callback => { 
 const user = { uid: "fixture-owner", displayName: "Alex Rivera", metadata: { creationTime: "2026-01-01T00:00:00Z" }, getIdToken: async () => "fixture-token" };
 export const useEffectiveAvatarUrl = () => null;
 export const useReferralStream = () => ({ connected: true });
-export const useAuth = () => ({ user, loading: false });
+export const useAuth = () => { publishValidatedAuthSessionOwner(user.uid); return { user, loading: false }; };
 export const useVault = () => ({
   vaultKey: scenario().locked ? null : "fixture-vault-key",
   isVaultUnlocked: !scenario().locked,

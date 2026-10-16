@@ -60,6 +60,15 @@ describe("validateCardForRegion", () => {
     expect(result.last4).toBe("1111");
   });
 
+  it("validates optional manual codes without accepting legacy or malformed input", () => {
+    for (const securityCode of [undefined, "", "007", "0123"]) {
+      expect(validateCardForRegion({ ...base, securityCode }).valid).toBe(true);
+    }
+    for (const securityCode of ["12", "12345", "1a3", " 123", 123, null]) {
+      expect(validateCardForRegion({ ...base, securityCode } as never).errors).toContain("security_code_invalid");
+    }
+  });
+
   it("requires the name without collecting security codes", () => {
     const minimal = { ...base, issuingRegion: undefined, pin: undefined };
     expect(validateCardForRegion(minimal).valid).toBe(true);
