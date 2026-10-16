@@ -508,7 +508,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     backend_build = managed_vertex_probe_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
-    assert load_profile("uat")["text_locations"] == ["global", "us", "eu"]
+    assert load_profile("uat")["text_locations"] == ["global"]
     assert "_MANAGED_AI_CONFIG_HASH" in backend_build
     assert 'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]' in backend_build
     assert '"config_hash": managed_ai_settings().config_hash' in _read(
@@ -979,9 +979,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
 def test_managed_vertex_targets_follow_environment_profiles() -> None:
     backend_build = managed_vertex_probe_surface()
     assert {env: load_profile(env)["project"] for env in ("dev", "uat", "production")} == {
-        "dev": "hushh-pda-uat",
-        "uat": "hushh-vertex-personal54",
-        "production": "hushh-vertex-personal54",
+        "dev": "hushh-gemini-bridge",
+        "uat": "hushh-gemini-bridge",
+        "production": "hushh-gemini-bridge",
     }
     for env in ("dev", "uat", "production"):
         assert f"scripts/ops/managed_ai_config.py --environment {env}" in _read(
@@ -1014,9 +1014,13 @@ def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
     backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
     for env in ("dev", "uat", "production"):
-        assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in _read(
-            f".github/workflows/deploy-{env}.yml"
-        )
+        workflow = _read(f".github/workflows/deploy-{env}.yml")
+        assert "_HUSHH_ONE_VOICE_VERTEX_PROJECT=" not in workflow
+        if env == "uat":
+            assert "verify_managed_vertex_runtime=true" in workflow
+            assert "_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in workflow
+        else:
+            assert "_VERIFY_MANAGED_VERTEX_RUNTIME=true" in workflow
     assert 'EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}"' in backend_build
     assert 'EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}"' in backend_build
     assert 'EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}"' in backend_build

@@ -2440,7 +2440,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.calendar",
-          "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail.",
+          "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
           "screen": "calendar",
           "entry_cue": "Connect Calendar when you want schedule help from One.",
           "proactivity": "ambient",
@@ -2457,7 +2457,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles.",
+          "completion_boundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles. In Insights, Back unwinds meeting detail to the filtered library, then the overview, before the route parent. Recording and notes content requires independent live provider authorization.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -10877,5 +10877,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ccee543159b0809e8036fb3995b1ea5453b6e1c569032a2a8bbe106d337e1411"
+  "content_sha256": "11269de485c0c4c73970b01190b4e95c653c412cca9ab6bb1e192f141773b033"
 }

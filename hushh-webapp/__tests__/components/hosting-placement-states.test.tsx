@@ -117,13 +117,17 @@ describe("cloud step placement states", () => {
         stages: [{ stage: "consent_pending", provider: "azure", project: "" }],
       },
     );
-    vi.mocked(ApiService.selectSharedHosting).mockResolvedValue({
-      hostingMode: "shared", nextStep: "",
+    vi.mocked(ApiService.selectSharedHosting).mockImplementation(async () => {
+      given({ hostingMode: "shared", state: "none" });
+      return { hostingMode: "shared", nextStep: "" };
     });
     render(<ByocCloudSetupPage />);
+    await screen.findByTestId("hosting-consent-pending");
+    expect(screen.queryByRole("region", { name: "AI access" })).toBeNull();
     fireEvent.click(await screen.findByTestId("hosting-consent-choose-shared"));
     await waitFor(() => expect(ApiService.selectSharedHosting).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole("region", { name: "AI access" })).toBeInTheDocument();
+    expect(screen.queryByTestId("hosting-consent-pending")).toBeNull();
   });
 
   it("shows Connecting to your agent while a recorded home attaches", async () => {

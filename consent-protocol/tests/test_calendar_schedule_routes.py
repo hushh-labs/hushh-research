@@ -308,3 +308,50 @@ def test_full_day_contract_defaults_and_rejects_stale_office_window():
     assert (booking["start_time"], booking["end_time"]) == ("09:00", "17:00")
     with pytest.raises(ValidationError):
         calendar_workspace.CalendarAvailabilityWindow(**_WINDOW)
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("insights", _TODAY),
+        ("meetings", _TODAY),
+        (
+            "meetings/detail",
+            {
+                "calendar_id": "primary",
+                "event_id": "event",
+                "expected_account_email": "owner@example.test",
+            },
+        ),
+        (
+            "meetings/context",
+            {
+                "calendar_id": "primary",
+                "event_id": "event",
+                "expected_account_email": "owner@example.test",
+            },
+        ),
+    ],
+)
+def test_insights_and_artifacts_require_identity(path, payload):
+    assert TestClient(_app()).post("/api/one/calendar/" + path, json=payload).status_code == 401
+
+
+def test_meeting_context_rejects_different_vault_owner(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    artifacts = AsyncMock()
+    monkeypatch.setattr(calendar_workspace, "_artifacts", lambda: artifacts)
+    app = _app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "owner"
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "other"}
+    response = TestClient(app).post(
+        "/api/one/calendar/meetings/context",
+        json={
+            "calendar_id": "primary",
+            "event_id": "event",
+            "expected_account_email": "owner@example.test",
+        },
+    )
+    assert response.status_code == 403
+    artifacts.detail.assert_not_called()

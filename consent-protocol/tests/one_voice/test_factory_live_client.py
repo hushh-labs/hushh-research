@@ -116,7 +116,7 @@ def test_hosted_environment_cannot_select_developer_key_for_live(monkeypatch, fa
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
     assert fake_genai_client[0]["vertexai"] is True
-    assert fake_genai_client[0]["project"] == "hushh-vertex-personal54"
+    assert fake_genai_client[0]["project"] == "hushh-gemini-bridge"
     assert "api_key" not in fake_genai_client[0]
 
 
