@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  pickedPreferredName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
   type ChatOnboardingResult,
@@ -199,6 +200,29 @@ describe("answers are saved only on confirmation", () => {
     expect(failed.state.step).toBe("save_failed");
     expect(failed.state.progress.status).toBe("in_progress");
     expect(chip(failed.state, "retry_save").effects[0]?.type).toBe("save_preferences");
+  });
+
+  it("offers the picked name for display from the pick until it is saved, declined or fails", () => {
+    const named = chip(start().state, "name_signin").state;
+    expect(pickedPreferredName(start().state)).toBeNull();
+    expect(pickedPreferredName(named)).toBe("Kushal");
+    const toned = chip(named, "focus_email").state;
+    expect(pickedPreferredName(toned)).toBe("Kushal");
+    const confirm = chip(toned, "tone_casual").state;
+    expect(pickedPreferredName(confirm)).toBe("Kushal");
+
+    const saving = chip(confirm, "save").state;
+    expect(pickedPreferredName(saving)).toBe("Kushal");
+    const failed = run(saving, { type: "save_result", ok: false, anchor: null, today: TODAY }).state;
+    expect(pickedPreferredName(failed)).toBeNull();
+    expect(pickedPreferredName(run(saving, { type: "save_result", ok: true, anchor: null, today: TODAY }).state)).toBeNull();
+    expect(pickedPreferredName(chip(confirm, "dont_save").state)).toBeNull();
+
+    // A typed name is saved before it is shown, so it surfaces from memory, never as a draft.
+    const typing = chip(start().state, "name_other").state;
+    const typed = run(typing, { type: "name_assessment", decision: "name", name: "Love", anchor: null, today: TODAY }).state;
+    expect(typed.draft.name).toBe("Love");
+    expect(pickedPreferredName(typed)).toBeNull();
   });
 });
 
