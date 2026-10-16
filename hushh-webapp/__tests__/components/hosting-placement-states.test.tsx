@@ -117,8 +117,9 @@ describe("cloud step placement states", () => {
         stages: [{ stage: "consent_pending", provider: "azure", project: "" }],
       },
     );
-    vi.mocked(ApiService.selectSharedHosting).mockResolvedValue({
-      hostingMode: "shared", nextStep: "",
+    vi.mocked(ApiService.selectSharedHosting).mockImplementation(async () => {
+      given({ hostingMode: "shared", state: "none" });
+      return { hostingMode: "shared", nextStep: "" };
     });
     render(<ByocCloudSetupPage />);
     fireEvent.click(await screen.findByTestId("hosting-consent-choose-shared"));
