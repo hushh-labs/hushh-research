@@ -24660,7 +24660,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2439
+      "value": 2440
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -49184,6 +49184,19 @@
     "incoming_main": "b2e22e286b08a7fb25f2b70f8a4bbf52f6b3455b",
     "retained_parent": "a82db09139",
     "review": "Independent ci_registry_review qualifies exactly 52 inherited Drive measurements. Sixteen files equal incoming bytes; remaining spans preserve owner-placement guards and existing shared-owner test fixtures. Payment migration assertions move intact to their existing 267-line migration owner, leaving payment tests below incoming size. Preserve all unrelated entries, duplicate-key multiplicities, module500/class250/function80 budgets, scanner and future-growth enforcement. Source qualification is not deployed acceptance."
+  },
+  "scope_commerce_exact_ui_reconciliation_20261015": {
+    "findings": [
+      {
+        "after": 2440,
+        "before": 2439,
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "review": "Existing probe retains full material equality; original Connectors Back/focus assertions supersede incoming modal dismissal. Net one explanatory line; no new test or duplicated fixture. Exact retained-debt observation only; scanner and500/250/80budgets unchanged.",
+        "source_sha256": "362721f9003caf06aa889ee7217df3a19ae98a8d2090620818878b0c40acf626"
+      }
+    ],
+    "reviewer": "main_frontend_reconciliation",
+    "source_revision": "fac77d0506d184bcc20c3011e0cc94b74cdb21d7"
   },
   "scope_commerce_files_canonical_settings_20261013": {
     "changes": [

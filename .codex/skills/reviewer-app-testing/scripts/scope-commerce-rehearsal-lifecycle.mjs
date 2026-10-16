@@ -50,7 +50,7 @@ async function approveOwnerTerms(runtime, record) {
   const state = await requestState(runtime, record, record.seller);
   if (!state.purchase) {
     const pathname = `/api/scope-commerce/requests/${record.requestId}/approve`;
-    seller.admission.replace({ type: "approval", pathname, expected: {} });
+    seller.admission.replace({ type: "approval", pathname, expected: { modelProcessingAllowed: false } });
     // The canonical Consent Center may mark this one reviewed request opened.
     seller.admission.replace({ type: "opened", pathname: "/api/consent/pending/opened", expected: {
       requestId: record.requestId, bundleId: record.bundleId, userId: runtime.identities[record.seller].reviewerUid,

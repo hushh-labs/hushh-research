@@ -4229,6 +4229,11 @@ mobile grabber; focus returns after its trap releases. Profile's WebKit fallback
 now matches the scoped side-pane policy. Existing geometry, material equality,
 owner-retirement and content-sizing negative controls remain enforced. The
 combined follow-up still requires exact-source core and hosted CI before Dev.
+The existing reviewer approval admission now requires the exact boolean model
+permission, bound to false for the four financial cases. Its nearest guard test
+passes both explicit choices and rejects permission changes, coercion and extra
+fields; the prior wire contract fails that regression. This authorizes no new
+recipient model use or automatic financial actions.
 
 At `2026-10-15T23:43:14Z`, both consumer accounts have enabled payouts, active
 transfers, manual schedules and ready USD bank details, with no outstanding
