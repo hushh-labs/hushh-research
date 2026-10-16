@@ -7,6 +7,18 @@ import type { DirectoryPerson } from "@/lib/services/connections-service";
 
 const person: DirectoryPerson = { userId: "test-person", displayName: "Test Person", photoUrl: null, email: null, maskedEmail: "t***@example.com", relationship: "none" };
 describe("directory card", () => {
+  it("shows the masked phone alongside email without exposing a full phone or legacy last four", () => {
+    const props = { title: person.displayName, leading: <span>TP</span>, trailing: <button>Connect</button> };
+    const view = render(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "91********10" }} />);
+    expect(screen.getByText("t***@example.com")).toBeVisible();
+    expect(screen.getByTestId("directory-person-masked-phone")).toHaveTextContent("91********10");
+    view.rerender(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "********3210" }} />);
+    expect(screen.getByTestId("directory-person-masked-phone")).toHaveTextContent("**********10");
+    expect(view.container.textContent).not.toContain("3210");
+    view.rerender(<DirectoryPersonCard {...props} person={{ ...person, maskedPhone: "919876543210" }} />);
+    expect(screen.queryByTestId("directory-person-masked-phone")).toBeNull();
+    expect(view.container.textContent).not.toContain("919876543210");
+  });
   it("keeps profile and connection actions separate and renders existing contact details", () => {
     const profile = vi.fn();
     const connect = vi.fn();

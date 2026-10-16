@@ -11,7 +11,7 @@ import {
 
 /** Production Connect page against synthetic identity/network boundaries. */
 
-const WIDTHS = [320, 375, 393, 430, 768, 1440] as const;
+const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
 
 const STUBBED = [
   "next/navigation",
@@ -70,9 +70,11 @@ test.beforeAll(async () => {
     },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
+      "process.env.NEXT_PUBLIC_APP_URL": JSON.stringify("https://one.example"),
       "process.env": "{}",
     },
     build: {
+      copyPublicDir: false,
       outDir,
       emptyOutDir: false,
       lib: {
@@ -131,7 +133,7 @@ async function open(
   await page.route(url, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html class="${dark ? "dark" : ""}" data-connections-ms="${timings.connectionsMs}" data-circles-ms="${timings.circlesMs}" data-directory-ms="${timings.directoryMs}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html class="${dark ? "dark" : ""}" data-connections-ms="${timings.connectionsMs}" data-circles-ms="${timings.circlesMs}" data-directory-ms="${timings.directoryMs}"><head><title>Connect layout fixture</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.goto(url);
@@ -196,6 +198,7 @@ for (const dark of [false, true]) {
       const cards = page.getByTestId("directory-person-card");
       await expect(cards).toHaveCount(3);
       await expect(cards.first()).toContainText("p***0@example.com");
+      await expect(cards.first().getByTestId("directory-person-masked-phone")).toHaveText("91********10");
       await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
       await expect(cards.first()).toContainText("2 mutual connections");
       const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
@@ -221,7 +224,7 @@ for (const dark of [false, true]) {
       }));
       expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
       if (width >= 768) expect(new Set(geometry.map((r) => r.top)).size).toBe(1);
-      else if (width >= 360) expect(geometry[0].top).toBe(geometry[1].top);
+      else if (width >= 640) expect(geometry[0].top).toBe(geometry[1].top);
       else expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
       await page.getByRole("button", { name: /Remove connection with Alex Chen/ }).click();
       const dialog = page.getByRole("alertdialog");
@@ -265,5 +268,96 @@ for (const width of [320, 1440]) {
     expect(fit).toBe(true);
     await expect(row.getByRole("button", { name: /^Message / })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  });
+}
+
+for (const width of [320, 393, 1440]) {
+  test(`stacks an empty search and keeps its invite above bottom chrome at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.emptyDirectoryOnQuery = "1";
+      document.documentElement.dataset.bottomChrome = "1";
+    });
+    await settle(page, width);
+    await expect(page).toHaveURL("http://localhost/connect-page-grid");
+    await expect(page).toHaveTitle("Connect layout fixture");
+    await expect(page.locator("nextjs-portal, vite-error-overlay")).toHaveCount(0);
+
+    const query = "avery.with.a.very.long.identity@international-research.example.com";
+    const search = page.getByRole("textbox", { name: "Search people" });
+    await search.fill(query);
+    await search.press("Enter");
+    const group = page.getByTestId("connect-directory-group");
+    const empty = group.getByTestId("settings-row").filter({ hasText: `No one matches "${query}"` });
+    const invite = group.getByTestId("connect-invite-to-one");
+    await expect(empty).toHaveCount(1);
+    await expect(invite).toBeVisible();
+    await expect(group.getByTestId("directory-person-card")).toHaveCount(0);
+    const emptyBox = await empty.boundingBox();
+    const inviteBox = await invite.boundingBox();
+    const groupBox = await group.boundingBox();
+    expect(emptyBox).not.toBeNull();
+    expect(inviteBox).not.toBeNull();
+    expect(groupBox).not.toBeNull();
+    expect(inviteBox!.y).toBeGreaterThanOrEqual(emptyBox!.y + emptyBox!.height);
+    expect(Math.abs(emptyBox!.width - groupBox!.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(inviteBox!.width - groupBox!.width)).toBeLessThanOrEqual(2);
+    expect(await empty.locator('[data-slot="settings-row-title"]').evaluate(node => {
+      const style = getComputedStyle(node);
+      return node.scrollWidth <= node.clientWidth + 1 && style.overflowWrap === "anywhere";
+    })).toBe(true);
+
+    await page.locator("[data-app-scroll-root]").evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await expect.poll(async () => {
+      const last = await invite.boundingBox();
+      const chrome = await page.locator("[data-fixture-bottom-shell]").boundingBox();
+      return Boolean(last && chrome && last.y + last.height <= chrome.y);
+    }).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    const shotDir = process.env.CONNECT_GRID_SHOT_DIR;
+    if (shotDir && width === 393) {
+      fs.mkdirSync(shotDir, { recursive: true });
+      await page.screenshot({ path: path.join(shotDir, `connect-393-empty-search-${testInfo.project.name}.png`) });
+    }
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(search).toHaveValue("");
+    await expect(group.getByTestId("directory-person-card")).toHaveCount(3);
+    await expect(empty).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test(`wraps a long directory identity without squeezing phone cards at ${width}px`, async ({ page }, testInfo) => {
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.longDirectoryIdentity = "1";
+    });
+    const cards = page.getByTestId("directory-person-card");
+    await expect(cards).toHaveCount(3);
+    const first = cards.first();
+    await expect(first).toContainText("Avery Featherstonehaugh-Rajendran");
+    await expect(first).toContainText("a***@international-research-department.example.com");
+    await expect(first.getByTestId("directory-person-masked-phone")).toHaveText("91********10");
+    const groupBox = await page.getByTestId("connect-directory-group").boundingBox();
+    const cardBox = await first.boundingBox();
+    expect(groupBox).not.toBeNull();
+    expect(cardBox).not.toBeNull();
+    if (width < 640) expect(Math.abs(cardBox!.width - groupBox!.width)).toBeLessThanOrEqual(2);
+    expect(await first.evaluate(node => [...node.querySelectorAll<HTMLElement>("span, button")]
+      .every(child => child.scrollWidth <= child.clientWidth + 1))).toBe(true);
+    const add = first.getByRole("button", { name: "Connect", exact: true });
+    await expect(add).toBeEnabled();
+    const actionBox = await add.boundingBox();
+    expect(actionBox!.height).toBeGreaterThanOrEqual(44);
+    expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    const shotDir = process.env.CONNECT_GRID_SHOT_DIR;
+    if (shotDir && width === 393) {
+      fs.mkdirSync(shotDir, { recursive: true });
+      await first.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(shotDir, `connect-393-long-identity-${testInfo.project.name}.png`) });
+    }
   });
 }

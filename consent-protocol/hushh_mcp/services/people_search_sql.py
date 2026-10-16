@@ -36,6 +36,9 @@ beginnings lead, loose matches follow, so `ingh` still finds Singh.
 from __future__ import annotations
 
 import re
+import unicodedata
+
+import phonenumbers
 
 
 def normalize_directory_name(value: str) -> str:
@@ -55,17 +58,84 @@ def directory_name_rank(name: str, query: str) -> int | None:
     return None
 
 
-def _directory_phone_query(query: str) -> str | None:
+def mask_directory_phone(value: object) -> str | None:
+    """Expose only two leading and two trailing digits at the directory boundary."""
+    phone = str(value or "").strip()
+    if "*" in phone:
+        # A legacy last-four label cannot recover its leading digits. Omit it
+        # instead of forwarding a label that violates the directory contract.
+        return phone if re.fullmatch(r"[0-9]{2}\*+[0-9]{2}", phone) else None
+    digits = re.sub(r"[^0-9]", "", phone)
+    if len(digits) <= 4:
+        return "*" * len(digits) or None
+    return f"{digits[:2]}{'*' * (len(digits) - 4)}{digits[-2:]}"
+
+
+def _directory_phone_queries(query: str) -> tuple[str, ...]:
+    # Phone keyboards and copied contact cards can use fullwidth/Indic digits,
+    # non-ASCII dashes, and invisible direction markers. Normalize only the
+    # phone branch: names and email addresses keep their literal matching rules.
+    query = unicodedata.normalize("NFKC", query).translate(
+        str.maketrans(
+            "‐‑‒–—―−",
+            "-------",
+            "\u200b\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\ufeff",
+        )
+    )
+    query = "".join(
+        str(unicodedata.decimal(char)) if char.isdecimal() else char for char in query
+    ).strip()
     if not re.fullmatch(r"\+?[0-9\s().-]+", query):
-        return None
-    return re.sub(r"[^0-9]", "", query) or None
+        return ()
+    digits = re.sub(r"[^0-9]", "", query)
+    if not digits:
+        return ()
+    variants = [digits]
+    # 00 is an international dialing prefix, not part of the stored E.164
+    # number. Explicit international numbers also let libphonenumber remove
+    # an optional national trunk, e.g. +91 (0) 98765 43210, without a country guess.
+    international = query.startswith("+") or (digits.startswith("00") and len(digits) > 2)
+    if international:
+        candidate = f"+{digits[2:]}" if digits.startswith("00") else f"+{digits}"
+        if digits.startswith("00"):
+            variants.append(digits[2:])
+        # Preserve this alternative while the subscriber digits are still
+        # being typed, before a full-number parser can accept the number.
+        formatted = re.sub(r"[\s.-]", "", query)
+        if formatted.startswith("00"):
+            formatted = "+" + formatted[2:]
+        optional_trunk = re.fullmatch(r"\+([0-9]{1,3})\(0\)([0-9]*)", formatted)
+        if optional_trunk:
+            prefix, subscriber = optional_trunk.groups()
+            region = phonenumbers.region_code_for_country_code(int(prefix))
+            metadata = phonenumbers.PhoneMetadata.metadata_for_region(region)
+            if metadata and metadata.national_prefix == "0":
+                variants.append(prefix + subscriber)
+        try:
+            parsed = phonenumbers.parse(candidate, None)
+            if phonenumbers.is_possible_number(parsed):
+                variants.append(
+                    phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)[1:]
+                )
+        except phonenumbers.NumberParseException:
+            pass
+    # A national trunk zero can be absent from E.164. Keep both variants,
+    # including during typeahead; significant stored zeros remain searchable.
+    if (
+        not international
+        and digits.startswith("0")
+        and not digits.startswith("00")
+        and len(digits) > 1
+    ):
+        variants.append(digits[1:])
+    return tuple(dict.fromkeys(value for value in variants if value))
 
 
 def directory_contact_match_params(query: str, *, name_only: bool = False) -> dict[str, object]:
     """Literal contact fragments for SQL; name matching keeps its existing tiers."""
     query = query.strip().lower()
     escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-    digits = _directory_phone_query(query)
+    variants = () if name_only else _directory_phone_queries(query)
     return {
         "name_search": not query or bool(normalize_directory_name(query)),
         "email_contains": (
@@ -75,7 +145,8 @@ def directory_contact_match_params(query: str, *, name_only: bool = False) -> di
         ),
         # Match the entered digits anywhere so national numbers and partial
         # numbers work without guessing a country or assuming a fixed length.
-        "phone_contains": f"%{digits}%" if not name_only and digits else None,
+        "phone_contains": f"%{variants[0]}%" if variants else None,
+        "phone_alternates": [f"%{digits}%" for digits in variants[1:]],
     }
 
 
@@ -98,8 +169,10 @@ def directory_search_rank(
         return None
     if query and not any(char.isspace() for char in query) and query in (email or "").lower():
         return 4
-    digits = _directory_phone_query(query)
-    if phone_verified and digits and digits in re.sub(r"[^0-9]", "", phone_number or ""):
+    variants = _directory_phone_queries(query)
+    if phone_verified and any(
+        digits in re.sub(r"[^0-9]", "", phone_number or "") for digits in variants
+    ):
         return 4
     return None
 
